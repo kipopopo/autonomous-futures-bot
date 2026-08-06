@@ -23,6 +23,7 @@ class DatasetManifest(DomainModel):
     symbols: tuple[str, ...] = Field(min_length=1)
     primary_interval: Literal["5m"] = "5m"
     context_interval: Literal["15m"] = "15m"
+    dataset_interval: Literal["5m", "15m"] = "5m"
     time_start: datetime
     time_end: datetime
     source_files: tuple[DataFileManifest, ...] = Field(min_length=1)
@@ -81,11 +82,13 @@ def build_manifest(
     created_at: datetime,
     code_version: str,
     dependency_lock_hash: str,
+    dataset_interval: Literal["5m", "15m"] = "5m",
 ) -> DatasetManifest:
     ordered_files = tuple(sorted(source_files, key=lambda item: item.relative_path))
     provisional = DatasetManifest(
         symbols=tuple(sorted(symbols)),
         source_files=ordered_files,
+        dataset_interval=dataset_interval,
         time_start=time_start.astimezone(UTC),
         time_end=time_end.astimezone(UTC),
         created_at=created_at.astimezone(UTC),

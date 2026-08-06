@@ -1,3 +1,10 @@
+from .builder import (
+    CANONICAL_KLINE_COLUMNS,
+    INTERVAL_MS,
+    RAW_KLINE_COLUMNS,
+    build_kline_dataset,
+    read_kline_csv,
+)
 from .manifest import (
     DataFileManifest,
     DatasetManifest,
@@ -22,11 +29,15 @@ from .public_collector import (
 
 __all__ = [
     "CONTEXT_INTERVAL",
+    "CANONICAL_KLINE_COLUMNS",
+    "INTERVAL_MS",
     "PRIMARY_INTERVAL",
+    "RAW_KLINE_COLUMNS",
     "DataFileManifest",
     "DataQualityError",
     "DatasetManifest",
     "build_manifest",
+    "build_kline_dataset",
     "build_public_url",
     "canonicalize_bars",
     "describe_data_file",
@@ -34,6 +45,7 @@ __all__ = [
     "fully_closed_end_ms",
     "read_canonical_parquet",
     "read_manifest",
+    "read_kline_csv",
     "write_canonical_parquet",
     "write_manifest",
 ]
