@@ -1,0 +1,43 @@
+name: quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install the pinned Python
+        run: uv python install 3.14.7
+
+      - name: Sync the locked development environment
+        run: uv sync --locked --dev --no-install-project
+
+      - name: Run tests
+        run: uv run --locked pytest -q
+
+      - name: Run Ruff lint
+        run: uv run --locked ruff check src tests research
+
+      - name: Check Ruff formatting
+        run: uv run --locked ruff format --check src tests research
+
+      - name: Run strict type checking
+        run: uv run --locked mypy src
+
+      - name: Compile Python sources
+        run: uv run --locked python -m compileall -q src tests research

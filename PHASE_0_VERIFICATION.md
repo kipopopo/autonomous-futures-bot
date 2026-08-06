@@ -13,6 +13,10 @@
 - Monotonic automatic runtime risk transitions: `NORMAL -> THROTTLED -> HALTED -> EMERGENCY_FLAT`.
 - Guarded resume evidence model requiring reconciliation, incident resolution, fresh data, healthy risk, and operator approval.
 - Deterministic risk sizing slice covering risk budget, cost buffer, effective notional cap, and minimum-notional rejection.
+- Isolated `research`, `paper`, `demo`, and `live` environment boundaries with unique storage, database, event-stream, and credential namespaces.
+- `research` and `paper` authenticated-exchange prohibition in the domain contract.
+- ADR-0002 documenting the environment isolation decision.
+- `.github/workflows/quality.yml` running the locked test, lint, format, typing, and compile gates.
 - Pytest discovery expanded from `research/` to `research/` plus `tests/`, with `src/` and `research/` on the test path.
 
 ## TDD evidence
@@ -41,7 +45,7 @@ pytest tests/unit/test_risk_state.py -q
 
 ```text
 pytest -q
-18 passed in 2.55s
+22 passed
 
 ruff check src tests research
 All checks passed!
@@ -63,6 +67,9 @@ exit 0
 ```
 
 A repository secret-pattern scan found no credential-like patterns in the tracked development files.
+
+The GitHub Actions workflow mirrors these commands on every push to `main` and
+pull request. Its permissions are restricted to read-only repository contents.
 
 ## Not yet complete
 
