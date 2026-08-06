@@ -11,6 +11,7 @@ from autonomous_futures.data.backfill import (
     plan_kline_windows,
 )
 from autonomous_futures.data.parquet import DataQualityError
+from autonomous_futures.data.transport import PublicTransportError
 
 
 def test_planner_clamps_to_closed_end_and_splits_deterministic_windows() -> None:
@@ -120,6 +121,36 @@ def test_backfill_raises_after_bounded_transient_attempts() -> None:
             sleep=delays.append,
         )
     assert delays == [0.25, 0.5]
+
+
+def test_backfill_honors_classified_transport_retry_after() -> None:
+    delays: list[float] = []
+    failures = [
+        PublicTransportError(
+            "rate limited",
+            status_code=429,
+            retryable=True,
+            retry_after_seconds=3.5,
+        )
+    ]
+
+    def fetch_page(window) -> list[list[object]]:
+        if failures:
+            raise failures.pop(0)
+        return [[window.start_ms, "100"]]
+
+    result = backfill_klines(
+        fetch_page,
+        0,
+        300_000,
+        now_ms=600_000,
+        interval_ms=300_000,
+        retry_policy=RetryPolicy(max_attempts=2, base_delay_seconds=0.25),
+        sleep=delays.append,
+    )
+
+    assert result.attempt_count == 2
+    assert delays == [3.5]
 
 
 def test_merge_deduplicates_identical_rows_and_rejects_conflicts_or_gaps() -> None:

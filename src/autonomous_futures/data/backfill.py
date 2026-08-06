@@ -207,6 +207,21 @@ def backfill_klines(
                 retry_delays.append(delay)
                 sleep(delay)
                 continue
+            except Exception as exc:
+                if not getattr(exc, "retryable", False):
+                    raise
+                if attempt == policy.max_attempts:
+                    raise BackfillError(
+                        f"backfill page failed after {attempt} attempts: {window}"
+                    ) from exc
+                retry_after = getattr(exc, "retry_after_seconds", None)
+                if isinstance(retry_after, (int, float)):
+                    delay = min(policy.max_delay_seconds, float(retry_after))
+                else:
+                    delay = policy.delay_seconds(attempt)
+                retry_delays.append(delay)
+                sleep(delay)
+                continue
             pages.append(tuple(tuple(row) for row in page))
             break
 
