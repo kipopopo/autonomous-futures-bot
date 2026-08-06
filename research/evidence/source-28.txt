@@ -1,0 +1,369 @@
+##### Report GitHub Issue
+
+Content selection saved. Describe the issue below:
+
+![](/static/base/1.0.1/images/icons/smileybones-small.svg)
+![arXiv logo](/static/base/1.0.1/images/arxiv-logo-primary-light.svg)
+
+# Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting
+
+###### Abstract
+
+This paper investigates whether machine-learning forecasts of hourly BTC/USDT returns can be converted into economically meaningful trading performance after transaction costs. Using approximately 70,000 hourly observations from 2018–2026, XGBoost, LSTM, and iTransformer are evaluated in a 27-fold walk-forward protocol. All three models produce positive gross trading performance in selected configurations, but naive sign-based strategies fail once transaction costs of ten basis points are imposed. A cost-aware execution filter, which permits trades only when the forecast magnitude exceeds a transaction-cost-based threshold, sharply reduces turnover and restores profitability in selected configurations. The strongest long-only XGBoost strategy produces annualised returns above 65% with a Sharpe ratio above one. Additional tests show that technical indicators improve performance in selected cases, EGARCH-derived features do not provide uniformly robust gains, and XGBoost is descriptively stronger than the neural alternatives, although bootstrap evidence does not support formal statistical dominance. Loss-function and model-selection effects are secondary and statistically fragile. The results show that the main obstacle in hourly cryptocurrency trading is not only weak predictability, but also the way forecasts are converted into trades.
+
+###### keywords:
+
+## 1 Introduction
+
+Whether asset prices can be forecast, and whether such forecasts can survive the journey from a statistical model to a traded strategy, remains a central question in financial economics. The Efficient Market Hypothesis implies that publicly available information should already be reflected in prices, leaving little room for systematic abnormal profits (Fama, [1970](#bib.bib1 "Efficient capital markets: a review of theory and empirical work")). At the same time, empirical evidence on momentum, value premia, and related anomalies suggests that some predictable structure may exist, even if it is weak, unstable, and difficult to exploit in practice (Jegadeesh and Titman, [1993](#bib.bib2 "Returns to buying winners and selling losers: implications for stock market efficiency"); Asness et al., [2013](#bib.bib3 "Value and momentum everywhere")). Machine learning has renewed this debate by offering flexible tools for modelling nonlinear interactions in financial data, but better statistical forecasts do not automatically imply profitable trading strategies (Gu et al., [2020](#bib.bib4 "Empirical asset pricing via machine learning")).
+
+This distinction is especially important at short horizons. Hourly returns have a low signal-to-noise ratio, are affected by volatility clustering and regime shifts, and can make high-capacity models vulnerable to overfitting (Campbell et al., [1997](#bib.bib5 "The Econometrics of Financial Markets"); Bailey et al., [2017](#bib.bib6 "The probability of backtest overfitting")). Cryptocurrency markets provide a useful setting for examining these issues because they trade continuously, generate large volumes of high-frequency data, and experience repeated transitions between bull markets, crashes, and consolidation regimes. Bitcoin is particularly suitable for this purpose because it combines long data availability, high liquidity relative to other digital assets, and substantial volatility.
+
+The main empirical problem is that a predictable return is not the same as a profitable trade. Models are often selected using statistical criteria such as mean squared error, mean absolute error, directional accuracy, or rank correlation. These criteria may be informative about forecast quality, but they do not measure whether a position generated from the forecast earns money after transaction costs. This gap is material. A model that changes position frequently can lose money even when its gross signal is positive, because small expected gains are repeatedly consumed by spread crossing, fees, slippage, and other execution frictions. For this reason, the relevant question is not only whether hourly BTC/USDT returns are predictable, but whether the resulting forecasts can be converted into economically meaningful net-of-cost trading performance.
+
+This paper studies that question using approximately 70,000 hourly BTC/USDT observations and a 27-fold walk-forward protocol covering the 2018–2025 out-of-sample evaluation period. Three forecasting architectures are compared: XGBoost, Long Short-Term Memory networks, and iTransformer. These models represent three different approaches to the forecasting problem: tree-based tabular learning, recurrent sequence modelling, and attention-based multivariate sequence modelling. All models are evaluated under the same data, feature sets, walk-forward design, transaction-cost assumption, and trading rules.
+
+The main methodological feature of the paper is a cost-aware execution filter. The baseline trading rule maps the sign of the forecast into either a long-only or long-short position. The cost-aware version allows a position change only when the forecast magnitude exceeds a threshold proportional to the transaction cost generated by the trade. The threshold is governed by a parameter λ\lambda, which controls how selective the execution rule is. This mechanism directly targets the main weakness of short-horizon trading systems: excessive turnover caused by weak forecasts fluctuating around zero.
+
+The empirical analysis is organised around six tests. First, it examines whether naive sign-based machine-learning strategies remain profitable once proportional transaction costs are imposed. Second, it tests whether the cost-aware execution filter improves net returns and reduces turnover. Third, it evaluates whether enriching the predictor set with technical indicators and EGARCH-derived volatility features improves traded performance. Fourth, it compares the three model architectures under the same cost-aware trading protocol. Fifth, it examines whether the choice between MSE and MAE training losses materially affects results. Sixth, it tests whether the validation-set model-selection criterion changes realised out-of-sample performance.
+
+The main finding is that the forecasts contain some useful information, but this information becomes valuable only when the trading rule accounts for the cost of acting on it. Naive sign-based strategies generate positive gross performance in selected configurations, yet they collapse after transaction costs because they trade too frequently. The cost-aware filter reduces turnover by more than an order of magnitude and restores positive net performance in selected XGBoost configurations. In the strongest long-only specification, annualised return exceeds 65% and the Sharpe ratio is above unity. However, this result is not a simple claim that machine learning beats buy-and-hold: formal Sharpe-ratio comparisons against the passive benchmark do not reject after bootstrap adjustment, and fold-level diagnostics show that performance is uneven across market regimes.
+
+The remaining results are more qualified. XGBoost is descriptively the strongest architecture, outperforming LSTM and iTransformer in the main cost-aware long-only comparison, but paired circular block-bootstrap tests do not support a claim of statistically robust dominance after multiple-testing correction. Technical indicators improve performance in selected configurations, while EGARCH-derived features do not deliver a uniformly robust incremental gain. MSE performs better than MAE descriptively in the main XGBoost specification, but the difference is statistically fragile. Similarly, the model-selection criterion changes point estimates and strategy rankings, but no selector pair shows robust dominance. The results point to execution design as the main driver of economic performance. Feature enrichment, architecture, loss function, and selector choice matter, but their effects are smaller and less stable.
+
+The paper makes three contributions. First, it evaluates machine-learning forecasts directly through realised trading performance rather than treating the trading simulation as a secondary exercise after statistical forecast evaluation. Second, it introduces and tests a simple cost-aware execution rule that links trading decisions to forecast magnitude and transaction costs. Third, it provides a controlled comparison of XGBoost, LSTM, and iTransformer on hourly cryptocurrency data within a common walk-forward framework. The results suggest that the economic value of a forecast depends as much on execution discipline as on the forecasting model itself.
+
+The remainder of the paper is organised as follows. Section [2](#S2 "2 Related literature ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") reviews the related literature. Section [3](#S3 "3 Data and empirical design ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") describes the data and empirical design. Section [4](#S4 "4 Forecasting models, trading rules, and inference ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") presents the forecasting models, trading rules, performance metrics, and inference procedure. Section [5](#S5 "5 Empirical results ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") reports the empirical results. Section [6](#S6 "6 Robustness and diagnostics ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") presents robustness checks and diagnostics. Section [7](#S7 "7 Conclusion ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") concludes.
+
+## 2 Related literature
+
+### 2.1 Return predictability and financial machine learning
+
+The starting point for return forecasting is the tension between market efficiency and the empirical evidence on predictable structure in asset returns. The Efficient Market Hypothesis implies that publicly available information should already be embedded in prices, making systematic abnormal profits difficult to obtain (Fama, [1970](#bib.bib1 "Efficient capital markets: a review of theory and empirical work")). Yet the empirical literature has documented patterns such as momentum and value premia across asset classes, suggesting that predictability may exist even if it is weak, regime-dependent, and costly to exploit (Jegadeesh and Titman, [1993](#bib.bib2 "Returns to buying winners and selling losers: implications for stock market efficiency"); Asness et al., [2013](#bib.bib3 "Value and momentum everywhere")). At short horizons this tension becomes sharper: the predictable component of returns is small relative to noise, and any apparent signal can be unstable across market regimes (Campbell et al., [1997](#bib.bib5 "The Econometrics of Financial Markets"); Rapach and Zhou, [2013](#bib.bib9 "Forecasting stock returns")).
+
+Machine learning methods have become attractive in this setting because they relax the linearity and low-dimensionality assumptions of classical forecasting models. Tree ensembles, recurrent networks, and attention-based architectures can represent nonlinear interactions among predictors and may therefore detect weak structure that simpler models miss (Gu et al., [2020](#bib.bib4 "Empirical asset pricing via machine learning"); Liaras et al., [2024](#bib.bib21 "Machine learning in accounting and finance research: a literature review")). XGBoost is widely used in tabular financial prediction because it combines nonlinear tree-based learning with regularisation and variable selection through boosting (Chen and Guestrin, [2016](#bib.bib10 "XGBoost: a scalable tree boosting system")). Recurrent neural networks, especially Long Short-Term Memory models, are designed to capture sequential dependence through gated memory cells (Hochreiter and Schmidhuber, [1997](#bib.bib13 "Long short-term memory")). Transformer-based architectures extend this logic by using attention mechanisms to model complex dependencies, and iTransformer is particularly relevant for multivariate forecasting because it treats variables, rather than timestamps, as tokens (Liu et al., [2024](#bib.bib19 "iTransformer: inverted transformers are effective for time series forecasting")).
+
+The empirical evidence does not identify one architecture as universally dominant. Tree-based models often remain strong on medium-sized tabular datasets, while neural networks can be sensitive to sample size, frequency, loss function, and the stability of the data-generating process (Grinsztajn et al., [2022](#bib.bib12 "Why do tree-based models still outperform deep learning on typical tabular data?"); Grudniewicz and Ślepaczuk, [2023](#bib.bib11 "Application of machine learning in algorithmic investment strategies on global stock markets")). This motivates the architecture comparison in the present paper. XGBoost, LSTM, and iTransformer are evaluated under the same hourly BTC/USDT data, feature sets, walk-forward protocol, transaction-cost model, and trading rules, so that differences in realised performance can be attributed primarily to model design rather than to differences in experimental setup.
+
+### 2.2 Transaction costs and the prediction-to-trading gap
+
+A central lesson from quantitative finance is that statistical predictability does not automatically translate into trading profitability. A model may reduce forecast error while still generating a losing strategy if its signals are too small, too unstable, or too expensive to trade. This issue is familiar from portfolio allocation: DeMiguel et al. ([2009](#bib.bib8 "Optimal versus naive diversification: how inefficient is the 1/N portfolio strategy?")) show that sophisticated optimisation rules can underperform simple benchmarks out of sample once estimation error is taken into account. The same principle applies to short-horizon trading, where repeated position changes can convert a weak gross edge into a negative net return.
+
+This gap is especially important in cryptocurrency markets. Intraday crypto strategies often generate high turnover, and even modest proportional costs can erase apparent alpha when every signal is converted mechanically into a position change (Cohen, [2023](#bib.bib20 "Intraday algorithmic trading strategies for cryptocurrencies")). The relevant object is therefore not only forecast accuracy, but the realised return sequence after forecasts have passed through position rules, transaction costs, and execution constraints. A slightly less accurate model may be economically superior if its forecasts are more stable around the trading threshold or if it triggers fewer unnecessary trades.
+
+Recent financial machine learning work has begun to address this mismatch more directly. Direction-aware loss functions, such as Mean Absolute Directional Loss, modify the training objective to reward correct directional forecasts (Michańków et al., [2024b](#bib.bib16 "Mean absolute directional loss as a new loss function for machine learning problems in algorithmic investment strategies")). Extensions such as Generalised Mean Absolute Directional Loss incorporate additional penalties related to trading behaviour and turnover (Michańków et al., [2024a](#bib.bib17 "Generalized mean absolute directional loss as a solution to overfitting and high transaction costs in machine learning models used in high-frequency algorithmic investment strategies")). Other work improves the feature representation used by forecasting models, for example through supervised autoencoder-based feature extraction (Bieganowski and Ślepaczuk, [2025](#bib.bib18 "Supervised autoencoder MLP for financial time series forecasting")). These studies share a common implication: forecast-error minimisation alone is not enough when the final objective is economic performance.
+
+This paper follows the same trading-oriented principle, but addresses the prediction-to-trading gap through the execution rule rather than through a specialised loss function. The cost-aware filter allows position changes only when the forecast magnitude is large enough to justify the expected transaction cost. This makes the trading rule itself cost-sensitive and directly targets the turnover channel through which short-horizon strategies often fail.
+
+### 2.3 Walk-forward evaluation and statistical inference
+
+Reliable evaluation is particularly difficult in financial machine learning because high-frequency time series combine serial dependence, non-stationarity, and a high risk of overfitting. Random cross-validation is inappropriate in this setting because it breaks temporal order and can leak future information into the model development process (López de Prado, [2018](#bib.bib7 "Advances in Financial Machine Learning"); Bailey et al., [2017](#bib.bib6 "The probability of backtest overfitting")). Walk-forward evaluation is therefore better aligned with the trading problem: models are repeatedly trained on past data, selected on a subsequent validation window, and evaluated only on later test data.
+
+The walk-forward framework also matters economically. A single train/test split can make a strategy appear strong because it happens to match one favourable market regime. A rolling protocol exposes the model to multiple bull, bear, and consolidation periods, making it harder for results to depend entirely on one historical episode. This is particularly relevant for Bitcoin, whose sample path from 2018 to 2025 includes sharp drawdowns, rapid rallies, and prolonged sideways regimes.
+
+Statistical inference must also respect the dependence structure of trading returns. Standard tests designed for independent observations can understate uncertainty when returns are serially correlated or clustered. For this reason, the present paper uses paired circular block-bootstrap tests applied to realised return differentials, following the dependent-data resampling logic of Künsch ([1989](#bib.bib24 "The Jackknife and the Bootstrap for General Stationary Observations")) and Politis and Romano ([1992](#bib.bib25 "A Circular Block-Resampling Procedure for Stationary Data")). This choice aligns the statistical test with the economic object of interest: not raw forecast errors, but the difference between two traded return series after transaction costs.
+
+### 2.4 Positioning of this paper
+
+Table [1](#S2.T1 "Table 1 ‣ 2.4 Positioning of this paper ‣ 2 Related literature ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") positions the present paper relative to selected studies in financial machine learning and cryptocurrency trading. The comparison focuses on five dimensions: asset class, data frequency, model architectures, evaluation protocol, and treatment of transaction costs.
+
+Study
+Asset
+Freq.
+
+
+Models
+Eval.
+TC
+
+
+Gu et al. ([2020](#bib.bib4 "Empirical asset pricing via machine learning"))
+US equities
+Monthly
+
+
+Lasso, GBRT, RF, NN
+Expanding
+Post-hoc
+
+Alessandretti et al. ([2018](#bib.bib22 "Anticipating Cryptocurrency Prices Using Machine Learning"))
+Crypto basket
+Daily
+
+
+GB, RF, regression
+Single split
+Prop.
+
+Sebastião et al. ([2021](#bib.bib23 "Forecasting and trading cryptocurrencies with machine learning under changing market conditions"))
+BTC, ETH, LTC
+Daily
+
+
+RF, SVM, linear
+Single split
+Prop.
+
+Michańków et al. ([2022](#bib.bib14 "LSTM in algorithmic investment strategies on BTC and S&P500 index"))
+BTC, S&P 500
+Daily–15m
+
+
+LSTM
+WFO
+Prop.
+
+Kryńska et al. ([2023](#bib.bib15 "Daily and intraday application of various architectures of the LSTM model in algorithmic investment strategies on Bitcoin and the S&P 500 index"))
+BTC, S&P 500
+Daily–15m
+
+
+LSTM variants
+WFO
+Prop.
+
+Michańków et al. ([2024b](#bib.bib16 "Mean absolute directional loss as a new loss function for machine learning problems in algorithmic investment strategies"))
+BTC, Crude Oil
+Daily–1h
+
+
+LSTM with MADL
+WFO
+Prop.
+
+Michańków et al. ([2024a](#bib.bib17 "Generalized mean absolute directional loss as a solution to overfitting and high transaction costs in machine learning models used in high-frequency algorithmic investment strategies"))
+BTC, equities
+1h–15m
+
+
+LSTM, Transformer
+WFO
+Prop.
+
+Bieganowski et al. ([2025](#bib.bib18 "Supervised autoencoder MLP for financial time series forecasting"))
+S&P 500, EUR/USD, BTC/USD
+5–30m
+
+
+SAE–MLP
+WFO
+Prop.
+
+Cohen ([2023](#bib.bib20 "Intraday algorithmic trading strategies for cryptocurrencies"))
+BTC, ETH, BNB, ADA, XRP
+5–180m
+
+
+RSI, MACD, Keltner
+Single split
+Prop.
+
+Grudniewicz et al. ([2023](#bib.bib11 "Application of machine learning in algorithmic investment strategies on global stock markets"))
+Global equities
+Daily
+
+
+SVM, RF, NN, GLM
+Rolling/OOS
+None
+
+Kashif et al. ([2025](#bib.bib27 "LSTM-ARIMA as a hybrid approach in algorithmic investment strategies"))
+S&P 500, FTSE 100, CAC 40
+Daily
+
+
+LSTM–ARIMA
+WFO
+Prop.
+
+Stefaniuk et al. ([2026](#bib.bib28 "A neural network informer in algorithmic investment strategies on high-frequency bitcoin data"))
+BTC
+5–30m
+
+
+Informer with GMADL
+WFO
+Prop.
+
+Note: Freq. = frequency. Eval. = evaluation protocol. TC = transaction costs. RF = random forest. NN = neural network. GB = gradient boosting. SAE = supervised autoencoder. GLM = generalised linear model. Prop. = proportional transaction-cost model. WFO = walk-forward optimisation. “Post-hoc” means that transaction costs are considered after signal generation rather than embedded directly into the trading rule.
+
+The comparison highlights three gaps. First, studies that focus on cryptocurrency markets often use either neural-network variants or traditional machine learning models, but fewer provide a controlled comparison of tree-based, recurrent, and attention-based architectures under the same trading protocol. Second, although walk-forward evaluation is increasingly used, single train/test splits remain common. Third, transaction costs are often included proportionally, but they are less often linked directly to the execution rule that determines whether a forecast should be traded.
+
+This paper addresses these gaps by combining hourly BTC/USDT data, a 27-fold rolling walk-forward design, three architecture families, proportional transaction costs, and a cost-aware execution filter within a single evaluation framework. The contribution is therefore not only a comparison of forecasting models, but an assessment of whether their predictions remain economically useful once the cost of acting on them is built into the trading decision itself.
+
+## 3 Data and empirical design
+
+### 3.1 Data source and sample
+
+The empirical analysis uses hourly OHLCV data for the BTC/USDT USD-margined futures contract collected from Binance through its public REST API. Binance is used because it is one of the most liquid cryptocurrency venues and provides a sufficiently long and continuous price history for short-horizon walk-forward evaluation. The raw sample runs from 1 December 2017 to 1 January 2026. The first month is used as a burn-in period for rolling feature construction, so the effective modelling window begins on 1 January 2018.
+
+All timestamps are treated in Coordinated Universal Time (UTC), and each observation corresponds to a completed one-hour futures bar. The modelling pipeline uses only historical open, high, low, close, and volume fields available at the close of each bar. No proprietary vendor adjustments, sentiment variables, funding-rate variables, order-book variables, or future market information are added at the data-source stage.
+
+The sample is well suited to the research question for three reasons. First, Bitcoin is the most liquid and longest-lived cryptocurrency asset, reducing the risk that the results are driven by idiosyncratic microstructure noise in a thin market. Second, the hourly frequency provides more than 70,000 observations, which is sufficient for repeated walk-forward estimation while still avoiding the strongest bid–ask bounce and quote-flickering effects found at tick or minute frequency. Third, the 2018–2025 evaluation period contains multiple market regimes, including bear markets, rapid rallies, sharp crashes, and extended consolidation phases.
+
+### 3.2 Preprocessing and target variable
+
+A complete hourly index is reconstructed over the full sample. Missing hourly bars are filled by carrying forward the previous close and setting volume to zero, producing a flat synthetic bar at the missing timestamp. This preserves the regular hourly grid required by rolling technical indicators and sequence-based neural networks while avoiding interpolation methods that would create artificial price paths. The missing-data audit is reported in Appendix [A.1](#A1.SS1 "A.1 Missing timestamp audit ‣ Appendix A Data preprocessing details ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting"), Table [19](#A1.T19 "Table 19 ‣ A.1 Missing timestamp audit ‣ Appendix A Data preprocessing details ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting"). Since the number of missing hourly observations is small relative to the full sample, the resulting distortion is expected to be limited, although observations near gap timestamps may contain mechanically smoothed returns.
+
+The forecasting target is the one-step-ahead log return,
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | rt+1=ln⁡(Pt+1Pt),r\_{t+1}=\ln\left(\frac{P\_{t+1}}{P\_{t}}\right), |  | (1) |
+
+where PtP\_{t} denotes the BTC/USDT closing price at hour tt. The model receives information available up to and including time tt and produces a forecast of rt+1r\_{t+1}. This construction enforces strict temporal causality: no feature used to predict the next-hour return depends on information observed after the forecast time.
+
+After preprocessing, the dataset contains 70,872 hourly observations. The effective walk-forward evaluation sample, net of the December 2017 burn-in period, contains 70,128 observations.
+
+### 3.3 Descriptive statistics
+
+Table [2](#S3.T2 "Table 2 ‣ 3.3 Descriptive statistics ‣ 3 Data and empirical design ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") reports descriptive statistics for BTC/USDT prices and hourly log returns over the cleaned sample.
+
+| Statistic | Price (USD) | Hourly log return (%) |
+| --- | --- | --- |
+| Mean | 37,797.02 | 0.0025 |
+| Median | 27,646.18 | 0.0060 |
+| Standard deviation | 32,500.90 | 0.7278 |
+| Minimum | 3,172.05 | -20.10 |
+| Maximum | 126,011.18 | 16.03 |
+| Skewness | 0.9474 | -0.4981 |
+| Kurtosis | 2.7955 | 42.3227 |
+| Observations | 70,872 | 70,872 |
+
+Note: Returns are expressed in percentage terms. The sample runs from 1 December 2017 to 1 January 2026. December 2017 is used as a burn-in period for rolling feature construction; the effective walk-forward modelling window begins on 1 January 2018.
+
+The price series reflects the large boom–bust cycles that characterise Bitcoin over the sample period, ranging from approximately USD 3,172 to more than USD 126,000. Price-level statistics are reported for descriptive purposes only; the models are trained on returns rather than raw prices.
+
+Hourly log returns are centred close to zero but display substantial volatility and strong non-normality. The standard deviation of hourly returns is 0.7278%, corresponding to high annualised volatility. The return distribution is negatively skewed and extremely fat-tailed, with kurtosis above 42. The most extreme hourly observations, −20.10%-20.10\% and +16.03%+16.03\%, illustrate the importance of tail risk in cryptocurrency markets.
+
+Figure [1](#S3.F1 "Figure 1 ‣ 3.3 Descriptive statistics ‣ 3 Data and empirical design ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") compares the BTC/USDT price series with the corresponding hourly log-return series over the effective walk-forward evaluation window.
+
+![Refer to caption](2606.00060v1/btc_price_returns_subplot.png)
+
+Note: The left panel shows the Bitcoin closing price, while the right panel shows hourly log returns over the effective walk-forward evaluation period beginning on 1 January 2018.
+
+
+[... middle omitted — see footer ...]
+
+
+| Fold | Trades | Equity final | Cum. return | Profitable | Low-trade |
+| --- | --- | --- | --- | --- | --- |
+|  |  |  | (%) |  |  |
+| 1 | 20 | 2.4000 | 140.00 | Yes | No |
+| 2 | 31 | 1.0236 | 2.36 | Yes | No |
+| 3 | 3 | 0.9377 | -6.23 | No | Yes |
+| 4 | 35 | 1.1956 | 19.56 | Yes | No |
+| 5 | 5 | 1.3526 | 35.26 | Yes | Yes |
+| 6 | 1 | 1.1670 | 16.70 | Yes | Yes |
+| 7 | 9 | 2.4343 | 143.43 | Yes | Yes |
+| 8 | 39 | 1.8287 | 82.87 | Yes | No |
+| 9 | 23 | 0.6586 | -34.14 | No | No |
+| 10 | 1 | 1.1427 | 14.27 | Yes | Yes |
+| 11 | 5 | 0.9719 | -2.81 | No | Yes |
+| 12 | 5 | 0.8280 | -17.20 | No | Yes |
+| 13 | 28 | 0.9375 | -6.25 | No | No |
+| 14 | 11 | 0.9393 | -6.07 | No | Yes |
+| 15 | 3 | 0.9316 | -6.84 | No | Yes |
+| 16 | 4 | 1.5110 | 51.10 | Yes | Yes |
+| 17 | 1 | 1.0917 | 9.17 | Yes | Yes |
+| 18 | 2 | 0.9973 | -0.27 | No | Yes |
+| 19 | 1 | 1.0069 | 0.69 | Yes | Yes |
+| 20 | 1 | 1.5157 | 51.57 | Yes | Yes |
+| 21 | 5 | 0.8981 | -10.19 | No | Yes |
+| 22 | 26 | 1.0030 | 0.30 | Yes | No |
+| 23 | 1 | 1.0594 | 5.94 | Yes | Yes |
+| 24 | 1 | 0.9077 | -9.23 | No | Yes |
+| 25 | 1 | 1.3531 | 35.31 | Yes | Yes |
+| 26 | 1 | 1.0195 | 1.95 | Yes | Yes |
+| 27 | 1 | 0.7882 | -21.18 | No | Yes |
+
+Note: Equity final is the terminal equity value within each three-month test fold, starting from one. Cumulative return is computed as terminal equity minus one and expressed in percentage terms. Low-trade indicates fewer than 20 trades within the individual fold. The low-trade flag is diagnostic at the fold level; formal inference in the main paper is based on the full consolidated out-of-sample return series.
+
+The fold-level decomposition confirms the interpretation in Section [6.3](#S6.SS3 "6.3 Fold-level stability ‣ 6 Robustness and diagnostics ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting"). The flagship strategy is profitable in 16 of 27 folds, but the distribution of returns is uneven. Several profitable folds generate very large annualised ARC values because they compound strongly over a short three-month window, while many other folds contain very few trades. The result is therefore best interpreted as evidence of positive aggregate cost-aware performance with substantial regime dependence, not as evidence of stable profitability in every quarter.
+
+## Appendix E Validation loss diagnostic
+
+This appendix reports an additional diagnostic on the relationship between validation loss and realised out-of-sample trading performance. The diagnostic is conducted for XGBoost with OHLCV+TA+EGARCH features, MSE loss, cost-aware execution with λ=2.0\lambda=2.0, and transaction costs of 10 basis points. The purpose is to assess whether lower validation loss is a reliable proxy for higher economic value after forecasts are converted into positions and transaction costs are applied.
+
+For each trading mode, the selected validation loss is paired with realised out-of-sample trading metrics across fold–selector observations. Spearman rank correlations are used because both validation losses and realised trading outcomes are noisy, non-Gaussian, and affected by extreme market episodes.
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | ρs=corrSpearman​(Lval,Mtest),\rho\_{s}=\mathrm{corr}\_{\mathrm{Spearman}}\left(L\_{\mathrm{val}},M\_{\mathrm{test}}\right), |  | (46) |
+
+where LvalL\_{\mathrm{val}} denotes the validation loss of the selected configuration and MtestM\_{\mathrm{test}} denotes the realised out-of-sample trading metric.
+
+Figure [11](#A5.F11 "Figure 11 ‣ Appendix E Validation loss diagnostic ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") visualises the relationship between selected validation loss and realised out-of-sample trading metrics.
+
+![Refer to caption](2606.00060v1/validation_loss_vs_trading_2x2.png)
+
+Note: The figure compares selected validation loss with realised out-of-sample trading metrics across fold–selector observations. Results are shown for XGBoost with OHLCV+TA+EGARCH features, MSE loss, cost-aware execution with λ=2.0\lambda=2.0, and transaction costs of 10 basis points. The diffuse point clouds illustrate that lower validation loss is not a reliable standalone proxy for stronger realised trading performance.
+
+Table [33](#A5.T33 "Table 33 ‣ Appendix E Validation loss diagnostic ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") reports the corresponding Spearman rank correlations.
+
+| Mode | Test metric | nn | Spearman ρs\rho\_{s} | pp-value |
+| --- | --- | --- | --- | --- |
+| LO | IR∗∗ | 81 | -0.169 | 0.132 |
+| LO | Sharpe | 81 | -0.172 | 0.124 |
+| LO | IR∗ | 81 | -0.190 | 0.090 |
+| LO | ARC | 81 | -0.162 | 0.148 |
+| LS | IR∗∗ | 81 | -0.183 | 0.102 |
+| LS | Sharpe | 81 | -0.155 | 0.167 |
+| LS | IR∗ | 81 | -0.172 | 0.124 |
+| LS | ARC | 81 | -0.154 | 0.171 |
+
+Note: LO = long-only; LS = long-short. The table reports Spearman rank correlations between selected validation loss and realised out-of-sample trading metrics across fold–selector observations. Each mode contains 81 observations, corresponding to 27 folds and three selector observations. Reported pp-values correspond to two-sided tests of H0:ρs=0H\_{0}:\rho\_{s}=0.
+
+A second diagnostic replaces the raw validation-loss value with the validation-loss rank within the corresponding Optuna search distribution. This transformation controls for fold-level differences in volatility and loss scale. The question is whether configurations closer to the best validation-loss trial within each fold also deliver stronger out-of-sample trading performance. Table [34](#A5.T34 "Table 34 ‣ Appendix E Validation loss diagnostic ‣ Machine Learning-Based Bitcoin Trading Under Transaction Costs: Evidence From Walk-Forward Forecasting") reports the corresponding rank-based correlations.
+
+| Mode | Test metric | nn | Spearman ρs\rho\_{s} | pp-value |
+| --- | --- | --- | --- | --- |
+| LO | IR∗∗ | 81 | 0.066 | 0.558 |
+| LO | Sharpe | 81 | 0.076 | 0.503 |
+| LO | IR∗ | 81 | 0.083 | 0.460 |
+| LO | ARC | 81 | 0.050 | 0.658 |
+| LS | IR∗∗ | 81 | 0.017 | 0.883 |
+| LS | Sharpe | 81 | 0.025 | 0.827 |
+| LS | IR∗ | 81 | 0.023 | 0.838 |
+| LS | ARC | 81 | 0.040 | 0.726 |
+
+Note: LO = long-only; LS = long-short. Validation-loss rank is computed within each fold relative to the Optuna trial distribution, where lower ranks indicate lower validation loss. The table reports Spearman rank correlations between validation-loss rank and realised out-of-sample trading metrics. Reported pp-values correspond to two-sided tests of H0:ρs=0H\_{0}:\rho\_{s}=0.
+
+The diagnostic supports the interpretation that validation loss is a weak standalone proxy for realised trading value. In both trading modes, the correlations between selected validation loss and test-period IR∗∗, Sharpe ratio, IR∗, and ARC are small and statistically insignificant. The coefficients are directionally negative in the raw-loss diagnostic, as expected if lower validation loss were associated with stronger test performance, but the relationship is not strong enough to reject the null hypothesis of no monotonic association.
+
+The validation-loss-rank diagnostic leads to the same conclusion. Once the comparison is normalised within each fold relative to the Optuna trial distribution, the correlations become even closer to zero and remain statistically insignificant. Configurations ranked closer to the best validation-loss trial do not systematically deliver higher realised IR∗∗, Sharpe ratio, IR∗, or ARC on the held-out test periods.
+
+This finding reinforces the motivation for considering IC-based and trading-metric-based selectors in the empirical design. It does not imply that validation loss is useless: validation loss remains important for stabilising model training, early stopping, and avoiding pathological fits. However, it shows that loss minimisation alone is not sufficient as an economic selection criterion in this short-horizon BTC/USDT trading setting.
+
+## Data and code availability
+
+The hourly BTC/USDT dataset was collected from the Binance public REST API. The code used for data processing, model estimation, and strategy evaluation is available from the corresponding author upon request.
+
+## References
+
+![[LOGO]][IMAGE]
+
+## Instructions for reporting errors
+
+We are continuing to improve HTML versions of papers, and your feedback helps enhance accessibility and mobile
+support. To report errors in the HTML that will help us improve conversion and rendering, choose any of the
+methods listed below:
+
+**Tip:** You can select the relevant text first, to include it in your report.
+
+Our team has already identified [the following issues](https://github.com/arXiv/html_feedback/issues). We appreciate your time reviewing and reporting rendering errors we
+may not have found yet. Your efforts will help us improve the HTML versions for all readers, because disability
+should not be a barrier to accessing research. Thank you for your continued support in championing open access for
+all.
+
+Have a free development cycle? Help support accessibility at arXiv! Our collaborators at LaTeXML maintain a [list of packages that need conversion](https://github.com/brucemiller/LaTeXML/wiki/Porting-LaTeX-packages-for-LaTeXML), and welcome [developer contributions](https://github.com/brucemiller/LaTeXML/issues).
+
+![Simons Foundation](/static/base/1.0.1/images/funders/simons-foundation.png)
+![Simons Foundation International](/static/base/1.0.1/images/funders/simons-foundation-international.png)
+![Schmidt Sciences](/static/base/1.0.1/images/funders/schmidt-sciences.png)
+
+──────── [TRUNCATED] ────────
+Showing 28,739 chars (head) + 9,655 chars (tail) of 168,207 total clean characters.
+Full text saved to: C:\Users\thaqi\AppData\Local\hermes\cache\web\arxiv.org-19a03dff9c.md
+To read the omitted middle: read_file path="C:\Users\thaqi\AppData\Local\hermes\cache\web\arxiv.org-19a03dff9c.md" offset=245 limit=200  (the file is the complete page; raise/lower offset to page through it).
+─────────────────────────────

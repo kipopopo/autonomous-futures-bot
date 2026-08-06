@@ -1,0 +1,334 @@
+# Explainable Patterns in Cryptocurrency Microstructure
+
+###### Abstract
+
+We document stable cross-asset patterns in cryptocurrency limit-order-book microstructure: the same engineered order book and trade features exhibit remarkably similar predictive importance and SHAP dependence shapes across assets spanning an order of magnitude in market capitalization (BTC, LTC, ETC, ENJ, ROSE). The data covers Binance Futures perpetual contract order books and trades on 1-second frequency starting from January 1st, 2022 up to October 12th, 2025. Using a unified CatBoost modeling pipeline with a direction-aware GMADL objective and time-series cross validation, we show that feature rankings and partial effects are stable across assets despite heterogeneous liquidity and volatility. We connect these SHAP structures to microstructure theory (order flow imbalance, spread, and adverse selection) and validate tradability via a conservative top-of-book taker backtest as well as fixed depth maker backtest. Our primary novelty is a robustness analysis of a major flash crash, where the divergent performance of our taker and maker strategies empirically validates classic microstructure theories of adverse selection and highlights the systemic risks of algorithmic trading. Our results suggest a portable microstructure representation of short-horizon returns and motivate universal feature libraries for crypto markets.
+
+## 1 Introduction
+
+Financial market microstructure studies how trading, information, and liquidity provision jointly determine short-horizon price dynamics. Across asset classes, a robust set of features (order flow imbalance, bid–ask spreads, depth, and trade arrival patterns) has been shown to explain a substantial fraction of return variation at very short horizons. Cryptocurrencies offer a unique space for testing whether these features are universal: assets vary widely in capitalization and liquidity, yet they are transacted through similar continuous double-auction mechanisms with transparent limit order books.
+
+This paper advances the hypothesis that short-horizon return predictability in crypto admits a universal representation. Concretely, we posit that a compact set of features engineered from the top of the order book and contemporaneous trade flow exhibits similar predictive importance and functional dependence shapes across assets spanning an order of magnitude in market capitalization. We evaluate this claim with flexible non-linear models and model-agnostic explanation tools designed for tabular data.
+
+Our empirical strategy is deliberately simple and portable. Given tick-level orderbook and trades data for five cryptocurrencies, we engineer a unified feature library capturing spreads and relative prices, order flow imbalances, and deviations of buy/sell volume-weighted average prices from the mid. We train gradient-boosted decision trees with a direction-aware objective tailored to financial returns, alongside a standard squared-error baseline. Out-of-sample explanations are computed using SHAP values to obtain both global importance rankings and local partial-dependence-like curves.
+
+Three findings emerge. First, the same families of features dominate the SHAP summaries across large-cap and mid/long-tail cryptoassets. Second, SHAP dependence shapes are strikingly consistent across assets: order flow imbalance has a largely monotone effect with concavity at extremes; spreads are associated with diminished predictability; and VWAP-to-mid deviations display asymmetric effects coherent with short-lived pressure and microstructure reversion. Third, when coupled with a conservative taker execution that marks inventory on the unfavorable side of the book, the forecasts translate into tradable signals under reasonable thresholds, indicating economic significance rather than mere statistical regularities.
+
+Our work offers two primary novel contributions to the literature. First, we move beyond simple feature importance rankings by conducting an in-depth, cross-asset analysis of SHAP dependence shapes, connecting these empirical patterns to established microstructure theory. This provides a more granular understanding of how information is impounded into prices. Second, we present a unique robustness analysis by stress-testing our models during a major market flash crash. The divergent performance of our taker (liquidity-demanding) and maker (liquidity-providing) strategies during this event serves as a powerful empirical validation of classic adverse selection theories and offers a cautionary tale on the systemic risks inherent in modern, algorithmically-driven markets.
+
+Conceptually, these results support a scale-invariant view of microstructure: once normalized into relative prices and flows, the mechanisms by which liquidity-taking pressure and information asymmetry affect short-horizon returns appear stable across capitalization tiers. Practically, the findings motivate the use of universal feature libraries and reduce the need for asset-specific feature engineering when deploying short-horizon models across the crypto universe.
+
+The remainder of the paper proceeds as follows. We situate our study within the microstructure and explainable machine learning literatures, describe the data and engineered features, detail the modeling and evaluation methodology, analyze SHAP-based explanations and their theoretical interpretations, assess tradability via a conservative taker backtest, and discuss robustness checks and implications before concluding.
+
+## 2 Literature Review
+
+A large literature links trading frictions, information, and prices. Foundational inventory- and information-based models establish the theoretical link between trading activity and price formation. The seminal model of Kyle [[12](https://arxiv.org/html/2602.00776v1#bib.bib12)] shows how an informed insider strategically places trades over time, and how market makers infer information from aggregate order flow to set prices. Complementing this, Glosten and Milgrom [[9](https://arxiv.org/html/2602.00776v1#bib.bib9)] model the bid-ask spread as a direct consequence of adverse selection, where liquidity providers widen their quotes to compensate for the risk of trading against privately informed agents. These theories, synthesized empirically by Hasbrouck [[11](https://arxiv.org/html/2602.00776v1#bib.bib11)], provide the basis for our features related to order flow and spreads. A more recent, data-driven perspective from econophysics, particularly the work of Bouchaud et al. [[3](https://arxiv.org/html/2602.00776v1#bib.bib3)] and Cont et al. [[7](https://arxiv.org/html/2602.00776v1#bib.bib7)], documents universal statistical patterns in price impact, such as the ”square-root” law, suggesting that endogenous feedback loops in the trading process itself are as important as fundamentals. This motivates our use of flexible, non-linear models capable of capturing these complex dynamics.
+
+Limit order book research has evolved to document rich predictive structures. Early work by Gould et al. [[10](https://arxiv.org/html/2602.00776v1#bib.bib10)] provides a comprehensive review of LOB mechanics, while more recent approaches leverage deep learning. Sirignano and Cont [[21](https://arxiv.org/html/2602.00776v1#bib.bib21)] demonstrate universal features of price formation using large-scale deep learning models on limit order book data, finding that spatial and temporal dependencies are consistent across asset classes. Similarly, Zhang et al. [[24](https://arxiv.org/html/2602.00776v1#bib.bib24)] propose DeepLOB, applying convolutional neural networks to extract features from raw order book states. Recent studies published in Expert Systems with Applications further validate the efficacy of machine learning in this domain. Briola et al. [[4](https://arxiv.org/html/2602.00776v1#bib.bib4)] introduce deep learning architectures for forecasting limit order books that capture complex temporal dependencies. Prata et al. [[18](https://arxiv.org/html/2602.00776v1#bib.bib18)] conduct a benchmark study of LOB-based deep learning models, confirming their robustness in trend prediction. On the feature engineering side, Stoikov [[23](https://arxiv.org/html/2602.00776v1#bib.bib23)] introduces the micro-price, a high-frequency estimator of future prices that adjusts the mid-price based on bid-ask imbalances, a concept directly related to the imbalance features we evaluate. Our work bridges these streams by applying interpretable tree-based models to engineered features, aiming to recover the universal patterns found by deep learning but with the transparency required for economic validation.
+
+Our methodology is grounded in explainable machine learning (XAI) to transparently connect these complex data patterns to economic theory. We employ CatBoost [[19](https://arxiv.org/html/2602.00776v1#bib.bib19)], a state-of-the-art gradient boosting algorithm optimized for the kind of tabular data prevalent in microstructure, known for its strong performance without requiring extensive data preprocessing. To interpret these potentially opaque models, we rely on SHAP (SHapley Additive exPlanations), a game-theoretic framework that explains model predictions. The foundational work of Lundberg and Lee [[13](https://arxiv.org/html/2602.00776v1#bib.bib13)] unified various methods into a single, theoretically sound approach, and we specifically use the efficient TreeSHAP algorithm tailored for tree-based models like CatBoost [[14](https://arxiv.org/html/2602.00776v1#bib.bib14)]. By using SHAP, we can decompose individual predictions into feature contributions, allowing us to validate whether the model has learned relationships consistent with microstructure theory.
+
+Crypto microstructure has converged toward traditional double-auction dynamics while retaining distinctive features (heterogeneous participants, varying tick sizes, fragmented liquidity). Evidence indicates that order flow imbalance, spreads, and liquidity shocks are predictive of near-term returns and execution costs [[15](https://arxiv.org/html/2602.00776v1#bib.bib15)]. Chen et al. [[6](https://arxiv.org/html/2602.00776v1#bib.bib6)] demonstrate the utility of machine learning in predicting Bitcoin exchange rates using a broad set of economic and technical determinants. What remains less explored is the extent to which predictive features and their functional effects are universal across the crypto capitalization spectrum.
+
+Recent work has addressed the challenge of cross-validation in financial time series, where standard k-fold approaches can fail due to temporal dependencies and selection bias. Walk-forward validation procedures have been proposed for evaluating machine learning models on financial assets, with evidence supporting the relative effectiveness of LSTM and GRU architectures with respect to more basic recurrent architectures [[2](https://arxiv.org/html/2602.00776v1#bib.bib2)]. Ong and Herremans [[17](https://arxiv.org/html/2602.00776v1#bib.bib17)] further extend this by applying deep multi-task learning to construct time-series momentum portfolios, highlighting the importance of robust validation schemes. To further mitigate overlapping information between training and test sets, combinatorial purged cross-validation methods have been introduced, explicitly accounting for the non-IID nature of financial returns [[8](https://arxiv.org/html/2602.00776v1#bib.bib8)]. Shabani et al. [[20](https://arxiv.org/html/2602.00776v1#bib.bib20)] also contribute to this area by proposing augmented bilinear networks for robust financial time series prediction.
+
+The impact of loss function choice on high-frequency prediction and trading performance has also been explored using deep learning architectures tailored to time-series data. Informer-based models trained on high-frequency Bitcoin trades have been benchmarked across a variety of loss functions, including RMSE, quantile loss, and the recently introduced Generalized Mean Absolute Directional Loss (GMADL) [[16](https://arxiv.org/html/2602.00776v1#bib.bib16)]. Notably, the GMADL objective demonstrated robust improvement in both predictive accuracy and trading outcomes, especially on finer time intervals, underscoring the importance of direction-aware loss functions for short-horizon forecasting in liquid markets [[22](https://arxiv.org/html/2602.00776v1#bib.bib22)].
+
+We contribute by testing a universality hypothesis with SHAP-based diagnostics: that both the ranking of feature importances and the shapes of their marginal effects are stable across assets with disparate market caps. This complements prior work on impact functions and liquidity provision by emphasizing cross-asset invariance in the mapping from microstructure features to short-horizon returns.
+
+## 3 Data
+
+The dataset consists of multiple cryptocurrencies spanning a range of liquidity conditions, aiming to capture the diversity of market microstructure effects. At the start of the dataset period (January 1, 2022), these assets occupied market capitalization ranks 1, 20, 40, 60, and 100, respectively111<https://coinmarketcap.com/historical/20220102/>, providing a broad cross-section from the most liquid to smaller-cap coins. We construct synchronized time series for each asset, pairing sub-second top-of-book quotes with trade records to obtain a detailed view of the order book dynamics and trading activity. The data is sourced from Binance Futures perpetual contract order books and trades on 1-second frequency starting from January 1st, 2022 up to October 12th, 2025.
+
+Our prediction target is the logarithmic return of the mid price over a short horizon, specifically:
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | rt→t+3​s=log⁡(midt+3​s/midt)​ where ​midt=a​s​k0+b​i​d02r\_{t\to t+3\,s}=\log(\mathrm{mid}\_{t+3\,s}/\mathrm{mid}\_{t})\text{ where }\mathrm{mid}\_{t}=\frac{ask\_{0}+bid\_{0}}{2} |  | (1) |
+
+Log returns are preferred in financial modeling because they are symmetric in terms of impact on equity returns for positive and negative moves, additive over time, and naturally account for compounding, which simplifies statistical analysis. In addition, this choice reduces sensitivity to large price changes in absolute terms and facilitates comparison across assets with very different price levels. Using a short prediction horizon helps to isolate microstructural effects while minimizing issues related to overlapping information or delayed market reactions.
+
+The features selected for modeling can be grouped into several intuitive families, each motivated by specific a priori hypotheses about market behavior:
+
+Top-of-book metrics (such as the mid price, spread, and level 1 volumes) are designed to reflect immediate liquidity and trading costs. For example, a wider spread may indicate deteriorated liquidity or greater uncertainty, potentially foreshadowing price movements. High or unbalanced top-of-book volumes might signal supply and demand imbalances at the best available prices.
+
+Order flow and trade imbalance features (e.g., net traded volume or measures like signed order flow) aim to capture the ongoing pressure exerted by aggressive traders. Persistent buying or selling is often associated with short-term market impact, as liquidity providers adjust quotes in response to observed order flow.
+
+Deviations of VWAP from the mid price (for both buy and sell trades) are included to quantify how recent trading activity has occurred at prices away from the midpoint, which can be indicative of latent pressure or the presence of informed trading. Large deviations might point to short-term adverse selection or one-sided interest in the order book.
+
+Deep order book levels and redundant aggregates are omitted to avoid introducing noise and to maintain feature sets that are robust and interpretable across different markets.
+
+In terms of preprocessing, feature construction is aligned precisely in time using forward filling for short-lived gaps to mirror the real-time availability of order book data. Any samples missing essential information are excluded from the analysis. Importantly, we deliberately retain each feature in its original scale and units. This is because our chosen models (ensemble tree methods) are insensitive to monotonic transformations and can internally learn appropriate splits or thresholds regardless of feature scaling. As a result, explicit rescaling or normalization is unnecessary, and the model remains free to discover the most relevant functional relationships.
+
+Relative measures such as spreads-to-mid or VWAP-to-mid deviations are preferred as input features whenever possible. These ratios are inherently scale-invariant, supporting direct comparison of feature effects across assets, even when absolute price levels or tick sizes differ substantially. This comparability is especially important when interpreting global feature importances or dependence plots produced by model explanations such as SHAP.
+
+![Refer to caption](charts/ENJ/all_features_correlation.png)
+![Refer to caption](charts/ETC/all_features_correlation.png)
+![Refer to caption](charts/ROSE/all_features_correlation.png)
+
+## 4 Methodology
+
+For model evaluation, a rolling time-series cross-validation scheme is utilized. Each cross-validation fold is defined by training on a contiguous historical window and evaluating on subsequent, unseen periods, with a deliberate temporal gap between the training and validation sets. This temporal gap is critical to reduce information leakage, especially from features with slow time dynamics, ensuring that validation faithfully reflects genuine forward-looking predictive performance. The hyperparameters are tuned only within the training window using and inner time-series cross validation. The outer window is never used for tuning.
+
+![Refer to caption](charts/wfv.png)
+
+Two types of objective functions guide the training process. First, the standard squared error (and its associated out-of-fold R2R^{2}) serves as a baseline metric. More importantly for financial returns, we employ the Generalized Mean-Absolute Directional Loss (GMADL) as a metric. For a realized return RiR\_{i} and corresponding prediction R^i\hat{R}\_{i}, the GMADL is defined as:
+
+|  |  |  |
+| --- | --- | --- |
+|  | ℓi=−(11+e−a​Ri​R^i−12)​|Ri|b,a,b>0\ell\_{i}=-\left(\frac{1}{1+e^{-aR\_{i}\hat{R}\_{i}}}-\frac{1}{2}\right)|R\_{i}|^{b},\qquad a,b>0 |  |
+
+with the full objective being the mean over all samples. The GMADL explicitly emphasizes directional correctness, rewarding predictions that correctly match the sign of the realized return, and scales contributions by the magnitude of returns. This alignment is vital in return prediction tasks, where the practical utility of a forecast depends more on correct anticipation of large price moves than on minimizing squared error for small, noisy fluctuations. By using GMADL, the model is incentivized to focus on accuracy during periods of significant market action and to ignore trivial, low-amplitude fluctuations that might otherwise dominate squared error. GMADL is used as an evaluation metric, and models are trained with squared error loss funcion and selected by GMADL in-sample performance.
+
+For each asset analyzed, we persist both the model trained to optimize the GMADL objective and the R2R^{2}-optimized variant. Unless otherwise specified, subsequent analyses and explanations are based on the GMADL model, with parallel checks on the alternative to confirm that results are not unduly sensitive to the choice of objective.
+
+### 4.1 Performance Metrics
+
+For each strategy and asset, several indicators are computed to evaluate
+profitability and performance. When evaluating portfolio performance, it is critical to consider not just the return but also the risk of the strategy. In the study, we utilize performance metrics from Michańków et al. (2022) and Ryś and Ślepaczuk (2018).
+
+Annualized Return Compounded
+
+The Annualized Return Compounded (ARC), is the constant rate of annual return
+over the whole period of investment, so that:
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | A​R​C=(V​(tn)V​(t0))1/n−1ARC=\left(\frac{V(t\_{n})}{V(t\_{0})}\right)^{1/n}-1 |  | (2) |
+
+where:
+  
+V​(t0)V(t\_{0}) - the initial value of the investment
+  
+V​(tn)V(t\_{n}) - the value of the investment at the end of the period
+  
+n=tn−t0n=t\_{n}-t\_{0} - number of years
+
+Annualized Standard Deviation (ASD)
+Volatility is a statistical indicator of the variation of returns. Most of the time,
+security is riskier the more volatile it is. Volatility may be expressed as either the standard
+deviation or variation between returns from the same securities or market index. Volatility
+might be easily switched to annualized values by multiplying the standard deviation of
+the returns by the square root of the number of observations in a year (e.g. 252 for daily
+data of the S&P 500 Index and 365 for daily data of Bitcoin prices). In our research, we
+use Annualized Standard Deviation (ASD) as a measure of volatility:
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | A​S​D=1N−1​∑t=1N(Rt−R^)2⋅ny​e​a​rASD=\sqrt{\frac{1}{N-1}\sum\_{t=1}^{N}(R\_{t}-\hat{R})^{2}}\cdot\sqrt{n\_{year}} |  | (3) |
+
+where:
+  
+R^\hat{R} - the average simple return (e.g. daily for daily data) of the given instrument
+  
+RtR\_{t} - the simple return during period t
+  
+ny​e​a​rn\_{year} - number of observations in a year
+
+Information Ratio
+The Sharpe ratio, created by Nobel Prize winner William F. Sharpe, aids investors in
+determining the return on investment relative to its risk. The ratio is the average return
+over the risk-free rate (or some benchmark rate in the case of absolute return strategies)for each unit of volatility or overall risk. We assume a
+zero-rate risk-free rate, therefore instead of Sharpe Ratio we will define this metric as IR:
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | I​R∗=A​R​CA​S​DIR^{\*}=\frac{ARC}{ASD} |  | (4) |
+
+Max Drawdown (MDD)
+A portfolio’s maximum drawdown (MDD) is the largest loss that could be recorded
+between a portfolio’s peak and bottom before a new high is reached. Maximum drawdown serves as a gauge for the potential loss over a certain time frame. Maximum drawdown
+(MDD), a major concern for most investors is a tool used to compare the relative riskiness
+of different investment strategies.
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | M​D​D​(T)=maxt∈[0,T]⁡(maxt∈[0,T]⁡Vt−Vτ)MDD(T)=\max\_{t\in[0,T]}(\max\_{t\in[0,T]}V\_{t}-V\_{\tau}) |  | (5) |
+
+Max Loss Duration (MLD)
+Maximum Loss Duration (MLD) is the worst (the greatest/longest) period
+between peaks that the investment has experienced. It is expressed in the number of years:
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | M​L​D=max⁡mj−miSMLD=\max\frac{m\_{j}-m\_{i}}{S} |  | (6) |
+
+for which V​a​l​(mj)>V​a​l​(mi)Val(m\_{j})>Val(m\_{i}) and j>i.V​a​l​(mj)j>i.Val(m\_{j}) and V​a​l​(mi)Val(m\_{i}) are the values of the local maximums in days mjm\_{j} and mim\_{i} respectively. mjm\_{j} and mi are the numbers of days indicating
+local maximums of the equity line. The scale parameter S denotes the number of trading
+sessions in a year.
+
+Information Ratio\*\*
+Kość et al. (2019) in their study use an additional measure to assess the effectiveness of
+the strategy, which is a modification of the Information Ratio measure. This measure also
+takes into account the sign of the portfolio’s rate of return and the maximum drawdown:
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | I​R∗∗=A​R​C2⋅s​i​g​n​(A​R​C)A​S​D⋅M​D​DIR^{\*\*}=\frac{ARC^{2}\cdot sign(ARC)}{ASD\cdot MDD} |  | (7) |
+
+## 5 Models
+
+### 5.1 Gradient Boosted Decision Trees
+
+We employ gradient-boosted decision trees, specifically the CatBoost algorithm [[19](https://arxiv.org/html/2602.00776v1#bib.bib19)], to model the prediction target rt→t+3​sr\_{t\to t+3\,s}. CatBoost constructs an ensemble of shallow decision trees in a sequential manner, where each new tree corrects the residuals of the previous ensemble, allowing the model to flexibly capture nonlinear relationships, hierarchical effects, and complex interactions among features—patterns that are typical in market microstructure data. CatBoost is particularly well-suited for exploratory model fitting because it handles a wide range of heterogeneous, sometimes sparse or collinear tabular features without the need for extensive preprocessing, such as scaling or explicit encoding of categorical variables. Its built-in regularization and ordered boosting schemes help prevent overfitting, even in the presence of noisy or redundant predictors.
+
+### 5.2 Hyperparameter Optimization
+
+Hyperparameters critically govern the bias–variance trade-off, shaping the model’s ability to generalize rather than overfit to idiosyncrasies in the training data. Key parameters include:
+
+Depth: determines the interaction order between features.
+
+Iterations and learning rate: control functional complexity and capacity.
+
+ℓ2\ell\_{2} leaf regularization and subsampling temperature: prevent overfitting.
+
+Discretization granularity: balances data nuances against noise.
+
+To navigate this high-dimensional search space efficiently, we employ automated hyperparameter optimization using the Optuna framework [[1](https://arxiv.org/html/2602.00776v1#bib.bib1)]. Rather than relying on exhaustive grid search, Optuna implements a sophisticated Bayesian optimization algorithm (Tree-structured Parzen Estimator, TPE) to find optimal configurations. This process builds a probabilistic surrogate model of the objective function (e.g., out-of-fold validation loss) and uses an acquisition function to balance exploration and exploitation. We sample from broad, weakly informative prior ranges and select the configuration that generalizes best across our time-series cross-validation folds. We select the configuration using inner (training-only) time series cross validation. Performance is reported on outer folds only.
+
+### 5.3 Model Interpretation
+
+After model training, feature attribution is accomplished via SHAP (SHapley Additive exPlanations) [[13](https://arxiv.org/html/2602.00776v1#bib.bib13)], using the TreeExplainer algorithm to compute values on held-out samples. SHAP provides several advantages compared to more traditional feature importance approaches. Unlike gain- or split-count-based measures that may be biased or local to a specific model realization, SHAP values are grounded in cooperative game theory and provide consistent, locally accurate attributions that account for feature interactions and correlations. This yields trustworthy global importance rankings and enables fine-grained analysis through feature dependence plots, which emulate partial dependence while retaining the conditional distributions and dependencies learned by the models.
+
+We monitor out-of-fold R2R^{2} and the direction-aware objective, and we examine SHAP summaries for logically inconsistent patterns such as dominance by a single proxy or inconsistent signs across folds. In practice, the same few features repeatedly surface as most influential across assets, and their SHAP signs and shapes agree with microstructure priors. For each asset, we carry forward the model that optimizes the GMADL objective for explanation and backtesting, while also retaining the R2R^{2}-optimized model as a robustness check.
+
+## 6 SHAP Explanations
+
+We compute SHAP values on held-out samples using TreeExplainer and analyze both global and local structure. Across assets, summary plots consistently highlight a common set of features: order flow imbalance, bid–ask spreads, and VWAP-to-mid deviations dominate mean absolute SHAP. This suggests that the same economic channels drive short-horizon returns irrespective of capitalization, and the stability persists when replacing the training objective with squared error or modestly shifting the prediction horizon.
+
+![Refer to caption](charts/BTC/summary.png)
+
+BTC
+
+![Refer to caption](charts/LTC/summary.png)
+
+LTC
+
+![Refer to caption](charts/ETC/summary.png)
+
+ETC
+
+Let SjS\_{j} denote the mean absolute SHAP for feature jj within a given asset. The rankings induced by SjS\_{j} are highly correlated across assets, indicating that variables transmitting liquidity-taking pressure and adverse selection uniformly carry the largest marginal contributions. Beyond rankings, the SHAP dependence curves exhibit consistent shapes across assets: the effect of order flow imbalance on returns is predominantly monotone with concavity at extremes (diminishing incremental impact as pressure accumulates); wider spreads associate with attenuated predictive effects and lower-confidence signals, in line with elevated adverse selection risk and execution costs; and VWAP-to-mid deviations display short-horizon asymmetries coherent with transient pressure followed by microstructure reversion as depth replenishes.
+
+![Refer to caption](charts/BTC/feature1.png)
+
+BTC
+
+![Refer to caption](charts/ETC/feature1.png)
+
+ETC
+
+![Refer to caption](charts/ROSE/feature1.png)
+
+ROSE
+
+Overlaying dependence plots reveals similar slopes near the origin and comparable saturation levels across assets with very different tick sizes and liquidity, pointing to scale-free structure once expressed in relative prices and flows.
+
+### 6.1 Note on the relation between imbalance effect magnitude and tick size
+
+Tick size modulates how order flow pressure translates into discrete price moves and thus shapes the predictive power of top-of-book imbalance. Evidence across assets shows that the predictive effect of imbalance (as captured by SHAP) is stronger for instruments with larger ticks. This is consistent with the microprice mechanism: when ticks are large relative to the local price scale, the probability of an uptick (or downtick) inferred from depth asymmetry maps more directly into the next price change, amplifying the marginal contribution of imbalance features.
+
+
+[... middle omitted — see footer ...]
+
+
+![Refer to caption](charts/BTC/takertrades_fc2.png)
+
+### 8.3 Implications for Market Stability and Policy
+
+The success of our taker strategy during the flash crash, while a testament to its predictive power, raises important questions about the social value of such automated trading and its impact on market organization. A market dominated by high-frequency strategies predicated on the same signals (like order book imbalance) is inherently fragile. It fosters a technological ”arms race” where speed is the only determinant of profitability, and the first few participants to react capture all the gains, while the ensuing cascade degrades market quality for everyone else.
+
+From a policy perspective, these findings suggest that regulators should consider the systemic risks posed by the homogenization of algorithmic strategies. Potential interventions could include dynamic ”circuit breakers” triggered by extreme order imbalance, modifications to the market’s tick size, or even imposing a minimum resting time for orders to discourage fleeting, predatory liquidity. Ultimately, while our model demonstrates that it is possible to build a profitable trading strategy based on market microstructure signals, its widespread adoption could inadvertently undermine the very stability and liquidity it seeks to exploit, leading to a market that is less resilient and more susceptible to systemic shocks.
+
+### 8.4 Market-Making Under Extreme Conditions: A Cautionary Tale
+
+In stark contrast to the taker strategy’s success, the market-making strategy suffered catastrophic losses during the flash crash, as illustrated in Figure [16](https://arxiv.org/html/2602.00776v1#S8.F16 "Figure 16 ‣ 8.4 Market-Making Under Extreme Conditions: A Cautionary Tale ‣ 8 Performance During October 10th Flash Crash ‣ Explainable Patterns in Cryptocurrency Microstructure"). The strategy, which operates by posting passive bid and ask quotes around the mid-price, is designed to profit from the bid-ask spread in normal market conditions. However, during the unidirectional price collapse on October 10, it fell victim to severe adverse selection.
+
+As the market plummeted, the strategy was repeatedly filled on its bid-side quotes, forcing it to accumulate a growing, and increasingly unprofitable, long position. Because the price was falling so rapidly, there was no corresponding fill on the ask side to offset the risk. The PnL curve shows a steep decline, culminating in a crash around 23:20, wiping out thousands of dollars in simulated equity. The model’s predictions, as seen in the middle panel, were orders of magnitude larger than normal, yet the maker strategy’s simple, constant-spread logic was unable to adapt to this extreme signal.
+
+![Refer to caption](charts/BTC/maker_trades_fc.png)
+
+This failure is a textbook illustration of classic market microstructure theories, such as the models of Glosten and Milgrom (1985) and Kyle (1985). These models posit that the bid-ask spread is not just a source of profit for liquidity providers, but a crucial form of compensation for the risk of trading against informed participants—a phenomenon known as adverse selection. During periods of high volatility and strong directional conviction, like a flash crash, the probability of trading against informed flow increases dramatically. A market maker who fails to widen their spread in response is essentially offering a subsidy to informed traders, leading to near-certain losses. Our maker strategy’s failure stems directly from its inability to dynamically adjust its spread to account for this surge in adverse selection risk.
+
+![Refer to caption](charts/BTC/maker_trades_fc2.png)
+
+The juxtaposition of the two strategies is telling. The taker strategy profited because it acted as an informed agent, using the order book imbalance to correctly predict the market’s direction and take liquidity. The maker strategy lost money precisely because it was providing liquidity to this informed, directional flow. This reveals a fundamental tension in market microstructure: during periods of turmoil, liquidity-taking (if directionally correct) is profitable, while naive liquidity-providing is perilous. The taker strategy won by exploiting the very information that made the maker strategy insolvent. This underscores that a successful market-making algorithm must not only predict short-term price movements but also dynamically manage its spreads to survive periods of high information asymmetry.
+
+## 9 Conclusion
+
+The empirical invariances documented here point toward a scale-free description of short-horizon price formation. Expressed in relative prices and flows, the mapping from microstructure state to returns appears stable across market capitalization tiers. This aligns with theories in which liquidity provision internalizes inventory risk and adverse selection similarly irrespective of asset size, once scaled by local liquidity and tick structure.
+
+Interpretability gains from SHAP are substantive. Importance hierarchies validate that a small set of features,order flow imbalance, spreads, and VWAP deviations,drive most predictive power, while dependence shapes quantify monotonicities, asymmetries, and saturation. These diagnostics help discriminate genuine economic channels from dataset-specific proxies and provide actionable guidance for risk controls (e.g., deactivating signals in wide-spread regimes) and execution design.
+
+Our primary novelty and contribution to existing literature is the robustness analysis of the model during the major flash crash, where we validate whether the patterns observed in normal market conditions persist under tail events. We find that the taker strategy performs well during the flash crash, while the maker strategy suffers significant losses. This suggests that the taker strategy is more robust to extreme market conditions, while the maker strategy is more vulnerable.
+
+From a deployment perspective, universal feature libraries enable rapid porting of predictive models across assets with minimal re-engineering. The observed concavity in dependence suggests diminishing marginal returns to liquidity-taking pressure, arguing for conservative sizing at extremes and caution when extrapolating beyond the observed domain. The robustness of results across objectives and horizons further supports operational reliability.
+
+Limitations include the focus on a single short horizon, potential venue- or regime-specific effects, and the use of a single model family. Extending to cross-venue consolidation, dynamic horizons, and alternative interpretable models would strengthen external validity. Causal identification of order flow effects remains an open avenue, potentially via instrumental strategies or market design changes that induce exogenous variation in liquidity and flow.
+
+We demonstrate that a compact set of order book and trade features yields similar predictive importance and SHAP dependence shapes across cryptocurrencies spanning market capitalization tiers. This universality aligns with microstructure theory and supports the portability of feature libraries across assets.
+
+Under a conservative taker execution, forecasts translate into tradable signals. Robustness checks confirm stability to thresholds, fees, splits, and objectives. We view these results as evidence for shared microstructure features and a foundation for scalable, cross-asset short-horizon modeling in crypto markets.
+
+## Appendix A: Supplementary Charts
+
+![Refer to caption](charts/BTC/feature1.png)
+![Refer to caption](charts/BTC/feature2.png)
+![Refer to caption](charts/BTC/feature3.png)
+![Refer to caption](charts/BTC/feature4.png)
+![Refer to caption](charts/BTC/feature5.png)
+![Refer to caption](charts/BTC/feature6.png)
+![Refer to caption](charts/BTC/feature7.png)
+![Refer to caption](charts/BTC/feature8.png)
+![Refer to caption](charts/BTC/feature9.png)
+![Refer to caption](charts/BTC/feature10.png)
+![Refer to caption](charts/LTC/feature1.png)
+![Refer to caption](charts/LTC/feature2.png)
+![Refer to caption](charts/LTC/feature3.png)
+![Refer to caption](charts/LTC/feature4.png)
+![Refer to caption](charts/LTC/feature5.png)
+![Refer to caption](charts/LTC/feature6.png)
+![Refer to caption](charts/LTC/feature7.png)
+![Refer to caption](charts/LTC/feature8.png)
+![Refer to caption](charts/LTC/feature9.png)
+![Refer to caption](charts/LTC/feature10.png)
+![Refer to caption](charts/ETC/feature1.png)
+![Refer to caption](charts/ETC/feature2.png)
+![Refer to caption](charts/ETC/feature3.png)
+![Refer to caption](charts/ETC/feature4.png)
+![Refer to caption](charts/ETC/feature5.png)
+![Refer to caption](charts/ETC/feature6.png)
+![Refer to caption](charts/ETC/feature7.png)
+![Refer to caption](charts/ETC/feature8.png)
+![Refer to caption](charts/ETC/feature9.png)
+![Refer to caption](charts/ETC/feature10.png)
+![Refer to caption](charts/ENJ/feature1.png)
+![Refer to caption](charts/ENJ/feature2.png)
+![Refer to caption](charts/ENJ/feature3.png)
+![Refer to caption](charts/ENJ/feature4.png)
+![Refer to caption](charts/ENJ/feature5.png)
+![Refer to caption](charts/ENJ/feature6.png)
+![Refer to caption](charts/ENJ/feature7.png)
+![Refer to caption](charts/ENJ/feature8.png)
+![Refer to caption](charts/ENJ/feature9.png)
+![Refer to caption](charts/ENJ/feature10.png)
+![Refer to caption](charts/ROSE/feature1.png)
+![Refer to caption](charts/ROSE/feature2.png)
+![Refer to caption](charts/ROSE/feature3.png)
+![Refer to caption](charts/ROSE/feature4.png)
+![Refer to caption](charts/ROSE/feature5.png)
+![Refer to caption](charts/ROSE/feature6.png)
+![Refer to caption](charts/ROSE/feature7.png)
+![Refer to caption](charts/ROSE/feature8.png)
+![Refer to caption](charts/ROSE/feature9png.png)
+![Refer to caption](charts/ROSE/feature10.png)
+
+## References
+
+[IMAGE: Mascot Sammy]
+
+──────── [TRUNCATED] ────────
+Showing 29,962 chars (head) + 9,814 chars (tail) of 56,417 total clean characters.
+Full text saved to: C:\Users\thaqi\AppData\Local\hermes\cache\web\arxiv.org-dafcdbf07f.md
+To read the omitted middle: read_file path="C:\Users\thaqi\AppData\Local\hermes\cache\web\arxiv.org-dafcdbf07f.md" offset=231 limit=200  (the file is the complete page; raise/lower offset to page through it).
+─────────────────────────────

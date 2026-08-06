@@ -1,0 +1,595 @@
+##### Report GitHub Issue
+
+Content selection saved. Describe the issue below:
+
+![](/static/base/1.0.1/images/icons/smileybones-small.svg)
+![arXiv logo](/static/base/1.0.1/images/arxiv-logo-primary-light.svg)
+
+# Agentic Trading: When LLM Agents Meet Financial Markets
+
+###### Abstract
+
+A growing body of work explores how Large Language Models (LLMs) can be
+embedded in trading systems as agents that perceive market information, retrieve
+context, reason about decisions, emit tradable actions, and adapt under market
+feedback. This paper reframes LLM-based trading agents as expert-system decision
+pipelines and presents an audit-oriented evidence map of 77 included studies in a protocol-coded snapshot screened through 2026-03-09. A primary empirical subset (n=19n=19) satisfies the minimum boundary
+of Action Output plus Closed-Loop Evaluation; the remaining
+58 included studies are retained as background and design
+context. The central empirical finding is protocol incomparability: within the
+primary subset, only 2/19 studies report
+extractable time-consistent split protocols, 1/19 reports an explicit transaction-cost model, 1/19 documents universe or survivorship handling, 11/19 report execution timing or semantics, 15/19 are coded
+as R0, and no study reaches R3 reproducibility. We therefore use Architecture–Capability–Adaptation as a working analytical lens rather than a validated taxonomy, and we foreground the evidence ledger, reproducibility audit, and reporting checklist as the main contributions. The resulting survey shows that architectural experimentation is expanding rapidly, while comparable evaluation protocols, execution semantics, and reproducible artifacts remain the
+field’s immediate bottlenecks.
+
+###### keywords:
+
+## 1 Introduction
+
+The integration of Large Language Models (LLMs) into financial trading
+represents a notable shift from traditional quantitative prediction
+models toward more autonomous, agentic systems.
+Conventional quantitative finance
+approaches typically employ black-box machine learning models that generate
+price or return predictions without explicit reasoning chains or adaptive
+capabilities. In contrast, LLM-based trading agents often implement an explicit
+loop—perceiving market information, storing experiences, reasoning about
+decisions, executing trades, and learning from outcomes Zhang et al. ([2024](#bib.bib49 "A multimodal foundation agent for financial trading: tool-augmented, diversified, and generalist")); Xiao et al. ([2024](#bib.bib48 "TradingAgents: multi-agents llm financial trading framework")); Yu et al. ([2024](#bib.bib37 "FinCon: a synthesized llm multi-agent system with conceptual verbal reinforcement for enhanced financial decision making")).
+Not every LLM-for-finance system enters the same evidence tier in this review:
+our primary empirical subset is restricted to systems that emit tradable actions
+and evaluate those actions in a closed loop.
+
+![Refer to caption](2605.19337v1/x1.png)
+
+This survey builds on a curated evidence ledger of 77
+included studies in the current auditable snapshot screened through
+2026-03-09. Within that ledger, the primary empirical subset
+(n=19n=19) is reserved for
+studies that satisfy Action Output + Closed-Loop Evaluation, whereas
+the remaining 58 included studies provide design and
+landscape context without entering protocol or reproducibility denominators.
+Within the current primary subset, protocol-critical reporting remains sparse:
+only 2/19 studies disclose an
+extractable time-consistent data split, 1/19
+specifies a transaction-cost model, 1/19
+documents universe/survivorship handling, 11/19
+reports execution timing or semantics, 15/19
+are coded as R0, and 0/19 reach R3 reproducibility.
+
+This agentic architecture may offer practical advantages, but they are not
+automatic and depend on careful instrumentation and evaluation. First, LLM-based
+agents can generate human-readable rationales and
+interaction traces; however, such text is not guaranteed to be faithful to the
+true internal decision process. Meaningful auditability therefore depends on
+grounded, time-stamped tool calls, data snapshots, and execution logs that can
+be independently verified. Second, agents can adapt their strategies under
+evolving market conditions by drawing on accumulated experience, although
+robustness depends on careful validation and control. Third, modular designs
+enable specialized components for perception, memory, and reasoning (see [Figure 2](#S1.F2 "In 1.2 Taxonomy Gap: Why Existing Frameworks Leave Open Gaps ‣ 1 Introduction ‣ Agentic Trading: When LLM Agents Meet Financial Markets")), which can
+make systems easier to extend, test, and improve over time. Because trading is a
+multi-step setting, hallucinated facts or tool outputs can propagate through
+agent loops; we return to these risks in [Section 13](#S13 "13 Challenges and Future Directions ‣ Agentic Trading: When LLM Agents Meet Financial Markets").
+
+Trading agents are financial decision-support pipelines: they transform
+market observations into executable actions through retrieval, memory,
+reasoning, execution constraints, and supervisory controls. Reviewing this
+literature therefore requires evidence about the full decision loop: what
+information is used, how actions are formed, which safeguards bind execution,
+and what artifacts allow expert audit. This perspective motivates our emphasis
+on action semantics, protocol reporting, and reproducible evidence, rather than
+backtest scores alone.
+
+Despite the rapid emergence of LLM-based trading systems, the literature
+lacks a shared review lens for separating agent boundaries, protocol reporting,
+and architectural roles. Recent surveys and benchmarks often emphasize task
+coverage and model-level performance—for example, benchmark suites such as the FinBen suite
+Xie et al. ([2024](#bib.bib1 "FinBen: a holistic financial benchmark for large language models")), PIXIU Xie et al. ([2023](#bib.bib67 "PIXIU: a large language model, instruction data and evaluation benchmark for finance")), and InvestorBench
+Li et al. ([2025](#bib.bib11 "INVESTORBENCH: a benchmark for financial decision-making tasks with llm-based agent")), alongside finance-specific model/tool works such as
+FinGPT Wang et al. ([2023a](#bib.bib7 "FinGPT: instruction tuning benchmark for open-source large language models in financial datasets")). Broader overviews of LLM agents in finance and
+trading Ding et al. ([2024](#bib.bib60 "Large language model agent in financial trading: a survey")); Dong et al. ([2025](#bib.bib62 "Large language model agents in finance: a survey bridging research, practice, and real-world deployment")) are also useful.
+While valuable, these works typically do not provide a systematic account of
+how agents perceive market data, store and retrieve information, reason about
+trading decisions, execute actions under market frictions, or adapt their
+behavior over time.
+
+|  |  |  |  |  |  |  |
+| --- | --- | --- | --- | --- | --- | --- |
+| Work | Type | Scope | Arch | Exec/Cost | Map | R |
+| This survey | Survey | Trading Agents | Primary | Primary | Primary | Primary |
+| LLM-Agent Survey  Wang et al. ([2024](#bib.bib152 "A survey on large language model based autonomous agents")) | Survey | General AI  Agents | Primary | Partial | Not primary | Not primary |
+| Giglio-Kelly-Xiu  Giglio et al. ([2022](#bib.bib153 "Factor models, machine learning, and asset pricing")) | Survey | Asset Pricing  ML | Background | Partial | Not primary | Not primary |
+| FinBen  Xie et al. ([2024](#bib.bib1 "FinBen: a holistic financial benchmark for large language models")) | Benchmark | Financial Tasks | Not primary | Not primary | Not primary | Not primary |
+| FinGPT  Wang et al. ([2023a](#bib.bib7 "FinGPT: instruction tuning benchmark for open-source large language models in financial datasets")) | Model/Tool | Financial NLP | Not primary | Not primary | Not primary | Not primary |
+| InvestorBench  Li et al. ([2025](#bib.bib11 "INVESTORBENCH: a benchmark for financial decision-making tasks with llm-based agent")) | Benchmark | Trading Tasks | Not primary | Partial | Not primary | Not primary |
+| LLM-Trading Survey  Ding et al. ([2024](#bib.bib60 "Large language model agent in financial trading: a survey")) | Survey | Trading Agents | Partial | Partial | Not primary | Not primary |
+| LLM-Finance Survey  Dong et al. ([2025](#bib.bib62 "Large language model agents in finance: a survey bridging research, practice, and real-world deployment")) | Survey | Finance Agents | Partial | Partial | Not primary | Not primary |
+
+Note: Comparison criteria reflect our auditability-focused perspective.
+Other surveys prioritize different goals (e.g., model benchmarking, general
+agent architectures) where our criteria may not apply. FinBen and InvestorBench
+are benchmarks rather than surveys; evaluating them on “architecture coverage”
+may be inappropriate to their design goals.
+
+### 1.1 Related Surveys and Positioning
+
+Several recent surveys examine aspects of AI in trading and finance, but they
+usually pursue different review objectives than the architecture-centric,
+protocol-aware perspective used here. We position our work against three
+categories of related surveys.
+
+General LLM-Agent Surveys.
+A widely cited general survey by Wang et al. ([2024](#bib.bib152 "A survey on large language model based autonomous agents")) reviews
+LLM-based autonomous agents across domains, organizing around agent
+construction, application, and evaluation. While foundational for general agent
+design, this survey does not focus on finance-specific concerns such as
+transaction-cost modeling, market-friction constraints, or the temporal
+structure of trading data. Our work complements this by focusing narrowly on
+trading, where execution semantics and cost assumptions are first-class
+concerns.
+
+Financial Machine Learning Surveys.
+Giglio et al. ([2022](#bib.bib153 "Factor models, machine learning, and asset pricing")) survey recent methodological contributions in asset pricing using factor models and machine learning, organizing the literature around expected returns, factors, risk exposures, risk premia, the stochastic discount factor, model comparison, and alpha testing. Their scope remains centered on asset-pricing estimation and inference rather than the agentic problem of mapping predictions into executable actions under market constraints.
+
+Task-Oriented Financial Benchmarks.
+The FinBen suite Xie et al. ([2024](#bib.bib1 "FinBen: a holistic financial benchmark for large language models")), InvestorBench Li et al. ([2025](#bib.bib11 "INVESTORBENCH: a benchmark for financial decision-making tasks with llm-based agent")), and finance-specific works such as FinGPT Wang et al. ([2023a](#bib.bib7 "FinGPT: instruction tuning benchmark for open-source large language models in financial datasets")) and PIXIU Xie et al. ([2023](#bib.bib67 "PIXIU: a large language model, instruction data and evaluation benchmark for finance")) emphasize task coverage and model-level performance evaluation. These benchmarks are valuable for comparing models on specific financial NLP or forecasting tasks, but they typically do not require end-to-end agentic evaluation—that is, closed-loop action generation under market frictions with explicit execution semantics. Our survey focuses specifically on works that close this loop, mapping perception through execution.
+
+This gap is particularly problematic given the interdisciplinary nature of
+agentic trading systems, which draws from artificial intelligence, quantitative
+finance, cognitive science, and economics. Without a unifying framework,
+researchers and practitioners struggle to compare approaches, identify
+overlapping innovations, or systematically explore the design space of trading
+agents.
+
+### 1.2 Taxonomy Gap: Why Existing Frameworks Leave Open Gaps
+
+While the surveys reviewed above provide valuable coverage, they share a common
+limitation: they treat trading agents as either applications of general
+LLM-agent techniques or as prediction models with execution as an
+afterthought. This leads to systematic misclassifications that obscure critical
+design choices and hinder comparative analysis.
+
+Limitation 1: Execution as Implicit Component.
+Existing frameworks typically treat action/execution as a byproduct of reasoning
+rather than a first-class architectural component. For example, FinAgent
+Zhang et al. ([2024](#bib.bib49 "A multimodal foundation agent for financial trading: tool-augmented, diversified, and generalist")) is categorized as “Multi-modal Financial Agent” in
+Dong et al. ([2025](#bib.bib62 "Large language model agents in finance: a survey bridging research, practice, and real-world deployment")), emphasizing its perception module while
+underplaying its execution layer—a critical component for evaluating real-world
+deployability. The Architecture-Capability-Adaptation (A-C-A) lens treats
+Action/Execution as a core architectural dimension, making order mapping, cost
+assumptions, and latency constraints explicit ([Section 6](#S6 "6 Action and Execution Architecture ‣ Agentic Trading: When LLM Agents Meet Financial Markets")).
+
+Limitation 2: Architecture-Capability Conflation.
+Prior surveys often conflate mechanism (how agents process information)
+with function (what agents accomplish). For instance, AlphaAgent
+Tang et al. ([2025](#bib.bib29 "AlphaAgent: llm-driven alpha mining with regularized exploration to counteract alpha decay")) is a multi-agent alpha-mining framework whose regularized
+exploration mechanisms—originality enforcement, hypothesis-factor alignment,
+and complexity control—help counteract alpha decay. The A-C-A lens
+distinguishes these concerns: the same Reactive Architecture can support both Alpha
+Generation (high-frequency signals) and Execution (order slicing), while
+Strategic Architecture enables Portfolio Management (long-horizon planning)
+across different functional domains ([Section 7](#S7 "7 Alpha Discovery Capability ‣ Agentic Trading: When LLM Agents Meet Financial Markets")).
+
+Limitation 3: Adaptation as Implementation Detail.
+Current frameworks treat learning and adaptation as homogeneous implementation
+details rather than a cross-cutting design dimension. TradingAgents
+Xiao et al. ([2024](#bib.bib48 "TradingAgents: multi-agents llm financial trading framework")) is classified as “Multi-agent Framework” without
+distinction between its hierarchical role organization (Architecture), its
+distributed capability allocation (Capability), and its feedback-based adaptation
+(Adaptation). The A-C-A lens makes adaptation levels explicit, from
+in-context learning (behavioral) to self-evolution (structural), with
+distinct protocol requirements for each ([Section 10](#S10 "10 Learning Paradigms ‣ Agentic Trading: When LLM Agents Meet Financial Markets")).
+
+[Table 2](#S1.T2 "In 1.2 Taxonomy Gap: Why Existing Frameworks Leave Open Gaps ‣ 1 Introduction ‣ Agentic Trading: When LLM Agents Meet Financial Markets") illustrates how three representative works can be
+re-read under the A-C-A exploratory analytical lens, making architectural distinctions more
+explicit than in prior categorizations. [Appendix C](#A3 "Appendix C Representative A-C-A Reclassification Notes ‣ Agentic Trading: When LLM Agents Meet Financial Markets")
+provides additional reclassification notes for representative papers as
+illustrative material rather than an external validation study.
+
+|  |  |  |
+| --- | --- | --- |
+| Work | Prior Framework | A-C-A Reclassification |
+| FinAgent Zhang et al. ([2024](#bib.bib49 "A multimodal foundation agent for financial trading: tool-augmented, diversified, and generalist")) | “Multi-modal Agent” (perception-centric) | Architecture: Multi-modal Perception + Execution; Capability: Cross-modal Alpha; Adaptation: In-context learning |
+| AlphaAgent Tang et al. ([2025](#bib.bib29 "AlphaAgent: llm-driven alpha mining with regularized exploration to counteract alpha decay")) | “Multi-agent” (organization-centric) | Architecture: Reflective/Strategic hybrid Reasoning; Capability: Code-based Alpha with validation feedback; Adaptation: Regularized exploration against alpha decay |
+| TradingAgents Xiao et al. ([2024](#bib.bib48 "TradingAgents: multi-agents llm financial trading framework")) | “Multi-agent Framework” (organization-centric) | Architecture: Hierarchical role-based Coordination; Capability: Distributed Alpha+Portfolio+Risk; Adaptation: Hierarchical feedback |
+
+We present a survey of LLM-based trading agents through an audit-oriented
+expert-system perspective. Our contributions are ordered by evidential
+strength:
+
+An auditable evidence ledger under explicit inclusion
+criteria, separating 77 included studies into a fixed
+primary empirical subset (n=19n=19) and a background tier
+(n=58n=58).
+
+A protocol and reproducibility audit showing that the
+current primary subset is not yet protocol-comparable:
+2/19 studies report extractable
+split protocols, 1/19 report
+explicit cost models, 1/19
+report universe/survivorship handling, 11/19
+report execution semantics, 15/19 are R0,
+and 0/19 reach R3.
+
+An expert-system decision-pipeline framing that maps
+perception to knowledge acquisition, memory/RAG to the knowledge base,
+reasoning to the inference engine, execution to the action interface,
+risk/compliance to rule constraints, and logs/human oversight to
+explanation and accountability artifacts.
+
+A-C-A as a working analytical lens, used to locate where
+architecture, capability, and adaptation choices create reporting gaps
+across the decision pipeline. We do not present A-C-A as an externally
+validated taxonomy.
+
+Reporting checklists and methodological implications
+that separate evidence findings, background concepts, and author
+proposals, and translate recurring protocol gaps into minimum reporting
+expectations for future studies.
+
+![Refer to caption](2605.19337v1/agentic_flow.png)
+
+The remainder of this paper is organized as follows.
+[Section 2](#S2 "2 Review Protocol and Evidence Scope ‣ Agentic Trading: When LLM Agents Meet Financial Markets") describes the review protocol and evidence scope.
+Part I: Architecture ([Sections 3](#S3 "3 Perceptual Architecture ‣ Agentic Trading: When LLM Agents Meet Financial Markets"), [4](#S4 "4 Memory Architecture ‣ Agentic Trading: When LLM Agents Meet Financial Markets"), [5](#S5 "5 Reasoning Architecture ‣ Agentic Trading: When LLM Agents Meet Financial Markets") and [6](#S6 "6 Action and Execution Architecture ‣ Agentic Trading: When LLM Agents Meet Financial Markets"))
+presents the core architectural components.
+Part II: Capability ([Sections 7](#S7 "7 Alpha Discovery Capability ‣ Agentic Trading: When LLM Agents Meet Financial Markets"), [8](#S8 "8 Portfolio Management Capability ‣ Agentic Trading: When LLM Agents Meet Financial Markets") and [9](#S9 "9 Risk Management Capability ‣ Agentic Trading: When LLM Agents Meet Financial Markets"))
+analyzes the capabilities enabled by this architecture.
+Part III: Adaptation ([Sections 10](#S10 "10 Learning Paradigms ‣ Agentic Trading: When LLM Agents Meet Financial Markets"), [11](#S11 "11 Multi-Agent Coordination ‣ Agentic Trading: When LLM Agents Meet Financial Markets") and [12](#S12 "12 Adaptation and Self-Evolution ‣ Agentic Trading: When LLM Agents Meet Financial Markets"))
+explores how agents adapt and evolve.
+[Section 13](#S13 "13 Challenges and Future Directions ‣ Agentic Trading: When LLM Agents Meet Financial Markets") discusses technical challenges and future directions,
+and [Section 14](#S14 "14 Conclusion ‣ Agentic Trading: When LLM Agents Meet Financial Markets") concludes the survey.
+
+We begin by establishing the foundational understanding of what constitutes an
+agentic trader, drawing on cognitive science and artificial intelligence
+literature to define the essential architectural components.
+
+Part I addresses the fundamental question: What constitutes an agentic
+trader? We argue that an agentic trader can be characterized by four core architectural
+components—perception, memory, reasoning, and action/execution—that together support
+autonomous decision-making in financial markets. While traditional trading systems focus
+primarily on prediction, agentic systems typically include an explicit cognitive
+loop that can interact with and learn from the market environment through decisions
+that are mapped to tradable actions under market constraints.
+
+## 2 Review Protocol and Evidence Scope
+
+This review is designed as an audit-oriented evidence map rather than an
+exhaustive systematic review. Our goal is to make the evidentiary boundary of
+agentic trading explicit, to separate primary trading evidence from background
+design context, and to calibrate synthesis claims to protocol completeness
+rather than to headline performance alone.
+
+We scoped the formal search to records published from 2022-01-01
+through 2026-03-09 (last query date: 2026-03-09), using ACM
+Digital Library (including ICAIF), IEEE Xplore, arXiv, SSRN, and Google
+Scholar, complemented by backward and forward citation chaining. We start the
+focused window in 2022 because this is the period in which LLM-based systems
+begin to appear as end-to-end trading agents rather than as isolated NLP or
+forecasting components. After deduplication and screening, the current ledger
+contains 77included studies from 92candidate
+records.
+
+To make the review boundary reproducible, we distinguish three fixed
+denominators throughout the manuscript. The *candidate registry*
+contains 92unique records after deduplication. The
+*included evidence-mapping ledger* contains 77records
+retained for either primary evidence or background/design context. The
+*primary empirical subset* contains 19records that satisfy
+Action Output, Closed-Loop Evaluation, and an eligible empirical evaluation type
+(backtest, simulation, live, or benchmark);
+all protocol-field percentages, reproducibility percentages, and
+claim-to-evidence summaries use this
+19-record subset unless explicitly stated otherwise.
+
+|  |  |
+| --- | --- |
+| Stage | Count |
+| Registry candidate recordsa | 92 |
+| Included in evidence mapping set | 77 |
+| Excluded at screening/eligibility | 15 |
+| Final exclusion reason |  |
+| Outside finance/trading/portfolio/risk-management scope | 15 |
+| Included evidence-map partition |  |
+| Primary empirical subset | 19 |
+| Background/context tier | 58 |
+
+aThe canonical registry currently contains 92unique records after deduplication (77included in the evidence mapping set and 15excluded at screening/eligibility). The included evidence mapping set is partitioned into 19primary empirical studies and 58background/context records.
+
+Our inclusion boundary is intentionally narrow. To enter the *primary
+empirical subset*, a study must satisfy both of the following conditions:
+*(i) Action Output*, meaning that the system emits tradable actions such
+as orders, position changes, or portfolio allocations; and *(ii)
+Closed-Loop Evaluation*, meaning that those actions are evaluated in
+backtesting, simulation, or live trading rather than only through predictive
+metrics. Studies that remain useful for architectural or contextual discussion
+but do not satisfy both conditions are retained as *Background (BG)*
+within the included ledger. Under this rule, the present snapshot yields
+19primary empirical studies and 58background
+studies. All protocol, denominator-based, and reproducibility summaries in this
+survey are computed over the fixed primary subset unless stated otherwise.
+
+The screening workflow proceeded in four steps. First, database and
+preprint searches were run with agent/trading/finance keyword families and then
+expanded through backward and forward citation chaining. Second, duplicate
+records were removed by title, arXiv identifier, DOI, and manual inspection.
+Third, title/abstract screening removed records outside financial trading,
+portfolio construction, execution, or risk-management settings. Fourth,
+full-text screening assigned each retained record to either primary empirical
+evidence or background context. Studies were excluded from the candidate
+registry only when they fell outside the survey domain; papers that were
+finance-relevant but lacked Action Output or Closed-Loop Evaluation were kept
+as background context rather than counted as final exclusions.
+
+For each included study, we code two classes of information. The first is
+architectural scope: perception, memory, reasoning, action/execution, and
+adaptation. The second is protocol-critical reporting: time-consistent split
+discipline, execution timing or semantics, transaction-cost modeling,
+universe/survivorship handling, and reproducibility artifacts. Missing or
+unclear reporting is coded conservatively as *NR/Unknown* rather than
+imputed. This coding is intended to support transparent evidence accounting and
+cautious cross-paper synthesis, especially in a literature where execution
+realism, leakage control, and artifact availability remain uneven.
+
+We audited the screening stage on a stratified double-screening sample
+of 182 raw screening records in Supplementary Material S1. Because that sample
+predates the final 92-record canonical registry, it is retained only as a
+screening-boundary quality check. It is not used as evidence for
+extraction-level protocol fields, reproducibility tiers, or A-C-A
+classification robustness. To address the more consequential coding decisions,
+we added a targeted extraction-level audit over 15fixed-seed primary studies (seed=20260426). The audit covers action output,
+closed-loop evaluation, evidence role, evaluation type, split protocol, cost
+model, execution semantics, universe/survivorship handling, artifacts, and
+R0–R3 reproducibility. The per-study coding sheet and adjudication notes are
+provided in Supplementary Material S3.
+
+|  |  |  |  |  |
+| --- | --- | --- | --- | --- |
+| Audit layer | Sample | Observed agreement | Agreement note | Scope |
+| S1 screening-boundary audit | 182 raw records | Reported in S1 | Boundary only | Inclusion/exclusion and screening-stage labels |
+| S3 extraction-level audit | 15primary studies | 100.0% after adjudication | field-dependent; see Supplementary Material S3 | Extraction fields used for protocol and reproducibility statistics |
+
+Accordingly, the A-C-A lens should be read as an exploratory
+analytical lens for organizing the current evidence base, not as a settled or
+externally established classification scheme. Corpus-level descriptive statistics for protocol
+reporting, reproducibility, and peer-review status are summarized in
+[Appendix B](#A2 "Appendix B Corpus Snapshot of the Evidence Ledger ‣ Agentic Trading: When LLM Agents Meet Financial Markets"); boundary decisions and final exclusions
+are summarized in [Appendix D](#A4 "Appendix D Excluded Studies and Rationale ‣ Agentic Trading: When LLM Agents Meet Financial Markets"). Detailed query strings,
+screening logs, extraction tables, reliability-audit files, and coding notes are provided in
+Supplementary Materials S1–S3.
+
+### 2.1 Agentic Trading as an Expert-System Decision Pipeline
+
+For the purposes of ESWA, we interpret LLM-based trading agents as
+expert-system decision pipelines. This framing makes the evaluation problem
+explicit. Perception modules perform knowledge acquisition from prices, news,
+filings, social media, and market microstructure signals. Memory,
+retrieval-augmented generation, and tool-mediated context stores form a
+knowledge base whose provenance and update rules must be inspectable. Reasoning
+modules act as inference engines that convert state representations into
+hypotheses, rationales, and candidate decisions. Action and execution modules
+form the external action interface, where target weights, orders, fills,
+latency assumptions, and market frictions must be made explicit. Risk controls,
+compliance filters, and portfolio limits serve as rule constraints on the path
+from inference to action. Finally, logs, immutable artifacts, and human
+oversight provide the explanation and accountability layer expected of
+decision-support systems.
+
+This expert-system framing motivates the protocol audit in the rest of
+the paper. A trading agent can appear architecturally sophisticated while still
+being empirically weak if the evaluation omits temporal splits, transaction
+costs, universe construction, execution semantics, or reproducible artifacts.
+The A-C-A lens is therefore used to locate evidence gaps across the pipeline:
+architecture describes where knowledge is acquired, stored, inferred, and acted
+upon; capability describes which trading function is being supported; and
+adaptation describes how the decision pipeline changes under feedback.
+
+## 3 Perceptual Architecture
+
+The preceding section introduced the cognitive architecture of agentic traders.
+This section addresses the question: “How do agents perceive
+financial markets?”
+
+In this survey, we strictly define Perception as the mechanism by which an agent acquires a state observation OtO\_{t} from the environment state StS\_{t} at decision time tt. This distinction is critical: general financial NLP or time-series forecasting models (e.g., standalone BERT or LSTM predictors) are considered Background (BG) unless they are explicitly integrated into an agent’s decision loop. Under the primary-subset boundary specified in [Section 2](#S2 "2 Review Protocol and Evidence Scope ‣ Agentic Trading: When LLM Agents Meet Financial Markets"), BG systems lack the closed-loop integration required for agentic classification but may provide valuable perceptual capabilities that end-to-end agents incorporate.
+
+A perception module must do more than predict; it must provide actionable state representations—such as sentiment scores, market regime indicators, or visual summaries—that the agent’s reasoning component can utilize to formulate valid actions.
+
+
+[... middle omitted — see footer ...]
+
+
+
+Arch: Market Ecology (no central coordination); Cap: α\alpha+P+R emergent; Adapt: Evolutionary
+
+
+✓
+
+
+✓
+
+
+✓
+
+
+RL+SE
+
+
+
+
+
+Ecology = emergent capabilities from
+
+interaction, not design
+
+
+
+FinEvoZou et al. ([2026](#bib.bib19 "FinEvo: from isolated backtests to ecological market games for multi-agent financial strategy evolution"))
+
+
+D: “Evolution”
+
+
+Arch: Market Ecology + Hierarchical; Cap: α\alpha; Adapt: Evolutionary + SE
+
+
+✓
+
+
+✓
+
+
+✓
+
+
+SE
+
+
+
+
+
+Combines ecology (interaction) with
+
+hierarchy (structure)
+
+### C.3 Illustrative Patterns from Reclassification
+
+Pattern 1: Architecture-Capability Non-Alignment.
+The same Reactive Architecture (FinAgent, AgentGuard) supports different capabilities (α\alpha vs R) depending on perceptual input and memory integration. This cross-cutting pattern is obscured by capability-centric categorizations.
+
+Pattern 2: Adaptation Level Distinction.
+Works classified uniformly as “learning-based” in prior frameworks distribute across three adaptation levels: ICL (Chain-of-Alpha, RAG-Fintech), SFT (FinRS, MetaGPT), and SE (AlphaAgent, FinEvo). Each has distinct protocol requirements (Sec. [13](#S13 "13 Challenges and Future Directions ‣ Agentic Trading: When LLM Agents Meet Financial Markets")).
+
+Pattern 3: Multi-Agent Architectural Hierarchy.
+Prior frameworks often use broad “multi-agent” labels. The A-C-A lens
+distinguishes role-based, hierarchical, and market-ecology coordination patterns,
+making the coordination mechanism visible rather than treating agent count as
+the primary distinction.
+
+### C.4 Coding Status
+
+In this revision, the coding notes are summarized qualitatively through author
+reconciliation examples rather than through placeholder agreement/kappa
+numerics. This is sufficient to show A-C-A’s usefulness as an organizing lens
+for this manuscript, but not sufficient to establish it as a fully validated or
+uniquely correct taxonomy for the field.
+
+### C.5 Limitations of the Reclassification Notes
+
+Selection Bias: 20 works selected from a broader review corpus spanning included studies, background references, and a small number of boundary cases used to stress-test the A-C-A lens; they were not randomly sampled.
+
+Temporal Coverage: 85% (17/20) from 2024–2026, reflecting field recency. Earlier works may reveal different architectural patterns.
+
+Prior Framework Availability: Not all works classified in existing surveys. Where unavailable, we inferred likely categorization based on paper content and survey scope.
+
+Despite these limitations, the reclassification notes suggest that the
+A-C-A lens provides useful analytical granularity for distinguishing design
+choices and surfacing architectural patterns that may be obscured by broader
+system- or task-level labels.
+
+## Appendix D Excluded Studies and Rationale
+
+To ensure transparency and enable auditability of our evidence mapping
+process, this appendix distinguishes two decisions that are easy to conflate.
+First, *final exclusions* are candidate-registry records outside the
+finance/trading/portfolio/risk-management scope of this survey. Second,
+*background-tier boundary decisions* are finance-relevant records that
+remain in the included evidence ledger but do not enter the primary empirical
+subset because they lack Action Output or Closed-Loop Evaluation. Using
+PRISMA-ScR as a reporting aid for scoping-style transparency rather than as a
+claim of a full systematic-review workflow, we document both decision types to
+facilitate audit and assessment of potential selection bias.
+
+### D.1 Exclusion Categories and Boundary Decisions
+
+Candidate records were finally excluded only when they were outside the
+domain boundary of this survey. Finance-relevant records that were prediction
+models, benchmarks, tools, or conceptual background papers were retained as
+background/context where useful, but were excluded from the primary empirical
+denominator. The operational criteria are:
+
+No Action Output: Pure prediction or analysis systems that do not generate tradable actions. These are background-tier records when finance-relevant, not final exclusions.
+
+No Closed-Loop Evaluation: Systems that output signals or ideas but lack backtest, simulation, or live-trading evaluation. These are background-tier records when finance-relevant, not final exclusions.
+
+Non-Financial Domain: Systems applied to non-financial markets or generic agent settings without financial trading, portfolio, execution, or risk-management instantiation. These form the final excluded set in the current canonical registry.
+
+No LLM Component: Traditional quantitative trading systems without a language-model component. These may be cited only as background context when needed for finance methodology.
+
+Duplicate: Multiple versions of the same work; the most complete version is retained.
+
+Inaccessible: Full text not available after reasonable effort.
+
+### D.2 Representative Final Exclusions and Background Boundary Cases
+
+[Table 25](#A4.T25 "In D.2 Representative Final Exclusions and Background Boundary Cases ‣ Appendix D Excluded Studies and Rationale ‣ Agentic Trading: When LLM Agents Meet Financial Markets") separates final exclusions from background
+boundary cases. The aggregate exclusion count in the current canonical registry
+is 15, all of which are outside the finance/trading scope; the
+background cases remain in the 77-record included ledger but do
+not enter the 19-record primary empirical subset.
+
+|  |  |  |
+| --- | --- | --- |
+| Study (Representative) | Category | Decision rationale |
+| Final excluded records in the current canonical registry | | |
+| Socio-Agentic LLMs for Socio-Technical Systems | E3 | Generic socio-technical agent paper outside finance/trading/portfolio/risk management. |
+| Learning Game-Playing Agents with Generative Code Optimization | E3 | General game-playing agent study without financial-market instantiation. |
+| NeSyCoCo | E3 | Neuro-symbolic compositional generalization study outside the trading domain. |
+| Agentic AI for Commercial Insurance Underwriting | E3 | Insurance underwriting rather than trading, portfolio construction, execution, or market-risk management. |
+| Included background boundary cases | | |
+| FinBERT (Araci 2019) | E1/BG | Finance-relevant sentiment model retained as background; no tradable action loop, so it is excluded from the primary empirical subset. |
+| FinGPT (Wang 2023a) | E1/BG | Finance language-model/tooling work retained as background; no explicit closed-loop trading execution integration. |
+| InvestorBench | E2/BG | Finance benchmark retained as background; not counted as a primary empirical trading-agent system under Action Output plus Closed-Loop Evaluation. |
+
+### D.3 Inclusion/Exclusion Decision Flow
+
+Candidate registry(n=92n=92)After deduplication(n=92n=92)Finance/tradingdomain?Final excludedoutside scope(n=15n=15)Included evidencemapping ledger(n=77n=77)Action Outputand Closed-LoopEvaluation?Primary empiricalsubset(n=19n=19)Background/contexttier(n=58n=58)NoYesYesNo
+
+[Figure 17](#A4.F17 "In D.3 Inclusion/Exclusion Decision Flow ‣ Appendix D Excluded Studies and Rationale ‣ Agentic Trading: When LLM Agents Meet Financial Markets") illustrates the screening logic encoded in the canonical ledger and summarized in the main text. It should be read as an auditable reconstruction of the inclusion/exclusion workflow rather than as a separate inter-rater reliability audit.
+
+### D.4 Impact of Exclusion Criteria on Evidence Set
+
+The application of the domain boundary and minimum agent criteria
+substantially changed how records are interpreted. In the current auditable
+registry, 15 records were excluded during
+screening/eligibility after deduplication because they were outside the survey
+domain. Separately, finance-relevant records that lacked Action Output or
+Closed-Loop Evaluation were retained as background/context rather than counted
+as final exclusions. The exclusion summary used in the main text therefore
+reports the macro-backed categories in [Table 3](#S2.T3 "In 2 Review Protocol and Evidence Scope ‣ Agentic Trading: When LLM Agents Meet Financial Markets") rather
+than legacy raw screening-log totals from earlier search iterations.
+
+This filtering yields an included evidence-mapping set
+(n=77n=77); a primary empirical subset (n=19n=19)
+was then coded for protocol-complete synthesis, while the remaining included
+records are retained as background/context where appropriate. Readers should
+therefore distinguish between included evidence, primary empirical evidence,
+background references, and final exclusions when interpreting percentages and
+narrative claims.
+
+## References
+
+![[LOGO]][IMAGE]
+
+## Instructions for reporting errors
+
+We are continuing to improve HTML versions of papers, and your feedback helps enhance accessibility and mobile
+support. To report errors in the HTML that will help us improve conversion and rendering, choose any of the
+methods listed below:
+
+**Tip:** You can select the relevant text first, to include it in your report.
+
+Our team has already identified [the following issues](https://github.com/arXiv/html_feedback/issues). We appreciate your time reviewing and reporting rendering errors we
+may not have found yet. Your efforts will help us improve the HTML versions for all readers, because disability
+should not be a barrier to accessing research. Thank you for your continued support in championing open access for
+all.
+
+Have a free development cycle? Help support accessibility at arXiv! Our collaborators at LaTeXML maintain a [list of packages that need conversion](https://github.com/brucemiller/LaTeXML/wiki/Porting-LaTeX-packages-for-LaTeXML), and welcome [developer contributions](https://github.com/brucemiller/LaTeXML/issues).
+
+![Simons Foundation](/static/base/1.0.1/images/funders/simons-foundation.png)
+![Simons Foundation International](/static/base/1.0.1/images/funders/simons-foundation-international.png)
+![Schmidt Sciences](/static/base/1.0.1/images/funders/schmidt-sciences.png)
+
+──────── [TRUNCATED] ────────
+Showing 29,895 chars (head) + 9,990 chars (tail) of 243,097 total clean characters.
+Full text saved to: C:\Users\thaqi\AppData\Local\hermes\cache\web\arxiv.org-63b6026fec.md
+To read the omitted middle: read_file path="C:\Users\thaqi\AppData\Local\hermes\cache\web\arxiv.org-63b6026fec.md" offset=396 limit=200  (the file is the complete page; raise/lower offset to page through it).
+─────────────────────────────

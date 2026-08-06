@@ -1,0 +1,346 @@
+##### Report GitHub Issue
+
+Content selection saved. Describe the issue below:
+
+![](/static/base/1.0.1/images/icons/smileybones-small.svg)
+![arXiv logo](/static/base/1.0.1/images/arxiv-logo-primary-light.svg)
+
+# EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization for Robust Quantitative Trading
+
+###### Abstract
+
+Quantitative strategy optimization remains largely manual, requiring domain experts to identify weak signals, tune risk-control rules, and repeatedly validate iterative revisions. Large language models can accelerate this process, but directly relying on them to rewrite trading strategies often introduces hallucinated edits, strategy drift, and backtest overfitting.
+We propose EvoQuant, a self-Evolving Verifier-guided framework for strategy Optimization in Quantitative trading. Our method utilize LLMs to deeply diagnoses performance bottlenecks, generates semantically controlled candidate edits, selects the best strategy through a multi-stage verification pipeline, and distills optimization experience into reusable knowledge for continual self-improvement. We evaluate our method using seven representative strategies: four from the A-share market and three from the Crypto market. Experimental results show that our method significantly improves the Sharpe ratio across all tested strategies: the average test Sharpe increases from −0.298-0.298 to 0.5380.538, and the best-performing strategy achieves a 199%199\% relative improvement. Ablation studies and stress tests under stricter conditions further validate the effectiveness and robustness of the framework111Our code is available at <https://anonymous.4open.science/r/EVOQUANT>.. Overall, this work transforms quantitative strategy optimization from costly manual trial-and-error into an automated and verifiable iterative paradigm, offering a new path for applying large language models to financial strategy research.
+
+EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization
+  
+for Robust Quantitative Trading
+
+Jie Mao1,∗\ast,
+Changlun Li1,2,∗\ast,
+Xiang Li1,
+Qiqi Duan2,
+Jinhui Yuan1,
+Xiang Liu1,
+
+Yuyu Luo1,2,
+Jing Tang1,
+Xiaowen Chu1,
+Nan Tang1,2,†\dagger
+
+1HKUST(GZ)  2Paradoox AI Research
+
+∗\ast Equal contribution.  †\dagger Corresponding author: nantang@hkust-gz.edu.cn
+
+## 1 Introduction
+
+Quantitative strategy development is fundamentally an iterative scientific process: researchers propose a testable market hypothesis, implement a trading rule, validate its performance through rigorous backtesting, diagnose failure modes, revise the hypothesis, and repeat this cycle continuously to adapt to non-stationary market regimes Noormohammadzadehmaleki et al. ([2026](#bib.bib37 "Artificial intelligence methods for financial market prediction: a systematic review")); Zhou et al. ([2025](#bib.bib42 "DeltaLag: learning dynamic lead-lag patterns in financial markets")); Li et al. ([2025a](#bib.bib43 "Time travel is cheating: going live with deepfund for real-time fund investment benchmarking"), [b](#bib.bib44 "Finkario: event-enhanced automated construction of financial knowledge graph")).
+As summarized in Figure [1](#S1.F1 "Figure 1 ‣ 1 Introduction ‣ EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization for Robust Quantitative Trading")(a), traditional manual optimization of quantitative strategies is constrained by scarce domain expertise, repetitive labor-intensive analysis, low iteration efficiency, and performance bottlenecks that are difficult to overcome Wang et al. ([2023](#bib.bib16 "Alpha-gpt: human-ai interactive alpha mining for quantitative investment")); Yu et al. ([2023](#bib.bib40 "Finmem: a performance-enhanced llm trading agent with layered memory and character design")).
+
+As shown in Figure [1](#S1.F1 "Figure 1 ‣ 1 Introduction ‣ EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization for Robust Quantitative Trading")(b), Modern large language model (LLM) agents promise to dramatically accelerate this iterative loop by automating code generation, hypothesis testing, and strategy refinement Luo et al. ([2025](#bib.bib48 "Large language model agent: a survey on methodology, applications and challenges")); Tang et al. ([2025a](#bib.bib47 "AgentBuilder: automating agent creation via large language model-driven systems")); Dong et al. ([2025](#bib.bib46 "A survey on code generation with llm-based agents")). Nevertheless, the direct application of general-purpose large language models (LLMs) to quantitative finance introduces new critical challenges. Specifically, these models are prone to generating hallucinatory trading rules, producing unverifiable and unexecutable strategy modifications, and failing to provide transparent causal explanations for their proposed changes Wu et al. ([2025](#bib.bib50 "Natural language inference as a judge: detecting factuality and causality issues in language model self-reasoning for financial analysis")); Li et al. ([2024a](#bib.bib49 "The dawn after the dark: an empirical study on factuality hallucination in large language models")). A system that generates many candidates can look impressive by exploiting noisy validation windows, low trade counts, or unreported degrees of freedom White ([2000](#bib.bib3 "A reality check for data snooping")); Bailey et al. ([2015](#bib.bib1 "Mathematical appendices to: ’the probability of backtest overfitting’")); Harvey ([2013](#bib.bib5 "… And the cross-section of expected returns")). Therefore, the central problem is not simply to generate strategies, but to improve strategies under a protocol that records, verifies, and rejects unsafe edits.
+
+![Refer to caption](2607.12455v1/x1.png)
+
+Existing LLM-driven quantitative finance studies focus on autonomous trading strategy construction and alpha factor mining Kou et al. ([2024](#bib.bib45 "Automate strategy finding with llm in quant investment")); Tang et al. ([2025b](#bib.bib21 "AlphaAgent: llm-driven alpha mining with regularized exploration to counteract alpha decay")); Wang et al. ([2026](#bib.bib26 "FactorMiner: a self-evolving agent with skills and experience memory for financial alpha discovery")); Li et al. ([2025c](#bib.bib51 "R&D-agent-quant: a multi-agent framework for data-centric factors and model joint optimization")); Tian et al. ([2025](#bib.bib52 "Agent-based genetic algorithm for crypto trading strategy optimization")). In contrast, we study a more practically impactful yet understudied problem: the systematic improvement of existing deployed quantitative strategies. Figure [1](#S1.F1 "Figure 1 ‣ 1 Introduction ‣ EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization for Robust Quantitative Trading")(c) illustrates the workflow and advantages of our proposed optimization framework. Our framework takes a user-provided quantitative strategy as input.
+Unlike unconstrained generative search, we formulate automated strategy optimization as a closed-loop scientific process. In this process, the system explicitly represents the underlying hypothesis, diagnoses current failure modes, guides the LLM to generate controlled optimization hypotheses step by step, and adopts a modification only after it survives a rigorous multi-stage verification pipeline.
+
+The proposed method implements this design through four technical principles.
+(i) It converts raw strategy logic into a typed strategy genome. This genome serves as an editable intermediate representation that supports interventions ranging from parameter tuning and local structural repair to logic rewriting.
+(ii) It builds an LLM-based strategy risk-diagnosis agent. By integrating backtest evidence across multiple time periods, the agent analyzes failure modes from the perspectives of trading behavior, risk exposure, and market compatibility, thereby identifying the core weaknesses of the current strategy.
+(iii) Candidate generation is conditioned on the diagnostic results and organized into a hierarchy of increasingly expressive edits. Guided by the LLM, the system progresses from conservative local tuning to structural reconstruction, strategy-family migration, and hypothesis rewriting. Each candidate is emitted as an explicit edit plan over the strategy genome, enabling drift constraints during optimization and post-hoc provenance auditing.
+(iv) An out-of-sample-aware verifier and an adaptive promotion engine jointly screen candidates through hard admission rules and robustness penalties. A candidate replaces the current incumbent only after passing all verification stages.
+In addition, a built-in knowledge-distillation module continuously distills effective experience from the optimization process into a reusable strategy knowledge base, enabling continual self-improvement of the system.
+
+We evaluate whether the proposed iterative process improves quantitative strategies across both equity and cryptocurrency markets while mitigating single-asset artifacts and optimization overfitting.
+Across seven representative strategies, the system consistently improves test performance, raising the average Sharpe ratio from −0.298-0.298 to 0.5380.538, with the best-performing strategy achieving a 199%199\% relative improvement.
+Ablation and stress-test results further show that diagnosis, LLM-based candidate generation, adaptive promotion, and reusable memory each contribute to robust optimization gains.
+
+Our contributions are:
+
+Evidence-constrained strategy evolution. We formulate automated quantitative strategy improvement as evidence-constrained program evolution, where user-provided strategies are represented as structured trading genomes that support localized, executable, and provenance-preserving edits.
+
+LLM-enabled verifier-guided optimization protocol. We develop a verifier-guided optimization framework that uses LLMs for failure-mode diagnosis and hierarchical candidate synthesis, while integrating out-of-sample-aware verification, adaptive promotion, and memory-based experience reuse into a unified auditable loop.
+
+Long-horizon cross-market evaluation. We provide a long-horizon empirical evaluation across A-share and Bitcoin strategies, including before–after performance comparisons, component ablations, transaction-cost stress tests, and walk-forward validation.
+
+## 2 Related Work
+
+Backtest overfitting and data snooping.
+Financial machine learning has long recognized that repeated strategy search can inflate apparent performance through data snooping and backtest overfitting White ([2000](#bib.bib3 "A reality check for data snooping")); Bailey et al. ([2015](#bib.bib1 "Mathematical appendices to: ’the probability of backtest overfitting’")). Practical treatments emphasize leakage-aware validation Schwendner ([2020](#bib.bib2 "Advances in financial machine learning")), and recent theory quantifies in-sample to out-of-sample Sharpe decay Jacquier et al. ([2025](#bib.bib20 "In-sample and out-of-sample sharpe ratios for linear predictive models")). Our work addresses this concern by logging rejected candidates, exposing low-trade failures, tracking validation–test behavior, and reporting non-degradation rather than only the best discovered strategy.
+
+LLM agents and iterative refinement.
+LLM agents can reason, act, and revise outputs through feedback loops Yao et al. ([2022](#bib.bib7 "React: synergizing reasoning and acting in language models")); Shinn et al. ([2023](#bib.bib8 "Reflexion: language agents with verbal reinforcement learning")); Madaan et al. ([2023](#bib.bib9 "Self-refine: iterative refinement with self-feedback")), and recent finance agents extend this pattern to market analysis, factor mining, and tool-augmented trading Zhang et al. ([2024](#bib.bib41 "A multimodal foundation agent for financial trading: tool-augmented, diversified, and generalist")); Li et al. ([2024b](#bib.bib18 "Can large language models mine interpretable financial factors more effectively? a neural-symbolic factor mining agent model")); Zhang et al. ([2025](#bib.bib19 "A survey on large language model-based alpha mining")). Newer benchmarks and critiques highlight instability and weak deployment evidence in LLM trading agents Zhang et al. ([2026](#bib.bib25 "AlphaForgeBench: benchmarking end-to-end trading strategy design with large language models")); Ye et al. ([2026](#bib.bib27 "The alpha illusion: reported alpha from llm trading agents should not be treated as deployment evidence")). EvoQuant differs by grounding each strategy edit in chronological backtests, trade-coverage checks, cost assumptions, and risk-sensitive promotion.
+
+Programmatic strategy search.
+Programmatic strategy search has moved from evolutionary and symbolic alpha discovery Kakushadze et al. ([2016](#bib.bib11 "101 formulaic alphas")); Cui et al. ([2021](#bib.bib17 "AlphaEvolve: a learning framework to discover novel alphas in quantitative investment")) toward automated formulaic-alpha mining with reinforcement learning, LLM agents, structure-aware search, and dedicated evaluation protocols Shi et al. ([2024](#bib.bib13 "AlphaForge: a framework to mine and dynamically combine formulaic alpha factors")); Zhao et al. ([2024](#bib.bib15 "QuantFactor reinforce: mining steady formulaic alpha factors with variance-bounded reinforce")); Tang et al. ([2025b](#bib.bib21 "AlphaAgent: llm-driven alpha mining with regularized exploration to counteract alpha decay")); Ding et al. ([2025](#bib.bib22 "AlphaEval: a comprehensive and efficient evaluation framework for formula alpha mining")); Chen et al. ([2025](#bib.bib23 "AlphaSAGE: structure-aware alpha mining via gflownets for robust exploration")); Yang et al. ([2026](#bib.bib24 "Alpha discovery via grammar-guided learning and search")); Wang et al. ([2026](#bib.bib26 "FactorMiner: a self-evolving agent with skills and experience memory for financial alpha discovery")). These approaches scale candidate generation and assessment, but broad search spaces can blur whether a gain reflects principled refinement of an initial market hypothesis or selection among many degrees of freedom. EvoQuant instead treats optimization as constrained program evolution from a user-provided strategy, with typed genome edits, diagnosis-conditioned generation, out-of-sample-aware promotion gates, and an explicit audit trail.
+
+## 3 Methodology
+
+EvoQuant casts quantitative strategy optimization as *verifier-guided program evolution*. As shown in Figure [2](#S3.F2 "Figure 2 ‣ 3 Methodology ‣ EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization for Robust Quantitative Trading"), the system contains four modules: strategy ingestion and representation, baseline evidence construction, a diagnostic–generative optimization loop, and final strategy refinement/output. The core design of our framework emphasizes practical execution over pure generation. The large language model proposes strategy revisions within controllable scopes, and components including the backtester and verifier jointly determine whether such revisions are admissible.
+
+At round tt, the incumbent genome gtg\_{t} is evaluated into an evidence pack EtE\_{t}. The optimization loop diagnoses the current bottleneck, generates candidates 𝒞t\mathcal{C}\_{t}, and promotes only a verified candidate:
+
+|  |  |  |
+| --- | --- | --- |
+|  | gt+1={ct⋆,if ​ct⋆​ is accepted by ​Π,gt,otherwise.g\_{t+1}=\begin{cases}c^{\star}\_{t},&\text{if }c^{\star}\_{t}\text{ is accepted by }\Pi,\\ g\_{t},&\text{otherwise}.\end{cases} |  |
+
+where ct⋆c^{\star}\_{t} is the best verified candidate selected from 𝒞t\mathcal{C}\_{t}, and Π\Pi denotes the promotion rule later specified in Module 3.
+The loop adopts a conservative design: failed candidates are stored with rejection reasons and later used to avoid repeating unproductive edits.
+
+![Refer to caption](2607.12455v1/x2.png)
+
+### 3.1 Module 1: Strategy Ingestion and Representation
+
+EvoQuant first normalizes the user strategy into a typed intermediate representation called a *strategy genome*. This module performs four steps. First, it parses raw code or rule text into an abstract syntax tree. Second, it tags trading semantics such as signals, entry conditions, risk rules, position sizing, and exits. Third, it factors the strategy into editable layers. Finally, it recompiles the genome to ensure that the representation remains executable. Formally, the parser Φ\Phi maps a strategy ss to
+
+|  |  |  |
+| --- | --- | --- |
+|  | Φ​(s)=g=(gsig,grisk,gpos,gentry,gexit,ξ),\Phi(s)=g=\big(g^{\mathrm{sig}},g^{\mathrm{risk}},g^{\mathrm{pos}},g^{\mathrm{entry}},g^{\mathrm{exit}},\xi\big), |  |
+
+where ξ\xi stores provenance, strategy family, parent identifiers, and mutation history. The output of this module is not merely a parsed program, but an editable research object. Later edits must specify the target layer, satisfy non-anticipativity and exposure constraints, and compile back to executable strategy semantics gg.
+
+### 3.2 Module 2: Baseline Evaluation and Evidence Construction
+
+EvoQuant next measures the original strategy before attempting to improve it. The evaluator loads real market data, constructs chronological splits, and runs the incumbent genome under the same execution assumptions used for all future candidates. It records both scalar metrics and behavioral profiles, producing
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | E​(g)=\displaystyle E(g)= | {MX,PXtrade,PXregime}X∈{train,val,test}\displaystyle\Big\{M\_{X},\;P\_{X}^{\mathrm{trade}},\;P\_{X}^{\mathrm{regime}}\Big\}\_{X\in\{\mathrm{train},\mathrm{val},\mathrm{test}\}} |  |
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  |  | ∪{δoos,Cconc,Hrisk}.\displaystyle\cup\{\delta\_{\mathrm{oos}},\;C\_{\mathrm{conc}},\;H\_{\mathrm{risk}}\}. |  |
+
+Here, MXM\_{X} comprises performance metrics such as return, Sharpe ratio, maximum drawdown, trade count, win rate, and related statistics. PXtradeP\_{X}^{\mathrm{trade}} characterizes trading behaviors including trade sparsity, holding period distributions, and return concentration, while PXregimeP\_{X}^{\mathrm{regime}} quantifies the strategy’s sensitivity to different market regimes. The metric δoos\delta\_{\mathrm{oos}} reflects the degradation from validation to out-of-sample (OOS) performance, and HriskH\_{\mathrm{risk}} documents abnormal risk phenomena, such as excessive stop-loss triggering or truncated upside returns. This module provides comprehensive evidence for the downstream diagnostic loop, enabling the system to assess not only whether a strategy underperforms, but also to elucidate the specific failure modes underlying any observed weaknesses.
+
+### 3.3 Module 3: Strategy Optimization Pipeline
+
+Bottleneck Diagnosis and Search Planning.
+It starts by turning Evidence pack statistics into a bottleneck diagnosis and a concrete search plan.
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | zt\displaystyle z\_{t} | =B​(Et,ℳt),\displaystyle=B(E\_{t},\mathcal{M}\_{t}), |  |
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | pt\displaystyle p\_{t} | =(ot,ℓt,𝒪t,ℱt,Kt).\displaystyle=(o\_{t},\ell\_{t},\mathcal{O}\_{t},\mathcal{F}\_{t},K\_{t}). |  |
+
+The diagnosis is implemented by large language models through rule-based evidence verification and in-depth analysis. It identifies failure modes such as risk-rule alpha truncation, regime mismatch, validation decay and so on. The search plan then specifies the round objective oto\_{t}, search level ℓt\ell\_{t}, allowed operators 𝒪t\mathcal{O}\_{t}, forbidden shortcuts ℱt\mathcal{F}\_{t}, and candidate budget KtK\_{t}.
+
+The diagnosis constrains the generator’s action space. For example, If the bottleneck is validation–OOS decay, the plan favors simplification, robustness repair, and parameter smoothing rather than adding more regime-specific conditions. The search level progresses from *repair* to *bridge*, *redesign*, and finally *family migration*. This keeps the adaptivity of AutoML and LLM-as-optimizer loops Hutter et al. ([2011](#bib.bib29 "Sequential model-based optimization for general algorithm configuration")); Akiba et al. ([2019](#bib.bib30 "Optuna: a next-generation hyperparameter optimization framework")); Yang et al. ([2023](#bib.bib35 "Large language models as optimizers")); Guo et al. ([2024](#bib.bib36 "Connecting large language models with evolutionary algorithms yields powerful prompt optimizers")), but makes each search step accountable to a financial failure mode.
+
+Candidate Generation and Controlled Editing.
+Given the search plan, EvoQuant builds a candidate-generation prompt from four artifacts: the current genome, a compressed EvidencePack, the bottleneck diagnosis, and retrieved memory cases. The LLM must return a controlled edit plan with fields for target layer, operation, patch content, mechanism rationale, expected metric movement, and safety constraints. A candidate is accepted for testing only if it satisfies the typed edit contract:
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | ct,i\displaystyle c\_{t,i} | =Δt,i​(gt),\displaystyle=\Delta\_{t,i}(g\_{t}), |  |
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | Δt,i\displaystyle\Delta\_{t,i} | ∈𝒯​(pt,ℳt),\displaystyle\in\mathcal{T}(p\_{t},\mathcal{M}\_{t}), |  |
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | dG​(gt,ct,i)\displaystyle d\_{G}(g\_{t},c\_{t,i}) | ≤ϵℓt,ℐ​(ct,i)=1.\displaystyle\leq\epsilon\_{\ell\_{t}},\quad\mathcal{I}(c\_{t,i})=1. |  |
+
+Here Δt,i\Delta\_{t,i} is an edit operator, dGd\_{G} measures semantic drift from the incumbent, and ℐ\mathcal{I} checks executable and financial invariants. In practice, parameter repair adjusts lookback windows, thresholds, stop widths, and position caps; bridge edits modify entry filters, exit rules, or signal combinations; redesign rewrites the strategy graph around a coherent market mechanism. Family migration, the highest-tier modification, shifts to a nearby strategy family after repeated local failures. Before evaluation, candidates are compiled, deduplicated by genome hash, and diversified so that one round does not spend all budget on near-identical edits.
+
+OOS-Aware Verification, Promotion, and Memory.
+The verifier evaluates candidates in parallel under the same data split and execution assumptions as the incumbent. It first applies hard gates that are intentionally simple and difficult to game:
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | G​(c)=1⟺\displaystyle G(c)=1\;\Longleftrightarrow | Nval​(c)≥nmin,Noos​(c)≥nmin,\displaystyle N\_{\mathrm{val}}(c)\geq n\_{\min},\;N\_{\mathrm{oos}}(c)\geq n\_{\min}, |  |
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  |  | MDDoos​(c)≤d¯,\displaystyle\mathrm{MDD}\_{\mathrm{oos}}(c)\leq\bar{d}, |  |
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  |  | dG​(gt,c)≤ϵℓt,ℐ​(c)=1.\displaystyle d\_{G}(g\_{t},c)\leq\epsilon\_{\ell\_{t}},\;\mathcal{I}(c)=1. |  |
+
+These gates remove non-executable, zero-trade, overly drifting, and high-drawdown candidates before any soft scoring. Gated candidates are then ranked with a compact score:
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  | Q​(c)=\displaystyle Q(c)= | wv​Δ​Sval+wo​Δ​Soos+wr​Δ​Roos\displaystyle w\_{v}\Delta S\_{\mathrm{val}}+w\_{o}\Delta S\_{\mathrm{oos}}+w\_{r}\Delta R\_{\mathrm{oos}} |  |
+|  |  |  |  |
+| --- | --- | --- | --- |
+|  |  | −λd​Pdd−λg​Pgap−λs​Pstress.\displaystyle-\lambda\_{d}P\_{\mathrm{dd}}-\lambda\_{g}P\_{\mathrm{gap}}-\lambda\_{s}P\_{\mathrm{stress}}. |  |
+
+Here SS denotes Sharpe, RR denotes return, PP denotes the penalty and all deltas are candidate-minus-incumbent. The penalties capture OOS (out-of-sample) drawdown expansion, validation–OOS discrepancy, and lightweight stress probes such as fee/slippage perturbation, one-bar delay, and parameter jitter. The score deliberately separates validation improvement from out-of-sample audit behavior, so a fluent rewrite that wins only on validation is not automatically promotable.
+
+The promotion engine assigns each candidate to adopt, incubate, or reject. Adopt replaces the incumbent only when the candidate passes hard gates and exceeds an adaptive score threshold. Incubate stores candidates that show a plausible mechanism but insufficient evidence, while reject records failure reasons such as zero trades, OOS collapse, excessive drift, or abnormal drawdown. After the decision, Memory module stores the diagnosis, search plan, edit summary, candidate evidence, decision, and failure reason. This memory is first distilled and persisted in the strategy repository, serving dual purposes in subsequent iterations: retrieving proven optimization paradigms and blacklisting recurrent failure mechanisms, thereby enabling continuous self-improvement of the system.
+
+### 3.4 Module 4: Iterative Refinement and Final Strategy Output
+
+The final module manages convergence and output. It tracks the best verified genome observed across the trajectory,
+
+|  |  |  |
+| --- | --- | --- |
+|  | gt⋆=arg⁡maxg∈ℋt⁡Qaudit​(g),g^{\star}\_{t}=\arg\max\_{g\in\mathcal{H}\_{t}}Q\_{\mathrm{audit}}(g), |  |
+
+where ℋt\mathcal{H}\_{t} contains adopted and incubated candidates observed so far. If local repairs fail repeatedly, the controller escalates to bridge edits, redesign, and finally family migration. The loop stops when the round budget is exhausted, the audit score converges, or no admissible search level passes verification. The final output includes the optimized strategy code g⋆{g^{\star}}, a pre/post backtest report, and the full optimization trajectory with diagnoses, edit plans, promotion decisions, and memory records.
+
+## 4 Experimental Protocol
+
+Data and LLM Backend.
+All experimental data are obtained from the AKShare database222<https://akshare.akfamily.xyz/>. We use daily historical data for both the A-share market and Bitcoin from 1/1/2020 to 31/12/2025. For all components that require large language model inference, we use the DeepSeek-R1 model Suma and Dauncey ([2025](#bib.bib53 "Deepseek-r1: incentivizing reasoning capability in llms via reinforcement learning")). Each optimization run lasts 20 iterations.
+
+A-share Main Task.
+We evaluate four representative A-share quantitative strategies: an EMA-RSI trend-continuation strategy, a Bollinger Band-RSI mean-reversion strategy, a volume-breakout strategy, and a low-volatility quality-stock strategy. We randomly sample 30 stocks as the experimental universe and independently optimize each strategy–stock pair.
+For each strategy family, the final performance is computed as an equal-weighted portfolio over the 30 optimized stock-level strategies. All core empirical conclusions for the A-share market are based on these portfolio-level backtest results.
+
+Bitcoin Main Task.
+We further evaluate three Bitcoin trading strategies: a MACD-RSI-Bollinger Band strategy, an ATR trend-breakout strategy, and an oversold-reversal strategy.
+This experiment examines whether the proposed optimization framework can adapt to an alternative asset class with substantially different volatility and trend characteristics, while still improving strategy performance.
+
+Ablation Studies.
+To isolate where the optimization gains come from, we organize the ablation study into two groups. The first group, *setting variations*, changes the search or selection configuration while keeping the overall pipeline intact: *Simple threshold* replaces adaptive promotion with a fixed threshold rule, *Parameter only* restricts candidate generation to parameter-level tuning, and *Random mutation only* replaces diagnosis-conditioned generation with random edits. The second group, *pipeline variations*, removes major functional modules from the full system: *w/o promotion engine* disables adaptive candidate adoption, *w/o rule diagnosis* removes rule-based failure-mode diagnosis, and *w/o memory* disables both retrieval from and writing to historical optimization experience. All ablations are conducted on the A-share volume-breakout task (See Table [5](#S5 "5 Results ‣ EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization for Robust Quantitative Trading")).
+
+Robustness and Walk-Forward Tests.
+We perform robustness and walk-forward tests on the A-share volume-breakout strategy. For robustness, we double the transaction cost and slippage assumptions, and change the “train/validation/test” split points. For walk-forward tests, we use two distinct rolling windows (2020-2023, 2021-latest) compared to the original (2020-2025).
+
+## 5 Results
+
+| Market | Strategy family | Sharpe ↑\uparrow | | | Return (%) ↑\uparrow | | | MDD (%)↓\downarrow | | |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Base | Opt. | Δ\Delta | Base | Opt. | Δ\Delta | Base | Opt. | Δ\Delta |
+| A-share | Bollinger Reversion | 0.351 | 0.966 | 0.615 | 4.89 | 9.02 | 4.13 | 5.01 | 6.71 | 1.70 |
+| EMA-RSI Trend | -0.465 | 0.367 | 0.832 | 1.64 | 16.83 | 15.19 | 14.36 | 10.41 | -3.95 |
+| Low-Vol Quality | -0.500 | 0.386 | 0.885 | 1.58 | 17.86 | 16.28 | 9.30 | 8.26 | -1.04 |
+| Volume Breakout | -0.493 | 0.489 | 0.982 | -2.21 | 15.74 | 17.95 | 4.81 | 6.62 | 1.81 |
+| Crypto | MACD-RSI Bollinger | -1.118 | 0.265 | 1.383 | -13.27 | 5.42 | 18.69 | 18.22 | 8.54 | -9.68 |
+| ATR Trend Breakout | -1.536 | -1.050 | 0.486 | -14.48 | -9.67 | 4.81 | 14.06 | 12.01 | -2.05 |
+| Oversold Reversal | -0.838 | 0.679 | 1.516 | -8.37 | 11.56 | 19.93 | 16.53 | 12.17 | -4.36 |
+
+![Refer to caption](2607.12455v1/x3.png)
+
+|  |  |  |  |
+| --- | --- | --- | --- |
+| Volume Breakout | Sharpe Δ\Delta | Return Δ\Delta | MDD Δ\Delta |
+| EvoQuant Fully loaded | 0.982 | 17.95 | 1.81 |
+| [0pt][0pt]     Setting variations | | | |
+| Simple threshold | 0.053 | 3.39 | 3.34 |
+| Parameter only | 0.274 | 6.59 | -0.21 |
+| Random mutation only | 0.645 | 13.05 | 2.34 |
+| [0pt][0pt]     Pipeline variations | | | |
+| w/o promotion engine | 0.128 | 4.32 | 2.72 |
+| w/o rule diagnosis | 0.693 | 9.99 | -2.76 |
+| w/o memory | 0.782 | 15.95 | -2.19 |
+
+|  |  |  |  |  |  |  |  |  |  |  |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Protocol | Strategy | Sharpe ↑\uparrow | | | Return (%) ↑\uparrow | | | MDD (%) ↓\downarrow | | |
+
+[... middle omitted — see footer ...]
+
+
+Improvement is not just random edits.
+The ablation study indicates that the main benefit does not come from blindly perturbing strategy parameters or rules. Random mutation can occasionally find useful changes, but it lacks the failure-mode diagnosis, mechanism-aware hypothesis generation, and rejection feedback needed for reliable optimization. In contrast, LLM-guided strategy optimization contributes by turning backtest evidence into targeted edit hypotheses, explaining why an edit should help, and embedding those hypotheses in an evidence-aware promotion protocol.
+
+Verification is central to the contribution.
+The gains should be interpreted as risk-adjusted improvements under explicit evidence gates, not as universal drawdown reduction. Some A-share strategies accept higher drawdown in exchange for larger return and Sharpe, while the robustness tests show that the effect weakens under stricter settings without disappearing. This positions LLM-enabled strategy optimization as a verification problem as much as a generation problem: fluent edits are easy to produce, but trustworthy evidence requires chronological validation, provenance tracking, adaptive promotion, and visible rejection logs.
+
+## 7 Conclusion and Future Work
+
+This paper studied automated quantitative strategy optimization as a verifier-guided program-evolution problem. Across A-share and Bitcoin strategies, EvoQuant improves risk-adjusted performance while keeping the optimization process auditable through explicit evidence gates and recorded edit decisions.
+
+Future work can extend the evaluation to more realistic execution assumptions, larger investable universes, and stronger verifiers that combine statistical robustness tests with domain-specific financial constraints. These extensions would further clarify the boundary between useful automated strategy improvement and overfitting-driven search.
+
+## Limitations
+
+This study is a research prototype, not an investment recommendation.
+The backtests use local daily data and simplified execution assumptions.
+Although we stress fees and slippage, real trading introduces liquidity, market impact, survivorship, corporate action, borrow, and operational constraints.
+The A-share evaluation uses randomly sampled available symbols rather than a fully investable historical universe with delisting reconstruction.
+The LLM comparison is also limited by local model/API configuration and budget.
+These limitations do not invalidate the system contribution, but they bound the financial interpretation of the results.
+
+## Ethical Considerations
+
+This work studies automated strategy optimization for quantitative trading.
+The methods are evaluated exclusively on historical backtests and do not constitute financial advice or a live trading system.
+No personally identifiable information, proprietary data, or confidential market data were used.
+All equity and cryptocurrency price data used in experiments are publicly available daily OHLCV records.
+Any third-party models, APIs, datasets, or market data sources used by the artifact remain subject to their original licenses and terms of use.
+
+The paper does not claim that the presented system is safe for deployment in real financial markets.
+As discussed in the Limitations section, the evaluation relies on simplified execution assumptions that do not account for liquidity, market impact, or survivorship bias.
+Practitioners who build on this work bear full responsibility for compliance with applicable financial regulations and risk management requirements.
+
+## References
+
+## Appendix A Prompt Templates
+
+This appendix lists the prompt templates used by EvoQuant for LLM-enabled candidate generation and diagnosis.
+All prompts were used verbatim in the frontier LLM experiments reported in Section 5.4.
+
+### A.1 Diagnosis Prompt
+
+The diagnosis prompt receives the evidence pack (returns, Sharpe, drawdown, trade counts, recent rejection reasons) and produces a structured bottleneck report.
+
+### A.2 LLM Candidate Generation Prompt
+
+The candidate generation prompt receives the current genome and the diagnosed bottlenecks, and proposes a single edited genome as a JSON diff.
+
+### A.3 Promotion Explanation Prompt
+
+When a candidate is promoted, EvoQuant optionally queries the LLM for a human-readable explanation of the change, which is stored in the audit trail.
+
+## Appendix B Additional Experimental Results
+
+This appendix provides supplementary experimental results that support the claims in the main paper but were omitted from the main text due to space constraints.
+
+### B.1 Main A-Share and Bitcoin Results
+
+Figure [4](#A2.F4 "Figure 4 ‣ B.1 Main A-Share and Bitcoin Results ‣ Appendix B Additional Experimental Results ‣ Ethical Considerations ‣ Limitations ‣ 7 Conclusion and Future Work ‣ 6 Discussion ‣ 5.4 Robustness and Walk-Forward ‣ 5.3 Ablation Study ‣ 5.2 Main Bitcoin Results ‣ 5.1 Main A-Share Results ‣ 5 Results ‣ EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization for Robust Quantitative Trading") shows that the optimized strategies generally achieve stronger return trajectories than their original counterparts across both A-share and Bitcoin tasks.
+For the A-share EMA-RSI Trend and Bollinger Reversion strategies, optimization leads to higher cumulative returns throughout the validation and test periods, with especially clear gains in the later test window.
+For Bitcoin strategies, the effect is more divergent: the optimized MACD-RSI Bollinger strategy improves substantially and ends with a higher return, whereas the optimized ATR Trend Breakout strategy underperforms the original strategy in the test period despite remaining profitable.
+
+![Refer to caption](2607.12455v1/x4.png)
+
+### B.2 Per-Symbol Sharpe Uplift Distribution
+
+Figure [5](#A2.F5 "Figure 5 ‣ B.2 Per-Symbol Sharpe Uplift Distribution ‣ Appendix B Additional Experimental Results ‣ Ethical Considerations ‣ Limitations ‣ 7 Conclusion and Future Work ‣ 6 Discussion ‣ 5.4 Robustness and Walk-Forward ‣ 5.3 Ablation Study ‣ 5.2 Main Bitcoin Results ‣ 5.1 Main A-Share Results ‣ 5 Results ‣ EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization for Robust Quantitative Trading") shows the full distribution of per-symbol test Sharpe uplift across all 120 A-share tasks (i.e., task counted by the multiplication of 30 A-share stocks and 4 typical strategies) in the canonical seed-42 run.
+The distribution is right-skewed, with a long tail of large improvements and a small mass of degradations, consistent with the 115/120 non-degradation rate reported in the main text.
+
+The mean test Sharpe uplift is positive in every case, indicating that the gains are not driven by a single strategy type.
+The improvement is strongest for the Volume Breakout family, followed by Low-Vol Quality and EMA-RSI Trend, while Bollinger Reversion shows a smaller but still clear uplift.
+Overall, these results suggest that the verifier-guided optimization process can generalize across different A-share strategy families rather than only benefiting one specific signal design.
+
+![Refer to caption](2607.12455v1/x5.png)
+
+### B.3 Rejection Reasons
+
+We further analyzed the rejection reasons across all experiments to characterize the optimizer’s failure modes and the verifier’s screening behavior.
+
+The rejection analysis (see Figure [6](#A2.F6 "Figure 6 ‣ B.3 Rejection Reasons ‣ Appendix B Additional Experimental Results ‣ Ethical Considerations ‣ Limitations ‣ 7 Conclusion and Future Work ‣ 6 Discussion ‣ 5.4 Robustness and Walk-Forward ‣ 5.3 Ablation Study ‣ 5.2 Main Bitcoin Results ‣ 5.1 Main A-Share Results ‣ 5 Results ‣ EVOQUANT: Self-Evolving Verifier-Guided Strategy Optimization for Robust Quantitative Trading")) reveals how the verifier filters unsafe or unreliable candidate strategies.
+The most frequent rejection reason is sparse trade coverage across OOS splits, indicating that many candidates do not generate enough out-of-sample trades to support reliable evaluation.
+A smaller number of candidates are rejected because their risk-adjusted quality falls below the target or because their performance is unstable across market regimes.
+Only a few candidates are rejected solely because current-window gains fail to transfer OOS.
+
+![Refer to caption](2607.12455v1/x6.png)
+![[LOGO]][IMAGE]
+
+## Instructions for reporting errors
+
+We are continuing to improve HTML versions of papers, and your feedback helps enhance accessibility and mobile
+support. To report errors in the HTML that will help us improve conversion and rendering, choose any of the
+methods listed below:
+
+**Tip:** You can select the relevant text first, to include it in your report.
+
+Our team has already identified [the following issues](https://github.com/arXiv/html_feedback/issues). We appreciate your time reviewing and reporting rendering errors we
+may not have found yet. Your efforts will help us improve the HTML versions for all readers, because disability
+should not be a barrier to accessing research. Thank you for your continued support in championing open access for
+all.
+
+Have a free development cycle? Help support accessibility at arXiv! Our collaborators at LaTeXML maintain a [list of packages that need conversion](https://github.com/brucemiller/LaTeXML/wiki/Porting-LaTeX-packages-for-LaTeXML), and welcome [developer contributions](https://github.com/brucemiller/LaTeXML/issues).
+
+![Simons Foundation](/static/base/1.0.1/images/funders/simons-foundation.png)
+![Simons Foundation International](/static/base/1.0.1/images/funders/simons-foundation-international.png)
+![Schmidt Sciences](/static/base/1.0.1/images/funders/schmidt-sciences.png)
+
+──────── [TRUNCATED] ────────
+Showing 29,946 chars (head) + 9,655 chars (tail) of 46,130 total clean characters.
+Full text saved to: C:\Users\thaqi\AppData\Local\hermes\cache\web\arxiv.org-38f811b745.md
+To read the omitted middle: read_file path="C:\Users\thaqi\AppData\Local\hermes\cache\web\arxiv.org-38f811b745.md" offset=232 limit=200  (the file is the complete page; raise/lower offset to page through it).
+─────────────────────────────
