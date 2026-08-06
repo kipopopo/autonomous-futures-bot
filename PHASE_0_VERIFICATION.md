@@ -1,7 +1,7 @@
 # Phase 0 Verification — Pure Domain Slice
 
-**Status:** Domain slice GREEN; Phase 0 overall remains in progress.
-**Execution mode:** Local Windows project environment only.
+**Status:** Phase 0 local foundation GREEN; Phase 1 has not started.
+**CI status:** Quality workflow committed; GitHub will execute it on push and pull request.
 **Safety boundary:** No exchange credentials, authenticated client, order endpoint, database service, VPS deployment, OpenCode request, or frontend scaffold was used.
 
 ## Delivered in this slice
