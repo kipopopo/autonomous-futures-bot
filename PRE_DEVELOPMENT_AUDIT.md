@@ -89,7 +89,7 @@ The following candidate pins were rechecked against official release pages/regis
 | TypeScript | 7.0.2 | Pin |
 | Vite | 8.2.0 | Pin |
 | Tailwind CSS | 4.3.3 | Pin |
-| shadcn/ui CLI | 4.16.1 | Pin |
+| Magic UI registry | Select components during dashboard implementation; lock all resolved frontend dependencies | Component source; shadcn CLI remains installer/registry tooling only |
 
 Python 3.14.7 is the latest stable feature release identified from Python's release page.[1]
 
@@ -103,7 +103,9 @@ Node 24.19.0 is the latest LTS line while Node 26.7.0 is current/non-LTS; the LT
 
 The React and Vite pins were checked against the npm package registry.[6][7]
 
-The TypeScript, Tailwind CSS, and shadcn/ui pins were checked against the npm package registry.[8][9][10]
+The TypeScript and Tailwind CSS pins were checked against the npm package registry.[8][9]
+
+Magic UI's official installation docs use the shadcn CLI to initialize a project and add `@magicui/...` registry components; this project adopts Magic UI as its component source and does not adopt shadcn/ui as its dashboard kit.[10]
 
 The database and web-runtime package pins were checked against their PyPI package pages.[12][17][18]
 
@@ -283,7 +285,7 @@ Remaining gates are PostgreSQL private deployment, application/API implementatio
 [7] https://www.npmjs.com/package/vite
 [8] https://www.npmjs.com/package/typescript
 [9] https://www.npmjs.com/package/tailwindcss
-[10] https://www.npmjs.com/package/shadcn
+[10] https://magicui.design/docs/installation — Magic UI installation
 [11] https://pypi.org/project/binance-sdk-derivatives-trading-usds-futures
 [12] https://pypi.org/project/psycopg
 [13] https://pypi.org/project/pandas

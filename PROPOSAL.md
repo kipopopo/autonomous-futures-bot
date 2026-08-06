@@ -974,9 +974,11 @@ Preferred starting point is Option A, while domain contracts, idempotency, and r
 | TypeScript | 7.0.2 | Strict frontend contracts |
 | Vite | 8.2.0 | Build tooling |
 | Tailwind CSS | 4.3.3 | Styling |
-| shadcn/ui CLI | 4.16.1 | Accessible component primitives |
+| Magic UI registry | Components selected per page and locked in the frontend lockfile | Visual component source; local component code is reviewed and committed |
 
-The dashboard starts only after the domain/API vertical slice can expose real data. It will not use fake performance metrics.
+Magic UI is the selected dashboard component source. Its official installation flow uses the `shadcn` CLI only as a bootstrap/registry tool, then adds selected components through `@magicui/...` entries.[53] `shadcn/ui` is therefore not the dashboard's component kit; no shadcn/ui components will be scaffolded for this project. Every selected Magic UI component and its runtime dependency is reviewed, package-locked, and committed with the frontend.
+
+The dashboard starts only after the domain/API vertical slice can expose real data. It will not use fake performance metrics. It follows an accessible dark, data-dense finance design: `PAPER` state, data freshness, halted/error state, and risk exposure appear above the fold. Magic UI motion is optional, supports `prefers-reduced-motion`, and is limited to non-safety-critical status transitions; particle, beam, glare, confetti, and similar decorative effects are prohibited from risk, execution, and incident views.
 
 ### 11.4 Deliberately excluded infrastructure
 
@@ -1487,3 +1489,4 @@ It should **not** include:
 [46] https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf
 [51] https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info — Binance USD-M Futures General Info
 [52] https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/change-log — Binance USD-M Futures Change Log
+[53] https://magicui.design/docs/installation — Magic UI installation
