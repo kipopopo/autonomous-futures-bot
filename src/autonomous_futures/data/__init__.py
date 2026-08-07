@@ -25,6 +25,13 @@ from .builder import (
     build_kline_dataset,
     read_kline_csv,
 )
+from .bundle import (
+    DatasetBundle,
+    build_dataset_bundle,
+    find_bundle_component,
+    read_dataset_bundle,
+    write_dataset_bundle,
+)
 from .checkpoint import (
     BackfillCheckpoint,
     build_checkpoint,
@@ -114,6 +121,7 @@ __all__ = [
     "BackfillResult",
     "BackfillWindow",
     "DatasetCollectionManifest",
+    "DatasetBundle",
     "DatasetManifest",
     "DerivativesArtifactManifest",
     "DatasetRegistry",
@@ -129,6 +137,7 @@ __all__ = [
     "build_kline_collection",
     "build_kline_dataset",
     "build_dataset_registry",
+    "build_dataset_bundle",
     "build_public_url",
     "BinancePublicKlineFetcher",
     "BinancePublicExchangeInfoFetcher",
@@ -144,6 +153,7 @@ __all__ = [
     "finalize_resumable_backfill",
     "find_timestamp_gaps",
     "find_dataset_entry",
+    "find_bundle_component",
     "fully_closed_end_ms",
     "closed_end_exclusive",
     "merge_kline_rows",
@@ -156,6 +166,7 @@ __all__ = [
     "read_manifest",
     "read_exchange_filter_snapshot",
     "read_dataset_registry",
+    "read_dataset_bundle",
     "read_kline_csv",
     "RetryPolicy",
     "resumable_backfill_klines",
@@ -172,4 +183,5 @@ __all__ = [
     "validate_order_filters",
     "write_exchange_filter_snapshot",
     "write_dataset_registry",
+    "write_dataset_bundle",
 ]
