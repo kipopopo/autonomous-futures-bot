@@ -1,4 +1,12 @@
-from .app import BundleResponse, HealthResponse, RegistryResponse, app, create_app
+from .app import (
+    BundleResponse,
+    ComponentsResponse,
+    HealthResponse,
+    RegistryResponse,
+    app,
+    create_app,
+)
+from .artifacts import ArtifactInspection, ArtifactIntegrityError, inspect_artifact_entry
 from .catalog import (
     DatasetCatalogIntegrityError,
     VerifiedDatasetCatalog,
@@ -7,11 +15,15 @@ from .catalog import (
 
 __all__ = [
     "BundleResponse",
+    "ComponentsResponse",
+    "ArtifactInspection",
+    "ArtifactIntegrityError",
     "DatasetCatalogIntegrityError",
     "HealthResponse",
     "RegistryResponse",
     "VerifiedDatasetCatalog",
     "app",
     "create_app",
+    "inspect_artifact_entry",
     "load_verified_dataset_catalog",
 ]

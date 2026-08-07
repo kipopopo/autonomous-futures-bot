@@ -120,9 +120,11 @@ src/autonomous_futures/api/catalog.py
 tests/unit/test_api.py
 ```
 
-## Deferred scope
+## Completed in Phase 2b
 
-This slice intentionally does not include:
+Storage-backed artifact inspection is now available through `GET /api/v1/dataset/components`. The endpoint verifies the configured artifact root and all bundle-bound manifest/content hashes before returning typed metadata.
+
+The following remain intentionally out of scope:
 
 - Parquet row/query endpoints;
 - authenticated exchange access;

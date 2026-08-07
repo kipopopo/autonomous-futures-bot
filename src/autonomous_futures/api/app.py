@@ -9,6 +9,11 @@ from fastapi import FastAPI, HTTPException
 from ..data.bundle import DatasetBundle
 from ..data.registry import DatasetRegistry
 from ..domain.contracts import DomainModel
+from .artifacts import (
+    ArtifactInspection,
+    ArtifactIntegrityError,
+    inspect_dataset_artifacts,
+)
 from .catalog import (
     DatasetCatalogIntegrityError,
     VerifiedDatasetCatalog,
@@ -36,16 +41,30 @@ class RegistryResponse(DomainModel):
     registry: DatasetRegistry
 
 
+class ComponentsResponse(DomainModel):
+    verified: Literal[True] = True
+    component_count: int
+    components: tuple[ArtifactInspection, ...]
+
+
 def _configured_path(environment_name: str, default: str) -> Path:
     return Path(os.environ.get(environment_name, default))
 
 
-def create_app(*, bundle_path: Path | None = None, registry_path: Path | None = None) -> FastAPI:
+def create_app(
+    *,
+    bundle_path: Path | None = None,
+    registry_path: Path | None = None,
+    artifact_root: Path | None = None,
+) -> FastAPI:
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
     )
     configured_registry_path = registry_path or _configured_path(
         "AFBOT_DATASET_REGISTRY_PATH", "data/dataset-registry.json"
+    )
+    configured_artifact_root = artifact_root or _configured_path(
+        "AFBOT_DATASET_ARTIFACT_ROOT", "data"
     )
 
     app = FastAPI(
@@ -86,6 +105,18 @@ def create_app(*, bundle_path: Path | None = None, registry_path: Path | None = 
         catalog = verified_catalog()
         return RegistryResponse(registry=catalog.registry)
 
+    @app.get("/api/v1/dataset/components", response_model=ComponentsResponse)
+    def dataset_components() -> ComponentsResponse:
+        catalog = verified_catalog()
+        try:
+            components = inspect_dataset_artifacts(configured_artifact_root, catalog)
+        except ArtifactIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="dataset artifact integrity verification failed",
+            ) from exc
+        return ComponentsResponse(component_count=len(components), components=components)
+
     return app
 
 
@@ -94,6 +125,7 @@ app = create_app()
 
 __all__ = [
     "BundleResponse",
+    "ComponentsResponse",
     "HealthResponse",
     "RegistryResponse",
     "app",
