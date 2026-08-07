@@ -69,6 +69,14 @@ from .public_collector import (
     build_public_url,
     fully_closed_end_ms,
 )
+from .registry import (
+    DatasetRegistry,
+    DatasetRegistryEntry,
+    build_dataset_registry,
+    find_dataset_entry,
+    read_dataset_registry,
+    write_dataset_registry,
+)
 from .transport import (
     MAX_BINANCE_FUNDING_LIMIT,
     BinancePublicExchangeInfoFetcher,
@@ -99,6 +107,8 @@ __all__ = [
     "BackfillWindow",
     "DatasetCollectionManifest",
     "DatasetManifest",
+    "DatasetRegistry",
+    "DatasetRegistryEntry",
     "ExchangeFilterSnapshot",
     "ExchangeFilterViolation",
     "ExchangeSymbolFilters",
@@ -109,6 +119,7 @@ __all__ = [
     "build_manifest",
     "build_kline_collection",
     "build_kline_dataset",
+    "build_dataset_registry",
     "build_public_url",
     "BinancePublicKlineFetcher",
     "BinancePublicExchangeInfoFetcher",
@@ -123,6 +134,7 @@ __all__ = [
     "describe_data_file",
     "finalize_resumable_backfill",
     "find_timestamp_gaps",
+    "find_dataset_entry",
     "fully_closed_end_ms",
     "closed_end_exclusive",
     "merge_kline_rows",
@@ -131,6 +143,7 @@ __all__ = [
     "read_collection_manifest",
     "read_manifest",
     "read_exchange_filter_snapshot",
+    "read_dataset_registry",
     "read_kline_csv",
     "RetryPolicy",
     "resumable_backfill_klines",
@@ -144,4 +157,5 @@ __all__ = [
     "write_manifest",
     "validate_order_filters",
     "write_exchange_filter_snapshot",
+    "write_dataset_registry",
 ]
