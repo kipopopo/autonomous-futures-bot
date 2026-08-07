@@ -256,6 +256,56 @@ class BinancePublicFundingFetcher:
         )
 
 
+class BinancePublicExchangeInfoFetcher:
+    """Unsigned adapter for Binance USDⓈ-M exchange information."""
+
+    def __init__(
+        self,
+        *,
+        get_json: Callable[[str, dict[str, object]], object] = public_get,
+        telemetry: TransportTelemetry | None = None,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
+        self._get_json = get_json
+        self.telemetry = telemetry or TransportTelemetry()
+        self._clock = clock
+
+    def __call__(self) -> dict[str, object]:
+        started_at = self._clock()
+        try:
+            payload = self._get_json("/fapi/v1/exchangeInfo", {})
+            if not isinstance(payload, dict):
+                raise PublicTransportError(
+                    "Binance exchangeInfo response must be an object",
+                    retryable=False,
+                )
+        except PublicTransportError as exc:
+            self.telemetry.observe(
+                latency_seconds=self._clock() - started_at,
+                success=False,
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                retry_after_seconds=exc.retry_after_seconds,
+            )
+            raise
+        except (ConnectionError, HTTPError, TimeoutError, URLError) as exc:
+            classified = classify_public_transport_error(exc)
+            self.telemetry.observe(
+                latency_seconds=self._clock() - started_at,
+                success=False,
+                status_code=classified.status_code,
+                retryable=classified.retryable,
+                retry_after_seconds=classified.retry_after_seconds,
+            )
+            raise classified from exc
+        self.telemetry.observe(
+            latency_seconds=self._clock() - started_at,
+            success=True,
+            status_code=None,
+        )
+        return cast(dict[str, object], payload)
+
+
 class BinancePublicMarkPriceKlineFetcher:
     """Unsigned adapter for Binance mark-price klines."""
 
@@ -398,6 +448,7 @@ class BinancePublicKlineFetcher:
 
 
 __all__ = [
+    "BinancePublicExchangeInfoFetcher",
     "BinancePublicKlineFetcher",
     "PublicTransportError",
     "TransportTelemetry",

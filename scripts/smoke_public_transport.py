@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import UTC, datetime
 
 from autonomous_futures.data.alignment import (
     canonicalize_funding_rows,
     canonicalize_mark_price_klines,
 )
 from autonomous_futures.data.backfill import BackfillWindow, merge_kline_rows
+from autonomous_futures.data.exchange_filters import build_exchange_filter_snapshot
 from autonomous_futures.data.public_collector import fully_closed_end_ms, server_time
 from autonomous_futures.data.transport import (
+    BinancePublicExchangeInfoFetcher,
     BinancePublicFundingFetcher,
     BinancePublicKlineFetcher,
     BinancePublicMarkPriceKlineFetcher,
@@ -80,6 +83,12 @@ def main() -> None:
         start_ms=funding_start_ms,
         end_exclusive_ms=server_ms,
     )
+    exchange_info = BinancePublicExchangeInfoFetcher(telemetry=telemetry)()
+    filter_snapshot = build_exchange_filter_snapshot(
+        exchange_info,
+        symbols=SYMBOLS,
+        observed_at=datetime.fromtimestamp(server_ms / 1000, tz=UTC),
+    )
     snapshot = telemetry.snapshot()
     print(
         json.dumps(
@@ -90,6 +99,7 @@ def main() -> None:
                     "/fapi/v1/klines",
                     "/fapi/v1/markPriceKlines",
                     "/fapi/v1/fundingRate",
+                    "/fapi/v1/exchangeInfo",
                 ],
                 "authenticated": False,
                 "server_time_ms": server_ms,
@@ -103,6 +113,24 @@ def main() -> None:
                     "funding_endpoint": "/fapi/v1/fundingRate",
                     "funding_rows": len(funding_canonical),
                     "funding_events_sorted": True,
+                },
+                "exchange_filters": {
+                    "snapshot_hash": filter_snapshot.snapshot_hash,
+                    "symbols": [
+                        {
+                            "symbol": item.symbol,
+                            "status": item.status,
+                            "contract_type": item.contract_type,
+                            "price_tick_size": str(item.price_tick_size),
+                            "quantity_step_size": str(item.quantity_step_size),
+                            "quantity_min": str(item.quantity_min),
+                            "min_notional": str(item.min_notional),
+                            "max_notional": (
+                                str(item.max_notional) if item.max_notional is not None else None
+                            ),
+                        }
+                        for item in filter_snapshot.symbols
+                    ],
                 },
                 "telemetry": {
                     "request_count": snapshot.request_count,
