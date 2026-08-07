@@ -3,7 +3,12 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
+from ..domain.errors import DomainViolation
+from .builder import KlineInterval
+from .checkpoint import build_checkpoint, read_checkpoint, write_checkpoint
 from .parquet import DataQualityError
 
 MAX_BINANCE_KLINE_LIMIT = 1_500
@@ -175,6 +180,7 @@ def backfill_klines(
     page_limit: int = MAX_BINANCE_KLINE_LIMIT,
     retry_policy: RetryPolicy | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    on_window_complete: Callable[[BackfillWindow], None] | None = None,
 ) -> BackfillResult:
     """Fetch planned pages with bounded transient retries and strict merge validation."""
     policy = retry_policy or RetryPolicy()
@@ -223,6 +229,14 @@ def backfill_klines(
                 sleep(delay)
                 continue
             pages.append(tuple(tuple(row) for row in page))
+            if on_window_complete is not None:
+                merge_kline_rows(
+                    (pages[-1],),
+                    start_ms=window.start_ms,
+                    end_ms_exclusive=window.end_ms_exclusive,
+                    interval_ms=interval_ms,
+                )
+                on_window_complete(window)
             break
 
     rows = merge_kline_rows(
@@ -239,6 +253,98 @@ def backfill_klines(
     )
 
 
+def resumable_backfill_klines(
+    fetch_page: Callable[[BackfillWindow], Sequence[Sequence[object]]],
+    checkpoint_path: Path,
+    *,
+    job_id: str,
+    symbol: str,
+    interval: KlineInterval,
+    start_ms: int,
+    requested_end_exclusive: int,
+    now_ms: int,
+    interval_ms: int,
+    page_limit: int = MAX_BINANCE_KLINE_LIMIT,
+    retry_policy: RetryPolicy | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    checkpoint_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> BackfillResult:
+    """Resume page-by-page backfill from the last durable completed window."""
+    end_exclusive = closed_end_exclusive(
+        requested_end_exclusive,
+        now_ms=now_ms,
+        interval_ms=interval_ms,
+    )
+    all_windows = plan_kline_windows(
+        start_ms,
+        end_exclusive,
+        interval_ms=interval_ms,
+        page_limit=page_limit,
+    )
+    if checkpoint_path.exists():
+        checkpoint = read_checkpoint(checkpoint_path)
+        if (
+            checkpoint.job_id,
+            checkpoint.symbol,
+            checkpoint.interval,
+            checkpoint.range_start_ms,
+            checkpoint.range_end_exclusive,
+        ) != (job_id, symbol, interval, start_ms, end_exclusive):
+            raise DomainViolation(f"checkpoint scope mismatch: {checkpoint_path}")
+        expected_completed = tuple(
+            (window.start_ms, window.end_ms_exclusive)
+            for window in all_windows[: len(checkpoint.completed_windows)]
+        )
+        if checkpoint.completed_windows != expected_completed:
+            raise DomainViolation(f"checkpoint page plan mismatch: {checkpoint_path}")
+        resume_start_ms = checkpoint.next_start_ms
+        completed_windows = checkpoint.completed_windows
+    else:
+        checkpoint = build_checkpoint(
+            job_id=job_id,
+            symbol=symbol,
+            interval=interval,
+            range_start_ms=start_ms,
+            range_end_exclusive=end_exclusive,
+            next_start_ms=start_ms,
+            completed_windows=(),
+            updated_at=checkpoint_clock(),
+        )
+        write_checkpoint(checkpoint_path, checkpoint)
+        resume_start_ms = start_ms
+        completed_windows = ()
+
+    if resume_start_ms == end_exclusive:
+        return BackfillResult(rows=(), windows=(), attempt_count=0, retry_delays=())
+
+    def persist_completed_window(window: BackfillWindow) -> None:
+        nonlocal completed_windows
+        completed_windows = (*completed_windows, (window.start_ms, window.end_ms_exclusive))
+        next_checkpoint = build_checkpoint(
+            job_id=job_id,
+            symbol=symbol,
+            interval=interval,
+            range_start_ms=start_ms,
+            range_end_exclusive=end_exclusive,
+            next_start_ms=window.end_ms_exclusive,
+            completed_windows=completed_windows,
+            updated_at=checkpoint_clock(),
+        )
+        write_checkpoint(checkpoint_path, next_checkpoint)
+
+    return backfill_klines(
+        fetch_page,
+        resume_start_ms,
+        end_exclusive,
+        now_ms=now_ms,
+        interval_ms=interval_ms,
+        page_limit=page_limit,
+        retry_policy=retry_policy,
+        sleep=sleep,
+        on_window_complete=persist_completed_window,
+    )
+
+
 __all__ = [
     "MAX_BINANCE_KLINE_LIMIT",
     "BackfillError",
@@ -250,4 +356,5 @@ __all__ = [
     "closed_end_exclusive",
     "merge_kline_rows",
     "plan_kline_windows",
+    "resumable_backfill_klines",
 ]

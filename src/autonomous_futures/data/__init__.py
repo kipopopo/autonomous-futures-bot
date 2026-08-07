@@ -9,6 +9,7 @@ from .backfill import (
     closed_end_exclusive,
     merge_kline_rows,
     plan_kline_windows,
+    resumable_backfill_klines,
 )
 from .builder import (
     CANONICAL_KLINE_COLUMNS,
@@ -94,6 +95,7 @@ __all__ = [
     "read_manifest",
     "read_kline_csv",
     "RetryPolicy",
+    "resumable_backfill_klines",
     "PublicTransportError",
     "plan_kline_windows",
     "write_canonical_parquet",
