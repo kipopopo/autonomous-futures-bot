@@ -1,5 +1,13 @@
 """Paper-safe research-plane contracts."""
 
+from .cached_evaluation import (
+    CachedEvaluationRun,
+    CachedEvaluationWindow,
+    CachedEvaluationWindowSpec,
+    CachedEvaluator,
+    CachedOnlyEvaluatorAdapter,
+    CachedWindowEvaluation,
+)
 from .creator_artifacts import (
     CandidateState,
     CreatorCandidateArtifact,
@@ -36,6 +44,12 @@ __all__ = [
     "read_creator_candidate_registry",
     "write_creator_candidate_artifact",
     "write_creator_candidate_registry",
+    "CachedEvaluationRun",
+    "CachedEvaluationWindow",
+    "CachedEvaluationWindowSpec",
+    "CachedEvaluator",
+    "CachedOnlyEvaluatorAdapter",
+    "CachedWindowEvaluation",
     "CreatorCandidateQualificationArtifact",
     "QualificationComparator",
     "QualificationDecision",
