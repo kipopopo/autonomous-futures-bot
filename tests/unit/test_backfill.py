@@ -255,6 +255,8 @@ def test_resumable_backfill_persists_completed_pages_and_resumes(tmp_path) -> No
 
     assert resumed_calls == [start_ms + 2 * interval_ms]
     assert [row[0] for row in result.rows] == [
+        start_ms,
+        start_ms + interval_ms,
         start_ms + 2 * interval_ms,
         start_ms + 3 * interval_ms,
     ]

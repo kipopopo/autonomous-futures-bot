@@ -24,7 +24,13 @@ def write_canonical_parquet(
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     table = pa.Table.from_pandas(canonical, preserve_index=False)
-    pq.write_table(table, path, compression="zstd")
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    try:
+        pq.write_table(table, temporary_path, compression="zstd")
+        temporary_path.replace(path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
     return canonical
 
 

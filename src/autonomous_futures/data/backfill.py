@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -76,6 +77,74 @@ class BackfillResult:
     windows: tuple[BackfillWindow, ...]
     attempt_count: int
     retry_delays: tuple[float, ...]
+
+
+class BackfillPageStore:
+    """Atomic JSON page storage used to reconstruct a resumed full dataset."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    @classmethod
+    def for_checkpoint(cls, checkpoint_path: Path) -> BackfillPageStore:
+        return cls(checkpoint_path.with_name(f"{checkpoint_path.stem}.pages"))
+
+    def _path(self, window: BackfillWindow) -> Path:
+        return self.root / f"{window.start_ms}-{window.end_ms_exclusive}.json"
+
+    def write(
+        self,
+        window: BackfillWindow,
+        rows: Sequence[Sequence[object]],
+        *,
+        interval_ms: int,
+    ) -> tuple[tuple[object, ...], ...]:
+        validated = merge_kline_rows(
+            (rows,),
+            start_ms=window.start_ms,
+            end_ms_exclusive=window.end_ms_exclusive,
+            interval_ms=interval_ms,
+        )
+        self.root.mkdir(parents=True, exist_ok=True)
+        path = self._path(window)
+        payload = (
+            json.dumps(
+                {
+                    "start_ms": window.start_ms,
+                    "end_ms_exclusive": window.end_ms_exclusive,
+                    "rows": validated,
+                },
+                separators=(",", ":"),
+                default=str,
+            )
+            + "\n"
+        )
+        temporary_path = path.with_name(f".{path.name}.tmp")
+        temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+        temporary_path.replace(path)
+        return validated
+
+    def read(
+        self,
+        window: BackfillWindow,
+        *,
+        interval_ms: int,
+    ) -> tuple[tuple[object, ...], ...]:
+        path = self._path(window)
+        if not path.exists():
+            raise DomainViolation(f"missing persisted backfill page: {path}")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            payload.get("start_ms") != window.start_ms
+            or payload.get("end_ms_exclusive") != window.end_ms_exclusive
+        ):
+            raise DomainViolation(f"backfill page scope mismatch: {path}")
+        return merge_kline_rows(
+            (payload.get("rows", ()),),
+            start_ms=window.start_ms,
+            end_ms_exclusive=window.end_ms_exclusive,
+            interval_ms=interval_ms,
+        )
 
 
 def _require_aligned(value_ms: int, interval_ms: int, *, field: str) -> None:
@@ -180,7 +249,8 @@ def backfill_klines(
     page_limit: int = MAX_BINANCE_KLINE_LIMIT,
     retry_policy: RetryPolicy | None = None,
     sleep: Callable[[float], None] = time.sleep,
-    on_window_complete: Callable[[BackfillWindow], None] | None = None,
+    on_window_complete: Callable[[BackfillWindow, tuple[tuple[object, ...], ...]], None]
+    | None = None,
 ) -> BackfillResult:
     """Fetch planned pages with bounded transient retries and strict merge validation."""
     policy = retry_policy or RetryPolicy()
@@ -236,7 +306,7 @@ def backfill_klines(
                     end_ms_exclusive=window.end_ms_exclusive,
                     interval_ms=interval_ms,
                 )
-                on_window_complete(window)
+                on_window_complete(window, pages[-1])
             break
 
     rows = merge_kline_rows(
@@ -281,6 +351,7 @@ def resumable_backfill_klines(
         interval_ms=interval_ms,
         page_limit=page_limit,
     )
+    page_store = BackfillPageStore.for_checkpoint(checkpoint_path)
     if checkpoint_path.exists():
         checkpoint = read_checkpoint(checkpoint_path)
         if (
@@ -297,8 +368,12 @@ def resumable_backfill_klines(
         )
         if checkpoint.completed_windows != expected_completed:
             raise DomainViolation(f"checkpoint page plan mismatch: {checkpoint_path}")
-        resume_start_ms = checkpoint.next_start_ms
         completed_windows = checkpoint.completed_windows
+        stored_pages = tuple(
+            page_store.read(window, interval_ms=interval_ms)
+            for window in all_windows[: len(completed_windows)]
+        )
+        resume_start_ms = checkpoint.next_start_ms
     else:
         checkpoint = build_checkpoint(
             job_id=job_id,
@@ -313,12 +388,27 @@ def resumable_backfill_klines(
         write_checkpoint(checkpoint_path, checkpoint)
         resume_start_ms = start_ms
         completed_windows = ()
+        stored_pages = ()
 
     if resume_start_ms == end_exclusive:
-        return BackfillResult(rows=(), windows=(), attempt_count=0, retry_delays=())
+        return BackfillResult(
+            rows=merge_kline_rows(
+                stored_pages,
+                start_ms=start_ms,
+                end_ms_exclusive=end_exclusive,
+                interval_ms=interval_ms,
+            ),
+            windows=all_windows,
+            attempt_count=0,
+            retry_delays=(),
+        )
 
-    def persist_completed_window(window: BackfillWindow) -> None:
+    def persist_completed_window(
+        window: BackfillWindow,
+        rows: tuple[tuple[object, ...], ...],
+    ) -> None:
         nonlocal completed_windows
+        page_store.write(window, rows, interval_ms=interval_ms)
         completed_windows = (*completed_windows, (window.start_ms, window.end_ms_exclusive))
         next_checkpoint = build_checkpoint(
             job_id=job_id,
@@ -332,7 +422,7 @@ def resumable_backfill_klines(
         )
         write_checkpoint(checkpoint_path, next_checkpoint)
 
-    return backfill_klines(
+    result = backfill_klines(
         fetch_page,
         resume_start_ms,
         end_exclusive,
@@ -343,11 +433,24 @@ def resumable_backfill_klines(
         sleep=sleep,
         on_window_complete=persist_completed_window,
     )
+    all_pages = tuple(page_store.read(window, interval_ms=interval_ms) for window in all_windows)
+    return BackfillResult(
+        rows=merge_kline_rows(
+            all_pages,
+            start_ms=start_ms,
+            end_ms_exclusive=end_exclusive,
+            interval_ms=interval_ms,
+        ),
+        windows=all_windows,
+        attempt_count=result.attempt_count,
+        retry_delays=result.retry_delays,
+    )
 
 
 __all__ = [
     "MAX_BINANCE_KLINE_LIMIT",
     "BackfillError",
+    "BackfillPageStore",
     "BackfillPlanningError",
     "BackfillResult",
     "BackfillWindow",

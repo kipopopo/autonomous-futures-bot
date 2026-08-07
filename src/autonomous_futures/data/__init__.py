@@ -1,6 +1,8 @@
+from .artifacts import finalize_resumable_backfill
 from .backfill import (
     MAX_BINANCE_KLINE_LIMIT,
     BackfillError,
+    BackfillPageStore,
     BackfillPlanningError,
     BackfillResult,
     BackfillWindow,
@@ -21,6 +23,7 @@ from .builder import (
 from .checkpoint import (
     BackfillCheckpoint,
     build_checkpoint,
+    complete_checkpoint,
     read_checkpoint,
     write_checkpoint,
 )
@@ -68,6 +71,7 @@ __all__ = [
     "DataFileManifest",
     "DataQualityError",
     "BackfillError",
+    "BackfillPageStore",
     "BackfillCheckpoint",
     "BackfillPlanningError",
     "BackfillResult",
@@ -76,6 +80,7 @@ __all__ = [
     "DatasetManifest",
     "build_collection_manifest",
     "build_checkpoint",
+    "complete_checkpoint",
     "build_manifest",
     "build_kline_collection",
     "build_kline_dataset",
@@ -85,6 +90,7 @@ __all__ = [
     "canonicalize_bars",
     "classify_public_transport_error",
     "describe_data_file",
+    "finalize_resumable_backfill",
     "find_timestamp_gaps",
     "fully_closed_end_ms",
     "closed_end_exclusive",
