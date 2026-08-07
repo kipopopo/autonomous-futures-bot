@@ -39,6 +39,14 @@ from .collection import (
     read_collection_manifest,
     write_collection_manifest,
 )
+from .derivatives_artifacts import (
+    DerivativesArtifactManifest,
+    read_derivatives_artifact_manifest,
+    read_funding_artifact,
+    read_mark_price_artifact,
+    write_funding_artifact,
+    write_mark_price_artifact,
+)
 from .exchange_filters import (
     ExchangeFilterSnapshot,
     ExchangeFilterViolation,
@@ -107,6 +115,7 @@ __all__ = [
     "BackfillWindow",
     "DatasetCollectionManifest",
     "DatasetManifest",
+    "DerivativesArtifactManifest",
     "DatasetRegistry",
     "DatasetRegistryEntry",
     "ExchangeFilterSnapshot",
@@ -139,6 +148,9 @@ __all__ = [
     "closed_end_exclusive",
     "merge_kline_rows",
     "read_canonical_parquet",
+    "read_derivatives_artifact_manifest",
+    "read_funding_artifact",
+    "read_mark_price_artifact",
     "read_checkpoint",
     "read_collection_manifest",
     "read_manifest",
@@ -152,6 +164,8 @@ __all__ = [
     "TransportTelemetrySnapshot",
     "plan_kline_windows",
     "write_canonical_parquet",
+    "write_funding_artifact",
+    "write_mark_price_artifact",
     "write_checkpoint",
     "write_collection_manifest",
     "write_manifest",
