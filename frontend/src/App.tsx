@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   AlertTriangle,
+  Bot as BotIcon,
   CheckCircle2,
   Clock3,
   DatabaseZap,
@@ -10,14 +11,17 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 
+import { CreatorPage } from '@/components/creator-page'
 import { MagicCard } from '@/components/magic-card'
 import { fetchOverviewData } from '@/lib/api'
+import { buildCreatorModel } from '@/lib/creator'
 import {
   buildOverviewModel,
   type ComponentInspection,
   type DashboardApiData,
   type OverviewModel,
 } from '@/lib/dashboard'
+import { pageFromHash, type DashboardPage } from '@/lib/navigation'
 import './App.css'
 
 const EMPTY_API_DATA: DashboardApiData = {
@@ -180,11 +184,15 @@ function ComponentInventory({ components }: { components: ComponentInspection[] 
 }
 
 function App() {
+  const [page, setPage] = useState<DashboardPage>(() => (
+    typeof window === 'undefined' ? 'overview' : pageFromHash(window.location.hash)
+  ))
   const [state, setState] = useState<LoadState>('loading')
   const [apiData, setApiData] = useState<DashboardApiData>(EMPTY_API_DATA)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null)
   const model = useMemo(() => buildOverviewModel(apiData), [apiData])
+  const creatorModel = useMemo(() => buildCreatorModel(apiData), [apiData])
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -205,9 +213,16 @@ function App() {
     void loadData()
   }, [loadData])
 
+  useEffect(() => {
+    const handleHashChange = () => setPage(pageFromHash(window.location.hash))
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
   const status = statusFor(state, model)
   const symbols = model.symbols.length > 0 ? model.symbols.join(', ') : '—'
-  const inventoryVisible = state === 'ready' && model.components.length > 0
+  const isCreatorPage = page === 'creator'
+  const inventoryVisible = !isCreatorPage && state === 'ready' && model.components.length > 0
 
   return (
     <div className="app-shell">
@@ -218,23 +233,27 @@ function App() {
           <span>Research plane</span>
         </div>
         <nav>
-          <a className="nav-item nav-item-active" href="#overview" aria-current="page">
+          <a className={`nav-item ${!isCreatorPage ? 'nav-item-active' : ''}`} href="#overview" aria-current={!isCreatorPage ? 'page' : undefined}>
             <DatabaseZap size={17} aria-hidden="true" />
             <span>Overview</span>
           </a>
+          <a className={`nav-item ${isCreatorPage ? 'nav-item-active' : ''}`} href="#/creator" aria-current={isCreatorPage ? 'page' : undefined}>
+            <BotIcon size={17} aria-hidden="true" />
+            <span>Creator</span>
+          </a>
         </nav>
         <div className="sidebar-footer">
-          <span className="sidebar-label">PHASE 2D</span>
-          <span>Dataset observability</span>
+          <span className="sidebar-label">PHASE 2E</span>
+          <span>Research-plane readiness</span>
         </div>
       </aside>
 
       <main className="main-content" id="overview">
         <header className="page-header">
           <div>
-            <p className="eyebrow">Autonomous Futures / Data plane</p>
-            <h1>Overview</h1>
-            <p className="page-subtitle">Causal market-data foundation · MYT (GMT+8)</p>
+            <p className="eyebrow">Autonomous Futures / {isCreatorPage ? 'Creator plane' : 'Data plane'}</p>
+            <h1>{isCreatorPage ? 'Creator' : 'Overview'}</h1>
+            <p className="page-subtitle">{isCreatorPage ? 'Research generation readiness · MYT (GMT+8)' : 'Causal market-data foundation · MYT (GMT+8)'}</p>
           </div>
           <button className="refresh-button" type="button" onClick={() => void loadData()} disabled={state === 'loading'}>
             <RefreshCw size={16} className={state === 'loading' ? 'spin' : undefined} aria-hidden="true" />
@@ -254,14 +273,18 @@ function App() {
           </div>
         )}
 
-        <section className="fact-grid" aria-label="Verified dataset summary">
-          <FactCard label="Verification" value={status.label} detail={state === 'ready' ? 'Registry + artifacts verified' : 'No fallback values'} />
-          <FactCard label="Symbols" value={symbols} detail="Persisted bundle universe" />
-          <FactCard label="Components" value={model.componentCount?.toString() ?? '—'} detail="Bound to verified bundle" />
-          <FactCard label="Intervals" value={model.primaryInterval && model.contextInterval ? `${model.primaryInterval} / ${model.contextInterval}` : '—'} detail="Primary / causal context" />
-        </section>
+        {!isCreatorPage && (
+          <>
+            <section className="fact-grid" aria-label="Verified dataset summary">
+              <FactCard label="Verification" value={status.label} detail={state === 'ready' ? 'Registry + artifacts verified' : 'No fallback values'} />
+              <FactCard label="Symbols" value={symbols} detail="Persisted bundle universe" />
+              <FactCard label="Components" value={model.componentCount?.toString() ?? '—'} detail="Bound to verified bundle" />
+              <FactCard label="Intervals" value={model.primaryInterval && model.contextInterval ? `${model.primaryInterval} / ${model.contextInterval}` : '—'} detail="Primary / causal context" />
+            </section>
 
-        <IdentityCard model={model} />
+            <IdentityCard model={model} />
+          </>
+        )}
 
         {state === 'loading' && (
           <section className="panel state-panel" aria-live="polite">
@@ -283,6 +306,7 @@ function App() {
           </section>
         )}
 
+        {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer">
