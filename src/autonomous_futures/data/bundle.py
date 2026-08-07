@@ -21,6 +21,8 @@ class DatasetBundle(DomainModel):
     registry_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     symbols: tuple[str, ...] = Field(min_length=1)
     primary_interval: Literal["5m"] = "5m"
+    context_interval: Literal["15m"] = "15m"
+    context_feature_policy: Literal["close_time_plus_1ms"] = "close_time_plus_1ms"
     time_start: datetime
     time_end: datetime
     components: tuple[DatasetRegistryEntry, ...] = Field(min_length=1)
@@ -67,6 +69,7 @@ class DatasetBundle(DomainModel):
             time_start=self.time_start,
             time_end=self.time_end,
             primary_interval=self.primary_interval,
+            context_interval=self.context_interval,
         )
         return self
 
@@ -82,6 +85,14 @@ def _component_identity(entry: DatasetRegistryEntry) -> tuple[object, ...]:
     )
 
 
+def context_bar_is_usable(context_open: datetime, *, primary_timestamp: datetime) -> bool:
+    for value in (context_open, primary_timestamp):
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise DataQualityError("context timestamps must be timezone-aware UTC")
+    available_at = context_open.astimezone(UTC) + timedelta(minutes=15)
+    return primary_timestamp.astimezone(UTC) >= available_at
+
+
 def _validate_component_set(
     components: Sequence[DatasetRegistryEntry],
     *,
@@ -89,9 +100,10 @@ def _validate_component_set(
     time_start: datetime,
     time_end: datetime,
     primary_interval: Literal["5m"],
+    context_interval: Literal["15m"],
 ) -> None:
     bar_end = time_end - timedelta(minutes=5)
-    expected_count = len(symbols) * 3 + 1
+    expected_count = len(symbols) * 4 + 1
     if len(components) != expected_count:
         raise ValueError(
             "bundle requires "
@@ -99,18 +111,43 @@ def _validate_component_set(
         )
 
     for symbol in symbols:
-        for kind in ("kline", "mark_price"):
-            matches = [
-                entry
-                for entry in components
-                if entry.kind == kind
-                and entry.symbols == (symbol,)
-                and entry.interval == primary_interval
-                and entry.time_start == time_start
-                and entry.time_end == (bar_end if kind == "kline" else time_end)
-            ]
-            if len(matches) != 1:
-                raise ValueError(f"missing or ambiguous {kind} component for {symbol}")
+        primary_matches = [
+            entry
+            for entry in components
+            if entry.kind == "kline"
+            and entry.symbols == (symbol,)
+            and entry.interval == primary_interval
+            and entry.time_start == time_start
+            and entry.time_end == bar_end
+        ]
+        if len(primary_matches) != 1:
+            raise ValueError(f"missing or ambiguous 5m kline component for {symbol}")
+
+        context_matches = [
+            entry
+            for entry in components
+            if entry.kind == "kline"
+            and entry.symbols == (symbol,)
+            and entry.interval == context_interval
+            and entry.time_start is not None
+            and entry.time_end is not None
+            and entry.time_start <= time_start
+            and entry.time_end + timedelta(minutes=15) >= time_end
+        ]
+        if len(context_matches) != 1:
+            raise ValueError(f"missing or ambiguous 15m context coverage for {symbol}")
+
+        mark_matches = [
+            entry
+            for entry in components
+            if entry.kind == "mark_price"
+            and entry.symbols == (symbol,)
+            and entry.interval == primary_interval
+            and entry.time_start == time_start
+            and entry.time_end == time_end
+        ]
+        if len(mark_matches) != 1:
+            raise ValueError(f"missing or ambiguous mark_price component for {symbol}")
 
         funding_matches = [
             entry
@@ -164,6 +201,7 @@ def build_dataset_bundle(
     time_end: datetime,
     created_at: datetime,
     primary_interval: Literal["5m"] = "5m",
+    context_interval: Literal["15m"] = "15m",
 ) -> DatasetBundle:
     canonical_symbols = tuple(sorted(symbols))
     if not canonical_symbols or any(
@@ -175,19 +213,46 @@ def build_dataset_bundle(
     selected: list[DatasetRegistryEntry] = []
     bar_end = end - timedelta(minutes=5)
     for symbol in canonical_symbols:
-        for kind in ("kline", "mark_price"):
-            matches = [
-                entry
-                for entry in registry.entries
-                if entry.kind == kind
-                and entry.symbols == (symbol,)
-                and entry.interval == primary_interval
-                and entry.time_start == start
-                and entry.time_end == (bar_end if kind == "kline" else end)
-            ]
-            if len(matches) != 1:
-                raise DataQualityError(f"missing or ambiguous {kind} component for {symbol}")
-            selected.append(matches[0])
+        primary_matches = [
+            entry
+            for entry in registry.entries
+            if entry.kind == "kline"
+            and entry.symbols == (symbol,)
+            and entry.interval == primary_interval
+            and entry.time_start == start
+            and entry.time_end == bar_end
+        ]
+        if len(primary_matches) != 1:
+            raise DataQualityError(f"missing or ambiguous 5m kline component for {symbol}")
+        selected.append(primary_matches[0])
+
+        context_matches = [
+            entry
+            for entry in registry.entries
+            if entry.kind == "kline"
+            and entry.symbols == (symbol,)
+            and entry.interval == context_interval
+            and entry.time_start is not None
+            and entry.time_end is not None
+            and entry.time_start <= start
+            and entry.time_end + timedelta(minutes=15) >= end
+        ]
+        if len(context_matches) != 1:
+            raise DataQualityError(f"missing or ambiguous 15m context coverage for {symbol}")
+        selected.append(context_matches[0])
+
+        mark_matches = [
+            entry
+            for entry in registry.entries
+            if entry.kind == "mark_price"
+            and entry.symbols == (symbol,)
+            and entry.interval == primary_interval
+            and entry.time_start == start
+            and entry.time_end == end
+        ]
+        if len(mark_matches) != 1:
+            raise DataQualityError(f"missing or ambiguous mark_price component for {symbol}")
+        selected.append(mark_matches[0])
 
         funding_matches = [
             entry
@@ -223,6 +288,7 @@ def build_dataset_bundle(
             registry_hash=registry.registry_hash,
             symbols=canonical_symbols,
             primary_interval=primary_interval,
+            context_interval=context_interval,
             time_start=start,
             time_end=end,
             components=components,
@@ -235,10 +301,19 @@ def build_dataset_bundle(
 
 
 def find_bundle_component(
-    bundle: DatasetBundle, *, kind: DatasetKind, symbol: str | None = None
+    bundle: DatasetBundle,
+    *,
+    kind: DatasetKind,
+    symbol: str | None = None,
+    interval: str | None = None,
 ) -> DatasetRegistryEntry | None:
+    requested_interval = interval
+    if kind == "kline" and requested_interval is None:
+        requested_interval = bundle.primary_interval
     for component in bundle.components:
         if component.kind != kind:
+            continue
+        if requested_interval is not None and component.interval != requested_interval:
             continue
         if kind == "exchange_filters":
             if symbol is None:
@@ -272,6 +347,7 @@ def write_dataset_bundle(path: Path, bundle: DatasetBundle) -> DatasetBundle:
 __all__ = [
     "DatasetBundle",
     "build_dataset_bundle",
+    "context_bar_is_usable",
     "find_bundle_component",
     "read_dataset_bundle",
     "write_dataset_bundle",

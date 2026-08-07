@@ -28,6 +28,7 @@ from .builder import (
 from .bundle import (
     DatasetBundle,
     build_dataset_bundle,
+    context_bar_is_usable,
     find_bundle_component,
     read_dataset_bundle,
     write_dataset_bundle,
@@ -138,6 +139,7 @@ __all__ = [
     "build_kline_dataset",
     "build_dataset_registry",
     "build_dataset_bundle",
+    "context_bar_is_usable",
     "build_public_url",
     "BinancePublicKlineFetcher",
     "BinancePublicExchangeInfoFetcher",
