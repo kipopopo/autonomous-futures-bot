@@ -8,6 +8,7 @@ from .cached_evaluation import (
     CachedOnlyEvaluatorAdapter,
     CachedWindowEvaluation,
 )
+from .causal_evaluation import CausalCachedEvaluatorAdapter, materialize_causal_context
 from .creator_artifacts import (
     CandidateState,
     CreatorCandidateArtifact,
@@ -50,6 +51,8 @@ __all__ = [
     "CachedEvaluator",
     "CachedOnlyEvaluatorAdapter",
     "CachedWindowEvaluation",
+    "CausalCachedEvaluatorAdapter",
+    "materialize_causal_context",
     "CreatorCandidateQualificationArtifact",
     "QualificationComparator",
     "QualificationDecision",
