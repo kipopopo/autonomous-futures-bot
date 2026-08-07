@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Query
 from ..data.bundle import DatasetBundle
 from ..data.registry import DatasetKind, DatasetRegistry, DatasetRegistryEntry
 from ..domain.contracts import DomainModel
+from ..research.creator_artifacts import CreatorCandidateRegistry
 from .artifacts import (
     ArtifactInspection,
     ArtifactIntegrityError,
@@ -19,6 +20,11 @@ from .catalog import (
     DatasetCatalogIntegrityError,
     VerifiedDatasetCatalog,
     load_verified_dataset_catalog,
+)
+from .creator import (
+    CreatorCandidateRegistryIntegrityError,
+    CreatorCandidateRegistryNotFoundError,
+    load_verified_creator_candidate_registry,
 )
 from .query import (
     MAX_QUERY_ROWS,
@@ -49,6 +55,13 @@ class RegistryResponse(DomainModel):
     registry: DatasetRegistry
 
 
+class CreatorRegistryResponse(DomainModel):
+    verified: Literal[True] = True
+    registry_hash: str
+    candidate_count: int
+    registry: CreatorCandidateRegistry
+
+
 class ComponentsResponse(DomainModel):
     verified: Literal[True] = True
     component_count: int
@@ -76,6 +89,8 @@ def create_app(
     bundle_path: Path | None = None,
     registry_path: Path | None = None,
     artifact_root: Path | None = None,
+    creator_candidate_registry_path: Path | None = None,
+    creator_candidate_artifact_root: Path | None = None,
 ) -> FastAPI:
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
@@ -85,6 +100,12 @@ def create_app(
     )
     configured_artifact_root = artifact_root or _configured_path(
         "AFBOT_DATASET_ARTIFACT_ROOT", "data"
+    )
+    configured_creator_registry_path = creator_candidate_registry_path or _configured_path(
+        "AFBOT_CREATOR_CANDIDATE_REGISTRY_PATH", "data/creator-candidate-registry.json"
+    )
+    configured_creator_artifact_root = creator_candidate_artifact_root or _configured_path(
+        "AFBOT_CREATOR_CANDIDATE_ARTIFACT_ROOT", "data"
     )
 
     app = FastAPI(
@@ -124,6 +145,29 @@ def create_app(
     def dataset_registry() -> RegistryResponse:
         catalog = verified_catalog()
         return RegistryResponse(registry=catalog.registry)
+
+    @app.get("/api/v1/creator/registry", response_model=CreatorRegistryResponse)
+    def creator_registry() -> CreatorRegistryResponse:
+        try:
+            verified = load_verified_creator_candidate_registry(
+                registry_path=configured_creator_registry_path,
+                artifact_root=configured_creator_artifact_root,
+            )
+        except CreatorCandidateRegistryNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="creator candidate registry unavailable",
+            ) from exc
+        except CreatorCandidateRegistryIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="creator candidate registry integrity verification failed",
+            ) from exc
+        return CreatorRegistryResponse(
+            registry_hash=verified.registry.registry_hash,
+            candidate_count=len(verified.registry.entries),
+            registry=verified.registry,
+        )
 
     @app.get("/api/v1/dataset/components", response_model=ComponentsResponse)
     def dataset_components() -> ComponentsResponse:
@@ -208,6 +252,7 @@ app = create_app()
 __all__ = [
     "BundleResponse",
     "ComponentsResponse",
+    "CreatorRegistryResponse",
     "HealthResponse",
     "RegistryResponse",
     "RowsResponse",

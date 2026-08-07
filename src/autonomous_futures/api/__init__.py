@@ -1,6 +1,7 @@
 from .app import (
     BundleResponse,
     ComponentsResponse,
+    CreatorRegistryResponse,
     HealthResponse,
     RegistryResponse,
     RowsResponse,
@@ -17,6 +18,7 @@ from .catalog import (
 __all__ = [
     "BundleResponse",
     "ComponentsResponse",
+    "CreatorRegistryResponse",
     "ArtifactInspection",
     "ArtifactIntegrityError",
     "DatasetCatalogIntegrityError",

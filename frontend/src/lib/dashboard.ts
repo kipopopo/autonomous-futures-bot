@@ -40,10 +40,38 @@ export interface ComponentsResponse {
   components: ComponentInspection[]
 }
 
+export interface CreatorCandidateRegistryEntry {
+  candidate_id: string
+  artifact_hash: string
+  artifact_ref: string
+  bundle_hash: string
+  dataset_registry_hash: string
+  strategy_id: string
+  family: string
+  symbols: string[]
+  state: 'testing'
+  creator_run_id: string
+  created_at: string
+}
+
+export interface CreatorRegistryResponse {
+  verified: boolean
+  registry_hash: string
+  candidate_count: number
+  registry: {
+    registry_version: 1
+    venue: string
+    created_at: string
+    registry_hash: string
+    entries: CreatorCandidateRegistryEntry[]
+  }
+}
+
 export interface DashboardApiData {
   health: HealthResponse | null
   bundle: BundleResponse | null
   components: ComponentsResponse | null
+  creatorRegistry?: CreatorRegistryResponse | null
 }
 
 export type VerificationState = 'verified' | 'error'

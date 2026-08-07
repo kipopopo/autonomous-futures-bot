@@ -243,7 +243,7 @@ function App() {
           </a>
         </nav>
         <div className="sidebar-footer">
-          <span className="sidebar-label">PHASE 2E</span>
+          <span className="sidebar-label">PHASE 2G</span>
           <span>Research-plane readiness</span>
         </div>
       </aside>

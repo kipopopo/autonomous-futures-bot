@@ -31,6 +31,36 @@ const VERIFIED_DATA: DashboardApiData = {
   },
 }
 
+const VERIFIED_CREATOR_DATA = {
+  ...VERIFIED_DATA,
+  creatorRegistry: {
+    verified: true,
+    registry_hash: 'c'.repeat(64),
+    candidate_count: 1,
+    registry: {
+      registry_version: 1,
+      venue: 'BINANCE_USDS_M_FUTURES',
+      created_at: '2026-08-07T12:00:00Z',
+      registry_hash: 'c'.repeat(64),
+      entries: [
+        {
+          candidate_id: 'cand-api-001',
+          artifact_hash: 'd'.repeat(64),
+          artifact_ref: 'candidates/cand-api-001.json',
+          bundle_hash: 'b'.repeat(64),
+          dataset_registry_hash: 'a'.repeat(64),
+          strategy_id: 'cand-api-001',
+          family: 'experimental',
+          symbols: ['BTCUSDT'],
+          state: 'testing',
+          creator_run_id: 'creator-run-api',
+          created_at: '2026-08-07T12:00:00Z',
+        },
+      ],
+    },
+  },
+} as DashboardApiData
+
 describe('buildCreatorModel', () => {
   it('reports verified foundation readiness without inventing creator output', () => {
     const model = buildCreatorModel(VERIFIED_DATA)
@@ -50,5 +80,18 @@ describe('buildCreatorModel', () => {
     expect(model.candidateAvailability).toBe('unavailable')
     expect(model.componentCount).toBeNull()
     expect(model.candidateCount).toBeNull()
+  })
+
+  it('exposes only verified candidate registry metadata when available', () => {
+    const model = buildCreatorModel(VERIFIED_CREATOR_DATA)
+
+    expect(model.candidateAvailability).toBe('available')
+    expect(model.candidateCount).toBe(1)
+    expect(model.candidates[0]).toMatchObject({
+      candidateId: 'cand-api-001',
+      state: 'testing',
+      family: 'experimental',
+    })
+    expect(model.candidateRegistryHash).toBe('c'.repeat(64))
   })
 })
