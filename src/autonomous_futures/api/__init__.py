@@ -3,6 +3,7 @@ from .app import (
     ComponentsResponse,
     HealthResponse,
     RegistryResponse,
+    RowsResponse,
     app,
     create_app,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "DatasetCatalogIntegrityError",
     "HealthResponse",
     "RegistryResponse",
+    "RowsResponse",
     "VerifiedDatasetCatalog",
     "app",
     "create_app",

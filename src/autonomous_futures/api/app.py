@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 
 from ..data.bundle import DatasetBundle
-from ..data.registry import DatasetRegistry
+from ..data.registry import DatasetKind, DatasetRegistry, DatasetRegistryEntry
 from ..domain.contracts import DomainModel
 from .artifacts import (
     ArtifactInspection,
@@ -18,6 +19,13 @@ from .catalog import (
     DatasetCatalogIntegrityError,
     VerifiedDatasetCatalog,
     load_verified_dataset_catalog,
+)
+from .query import (
+    MAX_QUERY_ROWS,
+    JSONScalar,
+    QueryDataIntegrityError,
+    QueryError,
+    query_component_rows,
 )
 
 
@@ -45,6 +53,18 @@ class ComponentsResponse(DomainModel):
     verified: Literal[True] = True
     component_count: int
     components: tuple[ArtifactInspection, ...]
+
+
+class RowsResponse(DomainModel):
+    verified: Literal[True] = True
+    kind: DatasetKind
+    symbol: str
+    interval: str | None
+    start: datetime
+    end: datetime
+    row_count: int
+    limit: int
+    rows: tuple[dict[str, JSONScalar], ...]
 
 
 def _configured_path(environment_name: str, default: str) -> Path:
@@ -117,6 +137,68 @@ def create_app(
             ) from exc
         return ComponentsResponse(component_count=len(components), components=components)
 
+    @app.get("/api/v1/dataset/rows", response_model=RowsResponse)
+    def dataset_rows(
+        *,
+        kind: Literal["kline", "funding_rate", "mark_price"],
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        interval: str | None = None,
+        limit: Annotated[int, Query(ge=1, le=MAX_QUERY_ROWS)] = 100,
+    ) -> RowsResponse:
+        if not symbol or symbol != symbol.upper():
+            raise HTTPException(status_code=422, detail="symbol must be uppercase")
+        if kind == "funding_rate" and interval is not None:
+            raise HTTPException(status_code=422, detail="funding_rate interval must be null")
+        if kind != "funding_rate" and interval not in {"5m", "15m"}:
+            raise HTTPException(status_code=422, detail="kline and mark_price require interval")
+
+        catalog = verified_catalog()
+        try:
+            components = inspect_dataset_artifacts(configured_artifact_root, catalog)
+        except ArtifactIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="dataset artifact integrity verification failed",
+            ) from exc
+
+        selected: tuple[DatasetRegistryEntry, ArtifactInspection] | None = None
+        for entry, inspection in zip(catalog.bundle.components, components, strict=True):
+            if entry.kind == kind and entry.symbols == (symbol,) and entry.interval == interval:
+                selected = (entry, inspection)
+                break
+        if selected is None:
+            raise HTTPException(status_code=404, detail="dataset component not found")
+
+        entry, inspection = selected
+        try:
+            rows = query_component_rows(
+                configured_artifact_root,
+                entry,
+                inspection,
+                start=start,
+                end=end,
+                limit=limit,
+            )
+        except QueryDataIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="dataset query integrity verification failed",
+            ) from exc
+        except QueryError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return RowsResponse(
+            kind=entry.kind,
+            symbol=symbol,
+            interval=entry.interval,
+            start=start,
+            end=end,
+            row_count=len(rows),
+            limit=limit,
+            rows=rows,
+        )
+
     return app
 
 
@@ -128,6 +210,7 @@ __all__ = [
     "ComponentsResponse",
     "HealthResponse",
     "RegistryResponse",
+    "RowsResponse",
     "app",
     "create_app",
 ]

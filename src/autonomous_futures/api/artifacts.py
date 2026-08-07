@@ -22,6 +22,7 @@ class ArtifactInspection(DomainModel):
     symbols: tuple[str, ...]
     interval: str | None
     artifact_ref: str
+    data_ref: str | None = None
     manifest_hash: str
     artifact_sha256: str | None = None
     rows: int | None = None
@@ -44,6 +45,10 @@ def _require_file(path: Path, *, reference: str) -> Path:
     if not path.is_file():
         raise ArtifactIntegrityError(f"artifact reference does not exist: {reference}")
     return path
+
+
+def _relative_ref(root: Path, path: Path) -> str:
+    return path.resolve().relative_to(root.resolve()).as_posix()
 
 
 def _verify_kline(root: Path, entry: DatasetRegistryEntry) -> ArtifactInspection:
@@ -70,11 +75,21 @@ def _verify_kline(root: Path, entry: DatasetRegistryEntry) -> ArtifactInspection
         if sha256_file(source_path) != source_file.sha256:
             raise ArtifactIntegrityError(f"source file hash mismatch: {source_file.relative_path}")
 
+    canonical_files = [
+        source_file
+        for source_file in manifest.source_files
+        if source_file.relative_path.endswith(".parquet")
+    ]
+    if len(canonical_files) != 1:
+        raise ArtifactIntegrityError("kline manifest must contain one canonical Parquet file")
+    data_path = _resolve_relative(dataset_root, canonical_files[0].relative_path)
+
     return ArtifactInspection(
         kind=entry.kind,
         symbols=entry.symbols,
         interval=entry.interval,
         artifact_ref=entry.artifact_ref,
+        data_ref=_relative_ref(root, data_path),
         manifest_hash=manifest.manifest_hash,
         source_file_count=len(manifest.source_files),
         schema_version=f"dataset-manifest-v{manifest.manifest_version}",
@@ -106,6 +121,7 @@ def _verify_derivative(root: Path, entry: DatasetRegistryEntry) -> ArtifactInspe
         symbols=entry.symbols,
         interval=entry.interval,
         artifact_ref=entry.artifact_ref,
+        data_ref=manifest.artifact_ref,
         manifest_hash=manifest.manifest_hash,
         artifact_sha256=manifest.artifact_sha256,
         rows=manifest.rows,
@@ -154,9 +170,14 @@ def inspect_dataset_artifacts(
     return tuple(inspect_artifact_entry(root, entry) for entry in catalog.bundle.components)
 
 
+def resolve_artifact_ref(root: Path, relative_ref: str) -> Path:
+    return _resolve_relative(root, relative_ref)
+
+
 __all__ = [
     "ArtifactInspection",
     "ArtifactIntegrityError",
     "inspect_artifact_entry",
     "inspect_dataset_artifacts",
+    "resolve_artifact_ref",
 ]

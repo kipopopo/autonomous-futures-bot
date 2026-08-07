@@ -130,6 +130,22 @@ def test_health_declares_paper_safe_read_only_boundary(tmp_path: Path) -> None:
     assert _request(app, "GET", "/api/v1/order").status_code == 404
 
 
+def test_rows_endpoint_is_get_only_and_fails_closed_without_catalog(tmp_path: Path) -> None:
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+    )
+
+    response = _request(
+        app,
+        "GET",
+        "/api/v1/dataset/rows?kind=kline&symbol=BTCUSDT&interval=5m&start=2026-08-07T00:00:00Z&end=2026-08-07T00:05:00Z",
+    )
+
+    assert response.status_code == 503
+    assert _request(app, "POST", "/api/v1/dataset/rows").status_code == 405
+
+
 def test_bundle_endpoint_returns_verified_metadata_only(tmp_path: Path) -> None:
     bundle_path, registry_path = _write_catalog(tmp_path)
     app = create_app(bundle_path=bundle_path, registry_path=registry_path)
