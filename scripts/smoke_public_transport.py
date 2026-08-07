@@ -3,9 +3,18 @@ from __future__ import annotations
 import json
 import time
 
+from autonomous_futures.data.alignment import (
+    canonicalize_funding_rows,
+    canonicalize_mark_price_klines,
+)
 from autonomous_futures.data.backfill import BackfillWindow, merge_kline_rows
 from autonomous_futures.data.public_collector import fully_closed_end_ms, server_time
-from autonomous_futures.data.transport import BinancePublicKlineFetcher, TransportTelemetry
+from autonomous_futures.data.transport import (
+    BinancePublicFundingFetcher,
+    BinancePublicKlineFetcher,
+    BinancePublicMarkPriceKlineFetcher,
+    TransportTelemetry,
+)
 
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 INTERVALS = (("5m", 300_000), ("15m", 900_000))
@@ -42,17 +51,59 @@ def main() -> None:
                     "closed_and_gap_free": True,
                 }
             )
+
+    mark_end_ms = (server_ms // 300_000) * 300_000
+    mark_start_ms = mark_end_ms - 600_000
+    mark_rows = BinancePublicMarkPriceKlineFetcher(
+        symbol="BTCUSDT",
+        interval="5m",
+        limit=2,
+        telemetry=telemetry,
+    )(BackfillWindow(mark_start_ms, mark_end_ms))
+    mark_canonical = canonicalize_mark_price_klines(
+        mark_rows,
+        symbol="BTCUSDT",
+        interval="5m",
+        end_exclusive_ms=mark_end_ms,
+    )
+
+    funding_interval_ms = 8 * 60 * 60 * 1_000
+    funding_start_ms = (server_ms // funding_interval_ms - 3) * funding_interval_ms
+    funding_rows = BinancePublicFundingFetcher(
+        symbol="BTCUSDT",
+        limit=10,
+        telemetry=telemetry,
+    )(BackfillWindow(funding_start_ms, server_ms))
+    funding_canonical = canonicalize_funding_rows(
+        funding_rows,
+        symbol="BTCUSDT",
+        start_ms=funding_start_ms,
+        end_exclusive_ms=server_ms,
+    )
     snapshot = telemetry.snapshot()
     print(
         json.dumps(
             {
                 "source": "https://fapi.binance.com",
-                "endpoint_paths": ["/fapi/v1/time", "/fapi/v1/klines"],
+                "endpoint_paths": [
+                    "/fapi/v1/time",
+                    "/fapi/v1/klines",
+                    "/fapi/v1/markPriceKlines",
+                    "/fapi/v1/fundingRate",
+                ],
                 "authenticated": False,
                 "server_time_ms": server_ms,
                 "local_time_ms": local_ms,
                 "server_offset_ms": server_ms - local_ms,
                 "checks": checks,
+                "derivatives": {
+                    "mark_price_endpoint": "/fapi/v1/markPriceKlines",
+                    "mark_price_rows": len(mark_canonical),
+                    "mark_price_closed": True,
+                    "funding_endpoint": "/fapi/v1/fundingRate",
+                    "funding_rows": len(funding_canonical),
+                    "funding_events_sorted": True,
+                },
                 "telemetry": {
                     "request_count": snapshot.request_count,
                     "success_count": snapshot.success_count,

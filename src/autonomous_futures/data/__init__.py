@@ -1,3 +1,8 @@
+from .alignment import (
+    align_derivatives_to_primary,
+    canonicalize_funding_rows,
+    canonicalize_mark_price_klines,
+)
 from .artifacts import finalize_resumable_backfill
 from .backfill import (
     MAX_BINANCE_KLINE_LIMIT,
@@ -56,7 +61,10 @@ from .public_collector import (
     fully_closed_end_ms,
 )
 from .transport import (
+    MAX_BINANCE_FUNDING_LIMIT,
+    BinancePublicFundingFetcher,
     BinancePublicKlineFetcher,
+    BinancePublicMarkPriceKlineFetcher,
     PublicTransportError,
     TransportTelemetry,
     TransportTelemetrySnapshot,
@@ -65,6 +73,7 @@ from .transport import (
 
 __all__ = [
     "CONTEXT_INTERVAL",
+    "MAX_BINANCE_FUNDING_LIMIT",
     "CANONICAL_KLINE_COLUMNS",
     "MAX_BINANCE_KLINE_LIMIT",
     "INTERVAL_MS",
@@ -81,6 +90,7 @@ __all__ = [
     "DatasetCollectionManifest",
     "DatasetManifest",
     "build_collection_manifest",
+    "align_derivatives_to_primary",
     "build_checkpoint",
     "complete_checkpoint",
     "build_manifest",
@@ -88,8 +98,12 @@ __all__ = [
     "build_kline_dataset",
     "build_public_url",
     "BinancePublicKlineFetcher",
+    "BinancePublicFundingFetcher",
+    "BinancePublicMarkPriceKlineFetcher",
     "backfill_klines",
     "canonicalize_bars",
+    "canonicalize_funding_rows",
+    "canonicalize_mark_price_klines",
     "classify_public_transport_error",
     "describe_data_file",
     "finalize_resumable_backfill",

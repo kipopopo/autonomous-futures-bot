@@ -4,7 +4,7 @@ import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.error import HTTPError, URLError
 
 from .backfill import MAX_BINANCE_KLINE_LIMIT
@@ -13,6 +13,9 @@ from .public_collector import public_get
 
 if TYPE_CHECKING:
     from .backfill import BackfillWindow
+
+
+MAX_BINANCE_FUNDING_LIMIT = 1_000
 
 
 class PublicTransportError(RuntimeError):
@@ -143,6 +146,169 @@ def classify_public_transport_error(error: BaseException) -> PublicTransportErro
         f"Binance public transport failure: {error}",
         retryable=False,
     )
+
+
+def _fetch_public_list(
+    path: str,
+    params: dict[str, object],
+    *,
+    get_json: Callable[[str, dict[str, object]], object],
+    parse: Callable[[list[object]], object],
+    telemetry: TransportTelemetry,
+    clock: Callable[[], float],
+) -> object:
+    started_at = clock()
+    try:
+        payload = get_json(path, params)
+    except PublicTransportError as exc:
+        telemetry.observe(
+            latency_seconds=clock() - started_at,
+            success=False,
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+            retry_after_seconds=exc.retry_after_seconds,
+        )
+        raise
+    except (ConnectionError, HTTPError, TimeoutError, URLError) as exc:
+        classified = classify_public_transport_error(exc)
+        telemetry.observe(
+            latency_seconds=clock() - started_at,
+            success=False,
+            status_code=classified.status_code,
+            retryable=classified.retryable,
+            retry_after_seconds=classified.retry_after_seconds,
+        )
+        raise classified from exc
+
+    try:
+        if not isinstance(payload, list):
+            raise PublicTransportError(
+                f"Binance response for {path} must be a list",
+                retryable=False,
+            )
+        result = parse(payload)
+    except PublicTransportError as exc:
+        telemetry.observe(
+            latency_seconds=clock() - started_at,
+            success=False,
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+            retry_after_seconds=exc.retry_after_seconds,
+        )
+        raise
+    telemetry.observe(
+        latency_seconds=clock() - started_at,
+        success=True,
+        status_code=None,
+    )
+    return result
+
+
+class BinancePublicFundingFetcher:
+    """Unsigned adapter for Binance funding-rate history."""
+
+    def __init__(
+        self,
+        *,
+        symbol: str,
+        limit: int = MAX_BINANCE_FUNDING_LIMIT,
+        get_json: Callable[[str, dict[str, object]], object] = public_get,
+        telemetry: TransportTelemetry | None = None,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
+        if not symbol:
+            raise ValueError("symbol must not be empty")
+        if not 1 <= limit <= MAX_BINANCE_FUNDING_LIMIT:
+            raise ValueError(f"limit must be between 1 and {MAX_BINANCE_FUNDING_LIMIT}")
+        self.symbol = symbol
+        self.limit = limit
+        self._get_json = get_json
+        self.telemetry = telemetry or TransportTelemetry()
+        self._clock = clock
+
+    def __call__(self, window: BackfillWindow) -> tuple[dict[str, object], ...]:
+        def parse(payload: list[object]) -> tuple[dict[str, object], ...]:
+            rows: list[dict[str, object]] = []
+            for row in payload:
+                if not isinstance(row, dict):
+                    raise PublicTransportError(
+                        "Binance funding response rows must be objects",
+                        retryable=False,
+                    )
+                rows.append(row)
+            return tuple(rows)
+
+        return cast(
+            tuple[dict[str, object], ...],
+            _fetch_public_list(
+                "/fapi/v1/fundingRate",
+                {
+                    "symbol": self.symbol,
+                    "startTime": window.start_ms,
+                    "endTime": window.end_ms_exclusive - 1,
+                    "limit": self.limit,
+                },
+                get_json=self._get_json,
+                parse=parse,
+                telemetry=self.telemetry,
+                clock=self._clock,
+            ),
+        )
+
+
+class BinancePublicMarkPriceKlineFetcher:
+    """Unsigned adapter for Binance mark-price klines."""
+
+    def __init__(
+        self,
+        *,
+        symbol: str,
+        interval: KlineInterval,
+        limit: int = MAX_BINANCE_KLINE_LIMIT,
+        get_json: Callable[[str, dict[str, object]], object] = public_get,
+        telemetry: TransportTelemetry | None = None,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
+        if not symbol:
+            raise ValueError("symbol must not be empty")
+        if not 1 <= limit <= MAX_BINANCE_KLINE_LIMIT:
+            raise ValueError(f"limit must be between 1 and {MAX_BINANCE_KLINE_LIMIT}")
+        self.symbol = symbol
+        self.interval = interval
+        self.limit = limit
+        self._get_json = get_json
+        self.telemetry = telemetry or TransportTelemetry()
+        self._clock = clock
+
+    def __call__(self, window: BackfillWindow) -> tuple[tuple[object, ...], ...]:
+        def parse(payload: list[object]) -> tuple[tuple[object, ...], ...]:
+            rows: list[tuple[object, ...]] = []
+            for row in payload:
+                if not isinstance(row, (list, tuple)):
+                    raise PublicTransportError(
+                        "Binance mark-price kline response rows must be lists",
+                        retryable=False,
+                    )
+                rows.append(tuple(row))
+            return tuple(rows)
+
+        return cast(
+            tuple[tuple[object, ...], ...],
+            _fetch_public_list(
+                "/fapi/v1/markPriceKlines",
+                {
+                    "symbol": self.symbol,
+                    "interval": self.interval,
+                    "startTime": window.start_ms,
+                    "endTime": window.end_ms_exclusive - 1,
+                    "limit": self.limit,
+                },
+                get_json=self._get_json,
+                parse=parse,
+                telemetry=self.telemetry,
+                clock=self._clock,
+            ),
+        )
 
 
 class BinancePublicKlineFetcher:
