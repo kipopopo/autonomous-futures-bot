@@ -9,6 +9,7 @@ from autonomous_futures.data.backfill import BackfillWindow
 from autonomous_futures.data.transport import (
     BinancePublicKlineFetcher,
     PublicTransportError,
+    TransportTelemetry,
     classify_public_transport_error,
 )
 
@@ -75,3 +76,55 @@ def test_fetcher_rejects_malformed_public_payload() -> None:
 
     with pytest.raises(PublicTransportError, match="list"):
         fetcher(BackfillWindow(1_725_504_000_000, 1_725_504_300_000))
+
+
+def test_fetcher_records_success_latency_without_payload_metadata() -> None:
+    clock_values = iter((10.0, 10.125))
+    telemetry = TransportTelemetry()
+    fetcher = BinancePublicKlineFetcher(
+        symbol="BTCUSDT",
+        interval="5m",
+        get_json=lambda _path, _params: [[1_725_504_000_000, "100"]],
+        telemetry=telemetry,
+        clock=lambda: next(clock_values),
+    )
+
+    fetcher(BackfillWindow(1_725_504_000_000, 1_725_504_300_000))
+
+    snapshot = telemetry.snapshot()
+    assert snapshot.request_count == 1
+    assert snapshot.success_count == 1
+    assert snapshot.failure_count == 0
+    assert snapshot.retryable_failure_count == 0
+    assert snapshot.retry_after_observation_count == 0
+    assert snapshot.total_latency_seconds == pytest.approx(0.125)
+    assert snapshot.average_latency_seconds == pytest.approx(0.125)
+    assert not hasattr(snapshot, "payload")
+
+
+def test_fetcher_records_retryable_http_classification_and_retry_after() -> None:
+    headers = Message()
+    headers["Retry-After"] = "3.5"
+    error = HTTPError("https://fapi.binance.com", 429, "rate limit", headers, None)
+    clock_values = iter((20.0, 20.25))
+    telemetry = TransportTelemetry()
+    fetcher = BinancePublicKlineFetcher(
+        symbol="BTCUSDT",
+        interval="5m",
+        get_json=lambda _path, _params: (_ for _ in ()).throw(error),
+        telemetry=telemetry,
+        clock=lambda: next(clock_values),
+    )
+
+    with pytest.raises(PublicTransportError):
+        fetcher(BackfillWindow(1_725_504_000_000, 1_725_504_300_000))
+
+    snapshot = telemetry.snapshot()
+    assert snapshot.request_count == 1
+    assert snapshot.success_count == 0
+    assert snapshot.failure_count == 1
+    assert snapshot.retryable_failure_count == 1
+    assert snapshot.non_retryable_failure_count == 0
+    assert snapshot.retry_after_observation_count == 1
+    assert snapshot.status_code_counts == ((429, 1),)
+    assert snapshot.total_latency_seconds == pytest.approx(0.25)

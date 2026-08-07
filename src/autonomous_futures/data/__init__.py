@@ -58,6 +58,8 @@ from .public_collector import (
 from .transport import (
     BinancePublicKlineFetcher,
     PublicTransportError,
+    TransportTelemetry,
+    TransportTelemetrySnapshot,
     classify_public_transport_error,
 )
 
@@ -103,6 +105,8 @@ __all__ = [
     "RetryPolicy",
     "resumable_backfill_klines",
     "PublicTransportError",
+    "TransportTelemetry",
+    "TransportTelemetrySnapshot",
     "plan_kline_windows",
     "write_canonical_parquet",
     "write_checkpoint",
