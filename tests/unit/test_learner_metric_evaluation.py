@@ -28,6 +28,12 @@ from autonomous_futures.research.learner_metric_evaluation import (
     read_learner_metric_evaluation_run,
     write_learner_metric_evaluation_run,
 )
+from autonomous_futures.research.learner_metric_quality_review import (
+    LearnerMetricQualityReviewMetric,
+    LearnerMetricQualityReviewWindowResult,
+    execute_learner_metric_quality_review,
+    learner_metric_quality_review_content_hash,
+)
 from autonomous_futures.research.learner_metric_review_input import (
     load_verified_learner_metric_review_input,
     review_persisted_learner_metric_evaluation,
@@ -385,3 +391,113 @@ def test_verified_metric_review_input_rejects_binding_and_tamper_before_callback
             reviewer=reviewer,
         )
     assert called is False
+
+
+def test_metric_quality_review_builds_observed_only_evidence_from_verified_input(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate()
+    learner = _learner(tmp_path / "expected", candidate)
+    run = _metric_run(tmp_path / "persisted")
+    path = tmp_path / "metric-evaluation.json"
+    write_learner_metric_evaluation_run(path, run)
+    calls: list[str] = []
+
+    def reviewer(received_run, received_window):
+        calls.append(received_window.window_id)
+        received_run.windows[0].metrics.net_pnl = Decimal("999")
+        return LearnerMetricQualityReviewWindowResult(
+            window_id=received_window.window_id,
+            symbol=received_window.symbol,
+            metrics=(
+                LearnerMetricQualityReviewMetric(
+                    metric_id="observed_net_pnl",
+                    value=received_window.metrics.net_pnl,
+                ),
+            ),
+        )
+
+    first = execute_learner_metric_quality_review(
+        path,
+        learner=learner,
+        candidate=candidate,
+        review_id="metric-quality-review-001",
+        review_version="metric-quality-v1",
+        reviewer=reviewer,
+        reviewed_at=START,
+    )
+    second = execute_learner_metric_quality_review(
+        path,
+        learner=learner,
+        candidate=candidate,
+        review_id="metric-quality-review-001",
+        review_version="metric-quality-v1",
+        reviewer=reviewer,
+        reviewed_at=START + timedelta(hours=1),
+    )
+
+    assert calls == ["window-01", "window-01"]
+    assert first.metric_evaluation_hash == run.evaluation_hash
+    assert first.review_conclusion == "observed_only"
+    assert first.status == "completed"
+    assert first.data_source == "cached_only"
+    assert first.exchange_access is False
+    assert first.promotion_state == "unpromoted"
+    assert first.paper_activation is False
+    assert first.execution_authority is False
+    assert first.review_hash == learner_metric_quality_review_content_hash(first)
+    assert first.review_hash == second.review_hash
+    assert (
+        load_verified_learner_metric_review_input(
+            path,
+            learner=learner,
+            candidate=candidate,
+        )
+        == run
+    )
+
+
+def test_metric_quality_review_rejects_callback_identity_and_nonfinite_output(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate()
+    learner = _learner(tmp_path / "expected", candidate)
+    run = _metric_run(tmp_path / "persisted")
+    path = tmp_path / "metric-evaluation.json"
+    write_learner_metric_evaluation_run(path, run)
+
+    def wrong_identity(received_run, received_window):
+        return LearnerMetricQualityReviewWindowResult(
+            window_id="wrong-window",
+            symbol=received_window.symbol,
+            metrics=(LearnerMetricQualityReviewMetric(metric_id="observed", value=Decimal("1")),),
+        )
+
+    with pytest.raises(DataQualityError, match="identity"):
+        execute_learner_metric_quality_review(
+            path,
+            learner=learner,
+            candidate=candidate,
+            review_id="metric-quality-review-001",
+            review_version="metric-quality-v1",
+            reviewer=wrong_identity,
+            reviewed_at=START,
+        )
+
+    def nonfinite_output(received_run, received_window):
+        return {
+            "window_id": received_window.window_id,
+            "symbol": received_window.symbol,
+            "metrics": [{"metric_id": "observed", "value": "NaN"}],
+        }
+
+    with pytest.raises(DataQualityError, match="invalid quality review result"):
+        execute_learner_metric_quality_review(
+            path,
+            learner=learner,
+            candidate=candidate,
+            review_id="metric-quality-review-001",
+            review_version="metric-quality-v1",
+            reviewer=nonfinite_output,
+            reviewed_at=START,
+        )
