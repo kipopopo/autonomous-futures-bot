@@ -22,6 +22,7 @@ from .creator_artifacts import (
     write_creator_candidate_artifact,
     write_creator_candidate_registry,
 )
+from .feature_signals import CausalFeatureSignalEvaluator
 from .qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
     QualificationComparator,
@@ -53,6 +54,7 @@ __all__ = [
     "CachedWindowEvaluation",
     "CausalCachedEvaluatorAdapter",
     "materialize_causal_context",
+    "CausalFeatureSignalEvaluator",
     "CreatorCandidateQualificationArtifact",
     "QualificationComparator",
     "QualificationDecision",
