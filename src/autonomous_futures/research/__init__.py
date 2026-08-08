@@ -38,6 +38,9 @@ from .learner_evaluation import (
     LearnerEvaluationWindowSpec,
     LearnerEvaluator,
     LearnerWindowEvaluation,
+    learner_evaluation_content_hash,
+    read_learner_evaluation_run,
+    write_learner_evaluation_run,
 )
 from .learner_inputs import LearnerInputMaterializer, LearnerInputWindow, LearnerInputWindowSpec
 from .learner_qualification import (
@@ -158,6 +161,9 @@ __all__ = [
     "LearnerEvaluationWindowSpec",
     "LearnerEvaluator",
     "LearnerWindowEvaluation",
+    "learner_evaluation_content_hash",
+    "read_learner_evaluation_run",
+    "write_learner_evaluation_run",
     "LearnerInputMaterializer",
     "LearnerInputWindow",
     "LearnerInputWindowSpec",

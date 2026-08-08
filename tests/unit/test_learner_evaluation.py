@@ -16,6 +16,7 @@ from autonomous_futures.domain.contracts import (
     StrategySpec,
     StrategyUniverse,
 )
+from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.research.creator_artifacts import build_creator_candidate_artifact
 from autonomous_futures.research.learner_artifacts import build_learner_artifact
 from autonomous_futures.research.learner_evaluation import (
@@ -23,6 +24,8 @@ from autonomous_futures.research.learner_evaluation import (
     LearnerEvaluationWindow,
     LearnerEvaluationWindowSpec,
     LearnerWindowEvaluation,
+    read_learner_evaluation_run,
+    write_learner_evaluation_run,
 )
 
 START = datetime(2026, 8, 8, 12, tzinfo=UTC)
@@ -266,3 +269,57 @@ def test_learner_contract_rejects_empty_run_non_utc_and_invalid_rows(tmp_path: P
             evaluator=lambda received_learner, frame, window: _result(learner, window, rows=0),
         )
         bad_rows_adapter.evaluate((_window(learner, "window-01", START),), evaluated_at=START)
+
+
+def test_learner_evaluation_run_persistence_is_verified_and_write_once(tmp_path: Path) -> None:
+    learner = _learner(tmp_path)
+    adapter = CachedOnlyLearnerEvaluatorAdapter(
+        learner=learner,
+        evaluation_run_id="learner-eval-run-001",
+        evaluation_version="learner-evaluator-v1",
+        evaluator=lambda received_learner, frame, window: _result(learner, window),
+    )
+    run = adapter.evaluate(
+        (_window(learner, "window-01", START),),
+        evaluated_at=datetime(2026, 8, 8, 13, tzinfo=UTC),
+    )
+    path = tmp_path / "evaluations" / "evaluation.json"
+
+    persisted = write_learner_evaluation_run(path, run)
+    assert persisted == run
+    assert read_learner_evaluation_run(path) == run
+    assert write_learner_evaluation_run(path, run) == run
+
+    changed_audit_time = adapter.evaluate(
+        (_window(learner, "window-01", START),),
+        evaluated_at=datetime(2026, 8, 8, 14, tzinfo=UTC),
+    )
+    assert changed_audit_time.evaluation_hash == run.evaluation_hash
+    with pytest.raises(DomainViolation, match="immutable"):
+        write_learner_evaluation_run(path, changed_audit_time)
+
+
+def test_learner_evaluation_run_persistence_fails_closed_on_tamper_and_missing(
+    tmp_path: Path,
+) -> None:
+    learner = _learner(tmp_path)
+    adapter = CachedOnlyLearnerEvaluatorAdapter(
+        learner=learner,
+        evaluation_run_id="learner-eval-run-001",
+        evaluation_version="learner-evaluator-v1",
+        evaluator=lambda received_learner, frame, window: _result(learner, window),
+    )
+    run = adapter.evaluate(
+        (_window(learner, "window-01", START),),
+        evaluated_at=datetime(2026, 8, 8, 13, tzinfo=UTC),
+    )
+    path = tmp_path / "evaluation.json"
+    write_learner_evaluation_run(path, run)
+
+    payload = path.read_text(encoding="utf-8").replace(run.evaluation_hash, "0" * 64)
+    path.write_text(payload, encoding="utf-8")
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        read_learner_evaluation_run(path)
+
+    with pytest.raises(FileNotFoundError):
+        read_learner_evaluation_run(tmp_path / "missing.json")

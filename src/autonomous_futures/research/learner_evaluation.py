@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 from typing import Literal
 
 import pandas as pd
@@ -12,6 +14,7 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 
 from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
+from ..domain.errors import DomainViolation
 from .cached_evaluation import CachedEvaluationWindow, CachedEvaluationWindowSpec
 from .learner_artifacts import LearnerArtifact
 
@@ -117,6 +120,11 @@ def _evaluation_content_hash(run: LearnerEvaluationRun) -> str:
     return sha256(canonical).hexdigest()
 
 
+def learner_evaluation_content_hash(run: LearnerEvaluationRun) -> str:
+    """Return the canonical content hash used to verify a persisted evaluation run."""
+    return _evaluation_content_hash(run)
+
+
 @dataclass(frozen=True, slots=True)
 class CachedOnlyLearnerEvaluatorAdapter:
     learner: LearnerArtifact
@@ -204,6 +212,49 @@ class CachedOnlyLearnerEvaluatorAdapter:
         )
 
 
+def read_learner_evaluation_run(path: Path) -> LearnerEvaluationRun:
+    """Read and verify one persisted cached-only learner evaluation run."""
+    try:
+        run = LearnerEvaluationRun.model_validate_json(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise FileNotFoundError(path) from exc
+    except (ValidationError, ValueError) as exc:
+        raise DataQualityError("invalid persisted learner evaluation run") from exc
+    if _evaluation_content_hash(run) != run.evaluation_hash:
+        raise DomainViolation(f"learner evaluation run hash mismatch: {path}")
+    return run
+
+
+def write_learner_evaluation_run(
+    path: Path,
+    run: LearnerEvaluationRun,
+) -> LearnerEvaluationRun:
+    """Persist one evaluation run with atomic write-once semantics."""
+    if _evaluation_content_hash(run) != run.evaluation_hash:
+        raise DomainViolation("learner evaluation run hash mismatch")
+    if path.exists():
+        existing = read_learner_evaluation_run(path)
+        if existing != run:
+            raise DomainViolation(f"learner evaluation run path is immutable: {path}")
+        return existing
+
+    payload = json.dumps(run.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+    try:
+        os.link(temporary_path, path)
+    except FileExistsError:
+        temporary_path.unlink(missing_ok=True)
+        existing = read_learner_evaluation_run(path)
+        if existing != run:
+            raise DomainViolation(f"learner evaluation run path is immutable: {path}") from None
+        return existing
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return read_learner_evaluation_run(path)
+
+
 __all__ = [
     "CachedOnlyLearnerEvaluatorAdapter",
     "LearnerEvaluationRun",
@@ -211,4 +262,7 @@ __all__ = [
     "LearnerEvaluationWindowSpec",
     "LearnerEvaluator",
     "LearnerWindowEvaluation",
+    "learner_evaluation_content_hash",
+    "read_learner_evaluation_run",
+    "write_learner_evaluation_run",
 ]
