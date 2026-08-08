@@ -38,6 +38,9 @@ from autonomous_futures.research.learner_training_evidence import (
     read_learner_training_evidence,
     write_learner_training_evidence,
 )
+from autonomous_futures.research.learner_training_pipeline import (
+    execute_learner_training_with_evidence,
+)
 
 START = datetime(2026, 8, 8, 12, tzinfo=UTC)
 BUNDLE_HASH = "a" * 64
@@ -153,6 +156,15 @@ def _persist_source_and_run(
     run_path.parent.mkdir(parents=True)
     write_learner_run(run_path, run)
     return source_path, run_path
+
+
+def _persist_source_only(tmp_path: Path, learner: LearnerArtifact) -> Path:
+    model_root = tmp_path / "models"
+    model_root.mkdir(parents=True)
+    (model_root / learner.model_artifact_ref).write_bytes(b"source-learner-model")
+    source_path = tmp_path / "artifacts" / "source" / "learner.json"
+    write_learner_artifact(source_path, learner, model_root=model_root)
+    return source_path
 
 
 def _persist_output(tmp_path: Path, candidate, learner, windows, run) -> LearnerArtifact:
@@ -307,3 +319,111 @@ def test_training_evidence_is_write_once_and_rejects_unsafe_refs(tmp_path: Path)
             output_artifact_ref="trained/learner.json",
             created_at=datetime(2026, 8, 8, 15, tzinfo=UTC),
         )
+
+
+def test_explicit_training_pipeline_persists_run_output_and_evidence(tmp_path: Path) -> None:
+    candidate, learner, windows, run = _prepared(tmp_path)
+    _persist_source_only(tmp_path, learner)
+    observed: dict[str, object] = {}
+
+    def trainer(callback_run, frames):
+        observed["calls"] = int(observed.get("calls", 0)) + 1
+        observed["run_id"] = callback_run.run_id
+        observed["symbols"] = tuple(frames)
+        return LearnerTrainingOutput(
+            model_artifact_ref="trained/model.bin",
+            model_family="explicit_cached_trainer",
+            learner_version="learner-output-v1",
+            model_bytes=b"pipeline-trained-model",
+        )
+
+    evidence = execute_learner_training_with_evidence(
+        prepared_run=run,
+        source_learner=learner,
+        candidate=candidate,
+        windows=windows,
+        trainer=trainer,
+        run_root=tmp_path / "runs",
+        prepared_run_ref="run.json",
+        artifact_root=tmp_path / "artifacts",
+        source_learner_artifact_ref="source/learner.json",
+        output_artifact_ref="trained/learner.json",
+        model_root=tmp_path / "models",
+        evidence_root=tmp_path / "evidence",
+        evidence_ref="training.json",
+        artifact_created_at=datetime(2026, 8, 8, 14, tzinfo=UTC),
+        evidence_created_at=datetime(2026, 8, 8, 15, tzinfo=UTC),
+    )
+    repeated = execute_learner_training_with_evidence(
+        prepared_run=run,
+        source_learner=learner,
+        candidate=candidate,
+        windows=windows,
+        trainer=trainer,
+        run_root=tmp_path / "runs",
+        prepared_run_ref="run.json",
+        artifact_root=tmp_path / "artifacts",
+        source_learner_artifact_ref="source/learner.json",
+        output_artifact_ref="trained/learner.json",
+        model_root=tmp_path / "models",
+        evidence_root=tmp_path / "evidence",
+        evidence_ref="training.json",
+        artifact_created_at=datetime(2026, 8, 8, 14, tzinfo=UTC),
+        evidence_created_at=datetime(2026, 8, 8, 15, tzinfo=UTC),
+    )
+
+    assert observed == {
+        "calls": 1,
+        "run_id": run.run_id,
+        "symbols": ("BTCUSDT", "ETHUSDT"),
+    }
+    assert repeated == evidence
+    assert evidence.status == "completed"
+    assert evidence.prepared_run_ref == "run.json"
+    assert evidence.source_learner_artifact_ref == "source/learner.json"
+    assert evidence.output_artifact_ref == "trained/learner.json"
+    assert (tmp_path / "runs" / "run.json").exists()
+    assert (tmp_path / "artifacts" / "trained" / "learner.json").exists()
+    assert (tmp_path / "evidence" / "training.json").exists()
+    assert (
+        read_learner_training_evidence(
+            tmp_path / "evidence" / "training.json",
+            run_root=tmp_path / "runs",
+            artifact_root=tmp_path / "artifacts",
+            model_root=tmp_path / "models",
+            candidate=candidate,
+        )
+        == evidence
+    )
+
+
+def test_explicit_training_pipeline_fails_closed_before_run_persistence(
+    tmp_path: Path,
+) -> None:
+    candidate, learner, windows, run = _prepared(tmp_path)
+
+    with pytest.raises(DataQualityError, match="source learner artifact"):
+        execute_learner_training_with_evidence(
+            prepared_run=run,
+            source_learner=learner,
+            candidate=candidate,
+            windows=windows,
+            trainer=lambda _run, _frames: LearnerTrainingOutput(
+                model_artifact_ref="trained/model.bin",
+                model_family="explicit_cached_trainer",
+                learner_version="learner-output-v1",
+                model_bytes=b"pipeline-trained-model",
+            ),
+            run_root=tmp_path / "runs",
+            prepared_run_ref="run.json",
+            artifact_root=tmp_path / "artifacts",
+            source_learner_artifact_ref="source/learner.json",
+            output_artifact_ref="trained/learner.json",
+            model_root=tmp_path / "models",
+            evidence_root=tmp_path / "evidence",
+            evidence_ref="training.json",
+            artifact_created_at=datetime(2026, 8, 8, 14, tzinfo=UTC),
+            evidence_created_at=datetime(2026, 8, 8, 15, tzinfo=UTC),
+        )
+
+    assert not (tmp_path / "runs" / "run.json").exists()

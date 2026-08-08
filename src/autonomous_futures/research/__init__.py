@@ -57,6 +57,7 @@ from .learner_training_evidence import (
     read_learner_training_evidence,
     write_learner_training_evidence,
 )
+from .learner_training_pipeline import execute_learner_training_with_evidence
 from .performance_metrics import TradePerformanceMetrics, calculate_performance_metrics
 from .persisted_qualification import (
     PersistedQualificationBatchFailure,
@@ -148,6 +149,7 @@ __all__ = [
     "learner_training_evidence_content_hash",
     "read_learner_training_evidence",
     "write_learner_training_evidence",
+    "execute_learner_training_with_evidence",
     "TradePerformanceMetrics",
     "calculate_performance_metrics",
     "qualify_persisted_candidate",
