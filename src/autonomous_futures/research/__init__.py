@@ -40,6 +40,7 @@ from .learner_evaluation import (
     LearnerWindowEvaluation,
 )
 from .learner_inputs import LearnerInputMaterializer, LearnerInputWindow, LearnerInputWindowSpec
+from .learner_runs import LearnerRun, LearnerRunState, prepare_learner_run
 from .performance_metrics import TradePerformanceMetrics, calculate_performance_metrics
 from .persisted_qualification import (
     PersistedQualificationBatchFailure,
@@ -116,6 +117,9 @@ __all__ = [
     "LearnerInputMaterializer",
     "LearnerInputWindow",
     "LearnerInputWindowSpec",
+    "LearnerRun",
+    "LearnerRunState",
+    "prepare_learner_run",
     "TradePerformanceMetrics",
     "calculate_performance_metrics",
     "qualify_persisted_candidate",
