@@ -43,6 +43,10 @@ from autonomous_futures.research.learner_metric_quality_decision import (
 from autonomous_futures.research.learner_metric_quality_decision_input import (
     load_verified_learner_metric_quality_decision,
 )
+from autonomous_futures.research.learner_metric_quality_qualification_input import (
+    LearnerMetricQualityQualificationInput,
+    build_verified_learner_metric_quality_qualification_input,
+)
 from autonomous_futures.research.learner_metric_quality_review import (
     LearnerMetricQualityReviewMetric,
     LearnerMetricQualityReviewWindowResult,
@@ -1026,4 +1030,100 @@ def test_verified_metric_quality_decision_loader_recomputes_valid_hash_semantics
             learner=learner,
             candidate=candidate,
             policy=policy,
+        )
+
+
+def test_metric_quality_qualification_input_preserves_passed_decision_without_qualifying(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    decision_bytes = decision_path.read_bytes()
+    review_bytes = review_path.read_bytes()
+    metric_bytes = metric_path.read_bytes()
+
+    first = build_verified_learner_metric_quality_qualification_input(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=policy,
+        prepared_at=START,
+    )
+    second = build_verified_learner_metric_quality_qualification_input(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=policy,
+        prepared_at=START + timedelta(hours=1),
+    )
+
+    assert isinstance(first, LearnerMetricQualityQualificationInput)
+    assert first.decision == "passed"
+    assert first.qualification_status == "not_evaluated"
+    assert first.input_hash == second.input_hash
+    assert first.data_source == "cached_only"
+    assert first.exchange_access is False
+    assert first.promotion_state == "unpromoted"
+    assert first.paper_activation is False
+    assert first.execution_authority is False
+    assert decision_path.read_bytes() == decision_bytes
+    assert review_path.read_bytes() == review_bytes
+    assert metric_path.read_bytes() == metric_bytes
+
+
+def test_metric_quality_qualification_input_preserves_failed_decision(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, _, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    failed_policy = _quality_policy("observed_net_pnl", Decimal("999"))
+    failed_decision = evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=failed_policy,
+        evaluated_at=START,
+    )
+    failed_path = tmp_path / "failed-decision.json"
+    write_learner_metric_quality_decision(failed_path, failed_decision)
+
+    handoff = build_verified_learner_metric_quality_qualification_input(
+        failed_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=failed_policy,
+        prepared_at=START,
+    )
+
+    assert handoff.decision == "failed"
+    assert handoff.qualification_status == "not_evaluated"
+    assert handoff.promotion_state == "unpromoted"
+    assert handoff.execution_authority is False
+
+
+def test_metric_quality_qualification_input_rejects_non_utc_prepared_at(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+
+    with pytest.raises(DataQualityError, match="prepared_at"):
+        build_verified_learner_metric_quality_qualification_input(
+            decision_path,
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            policy=policy,
+            prepared_at=START.replace(tzinfo=None),
         )

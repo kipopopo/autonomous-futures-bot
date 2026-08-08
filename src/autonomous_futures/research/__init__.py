@@ -70,6 +70,11 @@ from .learner_metric_quality_decision import (
 from .learner_metric_quality_decision_input import (
     load_verified_learner_metric_quality_decision,
 )
+from .learner_metric_quality_qualification_input import (
+    LearnerMetricQualityQualificationInput,
+    build_verified_learner_metric_quality_qualification_input,
+    learner_metric_quality_qualification_input_content_hash,
+)
 from .learner_metric_quality_review import (
     LearnerMetricQualityReviewer,
     LearnerMetricQualityReviewEvidence,
@@ -243,6 +248,9 @@ __all__ = [
     "read_learner_metric_quality_decision",
     "write_learner_metric_quality_decision",
     "load_verified_learner_metric_quality_decision",
+    "LearnerMetricQualityQualificationInput",
+    "build_verified_learner_metric_quality_qualification_input",
+    "learner_metric_quality_qualification_input_content_hash",
     "LearnerQualityReviewEvidence",
     "LearnerQualityReviewMetric",
     "LearnerQualityReviewWindow",
