@@ -59,6 +59,8 @@ from .learner_metric_quality_review import (
     LearnerMetricQualityReviewWindowResult,
     execute_learner_metric_quality_review,
     learner_metric_quality_review_content_hash,
+    read_learner_metric_quality_review_evidence,
+    write_learner_metric_quality_review_evidence,
 )
 from .learner_metric_review_input import (
     LearnerMetricReviewCallback,
@@ -205,6 +207,8 @@ __all__ = [
     "LearnerMetricQualityReviewWindowResult",
     "execute_learner_metric_quality_review",
     "learner_metric_quality_review_content_hash",
+    "read_learner_metric_quality_review_evidence",
+    "write_learner_metric_quality_review_evidence",
     "LearnerQualityReviewEvidence",
     "LearnerQualityReviewMetric",
     "LearnerQualityReviewWindow",

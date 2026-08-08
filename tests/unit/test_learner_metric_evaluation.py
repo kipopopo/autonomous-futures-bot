@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import autonomous_futures.research.learner_metric_quality_review as metric_quality_review_module
 from autonomous_futures.data.parquet import DataQualityError
 from autonomous_futures.domain.contracts import (
     EntryExit,
@@ -33,6 +34,8 @@ from autonomous_futures.research.learner_metric_quality_review import (
     LearnerMetricQualityReviewWindowResult,
     execute_learner_metric_quality_review,
     learner_metric_quality_review_content_hash,
+    read_learner_metric_quality_review_evidence,
+    write_learner_metric_quality_review_evidence,
 )
 from autonomous_futures.research.learner_metric_review_input import (
     load_verified_learner_metric_review_input,
@@ -501,3 +504,103 @@ def test_metric_quality_review_rejects_callback_identity_and_nonfinite_output(
             reviewer=nonfinite_output,
             reviewed_at=START,
         )
+
+
+def _quality_review_evidence(tmp_path: Path, *, reviewed_at: datetime = START):
+    candidate = _candidate()
+    learner = _learner(tmp_path / "expected", candidate)
+    run = _metric_run(tmp_path / "persisted")
+    input_path = tmp_path / "metric-evaluation.json"
+    write_learner_metric_evaluation_run(input_path, run)
+
+    def reviewer(received_run, received_window):
+        return LearnerMetricQualityReviewWindowResult(
+            window_id=received_window.window_id,
+            symbol=received_window.symbol,
+            metrics=(
+                LearnerMetricQualityReviewMetric(
+                    metric_id="observed_net_pnl",
+                    value=received_window.metrics.net_pnl,
+                ),
+            ),
+        )
+
+    evidence = execute_learner_metric_quality_review(
+        input_path,
+        learner=learner,
+        candidate=candidate,
+        review_id="metric-quality-review-001",
+        review_version="metric-quality-v1",
+        reviewer=reviewer,
+        reviewed_at=reviewed_at,
+    )
+    return evidence
+
+
+def test_metric_quality_review_persistence_is_verified_and_write_once(tmp_path: Path) -> None:
+    evidence = _quality_review_evidence(tmp_path)
+    path = tmp_path / "reviews" / "metric-quality-review.json"
+
+    assert write_learner_metric_quality_review_evidence(path, evidence) == evidence
+    assert read_learner_metric_quality_review_evidence(path) == evidence
+    assert write_learner_metric_quality_review_evidence(path, evidence) == evidence
+
+    changed_audit_time = _quality_review_evidence(
+        tmp_path / "changed",
+        reviewed_at=START + timedelta(hours=1),
+    )
+    assert changed_audit_time.review_hash == evidence.review_hash
+    with pytest.raises(DomainViolation, match="immutable"):
+        write_learner_metric_quality_review_evidence(path, changed_audit_time)
+
+
+def test_metric_quality_review_persistence_fails_closed_on_missing_malformed_and_tampered(
+    tmp_path: Path,
+) -> None:
+    evidence = _quality_review_evidence(tmp_path)
+    path = tmp_path / "metric-quality-review.json"
+    write_learner_metric_quality_review_evidence(path, evidence)
+
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(evidence.review_hash, "0" * 64),
+        encoding="utf-8",
+    )
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        read_learner_metric_quality_review_evidence(path)
+
+    malformed_path = tmp_path / "malformed.json"
+    malformed_path.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(DataQualityError, match="invalid persisted"):
+        read_learner_metric_quality_review_evidence(malformed_path)
+
+    with pytest.raises(FileNotFoundError):
+        read_learner_metric_quality_review_evidence(tmp_path / "missing.json")
+
+
+def test_metric_quality_review_writer_rejects_hash_mismatch_before_filesystem_work(
+    tmp_path: Path,
+) -> None:
+    evidence = _quality_review_evidence(tmp_path)
+    path = tmp_path / "metric-quality-review.json"
+    invalid = evidence.model_copy(update={"review_hash": "0" * 64})
+
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        write_learner_metric_quality_review_evidence(path, invalid)
+    assert not path.exists()
+
+
+def test_metric_quality_review_writer_cleans_unique_temp_file_on_link_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence = _quality_review_evidence(tmp_path)
+    path = tmp_path / "metric-quality-review.json"
+
+    def fail_link(source, destination):
+        raise OSError("link failed")
+
+    monkeypatch.setattr(metric_quality_review_module.os, "link", fail_link)
+    with pytest.raises(OSError, match="link failed"):
+        write_learner_metric_quality_review_evidence(path, evidence)
+    assert not path.exists()
+    assert not list(path.parent.glob(f".{path.name}.*.tmp"))

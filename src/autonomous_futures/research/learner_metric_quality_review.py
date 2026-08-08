@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
 from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
+from ..domain.errors import DomainViolation
 from .creator_artifacts import CreatorCandidateArtifact
 from .learner_artifacts import LearnerArtifact
 from .learner_metric_evaluation import (
@@ -168,6 +171,56 @@ def execute_learner_metric_quality_review(
     )
 
 
+def read_learner_metric_quality_review_evidence(
+    path: Path,
+) -> LearnerMetricQualityReviewEvidence:
+    """Read and verify one persisted observed-only metric quality review."""
+    try:
+        evidence = LearnerMetricQualityReviewEvidence.model_validate_json(
+            path.read_text(encoding="utf-8")
+        )
+    except OSError as exc:
+        raise FileNotFoundError(path) from exc
+    except (ValidationError, ValueError) as exc:
+        raise DataQualityError("invalid persisted learner metric quality review evidence") from exc
+    if learner_metric_quality_review_content_hash(evidence) != evidence.review_hash:
+        raise DomainViolation(f"learner metric quality review evidence hash mismatch: {path}")
+    return evidence
+
+
+def write_learner_metric_quality_review_evidence(
+    path: Path,
+    evidence: LearnerMetricQualityReviewEvidence,
+) -> LearnerMetricQualityReviewEvidence:
+    """Persist observed-only review evidence atomically and write-once."""
+    if learner_metric_quality_review_content_hash(evidence) != evidence.review_hash:
+        raise DomainViolation("learner metric quality review evidence hash mismatch")
+    if path.exists():
+        existing = read_learner_metric_quality_review_evidence(path)
+        if existing != evidence:
+            raise DomainViolation(
+                f"learner metric quality review evidence path is immutable: {path}"
+            )
+        return existing
+
+    payload = json.dumps(evidence.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+        os.link(temporary_path, path)
+    except FileExistsError:
+        existing = read_learner_metric_quality_review_evidence(path)
+        if existing != evidence:
+            raise DomainViolation(
+                f"learner metric quality review evidence path is immutable: {path}"
+            ) from None
+        return existing
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return read_learner_metric_quality_review_evidence(path)
+
+
 __all__ = [
     "LearnerMetricQualityReviewer",
     "LearnerMetricQualityReviewEvidence",
@@ -175,4 +228,6 @@ __all__ = [
     "LearnerMetricQualityReviewWindowResult",
     "execute_learner_metric_quality_review",
     "learner_metric_quality_review_content_hash",
+    "read_learner_metric_quality_review_evidence",
+    "write_learner_metric_quality_review_evidence",
 ]
