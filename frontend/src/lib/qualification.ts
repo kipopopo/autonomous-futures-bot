@@ -309,3 +309,47 @@ export function buildQualificationMatrix(
     visibleRows,
   }
 }
+
+export interface QualificationComparisonModel {
+  status: QualificationStatus
+  selectedRows: QualificationMatrixRow[]
+}
+
+export function toggleQualificationComparisonSelection(selectedIds: string[], candidateId: string): string[] {
+  const uniqueIds = [...new Set(selectedIds)]
+  if (uniqueIds.includes(candidateId)) {
+    return uniqueIds.filter((id) => id !== candidateId)
+  }
+  if (uniqueIds.length >= 3) return uniqueIds
+  return [...uniqueIds, candidateId]
+}
+
+export function buildQualificationComparison(
+  model: QualificationModel,
+  selectedIds: string[],
+): QualificationComparisonModel {
+  if (model.status !== 'verified') {
+    return {
+      status: model.status,
+      selectedRows: [],
+    }
+  }
+
+  const rows = buildQualificationMatrix(model, {
+    outcome: 'all',
+    source: 'all',
+    sort: 'candidate',
+  }).visibleRows
+  const rowByCandidate = new Map(rows.map((row) => [row.candidateId, row]))
+  const selectedRows = [...new Set(selectedIds)]
+    .slice(0, 3)
+    .flatMap((candidateId) => {
+      const row = rowByCandidate.get(candidateId)
+      return row ? [row] : []
+    })
+
+  return {
+    status: 'verified',
+    selectedRows,
+  }
+}

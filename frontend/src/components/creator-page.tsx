@@ -7,6 +7,9 @@ import type { CreatorModel } from '@/lib/creator'
 import {
   buildQualificationMatrix,
   buildQualificationDetailModel,
+  buildQualificationComparison,
+  toggleQualificationComparisonSelection,
+  type QualificationComparisonModel,
   type QualificationMatrixFilters,
   type QualificationMatrixModel,
   type QualificationDetailModel,
@@ -296,9 +299,64 @@ function matrixSourceLabel(source: QualificationMatrixModel['visibleRows'][numbe
   return source ? sourceLabel(source) : '—'
 }
 
+function QualificationComparison({ comparison }: { comparison: QualificationComparisonModel }) {
+  return (
+    <section className="creator-qualification-comparison" aria-labelledby="qualification-comparison-heading">
+      <div className="creator-qualification-comparison-heading">
+        <div>
+          <span className="field-label">Descriptive evidence view</span>
+          <h3 id="qualification-comparison-heading">Cohort comparison</h3>
+        </div>
+        <span className="creator-comparison-warning">NO RANKING OR PROMOTION SIGNAL</span>
+      </div>
+      <p className="creator-qualification-comparison-copy">
+        Selected persisted summaries are shown side by side. This comparison does not identify a winner or change candidate state.
+      </p>
+      {comparison.selectedRows.length > 0 ? (
+        <div className="creator-qualification-comparison-grid">
+          {comparison.selectedRows.map((row) => (
+            <article className="creator-qualification-comparison-card" key={row.candidateId}>
+              <div className="creator-qualification-comparison-card-heading">
+                <code>{row.candidateId}</code>
+                <span className={`creator-matrix-outcome matrix-outcome-${row.outcome}`}>
+                  {matrixOutcomeLabel(row.outcome)}
+                </span>
+              </div>
+              <div className="creator-qualification-comparison-facts">
+                <div><span className="field-label">Source</span><span>{matrixSourceLabel(row.source)}</span></div>
+                <div><span className="field-label">Evaluator</span><code>{row.evaluatorVersion ?? '—'}</code></div>
+                <div><span className="field-label">Windows</span><span>{row.windowsEvaluated ?? '—'}</span></div>
+                <div><span className="field-label">Policy</span><code>{row.qualificationPolicyId ?? '—'}</code></div>
+                <div><span className="field-label">Evaluated</span><span>{row.evaluatedAt ? formatMyt(row.evaluatedAt) : '—'}</span></div>
+                <div><span className="field-label">Qualification hash</span><code title={row.qualificationHash ?? undefined}>{shortHash(row.qualificationHash)}</code></div>
+              </div>
+              <div className="creator-qualification-comparison-safety">
+                <span>Promotion: {row.promotionState ?? '—'}</span>
+                <span>Execution authority: {row.executionAuthority === false ? 'off' : '—'}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="creator-qualification-empty" role="status">
+          <CircleAlert size={18} aria-hidden="true" />
+          <span>Select up to three verified rows to compare descriptive evidence.</span>
+        </div>
+      )}
+      <div className="creator-qualification-comparison-boundary">
+        <span>Evidence only</span>
+        <span>Promotion: unpromoted</span>
+        <span>Execution authority: off</span>
+      </div>
+    </section>
+  )
+}
+
 function QualificationMatrix({ model }: { model: QualificationModel }) {
   const [filters, setFilters] = useState<QualificationMatrixFilters>(INITIAL_MATRIX_FILTERS)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const matrix = buildQualificationMatrix(model, filters)
+  const comparison = buildQualificationComparison(model, selectedIds)
 
   return (
     <section className="creator-qualification-matrix" aria-labelledby="qualification-matrix-heading">
@@ -314,6 +372,9 @@ function QualificationMatrix({ model }: { model: QualificationModel }) {
       <p className="creator-qualification-matrix-copy">
         Filter and sort persisted summaries only. No metrics are recomputed and no candidate state is changed.
       </p>
+      <div className="creator-qualification-selection-note" aria-live="polite">
+        {selectedIds.length} of 3 rows selected for descriptive comparison. Selection changes local view state only.
+      </div>
       <div className="creator-qualification-matrix-controls" aria-label="Evidence matrix filters">
         <label>
           <span className="field-label">Outcome</span>
@@ -369,9 +430,21 @@ function QualificationMatrix({ model }: { model: QualificationModel }) {
                   <span className="field-label">Candidate</span>
                   <strong>{row.candidateId}</strong>
                 </div>
-                <span className={`creator-matrix-outcome matrix-outcome-${row.outcome}`}>
-                  {matrixOutcomeLabel(row.outcome)}
-                </span>
+                <div className="creator-qualification-matrix-row-actions">
+                  <span className={`creator-matrix-outcome matrix-outcome-${row.outcome}`}>
+                    {matrixOutcomeLabel(row.outcome)}
+                  </span>
+                  <label className="creator-matrix-compare-label">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(row.candidateId)}
+                      disabled={!selectedIds.includes(row.candidateId) && selectedIds.length >= 3}
+                      aria-label={`Select ${row.candidateId} for cohort comparison`}
+                      onChange={() => setSelectedIds((current) => toggleQualificationComparisonSelection(current, row.candidateId))}
+                    />
+                    <span>Compare</span>
+                  </label>
+                </div>
               </div>
               <div className="creator-qualification-matrix-facts">
                 <div><span className="field-label">Source</span><span>{matrixSourceLabel(row.source)}</span></div>
@@ -390,6 +463,7 @@ function QualificationMatrix({ model }: { model: QualificationModel }) {
           <span>No verified evidence rows match the current filters.</span>
         </div>
       )}
+      <QualificationComparison comparison={comparison} />
       <div className="creator-qualification-matrix-boundary">
         <span>Evidence only</span>
         <span>Promotion: unpromoted</span>
