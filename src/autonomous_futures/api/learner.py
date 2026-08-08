@@ -3,15 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from ..research.creator_artifacts import CreatorCandidateArtifact
 from ..research.learner_artifacts import (
     LearnerArtifact,
     read_learner_artifact,
     verify_learner_artifact_binding,
 )
-from ..research.learner_runs import LearnerRun, learner_run_content_hash
+from ..research.learner_runs import LearnerRun, read_learner_run
 from .catalog import (
     DatasetCatalogIntegrityError,
     load_verified_dataset_catalog,
@@ -119,11 +117,9 @@ def load_verified_learner_run(
     if not run_path.exists():
         raise LearnerRunNotFoundError(run_path)
     try:
-        run = LearnerRun.model_validate_json(run_path.read_text(encoding="utf-8"))
-    except (OSError, ValidationError, ValueError) as exc:
+        run = read_learner_run(run_path)
+    except (OSError, ValueError) as exc:
         raise LearnerEvidenceIntegrityError from exc
-    if learner_run_content_hash(run) != run.run_hash:
-        raise LearnerEvidenceIntegrityError("learner run hash mismatch")
     artifact = learner_evidence.artifact
     if (
         run.learner_id != artifact.learner_id

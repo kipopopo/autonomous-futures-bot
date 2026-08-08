@@ -30,7 +30,11 @@ from autonomous_futures.research.learner_artifacts import (
     build_learner_artifact,
     write_learner_artifact,
 )
-from autonomous_futures.research.learner_runs import LearnerRun, learner_run_content_hash
+from autonomous_futures.research.learner_runs import (
+    LearnerRun,
+    learner_run_content_hash,
+    write_learner_run,
+)
 
 START = datetime(2026, 8, 7, tzinfo=UTC)
 END = START + timedelta(hours=1)
@@ -189,7 +193,7 @@ def _write_fixture(tmp_path: Path, *, with_run: bool = False) -> tuple[FastAPI, 
         )
         run = run.model_copy(update={"run_hash": learner_run_content_hash(run)})
         run_path = tmp_path / "learner-run.json"
-        run_path.write_text(run.model_dump_json(indent=2), encoding="utf-8")
+        write_learner_run(run_path, run)
 
     app = create_app(
         bundle_path=bundle_path,
@@ -272,6 +276,17 @@ def test_learner_run_endpoint_fails_closed_on_tampered_hash(tmp_path: Path) -> N
         run_path.read_text(encoding="utf-8").replace('"run_hash": "', '"run_hash": "0'),
         encoding="utf-8",
     )
+
+    response = _request(app, "GET", "/api/v1/learner/run")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "learner run integrity verification failed"}
+
+
+def test_learner_run_endpoint_fails_closed_on_malformed_persisted_run(tmp_path: Path) -> None:
+    app, _, run_path = _write_fixture(tmp_path, with_run=True)
+    assert run_path is not None
+    run_path.write_text("{ malformed learner run", encoding="utf-8")
 
     response = _request(app, "GET", "/api/v1/learner/run")
 
