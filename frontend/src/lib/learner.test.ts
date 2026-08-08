@@ -72,6 +72,75 @@ describe('buildLearnerModel', () => {
     expect(model.bundleHash).toBeNull()
     expect(model.registryHash).toBeNull()
   })
+
+  it('exposes only verified persisted learner artifact and prepared-run evidence', () => {
+    const model = buildLearnerModel({
+      ...VERIFIED_DATA,
+      learnerArtifact: {
+        verified: true,
+        artifact: {
+          learner_id: 'learner-api-001',
+          learner_version: 'v1',
+          model_family: 'explicit-test',
+          model_artifact_hash: 'c'.repeat(64),
+          artifact_hash: 'd'.repeat(64),
+          candidate_id: 'cand-learner-api',
+          symbols: ['BTCUSDT'],
+          training_window_start: '2026-08-08T00:00:00Z',
+          training_window_end: '2026-08-08T01:00:00Z',
+          state: 'testing',
+          promotion_state: 'unpromoted',
+          paper_activation: false,
+          execution_authority: false,
+        },
+      },
+      learnerRun: {
+        verified: true,
+        run: {
+          run_id: 'run-learner-api',
+          run_hash: 'e'.repeat(64),
+          status: 'prepared',
+          input_window_ids: ['input-api-001'],
+          input_symbols: ['BTCUSDT'],
+          output_artifact_hash: null,
+          training_metrics: null,
+          training_window_start: '2026-08-08T00:00:00Z',
+          training_window_end: '2026-08-08T01:00:00Z',
+          promotion_state: 'unpromoted',
+          paper_activation: false,
+          execution_authority: false,
+        },
+      },
+    } as DashboardApiData)
+
+    expect(model).toMatchObject({
+      learnerArtifactStatus: 'verified',
+      learningRunStatus: 'verified',
+      learnerArtifact: {
+        learnerId: 'learner-api-001',
+        modelArtifactHash: 'c'.repeat(64),
+        artifactHash: 'd'.repeat(64),
+      },
+      learnerRun: {
+        runId: 'run-learner-api',
+        status: 'prepared',
+        outputArtifactHash: null,
+      },
+    })
+  })
+
+  it('distinguishes integrity-unavailable evidence from a missing artifact', () => {
+    const model = buildLearnerModel({
+      ...VERIFIED_DATA,
+      learnerArtifactError: 'GET /api/v1/learner/artifact failed with HTTP 503',
+      learnerRunError: null,
+    } as DashboardApiData)
+
+    expect(model).toMatchObject({
+      learnerArtifactStatus: 'integrity_unavailable',
+      learningRunStatus: 'unavailable',
+    })
+  })
 })
 
 describe('learner route', () => {

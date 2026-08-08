@@ -17,6 +17,8 @@ metric calculation, or execution.
    activation remain explicit `UNAVAILABLE` states because no verified learner
    API/artifact is connected.
 5. No Creator qualification data is copied or inferred into Learner.
+6. Verified persisted learner artifact and prepared-run evidence are shown only
+   when their dedicated read-only endpoints pass integrity and binding checks.
 
 ## Visible states
 
@@ -37,6 +39,29 @@ UNAVAILABLE — no verified learner foundation connected
 ```
 
 Never use `0` for a missing learner artifact, run, metric, or model count.
+
+## Phase 3g evidence surfaces
+
+When `/api/v1/learner/artifact` is verified, show a compact evidence card with:
+
+- learner ID, version, and model family;
+- model artifact SHA-256;
+- learner artifact SHA-256;
+- training window;
+- `testing` / `unpromoted` safety state.
+
+When `/api/v1/learner/run` is verified, show a separate provenance card with:
+
+- run ID and run hash;
+- `prepared` status;
+- input window count and symbols;
+- training window;
+- explicit `output_artifact_hash: null` and `training_metrics: null` semantics.
+
+If either endpoint returns 404, render `UNAVAILABLE`. If it returns an integrity
+failure, render `INTEGRITY UNAVAILABLE`; do not collapse that into a successful
+empty state. Never show model bytes, fake progress, metrics, loss, accuracy,
+feature importance, promotion, paper activation, or execution controls.
 
 ## Facts
 

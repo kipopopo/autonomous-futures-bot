@@ -6,6 +6,8 @@ import type {
   CreatorRegistryResponse,
   DashboardApiData,
   HealthResponse,
+  LearnerArtifactResponse,
+  LearnerRunResponse,
 } from './dashboard'
 
 async function fetchJson<T>(path: string): Promise<T> {
@@ -28,6 +30,22 @@ async function fetchOptionalCreatorRegistry(): Promise<CreatorRegistryResponse |
     throw new Error(`GET ${path} failed with HTTP ${response.status}`)
   }
   return (await response.json()) as CreatorRegistryResponse
+}
+
+async function fetchOptionalLearnerArtifact(): Promise<LearnerArtifactResponse | null> {
+  const path = '/api/v1/learner/artifact'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as LearnerArtifactResponse
+}
+
+async function fetchOptionalLearnerRun(): Promise<LearnerRunResponse | null> {
+  const path = '/api/v1/learner/run'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as LearnerRunResponse
 }
 
 export async function fetchCreatorQualifications(): Promise<CreatorQualificationsResponse | null> {
@@ -74,6 +92,26 @@ export async function fetchOverviewData(): Promise<DashboardApiData> {
       : 'Qualification evidence could not be verified'
   }
 
+  let learnerArtifact: LearnerArtifactResponse | null = null
+  let learnerArtifactError: string | null = null
+  try {
+    learnerArtifact = await fetchOptionalLearnerArtifact()
+  } catch (error) {
+    learnerArtifactError = error instanceof Error
+      ? error.message
+      : 'Learner artifact evidence could not be verified'
+  }
+
+  let learnerRun: LearnerRunResponse | null = null
+  let learnerRunError: string | null = null
+  try {
+    learnerRun = await fetchOptionalLearnerRun()
+  } catch (error) {
+    learnerRunError = error instanceof Error
+      ? error.message
+      : 'Learner run evidence could not be verified'
+  }
+
   return {
     health,
     bundle,
@@ -81,5 +119,9 @@ export async function fetchOverviewData(): Promise<DashboardApiData> {
     creatorRegistry,
     creatorQualifications,
     creatorQualificationError,
+    learnerArtifact,
+    learnerArtifactError,
+    learnerRun,
+    learnerRunError,
   }
 }

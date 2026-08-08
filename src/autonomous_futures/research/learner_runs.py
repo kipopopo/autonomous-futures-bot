@@ -94,6 +94,11 @@ def _run_content_hash(run: LearnerRun) -> str:
     return sha256(canonical).hexdigest()
 
 
+def learner_run_content_hash(run: LearnerRun) -> str:
+    """Return the canonical content hash used to verify a persisted run."""
+    return _run_content_hash(run)
+
+
 def _is_safe_run_id(value: str) -> bool:
     return bool(value) and all(character.isalnum() or character in "._-" for character in value)
 
@@ -174,4 +179,9 @@ def prepare_learner_run(
     return provisional.model_copy(update={"run_hash": _run_content_hash(provisional)})
 
 
-__all__ = ["LearnerRun", "LearnerRunState", "prepare_learner_run"]
+__all__ = [
+    "LearnerRun",
+    "LearnerRunState",
+    "learner_run_content_hash",
+    "prepare_learner_run",
+]

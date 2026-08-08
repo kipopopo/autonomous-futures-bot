@@ -134,6 +134,73 @@ export interface QualificationDetailResponse {
   artifact: CreatorQualificationArtifact
 }
 
+export interface LearnerArtifactEvidence {
+  artifact_version: 1
+  learner_id: string
+  candidate_id: string
+  candidate_artifact_hash: string
+  bundle_hash: string
+  dataset_registry_hash: string
+  symbols: string[]
+  primary_interval: string
+  context_interval: string
+  learner_run_id: string
+  learner_version: string
+  model_family: string
+  feature_ids: string[]
+  training_window_start: string
+  training_window_end: string
+  model_artifact_ref: string
+  model_artifact_hash: string
+  state: 'testing'
+  source: 'learner_research'
+  data_source: 'cached_only'
+  exchange_access: false
+  promotion_state: 'unpromoted'
+  paper_activation: false
+  execution_authority: false
+  created_at: string
+  artifact_hash: string
+}
+
+export interface LearnerArtifactResponse {
+  verified: boolean
+  artifact: LearnerArtifactEvidence
+}
+
+export interface LearnerRunEvidence {
+  run_version: 1
+  run_id: string
+  learner_id: string
+  learner_run_id: string
+  learner_version: string
+  learner_artifact_hash: string
+  candidate_id: string
+  candidate_artifact_hash: string
+  bundle_hash: string
+  dataset_registry_hash: string
+  input_window_ids: string[]
+  input_symbols: string[]
+  feature_ids: string[]
+  training_window_start: string
+  training_window_end: string
+  status: 'prepared'
+  output_artifact_hash: null
+  training_metrics: null
+  data_source: 'cached_only'
+  exchange_access: false
+  promotion_state: 'unpromoted'
+  paper_activation: false
+  execution_authority: false
+  prepared_at: string
+  run_hash: string
+}
+
+export interface LearnerRunResponse {
+  verified: boolean
+  run: LearnerRunEvidence
+}
+
 export interface DashboardApiData {
   health: HealthResponse | null
   bundle: BundleResponse | null
@@ -141,6 +208,10 @@ export interface DashboardApiData {
   creatorRegistry?: CreatorRegistryResponse | null
   creatorQualifications?: CreatorQualificationsResponse | null
   creatorQualificationError?: string | null
+  learnerArtifact?: LearnerArtifactResponse | null
+  learnerArtifactError?: string | null
+  learnerRun?: LearnerRunResponse | null
+  learnerRunError?: string | null
 }
 
 export type VerificationState = 'verified' | 'error'

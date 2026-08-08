@@ -11,6 +11,8 @@ from ..data.bundle import DatasetBundle
 from ..data.registry import DatasetKind, DatasetRegistry, DatasetRegistryEntry
 from ..domain.contracts import DomainModel
 from ..research.creator_artifacts import CreatorCandidateRegistry
+from ..research.learner_artifacts import LearnerArtifact
+from ..research.learner_runs import LearnerRun
 from ..research.qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
     QualificationDecision,
@@ -30,6 +32,14 @@ from .creator import (
     CreatorCandidateRegistryIntegrityError,
     CreatorCandidateRegistryNotFoundError,
     load_verified_creator_candidate_registry,
+)
+from .learner import (
+    LearnerArtifactNotFoundError,
+    LearnerEvidenceIntegrityError,
+    LearnerRunNotFoundError,
+    VerifiedLearnerEvidence,
+    load_verified_learner_artifact,
+    load_verified_learner_run,
 )
 from .qualification import (
     CreatorQualificationArtifactIntegrityError,
@@ -100,6 +110,16 @@ class CreatorQualificationResponse(DomainModel):
     artifact: CreatorCandidateQualificationArtifact
 
 
+class LearnerArtifactResponse(DomainModel):
+    verified: Literal[True] = True
+    artifact: LearnerArtifact
+
+
+class LearnerRunResponse(DomainModel):
+    verified: Literal[True] = True
+    run: LearnerRun
+
+
 class ComponentsResponse(DomainModel):
     verified: Literal[True] = True
     component_count: int
@@ -130,6 +150,9 @@ def create_app(
     creator_candidate_registry_path: Path | None = None,
     creator_candidate_artifact_root: Path | None = None,
     qualification_artifact_root: Path | None = None,
+    learner_artifact_path: Path | None = None,
+    learner_model_root: Path | None = None,
+    learner_run_path: Path | None = None,
 ) -> FastAPI:
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
@@ -148,6 +171,15 @@ def create_app(
     )
     configured_qualification_artifact_root = qualification_artifact_root or _configured_path(
         "AFBOT_QUALIFICATION_ARTIFACT_ROOT", "data/qualifications"
+    )
+    configured_learner_artifact_path = learner_artifact_path or _configured_path(
+        "AFBOT_LEARNER_ARTIFACT_PATH", "data/learner-artifact.json"
+    )
+    configured_learner_model_root = learner_model_root or _configured_path(
+        "AFBOT_LEARNER_MODEL_ROOT", "data/models"
+    )
+    configured_learner_run_path = learner_run_path or _configured_path(
+        "AFBOT_LEARNER_RUN_PATH", "data/learner-run.json"
     )
 
     app = FastAPI(
@@ -172,6 +204,51 @@ def create_app(
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse()
+
+    def verified_learner_artifact() -> VerifiedLearnerEvidence:
+        try:
+            return load_verified_learner_artifact(
+                artifact_path=configured_learner_artifact_path,
+                model_root=configured_learner_model_root,
+                bundle_path=configured_bundle_path,
+                registry_path=configured_registry_path,
+                candidate_registry_path=configured_creator_registry_path,
+                candidate_artifact_root=configured_creator_artifact_root,
+            )
+        except LearnerArtifactNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="learner artifact unavailable",
+            ) from exc
+        except LearnerEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="learner artifact integrity verification failed",
+            ) from exc
+
+    @app.get("/api/v1/learner/artifact", response_model=LearnerArtifactResponse)
+    def learner_artifact() -> LearnerArtifactResponse:
+        verified = verified_learner_artifact()
+        return LearnerArtifactResponse(artifact=verified.artifact)
+
+    @app.get("/api/v1/learner/run", response_model=LearnerRunResponse)
+    def learner_run() -> LearnerRunResponse:
+        if not configured_learner_run_path.exists():
+            raise HTTPException(status_code=404, detail="learner run unavailable")
+        verified_artifact = verified_learner_artifact()
+        try:
+            run = load_verified_learner_run(
+                run_path=configured_learner_run_path,
+                learner_evidence=verified_artifact,
+            )
+        except LearnerRunNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="learner run unavailable") from exc
+        except LearnerEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="learner run integrity verification failed",
+            ) from exc
+        return LearnerRunResponse(run=run)
 
     @app.get("/api/v1/dataset/bundle", response_model=BundleResponse)
     def dataset_bundle() -> BundleResponse:
@@ -382,6 +459,8 @@ __all__ = [
     "CreatorQualificationSummary",
     "CreatorQualificationsResponse",
     "HealthResponse",
+    "LearnerArtifactResponse",
+    "LearnerRunResponse",
     "RegistryResponse",
     "RowsResponse",
     "app",
