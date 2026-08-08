@@ -92,6 +92,48 @@ export interface CreatorQualificationsResponse {
   qualifications: CreatorQualificationSummary[]
 }
 
+export type QualificationComparator = 'gte' | 'lte' | 'eq' | 'present' | 'bool'
+
+export interface CreatorQualificationMetric {
+  metric_id: string
+  value: string
+}
+
+export interface CreatorQualificationGate {
+  gate_id: string
+  passed: boolean
+  observed: string | null
+  threshold: string | null
+  comparator: QualificationComparator
+  reason_code: string
+}
+
+export interface CreatorQualificationArtifact {
+  qualification_version: 1
+  candidate_id: string
+  candidate_artifact_hash: string
+  bundle_hash: string
+  dataset_registry_hash: string
+  evaluator_run_id: string
+  evaluator_version: string
+  decision: QualificationDecision
+  metrics: CreatorQualificationMetric[]
+  gates: CreatorQualificationGate[]
+  windows_evaluated: number
+  qualification_policy_id: string | null
+  oos_aggregation_hash: string | null
+  source: QualificationSource
+  evaluated_at: string
+  promotion_state: 'unpromoted'
+  execution_authority: false
+  qualification_hash: string
+}
+
+export interface QualificationDetailResponse {
+  verified: boolean
+  artifact: CreatorQualificationArtifact
+}
+
 export interface DashboardApiData {
   health: HealthResponse | null
   bundle: BundleResponse | null

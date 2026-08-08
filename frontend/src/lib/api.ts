@@ -1,6 +1,7 @@
 import type {
   BundleResponse,
   ComponentsResponse,
+  QualificationDetailResponse,
   CreatorQualificationsResponse,
   CreatorRegistryResponse,
   DashboardApiData,
@@ -39,6 +40,20 @@ export async function fetchCreatorQualifications(): Promise<CreatorQualification
     throw new Error(`GET ${path} failed with HTTP ${response.status}`)
   }
   return (await response.json()) as CreatorQualificationsResponse
+}
+
+export async function fetchCreatorQualification(
+  candidateId: string,
+): Promise<QualificationDetailResponse | null> {
+  const path = `/api/v1/creator/qualifications/${encodeURIComponent(candidateId)}`
+  const response = await fetch(path, {
+    headers: { Accept: 'application/json' },
+  })
+  if (response.status === 404) return null
+  if (!response.ok) {
+    throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  }
+  return (await response.json()) as QualificationDetailResponse
 }
 
 export async function fetchOverviewData(): Promise<DashboardApiData> {
