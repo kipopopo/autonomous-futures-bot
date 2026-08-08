@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -180,3 +181,23 @@ def test_qualification_artifact_preserves_decimal_json_and_is_write_once(tmp_pat
 def test_qualification_artifact_rejects_non_finite_metrics() -> None:
     with pytest.raises(ValidationError, match="value"):
         QualificationMetric(metric_id="oos_sharpe", value=Decimal("NaN"))
+
+
+def test_legacy_qualification_json_without_oos_binding_fields_remains_readable(
+    tmp_path: Path,
+) -> None:
+    artifact = _artifact()
+    payload = artifact.model_dump(mode="json")
+    payload.pop("qualification_policy_id")
+    payload.pop("oos_aggregation_hash")
+    payload_without_hash = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"evaluated_at", "qualification_hash"}
+    }
+    canonical = json.dumps(payload_without_hash, sort_keys=True, separators=(",", ":")).encode()
+    payload["qualification_hash"] = sha256(canonical).hexdigest()
+    path = tmp_path / "legacy-qualification.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert read_creator_candidate_qualification_artifact(path) == artifact

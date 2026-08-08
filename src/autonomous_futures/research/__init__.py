@@ -30,7 +30,10 @@ from .qualification_artifacts import (
     QualificationDecision,
     QualificationGateResult,
     QualificationMetric,
+    QualificationSource,
+    WalkForwardQualificationPolicy,
     build_creator_candidate_qualification_artifact,
+    build_walk_forward_qualification_artifact,
     read_creator_candidate_qualification_artifact,
     write_creator_candidate_qualification_artifact,
 )
@@ -85,7 +88,10 @@ __all__ = [
     "QualificationDecision",
     "QualificationGateResult",
     "QualificationMetric",
+    "QualificationSource",
+    "WalkForwardQualificationPolicy",
     "build_creator_candidate_qualification_artifact",
+    "build_walk_forward_qualification_artifact",
     "read_creator_candidate_qualification_artifact",
     "write_creator_candidate_qualification_artifact",
 ]
