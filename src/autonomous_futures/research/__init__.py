@@ -67,6 +67,9 @@ from .learner_metric_quality_decision import (
     read_learner_metric_quality_decision,
     write_learner_metric_quality_decision,
 )
+from .learner_metric_quality_decision_input import (
+    load_verified_learner_metric_quality_decision,
+)
 from .learner_metric_quality_review import (
     LearnerMetricQualityReviewer,
     LearnerMetricQualityReviewEvidence,
@@ -239,6 +242,7 @@ __all__ = [
     "learner_metric_quality_policy_content_hash",
     "read_learner_metric_quality_decision",
     "write_learner_metric_quality_decision",
+    "load_verified_learner_metric_quality_decision",
     "LearnerQualityReviewEvidence",
     "LearnerQualityReviewMetric",
     "LearnerQualityReviewWindow",

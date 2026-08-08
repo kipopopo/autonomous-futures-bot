@@ -40,6 +40,9 @@ from autonomous_futures.research.learner_metric_quality_decision import (
     read_learner_metric_quality_decision,
     write_learner_metric_quality_decision,
 )
+from autonomous_futures.research.learner_metric_quality_decision_input import (
+    load_verified_learner_metric_quality_decision,
+)
 from autonomous_futures.research.learner_metric_quality_review import (
     LearnerMetricQualityReviewMetric,
     LearnerMetricQualityReviewWindowResult,
@@ -937,3 +940,90 @@ def test_metric_quality_decision_writer_cleans_unique_temp_file_on_link_failure(
         write_learner_metric_quality_decision(path, evidence)
     assert not path.exists()
     assert not list(path.parent.glob(f".{path.name}.*.tmp"))
+
+
+def _persisted_metric_quality_decision_fixture(tmp_path: Path):
+    review_path, metric_path, learner, candidate, _, _ = _persisted_quality_review_fixture(
+        tmp_path / "source"
+    )
+    policy = _quality_policy("observed_net_pnl", Decimal("-1"))
+    decision = evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=policy,
+        evaluated_at=START,
+    )
+    decision_path = tmp_path / "decision.json"
+    write_learner_metric_quality_decision(decision_path, decision)
+    return decision_path, review_path, metric_path, learner, candidate, policy, decision
+
+
+def test_verified_metric_quality_decision_loader_binds_full_chain_and_preserves_bytes(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, policy, decision = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    decision_bytes = decision_path.read_bytes()
+    review_bytes = review_path.read_bytes()
+    metric_bytes = metric_path.read_bytes()
+
+    loaded = load_verified_learner_metric_quality_decision(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=policy,
+    )
+
+    assert loaded == decision
+    assert decision_path.read_bytes() == decision_bytes
+    assert review_path.read_bytes() == review_bytes
+    assert metric_path.read_bytes() == metric_bytes
+
+
+def test_verified_metric_quality_decision_loader_rejects_policy_drift(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    drifted_policy = _quality_policy("observed_net_pnl", Decimal("-2"))
+    assert drifted_policy.policy_id == policy.policy_id
+
+    with pytest.raises(DomainViolation, match="policy"):
+        load_verified_learner_metric_quality_decision(
+            decision_path,
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            policy=drifted_policy,
+        )
+
+
+def test_verified_metric_quality_decision_loader_recomputes_valid_hash_semantics(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, policy, decision = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    semantically_drifted = decision.model_copy(update={"decision": "failed"})
+    semantically_drifted = semantically_drifted.model_copy(
+        update={"decision_hash": learner_metric_quality_decision_content_hash(semantically_drifted)}
+    )
+    drifted_decision_path = tmp_path / "drifted-decision.json"
+    write_learner_metric_quality_decision(drifted_decision_path, semantically_drifted)
+
+    with pytest.raises(DomainViolation, match="decision"):
+        load_verified_learner_metric_quality_decision(
+            drifted_decision_path,
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            policy=policy,
+        )
