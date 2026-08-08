@@ -22,7 +22,7 @@ from .creator_artifacts import (
     write_creator_candidate_artifact,
     write_creator_candidate_registry,
 )
-from .feature_signals import CausalFeatureSignalEvaluator
+from .feature_signals import CausalFeatureSignalEvaluator, materialize_causal_features
 from .learner_artifacts import (
     LearnerArtifact,
     LearnerArtifactState,
@@ -39,6 +39,7 @@ from .learner_evaluation import (
     LearnerEvaluator,
     LearnerWindowEvaluation,
 )
+from .learner_inputs import LearnerInputMaterializer, LearnerInputWindow, LearnerInputWindowSpec
 from .performance_metrics import TradePerformanceMetrics, calculate_performance_metrics
 from .persisted_qualification import (
     PersistedQualificationBatchFailure,
@@ -99,6 +100,7 @@ __all__ = [
     "CausalCachedEvaluatorAdapter",
     "materialize_causal_context",
     "CausalFeatureSignalEvaluator",
+    "materialize_causal_features",
     "LearnerArtifact",
     "LearnerArtifactState",
     "build_learner_artifact",
@@ -111,6 +113,9 @@ __all__ = [
     "LearnerEvaluationWindowSpec",
     "LearnerEvaluator",
     "LearnerWindowEvaluation",
+    "LearnerInputMaterializer",
+    "LearnerInputWindow",
+    "LearnerInputWindowSpec",
     "TradePerformanceMetrics",
     "calculate_performance_metrics",
     "qualify_persisted_candidate",

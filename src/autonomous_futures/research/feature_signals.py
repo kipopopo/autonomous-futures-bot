@@ -91,28 +91,46 @@ def _compare(values: pd.Series, operator: str, threshold: float) -> pd.Series:
     return result.fillna(False).astype(bool)
 
 
+def materialize_causal_features(
+    candidate: CreatorCandidateArtifact, frame: pd.DataFrame
+) -> pd.DataFrame:
+    """Materialize only declared prior-bar features from a cached OHLC frame."""
+    missing = sorted(set(_REQUIRED_OHLC).difference(frame.columns))
+    if missing:
+        raise DataQualityError("feature evaluator is missing OHLC columns: " + ", ".join(missing))
+    canonical = canonicalize_bars(frame, interval=timedelta(minutes=5))
+    close = _finite_positive_series(canonical, "close")
+    high = _finite_positive_series(canonical, "high")
+    low = _finite_positive_series(canonical, "low")
+    _finite_positive_series(canonical, "open")
+
+    feature_refs = candidate.strategy.features
+    feature_names = tuple(feature.name for feature in feature_refs)
+    if len(set(feature_names)) != len(feature_names):
+        raise DataQualityError("candidate features must be unique")
+    if unsupported := sorted(set(feature_names).difference(_SUPPORTED_FEATURES)):
+        raise DataQualityError("feature is not supported: " + ", ".join(unsupported))
+
+    result = canonical.copy(deep=True)
+    for feature_ref in feature_refs:
+        result[feature_ref.name] = _feature_series(
+            feature_ref.name,
+            close=close,
+            high=high,
+            low=low,
+            lookback=feature_ref.lookback,
+            shift=feature_ref.shift,
+        )
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class CausalFeatureSignalEvaluator:
     """Compute a bounded feature set and fresh-state signals from cached OHLC bars."""
 
     def evaluate(self, candidate: CreatorCandidateArtifact, frame: pd.DataFrame) -> pd.DataFrame:
-        missing = sorted(set(_REQUIRED_OHLC).difference(frame.columns))
-        if missing:
-            raise DataQualityError(
-                "feature evaluator is missing OHLC columns: " + ", ".join(missing)
-            )
-        canonical = canonicalize_bars(frame, interval=timedelta(minutes=5))
-        close = _finite_positive_series(canonical, "close")
-        high = _finite_positive_series(canonical, "high")
-        low = _finite_positive_series(canonical, "low")
-        _finite_positive_series(canonical, "open")
-
-        feature_refs = candidate.strategy.features
-        feature_names = tuple(feature.name for feature in feature_refs)
-        if len(set(feature_names)) != len(feature_names):
-            raise DataQualityError("candidate features must be unique")
-        if unsupported := sorted(set(feature_names).difference(_SUPPORTED_FEATURES)):
-            raise DataQualityError("feature is not supported: " + ", ".join(unsupported))
+        result = materialize_causal_features(candidate, frame)
+        feature_names = tuple(feature.name for feature in candidate.strategy.features)
 
         long_clauses, long_connectors = _parse_expression(candidate.strategy.entry.long)
         short_clauses, short_connectors = _parse_expression(candidate.strategy.entry.short)
@@ -124,17 +142,6 @@ class CausalFeatureSignalEvaluator:
         if unsupported_expression:
             raise DataQualityError(
                 "signal feature is not supported: " + ", ".join(unsupported_expression)
-            )
-
-        result = canonical.copy(deep=True)
-        for feature_ref in feature_refs:
-            result[feature_ref.name] = _feature_series(
-                feature_ref.name,
-                close=close,
-                high=high,
-                low=low,
-                lookback=feature_ref.lookback,
-                shift=feature_ref.shift,
             )
 
         long_condition = self._condition_series(result, long_clauses, long_connectors)
@@ -169,4 +176,4 @@ class CausalFeatureSignalEvaluator:
         return condition.astype(bool)
 
 
-__all__ = ["CausalFeatureSignalEvaluator"]
+__all__ = ["CausalFeatureSignalEvaluator", "materialize_causal_features"]
