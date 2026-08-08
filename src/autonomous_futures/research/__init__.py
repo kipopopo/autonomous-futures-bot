@@ -33,6 +33,13 @@ from .qualification_artifacts import (
     read_creator_candidate_qualification_artifact,
     write_creator_candidate_qualification_artifact,
 )
+from .trade_simulation import (
+    EquityPoint,
+    SimulatedTrade,
+    TradeSimulationConfig,
+    TradeSimulationResult,
+    simulate_cached_signals,
+)
 
 __all__ = [
     "CandidateState",
@@ -55,6 +62,11 @@ __all__ = [
     "CausalCachedEvaluatorAdapter",
     "materialize_causal_context",
     "CausalFeatureSignalEvaluator",
+    "EquityPoint",
+    "SimulatedTrade",
+    "TradeSimulationConfig",
+    "TradeSimulationResult",
+    "simulate_cached_signals",
     "CreatorCandidateQualificationArtifact",
     "QualificationComparator",
     "QualificationDecision",
