@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Literal
@@ -25,6 +25,9 @@ class TradeSimulationConfig(DomainModel):
     atr_lookback: int = Field(default=14, strict=True, gt=0)
     stop_atr_multiplier: StrictNonNegativeDecimal = Field(default=Decimal("0"), le=Decimal("100"))
     take_profit_atr_multiplier: StrictNonNegativeDecimal = Field(
+        default=Decimal("0"), le=Decimal("100")
+    )
+    trailing_atr_multiplier: StrictNonNegativeDecimal = Field(
         default=Decimal("0"), le=Decimal("100")
     )
 
@@ -62,6 +65,7 @@ class SimulatedTrade(DomainModel):
         "signal_exit",
         "forced_end_of_window",
         "stop_loss",
+        "trailing_stop",
         "take_profit",
     ]
 
@@ -91,7 +95,7 @@ class SimulatedTrade(DomainModel):
 
 
 class TradeSimulationResult(DomainModel):
-    simulation_version: Literal[1] = 1
+    simulation_version: Literal[2] = 2
     symbol: str = Field(pattern=r"^[A-Z0-9]+$")
     starting_equity: StrictPositiveDecimal
     final_equity: StrictNonNegativeDecimal
@@ -132,6 +136,8 @@ class _OpenPosition:
     entry_slippage_cost: Decimal
     stop_price: Decimal | None
     target_price: Decimal | None
+    trailing_stop_price: Decimal | None
+    watermark: Decimal
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -166,6 +172,19 @@ def _fill_price(raw_price: Decimal, side: str, *, entry: bool, slippage_rate: De
     return raw_price * (Decimal("1") + adverse)
 
 
+def _trailing_stop_price(
+    position: _OpenPosition,
+    *,
+    atr: Decimal | None,
+    multiplier: Decimal,
+) -> Decimal | None:
+    if atr is None or multiplier <= 0:
+        return None
+    if position.side == "LONG":
+        return position.watermark - atr * multiplier
+    return position.watermark + atr * multiplier
+
+
 def _mark_equity(cash: Decimal, position: _OpenPosition | None, close: Decimal) -> Decimal:
     if position is None:
         return cash
@@ -179,15 +198,24 @@ def _protective_trigger(
     *,
     high: Decimal,
     low: Decimal,
-) -> tuple[Literal["stop_loss", "take_profit"], Decimal] | None:
+) -> tuple[Literal["stop_loss", "trailing_stop", "take_profit"], Decimal] | None:
+    stop_candidates: list[tuple[Literal["stop_loss", "trailing_stop"], Decimal]] = []
     if position.side == "LONG":
         if position.stop_price is not None and low <= position.stop_price:
-            return "stop_loss", position.stop_price
+            stop_candidates.append(("stop_loss", position.stop_price))
+        if position.trailing_stop_price is not None and low <= position.trailing_stop_price:
+            stop_candidates.append(("trailing_stop", position.trailing_stop_price))
+        if stop_candidates:
+            return min(stop_candidates, key=lambda candidate: candidate[1])
         if position.target_price is not None and high >= position.target_price:
             return "take_profit", position.target_price
     else:
         if position.stop_price is not None and high >= position.stop_price:
-            return "stop_loss", position.stop_price
+            stop_candidates.append(("stop_loss", position.stop_price))
+        if position.trailing_stop_price is not None and high >= position.trailing_stop_price:
+            stop_candidates.append(("trailing_stop", position.trailing_stop_price))
+        if stop_candidates:
+            return max(stop_candidates, key=lambda candidate: candidate[1])
         if position.target_price is not None and low <= position.target_price:
             return "take_profit", position.target_price
     return None
@@ -203,6 +231,7 @@ def _close_position(
         "signal_exit",
         "forced_end_of_window",
         "stop_loss",
+        "trailing_stop",
         "take_profit",
     ],
     taker_fee_rate: Decimal,
@@ -278,7 +307,11 @@ def simulate_cached_signals(
             raise DataQualityError("simulation signal must be -1, 0, or 1")
         parsed_rows.append((timestamp, raw_open, raw_high, raw_low, raw_close, signal_decimal))
 
-    protections_enabled = config.stop_atr_multiplier > 0 or config.take_profit_atr_multiplier > 0
+    protections_enabled = (
+        config.stop_atr_multiplier > 0
+        or config.take_profit_atr_multiplier > 0
+        or config.trailing_atr_multiplier > 0
+    )
     atr_values = (
         _atr_values(parsed_rows, config.atr_lookback)
         if protections_enabled
@@ -295,6 +328,14 @@ def simulate_cached_signals(
         signal = int(signal_decimal)
         closed_this_bar = False
         if position is not None:
+            position = replace(
+                position,
+                trailing_stop_price=_trailing_stop_price(
+                    position,
+                    atr=atr_values[index],
+                    multiplier=config.trailing_atr_multiplier,
+                ),
+            )
             protective = _protective_trigger(position, high=raw_high, low=raw_low)
             if protective is not None:
                 reason, trigger_price = protective
@@ -330,6 +371,15 @@ def simulate_cached_signals(
                 cash += cash_delta
                 position = None
                 closed_this_bar = True
+        if position is not None:
+            position = replace(
+                position,
+                watermark=(
+                    max(position.watermark, raw_high)
+                    if position.side == "LONG"
+                    else min(position.watermark, raw_low)
+                ),
+            )
         if position is None and not closed_this_bar and signal != 0:
             protection_atr = atr_values[index]
             if not protections_enabled or protection_atr is not None:
@@ -348,6 +398,7 @@ def simulate_cached_signals(
                 cash -= entry_fee
                 stop_price = None
                 target_price = None
+                trailing_stop_price = None
                 if protection_atr is not None:
                     if config.stop_atr_multiplier > 0:
                         stop_price = (
@@ -361,6 +412,12 @@ def simulate_cached_signals(
                             if side == "LONG"
                             else entry_price - protection_atr * config.take_profit_atr_multiplier
                         )
+                    if config.trailing_atr_multiplier > 0:
+                        trailing_stop_price = (
+                            entry_price - protection_atr * config.trailing_atr_multiplier
+                            if side == "LONG"
+                            else entry_price + protection_atr * config.trailing_atr_multiplier
+                        )
                 position = _OpenPosition(
                     trade_id=f"{symbol.lower()}-{index:06d}",
                     entry_timestamp=timestamp,
@@ -372,6 +429,8 @@ def simulate_cached_signals(
                     entry_slippage_cost=quantity * raw_open * config.slippage_rate,
                     stop_price=stop_price,
                     target_price=target_price,
+                    trailing_stop_price=trailing_stop_price,
+                    watermark=entry_price,
                 )
                 protective = _protective_trigger(position, high=raw_high, low=raw_low)
                 if protective is not None:
@@ -389,6 +448,15 @@ def simulate_cached_signals(
                     trades.append(trade)
                     cash += cash_delta
                     position = None
+                else:
+                    position = replace(
+                        position,
+                        watermark=(
+                            max(position.watermark, raw_high)
+                            if position.side == "LONG"
+                            else min(position.watermark, raw_low)
+                        ),
+                    )
         equity_points.append(
             EquityPoint(timestamp=timestamp, equity=_mark_equity(cash, position, raw_close))
         )

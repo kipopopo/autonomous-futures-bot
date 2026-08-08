@@ -78,6 +78,17 @@ def _risk_config() -> TradeSimulationConfig:
     )
 
 
+def _trailing_config() -> TradeSimulationConfig:
+    return TradeSimulationConfig(
+        starting_equity=Decimal("100"),
+        position_fraction=Decimal("1"),
+        taker_fee_rate=Decimal("0"),
+        slippage_rate=Decimal("0"),
+        atr_lookback=3,
+        trailing_atr_multiplier=Decimal("1"),
+    )
+
+
 @pytest.mark.parametrize("signal", [1, -1])
 def test_constant_price_round_trip_charges_both_fees_and_forces_final_close(signal: int) -> None:
     frame = _signal_frame((0, signal, 0, 0), opens=("100",) * 4, closes=("100",) * 4)
@@ -230,6 +241,76 @@ def test_protected_signal_before_atr_warmup_does_not_open_unprotected_position()
     )
 
     result = simulate_cached_signals(frame, symbol="BTCUSDT", config=_risk_config())
+
+    assert result.trades == ()
+    assert result.final_equity == Decimal("100")
+
+
+@pytest.mark.parametrize(
+    ("signal", "highs", "lows", "close", "expected_equity"),
+    [
+        (
+            1,
+            ("101", "101", "101", "101", "110"),
+            ("99", "99", "99", "99", "99"),
+            "105",
+            "105",
+        ),
+        (
+            -1,
+            ("101", "101", "101", "101", "101"),
+            ("99", "99", "99", "99", "90"),
+            "95",
+            "105",
+        ),
+    ],
+)
+def test_trailing_stop_does_not_use_current_extreme_before_survival_check(
+    signal: int,
+    highs: tuple[str, ...],
+    lows: tuple[str, ...],
+    close: str,
+    expected_equity: str,
+) -> None:
+    frame = _risk_frame(
+        (0, 0, 0, 0, signal),
+        highs=highs,
+        lows=lows,
+        closes=("100", "100", "100", "100", close),
+    )
+
+    result = simulate_cached_signals(frame, symbol="BTCUSDT", config=_trailing_config())
+
+    assert len(result.trades) == 1
+    assert result.trades[0].exit_reason == "forced_end_of_window"
+    assert result.trades[0].exit_price == Decimal(close)
+    assert result.final_equity == Decimal(expected_equity)
+
+
+def test_long_trailing_stop_uses_watermark_from_completed_prior_candle() -> None:
+    frame = _risk_frame(
+        (0, 0, 0, 0, 1, 0),
+        highs=("101", "101", "101", "101", "101", "105"),
+        lows=("99", "99", "99", "99", "99", "98"),
+        closes=("100", "100", "100", "100", "100", "99"),
+    )
+
+    result = simulate_cached_signals(frame, symbol="BTCUSDT", config=_trailing_config())
+
+    assert len(result.trades) == 1
+    assert result.trades[0].exit_reason == "trailing_stop"
+    assert result.trades[0].exit_price == Decimal("99")
+    assert result.final_equity == Decimal("99")
+
+
+def test_trailing_only_signal_before_atr_warmup_does_not_open_position() -> None:
+    frame = _risk_frame(
+        (0, 1, 0, 0, 0),
+        highs=("101",) * 5,
+        lows=("99",) * 5,
+    )
+
+    result = simulate_cached_signals(frame, symbol="BTCUSDT", config=_trailing_config())
 
     assert result.trades == ()
     assert result.final_equity == Decimal("100")
