@@ -41,6 +41,12 @@ from .trade_simulation import (
     TradeSimulationResult,
     simulate_cached_signals,
 )
+from .walk_forward import (
+    WalkForwardAggregation,
+    WalkForwardSymbolSummary,
+    WalkForwardWindowMetrics,
+    aggregate_walk_forward_metrics,
+)
 
 __all__ = [
     "CandidateState",
@@ -65,6 +71,10 @@ __all__ = [
     "CausalFeatureSignalEvaluator",
     "TradePerformanceMetrics",
     "calculate_performance_metrics",
+    "WalkForwardAggregation",
+    "WalkForwardSymbolSummary",
+    "WalkForwardWindowMetrics",
+    "aggregate_walk_forward_metrics",
     "EquityPoint",
     "SimulatedTrade",
     "TradeSimulationConfig",
