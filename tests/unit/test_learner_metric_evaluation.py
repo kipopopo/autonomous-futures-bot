@@ -28,6 +28,10 @@ from autonomous_futures.research.learner_metric_evaluation import (
     read_learner_metric_evaluation_run,
     write_learner_metric_evaluation_run,
 )
+from autonomous_futures.research.learner_metric_review_input import (
+    load_verified_learner_metric_review_input,
+    review_persisted_learner_metric_evaluation,
+)
 from autonomous_futures.research.trade_simulation import (
     TradeSimulationConfig,
     simulate_cached_signals,
@@ -310,3 +314,74 @@ def test_metric_evaluation_writer_rejects_hash_mismatch_before_filesystem_work(
     with pytest.raises(DomainViolation, match="hash mismatch"):
         write_learner_metric_evaluation_run(path, invalid)
     assert not path.exists()
+
+
+def test_verified_metric_review_input_binds_persisted_run_before_callback(tmp_path: Path) -> None:
+    candidate = _candidate()
+    learner = _learner(tmp_path / "expected", candidate)
+    run = _metric_run(tmp_path / "persisted")
+    path = tmp_path / "metric-evaluation.json"
+    write_learner_metric_evaluation_run(path, run)
+    received: list[object] = []
+
+    def reviewer(received_run):
+        received_run.windows[0].metrics.net_pnl = Decimal("999")
+        received.append(received_run)
+        return "observed"
+
+    result = review_persisted_learner_metric_evaluation(
+        path,
+        learner=learner,
+        candidate=candidate,
+        reviewer=reviewer,
+    )
+
+    assert result == "observed"
+    assert received[0] != run
+    assert (
+        load_verified_learner_metric_review_input(
+            path,
+            learner=learner,
+            candidate=candidate,
+        )
+        == run
+    )
+
+
+def test_verified_metric_review_input_rejects_binding_and_tamper_before_callback(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate()
+    learner = _learner(tmp_path / "expected", candidate)
+    run = _metric_run(tmp_path / "persisted")
+    path = tmp_path / "metric-evaluation.json"
+    write_learner_metric_evaluation_run(path, run)
+    called = False
+
+    def reviewer(received_run):
+        nonlocal called
+        called = True
+        return received_run
+
+    mismatched_candidate = candidate.model_copy(update={"bundle_hash": "c" * 64})
+    with pytest.raises(DomainViolation, match="binding"):
+        review_persisted_learner_metric_evaluation(
+            path,
+            learner=learner,
+            candidate=mismatched_candidate,
+            reviewer=reviewer,
+        )
+    assert called is False
+
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(run.evaluation_hash, "0" * 64),
+        encoding="utf-8",
+    )
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        review_persisted_learner_metric_evaluation(
+            path,
+            learner=learner,
+            candidate=candidate,
+            reviewer=reviewer,
+        )
+    assert called is False

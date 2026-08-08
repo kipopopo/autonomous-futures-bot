@@ -52,6 +52,11 @@ from .learner_metric_evaluation import (
     read_learner_metric_evaluation_run,
     write_learner_metric_evaluation_run,
 )
+from .learner_metric_review_input import (
+    LearnerMetricReviewCallback,
+    load_verified_learner_metric_review_input,
+    review_persisted_learner_metric_evaluation,
+)
 from .learner_qualification import (
     LearnerQualificationComparator,
     LearnerQualificationDecision,
@@ -183,6 +188,9 @@ __all__ = [
     "learner_metric_evaluation_content_hash",
     "read_learner_metric_evaluation_run",
     "write_learner_metric_evaluation_run",
+    "LearnerMetricReviewCallback",
+    "load_verified_learner_metric_review_input",
+    "review_persisted_learner_metric_evaluation",
     "LearnerQualityReviewEvidence",
     "LearnerQualityReviewMetric",
     "LearnerQualityReviewWindow",
