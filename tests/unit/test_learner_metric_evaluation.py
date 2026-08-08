@@ -47,6 +47,8 @@ from autonomous_futures.research.learner_metric_quality_qualification import (
     LearnerMetricQualityQualificationEvidence,
     LearnerMetricQualityQualificationPolicy,
     build_verified_learner_metric_quality_qualification_evidence,
+    read_learner_metric_quality_qualification_evidence,
+    write_learner_metric_quality_qualification_evidence,
 )
 from autonomous_futures.research.learner_metric_quality_qualification_input import (
     LearnerMetricQualityQualificationInput,
@@ -1301,3 +1303,133 @@ def test_verified_metric_quality_qualification_evidence_rejects_non_utc_audit_ti
             qualification_policy=_metric_quality_qualification_policy(source_policy),
             evaluated_at=START.replace(tzinfo=None),
         )
+
+
+def _metric_quality_qualification_evidence(tmp_path: Path):
+    decision_path, review_path, metric_path, learner, candidate, source_policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    evidence = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=_metric_quality_qualification_policy(source_policy),
+        evaluated_at=START,
+    )
+    return evidence
+
+
+def test_metric_quality_qualification_evidence_persistence_round_trips_verified_evidence(
+    tmp_path: Path,
+) -> None:
+    evidence = _metric_quality_qualification_evidence(tmp_path)
+    path = tmp_path / "qualifications" / "metric-quality-qualification.json"
+
+    assert write_learner_metric_quality_qualification_evidence(path, evidence) == evidence
+    assert read_learner_metric_quality_qualification_evidence(path) == evidence
+
+
+def test_metric_quality_qualification_evidence_persistence_is_idempotent_and_write_once(
+    tmp_path: Path,
+) -> None:
+    evidence = _metric_quality_qualification_evidence(tmp_path)
+    path = tmp_path / "metric-quality-qualification.json"
+
+    assert write_learner_metric_quality_qualification_evidence(path, evidence) == evidence
+    assert write_learner_metric_quality_qualification_evidence(path, evidence) == evidence
+
+    changed_audit_time = evidence.model_copy(update={"evaluated_at": START + timedelta(hours=1)})
+    assert changed_audit_time.qualification_hash == evidence.qualification_hash
+    with pytest.raises(DomainViolation, match="immutable"):
+        write_learner_metric_quality_qualification_evidence(path, changed_audit_time)
+
+
+def test_metric_quality_qualification_persistence_fails_closed_for_bad_files(
+    tmp_path: Path,
+) -> None:
+    evidence = _metric_quality_qualification_evidence(tmp_path)
+    path = tmp_path / "metric-quality-qualification.json"
+    write_learner_metric_quality_qualification_evidence(path, evidence)
+
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(evidence.qualification_hash, "0" * 64),
+        encoding="utf-8",
+    )
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        read_learner_metric_quality_qualification_evidence(path)
+
+    malformed_path = tmp_path / "malformed.json"
+    malformed_path.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(DataQualityError, match="invalid persisted"):
+        read_learner_metric_quality_qualification_evidence(malformed_path)
+
+    with pytest.raises(FileNotFoundError):
+        read_learner_metric_quality_qualification_evidence(tmp_path / "missing.json")
+
+
+def test_metric_quality_qualification_writer_rejects_hash_mismatch_before_filesystem_work(
+    tmp_path: Path,
+) -> None:
+    evidence = _metric_quality_qualification_evidence(tmp_path)
+    path = tmp_path / "new" / "metric-quality-qualification.json"
+    invalid = evidence.model_copy(update={"qualification_hash": "0" * 64})
+
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        write_learner_metric_quality_qualification_evidence(path, invalid)
+    assert not path.parent.exists()
+
+
+def test_metric_quality_qualification_writer_cleans_temp_file_on_link_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence = _metric_quality_qualification_evidence(tmp_path)
+    path = tmp_path / "metric-quality-qualification.json"
+
+    def fail_link(source, destination):
+        raise OSError("link failed")
+
+    monkeypatch.setattr(
+        "autonomous_futures.research.learner_metric_quality_qualification.os.link",
+        fail_link,
+    )
+    with pytest.raises(OSError, match="link failed"):
+        write_learner_metric_quality_qualification_evidence(path, evidence)
+    assert not path.exists()
+    assert not list(path.parent.glob(f".{path.name}.*.tmp"))
+
+
+def test_metric_quality_qualification_persistence_preserves_rejected_evidence(
+    tmp_path: Path,
+) -> None:
+    fixture = _persisted_metric_quality_decision_fixture(tmp_path)
+    _, review_path, metric_path, learner, candidate, _, _ = fixture
+    source_policy = _quality_policy("observed_net_pnl", Decimal("999"))
+    source_decision = evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=source_policy,
+        evaluated_at=START,
+    )
+    decision_path = tmp_path / "rejected-decision.json"
+    write_learner_metric_quality_decision(decision_path, source_decision)
+    rejected = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=_metric_quality_qualification_policy(source_policy),
+        evaluated_at=START,
+    )
+    path = tmp_path / "rejected-qualification.json"
+
+    assert rejected.decision == "rejected"
+    assert write_learner_metric_quality_qualification_evidence(path, rejected) == rejected
+    assert read_learner_metric_quality_qualification_evidence(path).decision == "rejected"

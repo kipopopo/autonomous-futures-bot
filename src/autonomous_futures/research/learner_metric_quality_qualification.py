@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
@@ -272,6 +274,54 @@ def build_verified_learner_metric_quality_qualification_evidence(
     )
 
 
+def read_learner_metric_quality_qualification_evidence(
+    path: Path,
+) -> LearnerMetricQualityQualificationEvidence:
+    """Read one persisted metric-quality qualification evidence artifact."""
+    try:
+        evidence = LearnerMetricQualityQualificationEvidence.model_validate_json(
+            path.read_text(encoding="utf-8")
+        )
+    except OSError as exc:
+        raise FileNotFoundError(path) from exc
+    except (ValidationError, ValueError) as exc:
+        raise DataQualityError("invalid persisted metric quality qualification evidence") from exc
+    if learner_metric_quality_qualification_content_hash(evidence) != evidence.qualification_hash:
+        raise DomainViolation(f"metric quality qualification evidence hash mismatch: {path}")
+    return evidence
+
+
+def write_learner_metric_quality_qualification_evidence(
+    path: Path,
+    evidence: LearnerMetricQualityQualificationEvidence,
+) -> LearnerMetricQualityQualificationEvidence:
+    """Persist metric-quality qualification evidence atomically and write-once."""
+    if learner_metric_quality_qualification_content_hash(evidence) != evidence.qualification_hash:
+        raise DomainViolation("metric quality qualification evidence hash mismatch")
+    if path.exists():
+        existing = read_learner_metric_quality_qualification_evidence(path)
+        if existing != evidence:
+            raise DomainViolation(f"metric quality qualification path is immutable: {path}")
+        return existing
+
+    payload = json.dumps(evidence.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+        os.link(temporary_path, path)
+    except FileExistsError:
+        existing = read_learner_metric_quality_qualification_evidence(path)
+        if existing != evidence:
+            raise DomainViolation(
+                f"metric quality qualification path is immutable: {path}"
+            ) from None
+        return existing
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return read_learner_metric_quality_qualification_evidence(path)
+
+
 __all__ = [
     "LearnerMetricQualityQualificationDecision",
     "LearnerMetricQualityQualificationEvidence",
@@ -280,4 +330,6 @@ __all__ = [
     "build_verified_learner_metric_quality_qualification_evidence",
     "learner_metric_quality_qualification_content_hash",
     "learner_metric_quality_qualification_policy_content_hash",
+    "read_learner_metric_quality_qualification_evidence",
+    "write_learner_metric_quality_qualification_evidence",
 ]
