@@ -31,6 +31,14 @@ from .learner_artifacts import (
     verify_learner_artifact_binding,
     write_learner_artifact,
 )
+from .learner_evaluation import (
+    CachedOnlyLearnerEvaluatorAdapter,
+    LearnerEvaluationRun,
+    LearnerEvaluationWindow,
+    LearnerEvaluationWindowSpec,
+    LearnerEvaluator,
+    LearnerWindowEvaluation,
+)
 from .performance_metrics import TradePerformanceMetrics, calculate_performance_metrics
 from .persisted_qualification import (
     PersistedQualificationBatchFailure,
@@ -97,6 +105,12 @@ __all__ = [
     "read_learner_artifact",
     "verify_learner_artifact_binding",
     "write_learner_artifact",
+    "CachedOnlyLearnerEvaluatorAdapter",
+    "LearnerEvaluationRun",
+    "LearnerEvaluationWindow",
+    "LearnerEvaluationWindowSpec",
+    "LearnerEvaluator",
+    "LearnerWindowEvaluation",
     "TradePerformanceMetrics",
     "calculate_performance_metrics",
     "qualify_persisted_candidate",
