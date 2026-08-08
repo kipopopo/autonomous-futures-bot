@@ -1,9 +1,11 @@
-import { Bot, CheckCircle2, CircleAlert, DatabaseZap } from 'lucide-react'
+import { Bot, CheckCircle2, CircleAlert, DatabaseZap, FileCheck2, ShieldAlert } from 'lucide-react'
 
 import type { CreatorModel } from '@/lib/creator'
+import type { QualificationModel, QualificationSummary } from '@/lib/qualification'
 
 interface CreatorPageProps {
   model: CreatorModel
+  qualification: QualificationModel
 }
 
 function shortHash(value: string | null): string {
@@ -86,7 +88,122 @@ function UnavailableCreatorOutput({ model }: { model: CreatorModel }) {
   )
 }
 
-export function CreatorPage({ model }: CreatorPageProps) {
+function formatMyt(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return new Intl.DateTimeFormat('en-MY', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Kuala_Lumpur',
+    timeZoneName: 'short',
+  }).format(date)
+}
+
+function sourceLabel(source: QualificationSummary['source']): string {
+  return source === 'walk_forward_oos' ? 'Walk-forward OOS' : 'Creator evaluator'
+}
+
+function QualificationCard({ summary }: { summary: QualificationSummary }) {
+  const passed = summary.decision === 'qualified'
+  return (
+    <article className="creator-qualification-card">
+      <div className="creator-qualification-heading">
+        <div>
+          <span className="field-label">Candidate</span>
+          <strong>{summary.candidateId}</strong>
+        </div>
+        <span className={`creator-qualification-decision ${passed ? 'evidence-passed' : 'evidence-rejected'}`}>
+          {passed ? <CheckCircle2 size={14} aria-hidden="true" /> : <CircleAlert size={14} aria-hidden="true" />}
+          {passed ? 'EVIDENCE PASSED' : 'EVIDENCE REJECTED'}
+        </span>
+      </div>
+      <div className="creator-qualification-facts">
+        <div><span className="field-label">Source</span><span>{sourceLabel(summary.source)}</span></div>
+        <div><span className="field-label">Evaluator</span><code>{summary.evaluatorVersion}</code></div>
+        <div><span className="field-label">Windows</span><span>{summary.windowsEvaluated}</span></div>
+        <div><span className="field-label">Policy</span><code>{summary.qualificationPolicyId ?? '—'}</code></div>
+        <div><span className="field-label">Evaluated</span><span>{formatMyt(summary.evaluatedAt)}</span></div>
+        <div><span className="field-label">Promotion</span><span>{summary.promotionState}</span></div>
+      </div>
+    </article>
+  )
+}
+
+function QualificationEvidence({ model }: { model: QualificationModel }) {
+  if (model.status === 'error') {
+    return (
+      <section className="panel creator-qualification creator-qualification-error" aria-labelledby="qualification-heading" role="alert">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Evidence boundary</p>
+            <h2 id="qualification-heading">Persisted qualification evidence</h2>
+          </div>
+          <span className="creator-qualification-status qualification-status-error"><ShieldAlert size={14} aria-hidden="true" /> INTEGRITY UNAVAILABLE</span>
+        </div>
+        <p className="creator-qualification-copy">
+          Qualification evidence could not be verified. No evidence is rendered until the persisted artifact boundary is healthy.
+        </p>
+      </section>
+    )
+  }
+
+  if (model.status === 'unavailable') {
+    return (
+      <section className="panel creator-qualification creator-qualification-error" aria-labelledby="qualification-heading" role="status">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Evidence boundary</p>
+            <h2 id="qualification-heading">Persisted qualification evidence</h2>
+          </div>
+          <span className="creator-qualification-status qualification-status-unavailable"><CircleAlert size={14} aria-hidden="true" /> UNAVAILABLE</span>
+        </div>
+        <p className="creator-qualification-copy">
+          No verified qualification evidence is exposed by the current read-only API. Missing evidence is not treated as rejection or promotion.
+        </p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="panel creator-qualification" aria-labelledby="qualification-heading">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Evidence boundary</p>
+          <h2 id="qualification-heading">Persisted qualification evidence</h2>
+        </div>
+        <span className="creator-qualification-status qualification-status-verified"><FileCheck2 size={14} aria-hidden="true" /> EVIDENCE VERIFIED</span>
+      </div>
+      <p className="creator-qualification-copy">
+        Qualification is a persisted OOS evidence outcome only. It does not promote, activate, or authorize execution.
+      </p>
+      <div className="creator-qualification-meta" aria-label="Qualification evidence summary">
+        <div><span className="field-label">Candidates</span><strong>{model.candidateCount ?? '—'}</strong></div>
+        <div><span className="field-label">Evidence artifacts</span><strong>{model.qualificationCount ?? '—'}</strong></div>
+        <div><span className="field-label">Missing evidence</span><strong>{model.missingCandidateIds.length}</strong></div>
+      </div>
+      {model.qualifications.length > 0 ? (
+        <div className="creator-qualification-list">
+          {model.qualifications.map((summary) => <QualificationCard key={summary.candidateId} summary={summary} />)}
+        </div>
+      ) : (
+        <div className="creator-qualification-empty" role="status">
+          <CircleAlert size={18} aria-hidden="true" />
+          <span>No persisted qualification artifact is available for this registry.</span>
+        </div>
+      )}
+      <div className="creator-qualification-boundary">
+        <span>Evidence only</span>
+        <span>Promotion: unpromoted</span>
+        <span>Execution authority: off</span>
+      </div>
+    </section>
+  )
+}
+
+export function CreatorPage({ model, qualification }: CreatorPageProps) {
   const foundationReady = model.foundationState === 'verified'
   const symbols = model.symbols.length > 0 ? model.symbols.join(', ') : '—'
   const intervals = model.primaryInterval && model.contextInterval
@@ -125,6 +242,7 @@ export function CreatorPage({ model }: CreatorPageProps) {
       {model.candidateAvailability === 'available'
         ? <CandidateRegistry model={model} />
         : <UnavailableCreatorOutput model={model} />}
+      <QualificationEvidence model={qualification} />
     </div>
   )
 }

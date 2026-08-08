@@ -15,6 +15,7 @@ import { CreatorPage } from '@/components/creator-page'
 import { MagicCard } from '@/components/magic-card'
 import { fetchOverviewData } from '@/lib/api'
 import { buildCreatorModel } from '@/lib/creator'
+import { buildQualificationModel } from '@/lib/qualification'
 import {
   buildOverviewModel,
   type ComponentInspection,
@@ -193,6 +194,7 @@ function App() {
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null)
   const model = useMemo(() => buildOverviewModel(apiData), [apiData])
   const creatorModel = useMemo(() => buildCreatorModel(apiData), [apiData])
+  const qualificationModel = useMemo(() => buildQualificationModel(apiData), [apiData])
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -306,7 +308,7 @@ function App() {
           </section>
         )}
 
-        {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} />}
+        {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer">

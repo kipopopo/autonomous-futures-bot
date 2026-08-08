@@ -67,11 +67,38 @@ export interface CreatorRegistryResponse {
   }
 }
 
+export type QualificationDecision = 'rejected' | 'qualified'
+export type QualificationSource = 'creator_evaluator' | 'walk_forward_oos'
+
+export interface CreatorQualificationSummary {
+  candidate_id: string
+  decision: QualificationDecision
+  source: QualificationSource
+  qualification_hash: string
+  evaluator_run_id: string
+  evaluator_version: string
+  windows_evaluated: number
+  qualification_policy_id: string | null
+  evaluated_at: string
+  promotion_state: 'unpromoted'
+  execution_authority: false
+}
+
+export interface CreatorQualificationsResponse {
+  verified: boolean
+  candidate_count: number
+  qualification_count: number
+  missing_candidate_ids: string[]
+  qualifications: CreatorQualificationSummary[]
+}
+
 export interface DashboardApiData {
   health: HealthResponse | null
   bundle: BundleResponse | null
   components: ComponentsResponse | null
   creatorRegistry?: CreatorRegistryResponse | null
+  creatorQualifications?: CreatorQualificationsResponse | null
+  creatorQualificationError?: string | null
 }
 
 export type VerificationState = 'verified' | 'error'
