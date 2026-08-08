@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import autonomous_futures.research.learner_metric_quality_decision as metric_quality_decision_module
 import autonomous_futures.research.learner_metric_quality_review as metric_quality_review_module
 from autonomous_futures.data.parquet import DataQualityError
 from autonomous_futures.domain.contracts import (
@@ -34,7 +35,10 @@ from autonomous_futures.research.learner_metric_quality_decision import (
     LearnerMetricQualityPolicyGate,
     build_learner_metric_quality_decision,
     evaluate_persisted_learner_metric_quality,
+    learner_metric_quality_decision_content_hash,
     learner_metric_quality_policy_content_hash,
+    read_learner_metric_quality_decision,
+    write_learner_metric_quality_decision,
 )
 from autonomous_futures.research.learner_metric_quality_review import (
     LearnerMetricQualityReviewMetric,
@@ -846,3 +850,90 @@ def test_metric_quality_decision_builder_rejects_non_utc_and_preserves_policy_co
             policy=policy,
             evaluated_at=datetime(2026, 8, 8, 12),
         )
+
+
+def _metric_quality_decision_evidence(
+    tmp_path: Path,
+    *,
+    evaluated_at: datetime = START,
+):
+    review_path, metric_path, learner, candidate, _, _ = _persisted_quality_review_fixture(tmp_path)
+    policy = _quality_policy("observed_net_pnl", Decimal("-1"))
+    return evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=policy,
+        evaluated_at=evaluated_at,
+    )
+
+
+def test_metric_quality_decision_persistence_is_verified_and_write_once(tmp_path: Path) -> None:
+    evidence = _metric_quality_decision_evidence(tmp_path)
+    path = tmp_path / "decisions" / "metric-quality-decision.json"
+
+    assert write_learner_metric_quality_decision(path, evidence) == evidence
+    assert read_learner_metric_quality_decision(path) == evidence
+    assert write_learner_metric_quality_decision(path, evidence) == evidence
+    assert evidence.decision_hash == learner_metric_quality_decision_content_hash(evidence)
+
+    changed_audit_time = _metric_quality_decision_evidence(
+        tmp_path / "changed",
+        evaluated_at=START + timedelta(hours=1),
+    )
+    assert changed_audit_time.decision_hash == evidence.decision_hash
+    with pytest.raises(DomainViolation, match="immutable"):
+        write_learner_metric_quality_decision(path, changed_audit_time)
+
+
+def test_metric_quality_decision_persistence_fails_closed_on_missing_malformed_and_tampered(
+    tmp_path: Path,
+) -> None:
+    evidence = _metric_quality_decision_evidence(tmp_path)
+    path = tmp_path / "metric-quality-decision.json"
+    write_learner_metric_quality_decision(path, evidence)
+
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(evidence.decision_hash, "0" * 64),
+        encoding="utf-8",
+    )
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        read_learner_metric_quality_decision(path)
+
+    malformed_path = tmp_path / "malformed.json"
+    malformed_path.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(DataQualityError, match="invalid persisted"):
+        read_learner_metric_quality_decision(malformed_path)
+
+    with pytest.raises(FileNotFoundError):
+        read_learner_metric_quality_decision(tmp_path / "missing.json")
+
+
+def test_metric_quality_decision_writer_rejects_hash_mismatch_before_filesystem_work(
+    tmp_path: Path,
+) -> None:
+    evidence = _metric_quality_decision_evidence(tmp_path)
+    path = tmp_path / "metric-quality-decision.json"
+    invalid = evidence.model_copy(update={"decision_hash": "0" * 64})
+
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        write_learner_metric_quality_decision(path, invalid)
+    assert not path.exists()
+
+
+def test_metric_quality_decision_writer_cleans_unique_temp_file_on_link_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence = _metric_quality_decision_evidence(tmp_path)
+    path = tmp_path / "metric-quality-decision.json"
+
+    def fail_link(source, destination):
+        raise OSError("link failed")
+
+    monkeypatch.setattr(metric_quality_decision_module.os, "link", fail_link)
+    with pytest.raises(OSError, match="link failed"):
+        write_learner_metric_quality_decision(path, evidence)
+    assert not path.exists()
+    assert not list(path.parent.glob(f".{path.name}.*.tmp"))

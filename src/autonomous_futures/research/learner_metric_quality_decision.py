@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
@@ -304,6 +306,54 @@ def evaluate_persisted_learner_metric_quality(
     )
 
 
+def read_learner_metric_quality_decision(
+    path: Path,
+) -> LearnerMetricQualityDecisionEvidence:
+    """Read and verify one persisted metric-quality decision evidence artifact."""
+    try:
+        evidence = LearnerMetricQualityDecisionEvidence.model_validate_json(
+            path.read_text(encoding="utf-8")
+        )
+    except OSError as exc:
+        raise FileNotFoundError(path) from exc
+    except (ValidationError, ValueError) as exc:
+        raise DataQualityError("invalid persisted learner metric quality decision") from exc
+    if learner_metric_quality_decision_content_hash(evidence) != evidence.decision_hash:
+        raise DomainViolation(f"learner metric quality decision hash mismatch: {path}")
+    return evidence
+
+
+def write_learner_metric_quality_decision(
+    path: Path,
+    evidence: LearnerMetricQualityDecisionEvidence,
+) -> LearnerMetricQualityDecisionEvidence:
+    """Persist metric-quality decision evidence atomically and write-once."""
+    if learner_metric_quality_decision_content_hash(evidence) != evidence.decision_hash:
+        raise DomainViolation("learner metric quality decision hash mismatch")
+    if path.exists():
+        existing = read_learner_metric_quality_decision(path)
+        if existing != evidence:
+            raise DomainViolation(f"learner metric quality decision path is immutable: {path}")
+        return existing
+
+    payload = json.dumps(evidence.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+        os.link(temporary_path, path)
+    except FileExistsError:
+        existing = read_learner_metric_quality_decision(path)
+        if existing != evidence:
+            raise DomainViolation(
+                f"learner metric quality decision path is immutable: {path}"
+            ) from None
+        return existing
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return read_learner_metric_quality_decision(path)
+
+
 __all__ = [
     "LearnerMetricQualityComparator",
     "LearnerMetricQualityDecision",
@@ -316,4 +366,6 @@ __all__ = [
     "evaluate_persisted_learner_metric_quality",
     "learner_metric_quality_decision_content_hash",
     "learner_metric_quality_policy_content_hash",
+    "read_learner_metric_quality_decision",
+    "write_learner_metric_quality_decision",
 ]
