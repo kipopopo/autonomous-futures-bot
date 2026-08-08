@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
+from hashlib import sha256
+from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from ..domain.contracts import DomainModel, StrictNonNegativeDecimal
+from ..domain.errors import DomainViolation
 from .performance_metrics import TradePerformanceMetrics
 
 
@@ -110,6 +114,19 @@ class WalkForwardAggregation(DomainModel):
         return self
 
 
+class PersistedWalkForwardAggregation(DomainModel):
+    """Write-once, hash-bound envelope for a validated OOS aggregation."""
+
+    aggregation: WalkForwardAggregation
+    aggregation_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_hash(self) -> PersistedWalkForwardAggregation:
+        if walk_forward_aggregation_hash(self.aggregation) != self.aggregation_hash:
+            raise ValueError("walk-forward aggregation hash mismatch")
+        return self
+
+
 def aggregate_walk_forward_metrics(
     windows: Sequence[WalkForwardWindowMetrics],
     *,
@@ -189,6 +206,48 @@ def aggregate_walk_forward_metrics(
     )
 
 
+def walk_forward_aggregation_hash(aggregation: WalkForwardAggregation) -> str:
+    payload = aggregation.model_dump(mode="json")
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return sha256(canonical).hexdigest()
+
+
+def build_persisted_walk_forward_aggregation(
+    aggregation: WalkForwardAggregation,
+) -> PersistedWalkForwardAggregation:
+    return PersistedWalkForwardAggregation(
+        aggregation=aggregation,
+        aggregation_hash=walk_forward_aggregation_hash(aggregation),
+    )
+
+
+def read_walk_forward_aggregation(path: Path) -> PersistedWalkForwardAggregation:
+    try:
+        return PersistedWalkForwardAggregation.model_validate_json(path.read_text(encoding="utf-8"))
+    except ValidationError as exc:
+        if "walk-forward aggregation hash mismatch" in str(exc):
+            raise DomainViolation(f"aggregation hash mismatch: {path}") from None
+        raise DomainViolation(f"invalid persisted walk-forward aggregation: {path}") from exc
+
+
+def write_walk_forward_aggregation(
+    path: Path,
+    aggregation: WalkForwardAggregation,
+) -> PersistedWalkForwardAggregation:
+    artifact = build_persisted_walk_forward_aggregation(aggregation)
+    if path.exists():
+        existing = read_walk_forward_aggregation(path)
+        if existing != artifact:
+            raise DomainViolation(f"walk-forward aggregation path is immutable: {path}")
+        return existing
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(artifact.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+    temporary_path.replace(path)
+    return artifact
+
+
 def _build_symbol_summary(
     symbol: str,
     windows: Sequence[WalkForwardWindowMetrics],
@@ -211,8 +270,13 @@ def _build_symbol_summary(
 
 
 __all__ = [
+    "PersistedWalkForwardAggregation",
     "WalkForwardAggregation",
     "WalkForwardSymbolSummary",
     "WalkForwardWindowMetrics",
     "aggregate_walk_forward_metrics",
+    "build_persisted_walk_forward_aggregation",
+    "read_walk_forward_aggregation",
+    "walk_forward_aggregation_hash",
+    "write_walk_forward_aggregation",
 ]

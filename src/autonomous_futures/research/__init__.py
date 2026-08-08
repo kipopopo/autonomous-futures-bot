@@ -24,6 +24,7 @@ from .creator_artifacts import (
 )
 from .feature_signals import CausalFeatureSignalEvaluator
 from .performance_metrics import TradePerformanceMetrics, calculate_performance_metrics
+from .persisted_qualification import qualify_persisted_candidate
 from .qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
     QualificationComparator,
@@ -45,10 +46,15 @@ from .trade_simulation import (
     simulate_cached_signals,
 )
 from .walk_forward import (
+    PersistedWalkForwardAggregation,
     WalkForwardAggregation,
     WalkForwardSymbolSummary,
     WalkForwardWindowMetrics,
     aggregate_walk_forward_metrics,
+    build_persisted_walk_forward_aggregation,
+    read_walk_forward_aggregation,
+    walk_forward_aggregation_hash,
+    write_walk_forward_aggregation,
 )
 
 __all__ = [
@@ -74,10 +80,16 @@ __all__ = [
     "CausalFeatureSignalEvaluator",
     "TradePerformanceMetrics",
     "calculate_performance_metrics",
+    "qualify_persisted_candidate",
+    "PersistedWalkForwardAggregation",
     "WalkForwardAggregation",
     "WalkForwardSymbolSummary",
     "WalkForwardWindowMetrics",
     "aggregate_walk_forward_metrics",
+    "build_persisted_walk_forward_aggregation",
+    "read_walk_forward_aggregation",
+    "walk_forward_aggregation_hash",
+    "write_walk_forward_aggregation",
     "EquityPoint",
     "SimulatedTrade",
     "TradeSimulationConfig",

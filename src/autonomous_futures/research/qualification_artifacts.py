@@ -14,7 +14,7 @@ from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
 from ..domain.errors import DomainViolation
 from .creator_artifacts import CreatorCandidateArtifact
-from .walk_forward import WalkForwardAggregation
+from .walk_forward import WalkForwardAggregation, walk_forward_aggregation_hash
 
 QualificationDecision = Literal["rejected", "qualified"]
 QualificationComparator = Literal["gte", "lte", "eq", "present", "bool"]
@@ -175,9 +175,7 @@ def build_creator_candidate_qualification_artifact(
 
 
 def _walk_forward_aggregation_hash(aggregation: WalkForwardAggregation) -> str:
-    payload = aggregation.model_dump(mode="json")
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    return sha256(canonical).hexdigest()
+    return walk_forward_aggregation_hash(aggregation)
 
 
 def _threshold_gate(
