@@ -190,3 +190,122 @@ export function buildQualificationDetailModel(
     errorMessage: null,
   }
 }
+
+export type QualificationMatrixOutcome = 'qualified' | 'rejected' | 'missing'
+export type QualificationMatrixOutcomeFilter = 'all' | QualificationMatrixOutcome
+export type QualificationMatrixSourceFilter = 'all' | QualificationSource
+export type QualificationMatrixSort = 'candidate' | 'outcome' | 'windows' | 'evaluated'
+
+export interface QualificationMatrixFilters {
+  outcome: QualificationMatrixOutcomeFilter
+  source: QualificationMatrixSourceFilter
+  sort: QualificationMatrixSort
+}
+
+export interface QualificationMatrixRow {
+  candidateId: string
+  outcome: QualificationMatrixOutcome
+  source: QualificationSource | null
+  qualificationHash: string | null
+  evaluatorVersion: string | null
+  windowsEvaluated: number | null
+  qualificationPolicyId: string | null
+  evaluatedAt: string | null
+  promotionState: 'unpromoted' | null
+  executionAuthority: false | null
+}
+
+export interface QualificationMatrixModel {
+  status: QualificationStatus
+  totalRows: number
+  visibleCount: number
+  visibleRows: QualificationMatrixRow[]
+}
+
+function compareCandidate(left: QualificationMatrixRow, right: QualificationMatrixRow): number {
+  return left.candidateId.localeCompare(right.candidateId)
+}
+
+function compareRows(left: QualificationMatrixRow, right: QualificationMatrixRow, sort: QualificationMatrixSort): number {
+  if (sort === 'windows') {
+    if (left.windowsEvaluated !== right.windowsEvaluated) {
+      if (left.windowsEvaluated === null) return 1
+      if (right.windowsEvaluated === null) return -1
+      return right.windowsEvaluated - left.windowsEvaluated
+    }
+  }
+  if (sort === 'evaluated') {
+    const leftTime = left.evaluatedAt ? Date.parse(left.evaluatedAt) : Number.NaN
+    const rightTime = right.evaluatedAt ? Date.parse(right.evaluatedAt) : Number.NaN
+    if (!Number.isNaN(leftTime) || !Number.isNaN(rightTime)) {
+      if (Number.isNaN(leftTime)) return 1
+      if (Number.isNaN(rightTime)) return -1
+      if (leftTime !== rightTime) return rightTime - leftTime
+    }
+  }
+  if (sort === 'outcome') {
+    const order: Record<QualificationMatrixOutcome, number> = {
+      qualified: 0,
+      rejected: 1,
+      missing: 2,
+    }
+    if (order[left.outcome] !== order[right.outcome]) {
+      return order[left.outcome] - order[right.outcome]
+    }
+  }
+  return compareCandidate(left, right)
+}
+
+export function buildQualificationMatrix(
+  model: QualificationModel,
+  filters: QualificationMatrixFilters,
+): QualificationMatrixModel {
+  if (model.status !== 'verified') {
+    return {
+      status: model.status,
+      totalRows: 0,
+      visibleCount: 0,
+      visibleRows: [],
+    }
+  }
+
+  const missingIds = [...new Set(model.missingCandidateIds)]
+  const rows: QualificationMatrixRow[] = [
+    ...model.qualifications.map((summary) => ({
+      candidateId: summary.candidateId,
+      outcome: summary.decision,
+      source: summary.source,
+      qualificationHash: summary.qualificationHash,
+      evaluatorVersion: summary.evaluatorVersion,
+      windowsEvaluated: summary.windowsEvaluated,
+      qualificationPolicyId: summary.qualificationPolicyId,
+      evaluatedAt: summary.evaluatedAt,
+      promotionState: summary.promotionState,
+      executionAuthority: summary.executionAuthority,
+    })),
+    ...missingIds.map((candidateId) => ({
+      candidateId,
+      outcome: 'missing' as const,
+      source: null,
+      qualificationHash: null,
+      evaluatorVersion: null,
+      windowsEvaluated: null,
+      qualificationPolicyId: null,
+      evaluatedAt: null,
+      promotionState: null,
+      executionAuthority: null,
+    })),
+  ]
+
+  const visibleRows = rows
+    .filter((row) => filters.outcome === 'all' || row.outcome === filters.outcome)
+    .filter((row) => filters.source === 'all' || row.source === filters.source)
+    .sort((left, right) => compareRows(left, right, filters.sort))
+
+  return {
+    status: 'verified',
+    totalRows: rows.length,
+    visibleCount: visibleRows.length,
+    visibleRows,
+  }
+}

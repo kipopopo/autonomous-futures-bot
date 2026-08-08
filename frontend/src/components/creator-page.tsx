@@ -5,7 +5,10 @@ import { Bot, CheckCircle2, CircleAlert, DatabaseZap, FileCheck2, ShieldAlert } 
 import { fetchCreatorQualification } from '@/lib/api'
 import type { CreatorModel } from '@/lib/creator'
 import {
+  buildQualificationMatrix,
   buildQualificationDetailModel,
+  type QualificationMatrixFilters,
+  type QualificationMatrixModel,
   type QualificationDetailModel,
   type QualificationModel,
   type QualificationSummary,
@@ -277,6 +280,125 @@ function QualificationCard({ summary }: { summary: QualificationSummary }) {
   )
 }
 
+const INITIAL_MATRIX_FILTERS: QualificationMatrixFilters = {
+  outcome: 'all',
+  source: 'all',
+  sort: 'candidate',
+}
+
+function matrixOutcomeLabel(outcome: QualificationMatrixModel['visibleRows'][number]['outcome']): string {
+  if (outcome === 'qualified') return 'QUALIFIED EVIDENCE'
+  if (outcome === 'rejected') return 'REJECTED EVIDENCE'
+  return 'MISSING EVIDENCE'
+}
+
+function matrixSourceLabel(source: QualificationMatrixModel['visibleRows'][number]['source']): string {
+  return source ? sourceLabel(source) : '—'
+}
+
+function QualificationMatrix({ model }: { model: QualificationModel }) {
+  const [filters, setFilters] = useState<QualificationMatrixFilters>(INITIAL_MATRIX_FILTERS)
+  const matrix = buildQualificationMatrix(model, filters)
+
+  return (
+    <section className="creator-qualification-matrix" aria-labelledby="qualification-matrix-heading">
+      <div className="creator-qualification-matrix-heading">
+        <div>
+          <span className="field-label">Verified summary index</span>
+          <h3 id="qualification-matrix-heading">Evidence matrix</h3>
+        </div>
+        <span className="creator-qualification-matrix-meta">
+          {matrix.visibleCount} of {matrix.totalRows} rows shown
+        </span>
+      </div>
+      <p className="creator-qualification-matrix-copy">
+        Filter and sort persisted summaries only. No metrics are recomputed and no candidate state is changed.
+      </p>
+      <div className="creator-qualification-matrix-controls" aria-label="Evidence matrix filters">
+        <label>
+          <span className="field-label">Outcome</span>
+          <select
+            value={filters.outcome}
+            onChange={(event) => setFilters((current) => ({
+              ...current,
+              outcome: event.target.value as QualificationMatrixFilters['outcome'],
+            }))}
+          >
+            <option value="all">All outcomes</option>
+            <option value="qualified">Qualified</option>
+            <option value="rejected">Rejected</option>
+            <option value="missing">Missing evidence</option>
+          </select>
+        </label>
+        <label>
+          <span className="field-label">Source</span>
+          <select
+            value={filters.source}
+            onChange={(event) => setFilters((current) => ({
+              ...current,
+              source: event.target.value as QualificationMatrixFilters['source'],
+            }))}
+          >
+            <option value="all">All sources</option>
+            <option value="walk_forward_oos">Walk-forward OOS</option>
+            <option value="creator_evaluator">Creator evaluator</option>
+          </select>
+        </label>
+        <label>
+          <span className="field-label">Sort</span>
+          <select
+            value={filters.sort}
+            onChange={(event) => setFilters((current) => ({
+              ...current,
+              sort: event.target.value as QualificationMatrixFilters['sort'],
+            }))}
+          >
+            <option value="candidate">Candidate ID</option>
+            <option value="outcome">Outcome</option>
+            <option value="windows">Windows, most first</option>
+            <option value="evaluated">Evaluated, newest first</option>
+          </select>
+        </label>
+      </div>
+      {matrix.visibleRows.length > 0 ? (
+        <div className="creator-qualification-matrix-list">
+          {matrix.visibleRows.map((row) => (
+            <article className="creator-qualification-matrix-row" key={row.candidateId}>
+              <div className="creator-qualification-matrix-row-heading">
+                <div>
+                  <span className="field-label">Candidate</span>
+                  <strong>{row.candidateId}</strong>
+                </div>
+                <span className={`creator-matrix-outcome matrix-outcome-${row.outcome}`}>
+                  {matrixOutcomeLabel(row.outcome)}
+                </span>
+              </div>
+              <div className="creator-qualification-matrix-facts">
+                <div><span className="field-label">Source</span><span>{matrixSourceLabel(row.source)}</span></div>
+                <div><span className="field-label">Evaluator</span><code>{row.evaluatorVersion ?? '—'}</code></div>
+                <div><span className="field-label">Windows</span><span>{row.windowsEvaluated ?? '—'}</span></div>
+                <div><span className="field-label">Policy</span><code>{row.qualificationPolicyId ?? '—'}</code></div>
+                <div><span className="field-label">Evaluated</span><span>{row.evaluatedAt ? formatMyt(row.evaluatedAt) : '—'}</span></div>
+                <div><span className="field-label">Promotion</span><span>{row.promotionState ?? '—'}</span></div>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="creator-qualification-empty" role="status">
+          <CircleAlert size={18} aria-hidden="true" />
+          <span>No verified evidence rows match the current filters.</span>
+        </div>
+      )}
+      <div className="creator-qualification-matrix-boundary">
+        <span>Evidence only</span>
+        <span>Promotion: unpromoted</span>
+        <span>Execution authority: off</span>
+      </div>
+    </section>
+  )
+}
+
 function QualificationEvidence({ model }: { model: QualificationModel }) {
   if (model.status === 'error') {
     return (
@@ -339,6 +461,7 @@ function QualificationEvidence({ model }: { model: QualificationModel }) {
           <span>No persisted qualification artifact is available for this registry.</span>
         </div>
       )}
+      <QualificationMatrix model={model} />
       <div className="creator-qualification-boundary">
         <span>Evidence only</span>
         <span>Promotion: unpromoted</span>
