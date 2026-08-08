@@ -11,6 +11,11 @@ from ..data.bundle import DatasetBundle
 from ..data.registry import DatasetKind, DatasetRegistry, DatasetRegistryEntry
 from ..domain.contracts import DomainModel
 from ..research.creator_artifacts import CreatorCandidateRegistry
+from ..research.qualification_artifacts import (
+    CreatorCandidateQualificationArtifact,
+    QualificationDecision,
+    QualificationSource,
+)
 from .artifacts import (
     ArtifactInspection,
     ArtifactIntegrityError,
@@ -25,6 +30,12 @@ from .creator import (
     CreatorCandidateRegistryIntegrityError,
     CreatorCandidateRegistryNotFoundError,
     load_verified_creator_candidate_registry,
+)
+from .qualification import (
+    CreatorQualificationArtifactIntegrityError,
+    CreatorQualificationArtifactNotFoundError,
+    load_verified_creator_candidate_qualification,
+    load_verified_creator_candidate_qualifications,
 )
 from .query import (
     MAX_QUERY_ROWS,
@@ -62,6 +73,33 @@ class CreatorRegistryResponse(DomainModel):
     registry: CreatorCandidateRegistry
 
 
+class CreatorQualificationSummary(DomainModel):
+    candidate_id: str
+    decision: QualificationDecision
+    source: QualificationSource
+    qualification_hash: str
+    evaluator_run_id: str
+    evaluator_version: str
+    windows_evaluated: int
+    qualification_policy_id: str | None
+    evaluated_at: datetime
+    promotion_state: Literal["unpromoted"]
+    execution_authority: Literal[False]
+
+
+class CreatorQualificationsResponse(DomainModel):
+    verified: Literal[True] = True
+    candidate_count: int
+    qualification_count: int
+    missing_candidate_ids: tuple[str, ...]
+    qualifications: tuple[CreatorQualificationSummary, ...]
+
+
+class CreatorQualificationResponse(DomainModel):
+    verified: Literal[True] = True
+    artifact: CreatorCandidateQualificationArtifact
+
+
 class ComponentsResponse(DomainModel):
     verified: Literal[True] = True
     component_count: int
@@ -91,6 +129,7 @@ def create_app(
     artifact_root: Path | None = None,
     creator_candidate_registry_path: Path | None = None,
     creator_candidate_artifact_root: Path | None = None,
+    qualification_artifact_root: Path | None = None,
 ) -> FastAPI:
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
@@ -106,6 +145,9 @@ def create_app(
     )
     configured_creator_artifact_root = creator_candidate_artifact_root or _configured_path(
         "AFBOT_CREATOR_CANDIDATE_ARTIFACT_ROOT", "data"
+    )
+    configured_qualification_artifact_root = qualification_artifact_root or _configured_path(
+        "AFBOT_QUALIFICATION_ARTIFACT_ROOT", "data/qualifications"
     )
 
     app = FastAPI(
@@ -168,6 +210,89 @@ def create_app(
             candidate_count=len(verified.registry.entries),
             registry=verified.registry,
         )
+
+    @app.get(
+        "/api/v1/creator/qualifications",
+        response_model=CreatorQualificationsResponse,
+    )
+    def creator_qualifications() -> CreatorQualificationsResponse:
+        try:
+            verified = load_verified_creator_candidate_qualifications(
+                registry_path=configured_creator_registry_path,
+                candidate_artifact_root=configured_creator_artifact_root,
+                qualification_root=configured_qualification_artifact_root,
+            )
+        except CreatorCandidateRegistryNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="creator candidate registry unavailable",
+            ) from exc
+        except CreatorCandidateRegistryIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="creator candidate registry integrity verification failed",
+            ) from exc
+        except CreatorQualificationArtifactIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="creator qualification artifact integrity verification failed",
+            ) from exc
+        summaries = tuple(
+            CreatorQualificationSummary(
+                candidate_id=item.qualification.candidate_id,
+                decision=item.qualification.decision,
+                source=item.qualification.source,
+                qualification_hash=item.qualification.qualification_hash,
+                evaluator_run_id=item.qualification.evaluator_run_id,
+                evaluator_version=item.qualification.evaluator_version,
+                windows_evaluated=item.qualification.windows_evaluated,
+                qualification_policy_id=item.qualification.qualification_policy_id,
+                evaluated_at=item.qualification.evaluated_at,
+                promotion_state=item.qualification.promotion_state,
+                execution_authority=item.qualification.execution_authority,
+            )
+            for item in verified.qualifications
+        )
+        return CreatorQualificationsResponse(
+            candidate_count=len(verified.registry.entries),
+            qualification_count=len(summaries),
+            missing_candidate_ids=verified.missing_candidate_ids,
+            qualifications=summaries,
+        )
+
+    @app.get(
+        "/api/v1/creator/qualifications/{candidate_id}",
+        response_model=CreatorQualificationResponse,
+    )
+    def creator_qualification(candidate_id: str) -> CreatorQualificationResponse:
+        try:
+            verified = load_verified_creator_candidate_qualification(
+                registry_path=configured_creator_registry_path,
+                candidate_artifact_root=configured_creator_artifact_root,
+                qualification_root=configured_qualification_artifact_root,
+                candidate_id=candidate_id,
+            )
+        except CreatorCandidateRegistryNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="creator candidate registry unavailable",
+            ) from exc
+        except CreatorCandidateRegistryIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="creator candidate registry integrity verification failed",
+            ) from exc
+        except CreatorQualificationArtifactNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="creator qualification artifact unavailable",
+            ) from exc
+        except CreatorQualificationArtifactIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="creator qualification artifact integrity verification failed",
+            ) from exc
+        return CreatorQualificationResponse(artifact=verified.qualification)
 
     @app.get("/api/v1/dataset/components", response_model=ComponentsResponse)
     def dataset_components() -> ComponentsResponse:
@@ -253,6 +378,9 @@ __all__ = [
     "BundleResponse",
     "ComponentsResponse",
     "CreatorRegistryResponse",
+    "CreatorQualificationResponse",
+    "CreatorQualificationSummary",
+    "CreatorQualificationsResponse",
     "HealthResponse",
     "RegistryResponse",
     "RowsResponse",
