@@ -153,6 +153,13 @@ def learner_qualification_policy_content_hash(policy: LearnerQualificationPolicy
     return sha256(canonical).hexdigest()
 
 
+def read_learner_qualification_policy(path: Path) -> LearnerQualificationPolicy:
+    try:
+        return LearnerQualificationPolicy.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError, ValueError) as exc:
+        raise DomainViolation("learner qualification policy is invalid") from exc
+
+
 def learner_qualification_content_hash(evidence: LearnerQualificationEvidence) -> str:
     payload = evidence.model_dump(mode="json", exclude={"evaluated_at", "qualification_hash"})
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -475,6 +482,7 @@ __all__ = [
     "build_learner_qualification_evidence",
     "learner_qualification_content_hash",
     "learner_qualification_policy_content_hash",
+    "read_learner_qualification_policy",
     "read_learner_qualification_evidence",
     "write_learner_qualification_evidence",
 ]

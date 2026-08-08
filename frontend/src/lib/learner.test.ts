@@ -266,6 +266,75 @@ describe('buildLearnerModel', () => {
     expect(model.qualityReviewStatus).toBe('integrity_unavailable')
     expect(model.qualityReview).toBeNull()
   })
+
+  it('exposes qualification as persisted evidence without promotion semantics', () => {
+    const model = buildLearnerModel({
+      ...VERIFIED_DATA,
+      learnerQualification: {
+        verified: true,
+        evidence: {
+          qualification_id: 'learner-qualification-quality-review-api',
+          training_evidence_id: 'training-evidence-learner-api',
+          training_evidence_hash: 'a'.repeat(64),
+          quality_review_id: 'quality-review-api',
+          quality_review_hash: 'b'.repeat(64),
+          output_artifact_hash: 'c'.repeat(64),
+          learner_id: 'learner-api-001',
+          learner_run_id: 'learner-run-api',
+          candidate_id: 'cand-learner-api',
+          candidate_artifact_hash: 'd'.repeat(64),
+          bundle_hash: 'e'.repeat(64),
+          dataset_registry_hash: 'f'.repeat(64),
+          policy_id: 'learner-holdout-v1',
+          policy_hash: '1'.repeat(64),
+          decision: 'qualified',
+          metrics: [{ window_id: 'window-api-quality', metric_id: 'holdout_score', observed: '0.75' }],
+          gates: [{
+            gate_id: 'minimum_windows',
+            window_id: null,
+            metric_id: null,
+            passed: true,
+            observed: '1',
+            threshold: '1',
+            comparator: 'gte',
+            reason_code: 'minimum_windows_passed',
+          }],
+          windows_evaluated: 1,
+          status: 'evaluated',
+          data_source: 'cached_only',
+          exchange_access: false,
+          promotion_state: 'unpromoted',
+          paper_activation: false,
+          execution_authority: false,
+          evaluated_at: '2026-08-08T03:00:00Z',
+          qualification_hash: '2'.repeat(64),
+        },
+      },
+    } as DashboardApiData)
+
+    expect(model).toMatchObject({
+      qualificationStatus: 'verified',
+      qualification: {
+        qualificationId: 'learner-qualification-quality-review-api',
+        decision: 'qualified',
+        policyId: 'learner-holdout-v1',
+        windowsEvaluated: 1,
+        promotionState: 'unpromoted',
+        paperActivation: false,
+        executionAuthority: false,
+      },
+    })
+  })
+
+  it('keeps qualification integrity failure distinct from missing evidence', () => {
+    const model = buildLearnerModel({
+      ...VERIFIED_DATA,
+      learnerQualificationError: 'GET /api/v1/learner/qualification failed with HTTP 503',
+    } as DashboardApiData)
+
+    expect(model.qualificationStatus).toBe('integrity_unavailable')
+    expect(model.qualification).toBeNull()
+  })
 })
 
 describe('learner route', () => {

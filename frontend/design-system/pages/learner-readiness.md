@@ -101,6 +101,29 @@ If the endpoint returns 404, render `UNAVAILABLE`. If it returns an integrity
 failure, render `INTEGRITY UNAVAILABLE`. Never substitute a score, threshold,
 quality badge, or qualification state for missing evidence.
 
+## Phase 3p learner qualification evidence
+
+When `/api/v1/learner/qualification` is verified, show a separate
+`Learner qualification evidence` card. It may show only persisted facts:
+
+- decision: `QUALIFIED` or `REJECTED`;
+- policy ID and policy hash;
+- evaluated holdout-window count;
+- persisted metric observations and gate results, preserving Decimal strings;
+- evaluated-at timestamp in MYT/GMT+8;
+- qualification SHA-256;
+- explicit `Promotion: unpromoted` and `Execution authority: off`.
+
+The plain-language label must say `EVIDENCE ONLY — NOT PROMOTION` beside a
+qualified decision. `QUALIFIED` means only that the persisted evidence gates
+passed. It does not mean profitable, robust, paper-ready, promoted, or
+executable. Do not calculate a score, rank candidates, infer a winner, or add
+Approve, Promote, Activate, Live, Order, or execution controls.
+
+If the endpoint returns 404, render `UNAVAILABLE`. If it returns 503 or another
+non-404 failure, render `INTEGRITY UNAVAILABLE` and no metric/gate rows. A
+missing qualification artifact is not a rejected decision.
+
 ## Facts
 
 When the foundation is verified, show only persisted bundle facts already

@@ -52,6 +52,7 @@ from .learner_qualification import (
     learner_qualification_content_hash,
     learner_qualification_policy_content_hash,
     read_learner_qualification_evidence,
+    read_learner_qualification_policy,
     write_learner_qualification_evidence,
 )
 from .learner_quality_review import (
@@ -180,6 +181,7 @@ __all__ = [
     "build_learner_qualification_evidence",
     "learner_qualification_content_hash",
     "learner_qualification_policy_content_hash",
+    "read_learner_qualification_policy",
     "read_learner_qualification_evidence",
     "write_learner_qualification_evidence",
     "LearnerRun",

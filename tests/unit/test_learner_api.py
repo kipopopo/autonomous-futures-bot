@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -31,6 +32,14 @@ from autonomous_futures.research.creator_artifacts import (
 from autonomous_futures.research.learner_artifacts import (
     build_learner_artifact,
     write_learner_artifact,
+)
+from autonomous_futures.research.learner_qualification import (
+    LearnerQualificationEvidence,
+    LearnerQualificationPolicy,
+    LearnerQualificationPolicyGate,
+    build_learner_qualification_evidence,
+    learner_qualification_content_hash,
+    write_learner_qualification_evidence,
 )
 from autonomous_futures.research.learner_quality_review import (
     LearnerQualityReviewMetric,
@@ -115,6 +124,7 @@ def _write_fixture(
     with_run: bool = False,
     with_training_evidence: bool = False,
     with_quality_review: bool = False,
+    with_qualification: bool = False,
 ) -> tuple[FastAPI, Path, Path | None]:
     entries = (
         _entry(
@@ -314,6 +324,43 @@ def _write_fixture(
             candidate=candidate,
         )
 
+    qualification_path: Path | None = None
+    qualification_policy_path: Path | None = None
+    if with_qualification:
+        if not with_quality_review or quality_review_path is None:
+            raise AssertionError("qualification fixture requires quality-review evidence")
+        policy = LearnerQualificationPolicy(
+            policy_id="learner-holdout-v1",
+            minimum_windows=1,
+            gates=(
+                LearnerQualificationPolicyGate(
+                    metric_id="holdout_score",
+                    comparator="gte",
+                    threshold=Decimal("0.50"),
+                ),
+            ),
+        )
+        qualification = build_learner_qualification_evidence(
+            training_evidence=evidence,
+            quality_review=quality_evidence,
+            output_artifact=output,
+            candidate=candidate,
+            policy=policy,
+            evaluated_at=OBSERVED,
+        )
+        qualification_path = tmp_path / "learner-qualification-evidence.json"
+        write_learner_qualification_evidence(
+            qualification_path,
+            qualification,
+            training_evidence=evidence,
+            quality_review=quality_evidence,
+            output_artifact=output,
+            candidate=candidate,
+            policy=policy,
+        )
+        qualification_policy_path = tmp_path / "learner-qualification-policy.json"
+        qualification_policy_path.write_text(policy.model_dump_json(), encoding="utf-8")
+
     app = create_app(
         bundle_path=bundle_path,
         registry_path=registry_path,
@@ -327,6 +374,10 @@ def _write_fixture(
         learner_training_artifact_root=tmp_path,
         learner_quality_review_evidence_path=quality_review_path
         or tmp_path / "missing-learner-quality-review-evidence.json",
+        learner_qualification_evidence_path=qualification_path
+        or tmp_path / "missing-learner-qualification-evidence.json",
+        learner_qualification_policy_path=qualification_policy_path
+        or tmp_path / "missing-learner-qualification-policy.json",
     )
     return app, artifact_path, run_path
 
@@ -352,10 +403,14 @@ def test_learner_evidence_endpoints_are_get_only_and_missing_is_unavailable(tmp_
     quality_response = _request(app, "GET", "/api/v1/learner/quality-review")
     assert quality_response.status_code == 404
     assert quality_response.json() == {"detail": "learner quality review unavailable"}
+    qualification_response = _request(app, "GET", "/api/v1/learner/qualification")
+    assert qualification_response.status_code == 404
+    assert qualification_response.json() == {"detail": "learner qualification unavailable"}
     assert _request(app, "POST", "/api/v1/learner/artifact").status_code == 405
     assert _request(app, "POST", "/api/v1/learner/run").status_code == 405
     assert _request(app, "POST", "/api/v1/learner/training-evidence").status_code == 405
     assert _request(app, "POST", "/api/v1/learner/quality-review").status_code == 405
+    assert _request(app, "POST", "/api/v1/learner/qualification").status_code == 405
 
 
 def test_learner_artifact_endpoint_returns_verified_metadata_without_model_bytes(
@@ -532,3 +587,81 @@ def test_learner_quality_review_endpoint_fails_closed_on_tampered_review(
 
     assert response.status_code == 503
     assert response.json() == {"detail": "learner quality review integrity verification failed"}
+
+
+def test_learner_qualification_endpoint_returns_verified_evidence_only(
+    tmp_path: Path,
+) -> None:
+    app, _, _ = _write_fixture(
+        tmp_path,
+        with_run=True,
+        with_training_evidence=True,
+        with_quality_review=True,
+        with_qualification=True,
+    )
+    candidate_path = tmp_path / "creator-artifacts" / "candidates" / "cand-learner-api.json"
+    registry_path = tmp_path / "creator-candidate-registry.json"
+    candidate_before = candidate_path.read_bytes()
+    registry_before = registry_path.read_bytes()
+
+    response = _request(app, "GET", "/api/v1/learner/qualification")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["verified"] is True
+    assert payload["evidence"]["decision"] == "qualified"
+    assert payload["evidence"]["policy_id"] == "learner-holdout-v1"
+    assert payload["evidence"]["metrics"][0]["observed"] == "0.75"
+    assert payload["evidence"]["promotion_state"] == "unpromoted"
+    assert payload["evidence"]["paper_activation"] is False
+    assert payload["evidence"]["execution_authority"] is False
+    assert candidate_path.read_bytes() == candidate_before
+    assert registry_path.read_bytes() == registry_before
+
+
+def test_learner_qualification_endpoint_fails_closed_on_tampered_evidence(
+    tmp_path: Path,
+) -> None:
+    app, _, _ = _write_fixture(
+        tmp_path,
+        with_run=True,
+        with_training_evidence=True,
+        with_quality_review=True,
+        with_qualification=True,
+    )
+    qualification_path = tmp_path / "learner-qualification-evidence.json"
+    qualification_path.write_text(
+        qualification_path.read_text(encoding="utf-8").replace(
+            '"qualification_hash": "', '"qualification_hash": "0'
+        ),
+        encoding="utf-8",
+    )
+
+    response = _request(app, "GET", "/api/v1/learner/qualification")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "learner qualification integrity verification failed"}
+
+
+def test_learner_qualification_endpoint_rejects_valid_hash_with_binding_drift(
+    tmp_path: Path,
+) -> None:
+    app, _, _ = _write_fixture(
+        tmp_path,
+        with_run=True,
+        with_training_evidence=True,
+        with_quality_review=True,
+        with_qualification=True,
+    )
+    qualification_path = tmp_path / "learner-qualification-evidence.json"
+    payload = json.loads(qualification_path.read_text(encoding="utf-8"))
+    payload["candidate_id"] = "cand-other"
+    payload["qualification_hash"] = "0" * 64
+    tampered = LearnerQualificationEvidence.model_validate(payload)
+    payload["qualification_hash"] = learner_qualification_content_hash(tampered)
+    qualification_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    response = _request(app, "GET", "/api/v1/learner/qualification")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "learner qualification integrity verification failed"}

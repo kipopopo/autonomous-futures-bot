@@ -28,6 +28,10 @@ function statusLabel(status: LearnerEvidenceStatus): string {
   return 'UNAVAILABLE'
 }
 
+function qualificationDecisionLabel(decision: 'qualified' | 'rejected'): string {
+  return decision === 'qualified' ? 'QUALIFIED' : 'REJECTED'
+}
+
 function ReadinessFact({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <article className="learner-readiness-fact">
@@ -54,6 +58,7 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
   const run = model.learnerRun
   const trainingEvidence = model.trainingEvidence
   const qualityReview = model.qualityReview
+  const qualification = model.qualification
 
   return (
     <section className="panel learner-readiness-panel" aria-labelledby="learner-readiness-heading">
@@ -94,6 +99,11 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
           detail={trainingEvidence ? 'Output file and evidence hashes verified' : 'No verified completion proof'}
         />
         <ReadinessFact label="Paper activation" value="OFF" detail="Activation is not available here" />
+        <ReadinessFact
+          label="Qualification evidence"
+          value={qualification ? qualificationDecisionLabel(qualification.decision) : statusLabel(model.qualificationStatus)}
+          detail={qualification ? 'Persisted gates only — not promotion' : 'No verified qualification evidence'}
+        />
       </div>
 
       {verified ? (
@@ -235,6 +245,64 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
               status={model.qualityReviewStatus}
               title="No quality-review evidence is rendered"
               detail="The page will not infer model quality or qualification when the review endpoint is unavailable."
+            />
+          )}
+        </section>
+
+        <section className="learner-evidence-card learner-qualification-card" aria-labelledby="learner-qualification-heading">
+          <div className="learner-subsection-heading">
+            <div>
+              <span className="field-label">Phase 3o evidence boundary</span>
+              <h3 id="learner-qualification-heading">Learner qualification evidence</h3>
+            </div>
+            <ShieldCheck size={19} aria-hidden="true" />
+          </div>
+          {qualification ? (
+            <div className="learner-evidence-details">
+              <div className={`learner-qualification-result learner-qualification-${qualification.decision}`}>
+                <span className="field-label">Decision</span>
+                <strong>{qualificationDecisionLabel(qualification.decision)}</strong>
+                <span>EVIDENCE ONLY — NOT PROMOTION</span>
+              </div>
+              <div>
+                <span className="field-label">Policy</span>
+                <strong>{qualification.policyId}</strong>
+              </div>
+              <div>
+                <span className="field-label">Windows evaluated</span>
+                <strong>{qualification.windowsEvaluated}</strong>
+              </div>
+              <div>
+                <span className="field-label">Evaluated at</span>
+                <strong>{formatMyt(qualification.evaluatedAt)}</strong>
+              </div>
+              <div className="learner-qualification-list">
+                <span className="field-label">Persisted metric observations</span>
+                {qualification.metrics.map((metric) => (
+                  <div className="learner-qualification-row" key={`${metric.windowId}-${metric.metricId}`}>
+                    <strong>{metric.windowId} · {metric.metricId}</strong>
+                    <span>{metric.observed ?? '—'}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="learner-qualification-list">
+                <span className="field-label">Persisted gate results</span>
+                {qualification.gates.map((gate) => (
+                  <div className="learner-qualification-row" key={gate.gateId}>
+                    <strong>{gate.gateId}</strong>
+                    <span>{gate.passed ? 'PASSED' : 'FAILED'} · {gate.reasonCode}</span>
+                  </div>
+                ))}
+              </div>
+              <div><span className="field-label">Policy SHA-256</span><code title={qualification.policyHash}>{shortHash(qualification.policyHash)}</code></div>
+              <div><span className="field-label">Qualification SHA-256</span><code title={qualification.qualificationHash}>{shortHash(qualification.qualificationHash)}</code></div>
+              <div><span className="field-label">Safety state</span><strong>{qualification.promotionState} · execution authority off</strong></div>
+            </div>
+          ) : (
+            <EvidenceState
+              status={model.qualificationStatus}
+              title="No learner qualification evidence is rendered"
+              detail="Qualification is unavailable or failed integrity verification; no decision is inferred."
             />
           )}
         </section>

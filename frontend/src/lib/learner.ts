@@ -3,6 +3,9 @@ import type {
   LearnerArtifactEvidence,
   LearnerQualityReviewEvidence,
   LearnerQualityReviewWindow,
+  LearnerQualificationEvidence,
+  LearnerQualificationGate,
+  LearnerQualificationMetric,
   LearnerRunEvidence,
   LearnerTrainingEvidence,
 } from './dashboard'
@@ -85,6 +88,38 @@ export interface LearnerQualityReviewModel {
   executionAuthority: false
 }
 
+export interface LearnerQualificationMetricModel {
+  windowId: string
+  metricId: string
+  observed: string | null
+}
+
+export interface LearnerQualificationGateModel {
+  gateId: string
+  windowId: string | null
+  metricId: string | null
+  passed: boolean
+  observed: string | null
+  threshold: string
+  comparator: 'gte' | 'lte' | 'eq'
+  reasonCode: string
+}
+
+export interface LearnerQualificationModel {
+  qualificationId: string
+  decision: 'rejected' | 'qualified'
+  policyId: string
+  policyHash: string
+  metrics: LearnerQualificationMetricModel[]
+  gates: LearnerQualificationGateModel[]
+  windowsEvaluated: number
+  evaluatedAt: string
+  qualificationHash: string
+  promotionState: 'unpromoted'
+  paperActivation: false
+  executionAuthority: false
+}
+
 export interface LearnerModel {
   status: LearnerReadinessStatus
   symbols: string[]
@@ -97,10 +132,12 @@ export interface LearnerModel {
   learningRunStatus: LearnerEvidenceStatus
   trainingCompletionStatus: LearnerEvidenceStatus
   qualityReviewStatus: LearnerEvidenceStatus
+  qualificationStatus: LearnerEvidenceStatus
   learnerArtifact: LearnerArtifactModel | null
   learnerRun: LearnerRunModel | null
   trainingEvidence: LearnerTrainingEvidenceModel | null
   qualityReview: LearnerQualityReviewModel | null
+  qualification: LearnerQualificationModel | null
   paperActivation: false
   executionAuthority: false
 }
@@ -187,6 +224,44 @@ function mapQualityReview(evidence: LearnerQualityReviewEvidence): LearnerQualit
   }
 }
 
+function mapQualificationMetric(metric: LearnerQualificationMetric): LearnerQualificationMetricModel {
+  return {
+    windowId: metric.window_id,
+    metricId: metric.metric_id,
+    observed: metric.observed,
+  }
+}
+
+function mapQualificationGate(gate: LearnerQualificationGate): LearnerQualificationGateModel {
+  return {
+    gateId: gate.gate_id,
+    windowId: gate.window_id,
+    metricId: gate.metric_id,
+    passed: gate.passed,
+    observed: gate.observed,
+    threshold: gate.threshold,
+    comparator: gate.comparator,
+    reasonCode: gate.reason_code,
+  }
+}
+
+function mapQualification(evidence: LearnerQualificationEvidence): LearnerQualificationModel {
+  return {
+    qualificationId: evidence.qualification_id,
+    decision: evidence.decision,
+    policyId: evidence.policy_id,
+    policyHash: evidence.policy_hash,
+    metrics: evidence.metrics.map(mapQualificationMetric),
+    gates: evidence.gates.map(mapQualificationGate),
+    windowsEvaluated: evidence.windows_evaluated,
+    evaluatedAt: evidence.evaluated_at,
+    qualificationHash: evidence.qualification_hash,
+    promotionState: evidence.promotion_state,
+    paperActivation: evidence.paper_activation,
+    executionAuthority: evidence.execution_authority,
+  }
+}
+
 export function buildLearnerModel(data: DashboardApiData): LearnerModel {
   const foundation = buildOverviewModel(data)
   const verified = foundation.verification === 'verified'
@@ -199,6 +274,9 @@ export function buildLearnerModel(data: DashboardApiData): LearnerModel {
     : null
   const qualityReview = verified && data.learnerQualityReview?.verified
     ? mapQualityReview(data.learnerQualityReview.evidence)
+    : null
+  const qualification = verified && data.learnerQualification?.verified
+    ? mapQualification(data.learnerQualification.evidence)
     : null
   const learnerArtifactStatus: LearnerEvidenceStatus = !verified
     ? 'unavailable'
@@ -228,6 +306,13 @@ export function buildLearnerModel(data: DashboardApiData): LearnerModel {
       : data.learnerQualityReviewError || data.learnerQualityReview?.verified === false
         ? 'integrity_unavailable'
         : 'unavailable'
+  const qualificationStatus: LearnerEvidenceStatus = !verified
+    ? 'unavailable'
+    : qualification
+      ? 'verified'
+      : data.learnerQualificationError || data.learnerQualification?.verified === false
+        ? 'integrity_unavailable'
+        : 'unavailable'
 
   return {
     status: verified ? 'verified' : 'unavailable',
@@ -241,10 +326,12 @@ export function buildLearnerModel(data: DashboardApiData): LearnerModel {
     learningRunStatus,
     trainingCompletionStatus,
     qualityReviewStatus,
+    qualificationStatus,
     learnerArtifact,
     learnerRun,
     trainingEvidence,
     qualityReview,
+    qualification,
     paperActivation: false,
     executionAuthority: false,
   }

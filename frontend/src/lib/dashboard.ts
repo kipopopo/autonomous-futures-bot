@@ -284,6 +284,61 @@ export interface LearnerQualityReviewEvidenceResponse {
   evidence: LearnerQualityReviewEvidence
 }
 
+export type LearnerQualificationDecision = 'rejected' | 'qualified'
+export type LearnerQualificationComparator = 'gte' | 'lte' | 'eq'
+
+export interface LearnerQualificationMetric {
+  window_id: string
+  metric_id: string
+  observed: string | null
+}
+
+export interface LearnerQualificationGate {
+  gate_id: string
+  window_id: string | null
+  metric_id: string | null
+  passed: boolean
+  observed: string | null
+  threshold: string
+  comparator: LearnerQualificationComparator
+  reason_code: string
+}
+
+export interface LearnerQualificationEvidence {
+  qualification_version: 1
+  qualification_id: string
+  training_evidence_id: string
+  training_evidence_hash: string
+  quality_review_id: string
+  quality_review_hash: string
+  output_artifact_hash: string
+  learner_id: string
+  learner_run_id: string
+  candidate_id: string
+  candidate_artifact_hash: string
+  bundle_hash: string
+  dataset_registry_hash: string
+  policy_id: string
+  policy_hash: string
+  decision: LearnerQualificationDecision
+  metrics: LearnerQualificationMetric[]
+  gates: LearnerQualificationGate[]
+  windows_evaluated: number
+  status: 'evaluated'
+  data_source: 'cached_only'
+  exchange_access: false
+  promotion_state: 'unpromoted'
+  paper_activation: false
+  execution_authority: false
+  evaluated_at: string
+  qualification_hash: string
+}
+
+export interface LearnerQualificationEvidenceResponse {
+  verified: boolean
+  evidence: LearnerQualificationEvidence
+}
+
 export interface DashboardApiData {
   health: HealthResponse | null
   bundle: BundleResponse | null
@@ -299,6 +354,8 @@ export interface DashboardApiData {
   learnerTrainingEvidenceError?: string | null
   learnerQualityReview?: LearnerQualityReviewEvidenceResponse | null
   learnerQualityReviewError?: string | null
+  learnerQualification?: LearnerQualificationEvidenceResponse | null
+  learnerQualificationError?: string | null
 }
 
 export type VerificationState = 'verified' | 'error'
