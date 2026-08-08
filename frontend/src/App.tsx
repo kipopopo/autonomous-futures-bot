@@ -12,9 +12,11 @@ import {
 } from 'lucide-react'
 
 import { CreatorPage } from '@/components/creator-page'
+import { LearnerPage } from '@/components/learner-page'
 import { MagicCard } from '@/components/magic-card'
 import { fetchOverviewData } from '@/lib/api'
 import { buildCreatorModel } from '@/lib/creator'
+import { buildLearnerModel } from '@/lib/learner'
 import { buildQualificationModel } from '@/lib/qualification'
 import {
   buildOverviewModel,
@@ -195,6 +197,7 @@ function App() {
   const model = useMemo(() => buildOverviewModel(apiData), [apiData])
   const creatorModel = useMemo(() => buildCreatorModel(apiData), [apiData])
   const qualificationModel = useMemo(() => buildQualificationModel(apiData), [apiData])
+  const learnerModel = useMemo(() => buildLearnerModel(apiData), [apiData])
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -223,8 +226,10 @@ function App() {
 
   const status = statusFor(state, model)
   const symbols = model.symbols.length > 0 ? model.symbols.join(', ') : '—'
+  const isOverviewPage = page === 'overview'
   const isCreatorPage = page === 'creator'
-  const inventoryVisible = !isCreatorPage && state === 'ready' && model.components.length > 0
+  const isLearnerPage = page === 'learner'
+  const inventoryVisible = !isCreatorPage && !isLearnerPage && state === 'ready' && model.components.length > 0
 
   return (
     <div className="app-shell">
@@ -235,7 +240,7 @@ function App() {
           <span>Research plane</span>
         </div>
         <nav>
-          <a className={`nav-item ${!isCreatorPage ? 'nav-item-active' : ''}`} href="#overview" aria-current={!isCreatorPage ? 'page' : undefined}>
+          <a className={`nav-item ${isOverviewPage ? 'nav-item-active' : ''}`} href="#overview" aria-current={isOverviewPage ? 'page' : undefined}>
             <DatabaseZap size={17} aria-hidden="true" />
             <span>Overview</span>
           </a>
@@ -243,19 +248,23 @@ function App() {
             <BotIcon size={17} aria-hidden="true" />
             <span>Creator</span>
           </a>
+          <a className={`nav-item ${isLearnerPage ? 'nav-item-active' : ''}`} href="#/learner" aria-current={isLearnerPage ? 'page' : undefined}>
+            <ShieldCheck size={17} aria-hidden="true" />
+            <span>Learner</span>
+          </a>
         </nav>
         <div className="sidebar-footer">
-          <span className="sidebar-label">PHASE 2G</span>
-          <span>Research-plane readiness</span>
+          <span className="sidebar-label">PHASE 3A</span>
+          <span>Learner readiness</span>
         </div>
       </aside>
 
       <main className="main-content" id="overview">
         <header className="page-header">
           <div>
-            <p className="eyebrow">Autonomous Futures / {isCreatorPage ? 'Creator plane' : 'Data plane'}</p>
-            <h1>{isCreatorPage ? 'Creator' : 'Overview'}</h1>
-            <p className="page-subtitle">{isCreatorPage ? 'Research generation readiness · MYT (GMT+8)' : 'Causal market-data foundation · MYT (GMT+8)'}</p>
+            <p className="eyebrow">Autonomous Futures / {isCreatorPage ? 'Creator plane' : isLearnerPage ? 'Learner plane' : 'Data plane'}</p>
+            <h1>{isCreatorPage ? 'Creator' : isLearnerPage ? 'Learner' : 'Overview'}</h1>
+            <p className="page-subtitle">{isCreatorPage ? 'Research generation readiness · MYT (GMT+8)' : isLearnerPage ? 'Model-learning readiness · MYT (GMT+8)' : 'Causal market-data foundation · MYT (GMT+8)'}</p>
           </div>
           <button className="refresh-button" type="button" onClick={() => void loadData()} disabled={state === 'loading'}>
             <RefreshCw size={16} className={state === 'loading' ? 'spin' : undefined} aria-hidden="true" />
@@ -275,7 +284,7 @@ function App() {
           </div>
         )}
 
-        {!isCreatorPage && (
+        {!isCreatorPage && !isLearnerPage && (
           <>
             <section className="fact-grid" aria-label="Verified dataset summary">
               <FactCard label="Verification" value={status.label} detail={state === 'ready' ? 'Registry + artifacts verified' : 'No fallback values'} />
@@ -309,6 +318,7 @@ function App() {
         )}
 
         {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
+        {isLearnerPage && state === 'ready' && <LearnerPage model={learnerModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer">

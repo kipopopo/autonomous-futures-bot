@@ -10,7 +10,7 @@ describe('pageFromHash', () => {
 
   it('falls back to Overview for unsupported or empty hashes', () => {
     expect(pageFromHash('')).toBe('overview')
-    expect(pageFromHash('#/learner')).toBe('overview')
+    expect(pageFromHash('#/signals')).toBe('overview')
     expect(pageFromHash('#')).toBe('overview')
   })
 })
