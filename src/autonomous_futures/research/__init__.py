@@ -23,6 +23,7 @@ from .creator_artifacts import (
     write_creator_candidate_registry,
 )
 from .feature_signals import CausalFeatureSignalEvaluator
+from .performance_metrics import TradePerformanceMetrics, calculate_performance_metrics
 from .qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
     QualificationComparator,
@@ -62,6 +63,8 @@ __all__ = [
     "CausalCachedEvaluatorAdapter",
     "materialize_causal_context",
     "CausalFeatureSignalEvaluator",
+    "TradePerformanceMetrics",
+    "calculate_performance_metrics",
     "EquityPoint",
     "SimulatedTrade",
     "TradeSimulationConfig",
