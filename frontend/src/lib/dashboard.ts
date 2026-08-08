@@ -339,6 +339,59 @@ export interface LearnerQualificationEvidenceResponse {
   evidence: LearnerQualificationEvidence
 }
 
+export type LearnerMetricQualityDecision = 'failed' | 'passed'
+export type LearnerMetricQualityQualificationDecision = 'rejected' | 'qualified'
+
+export interface LearnerMetricQualityQualificationGate {
+  gate_id: 'metric_quality_decision' | 'minimum_windows'
+  passed: boolean
+  observed_windows: number | null
+  minimum_windows: number | null
+  source_decision: LearnerMetricQualityDecision | null
+  required_decision: 'passed' | null
+  reason_code: string
+}
+
+export interface LearnerMetricQualityQualificationEvidence {
+  qualification_version: 1
+  qualification_id: string
+  qualification_input_id: string
+  qualification_input_hash: string
+  decision_id: string
+  decision_hash: string
+  review_id: string
+  review_hash: string
+  metric_evaluation_run_id: string
+  metric_evaluation_hash: string
+  learner_id: string
+  learner_artifact_hash: string
+  candidate_id: string
+  candidate_artifact_hash: string
+  bundle_hash: string
+  dataset_registry_hash: string
+  source_policy_id: string
+  source_policy_hash: string
+  qualification_policy_id: string
+  qualification_policy_hash: string
+  source_decision: LearnerMetricQualityDecision
+  decision: LearnerMetricQualityQualificationDecision
+  gates: LearnerMetricQualityQualificationGate[]
+  windows_evaluated: number
+  status: 'evaluated'
+  data_source: 'cached_only'
+  exchange_access: false
+  promotion_state: 'unpromoted'
+  paper_activation: false
+  execution_authority: false
+  evaluated_at: string
+  qualification_hash: string
+}
+
+export interface LearnerMetricQualityQualificationEvidenceResponse {
+  verified: boolean
+  evidence: LearnerMetricQualityQualificationEvidence
+}
+
 export interface DashboardApiData {
   health: HealthResponse | null
   bundle: BundleResponse | null
@@ -356,6 +409,8 @@ export interface DashboardApiData {
   learnerQualityReviewError?: string | null
   learnerQualification?: LearnerQualificationEvidenceResponse | null
   learnerQualificationError?: string | null
+  learnerMetricQualityQualification?: LearnerMetricQualityQualificationEvidenceResponse | null
+  learnerMetricQualityQualificationError?: string | null
 }
 
 export type VerificationState = 'verified' | 'error'

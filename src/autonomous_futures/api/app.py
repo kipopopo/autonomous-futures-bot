@@ -12,6 +12,9 @@ from ..data.registry import DatasetKind, DatasetRegistry, DatasetRegistryEntry
 from ..domain.contracts import DomainModel
 from ..research.creator_artifacts import CreatorCandidateRegistry
 from ..research.learner_artifacts import LearnerArtifact
+from ..research.learner_metric_quality_qualification import (
+    LearnerMetricQualityQualificationEvidence,
+)
 from ..research.learner_qualification import LearnerQualificationEvidence
 from ..research.learner_quality_review import LearnerQualityReviewEvidence
 from ..research.learner_runs import LearnerRun
@@ -52,6 +55,11 @@ from .learner import (
     load_verified_learner_quality_review_evidence,
     load_verified_learner_run,
     load_verified_learner_training_evidence,
+)
+from .metric_quality_qualification import (
+    LearnerMetricQualityQualificationEvidenceIntegrityError,
+    LearnerMetricQualityQualificationEvidenceNotFoundError,
+    load_verified_metric_quality_qualification_evidence,
 )
 from .qualification import (
     CreatorQualificationArtifactIntegrityError,
@@ -147,6 +155,11 @@ class LearnerQualificationEvidenceResponse(DomainModel):
     evidence: LearnerQualificationEvidence
 
 
+class LearnerMetricQualityQualificationEvidenceResponse(DomainModel):
+    verified: Literal[True] = True
+    evidence: LearnerMetricQualityQualificationEvidence
+
+
 class ComponentsResponse(DomainModel):
     verified: Literal[True] = True
     component_count: int
@@ -185,6 +198,12 @@ def create_app(
     learner_quality_review_evidence_path: Path | None = None,
     learner_qualification_evidence_path: Path | None = None,
     learner_qualification_policy_path: Path | None = None,
+    learner_metric_evaluation_path: Path | None = None,
+    learner_metric_quality_review_evidence_path: Path | None = None,
+    learner_metric_quality_decision_path: Path | None = None,
+    learner_metric_quality_policy_path: Path | None = None,
+    learner_metric_quality_qualification_evidence_path: Path | None = None,
+    learner_metric_quality_qualification_policy_path: Path | None = None,
 ) -> FastAPI:
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
@@ -238,6 +257,44 @@ def create_app(
         or _configured_path(
             "AFBOT_LEARNER_QUALIFICATION_POLICY_PATH",
             "data/learner-qualification-policy.json",
+        )
+    )
+    configured_learner_metric_evaluation_path = learner_metric_evaluation_path or _configured_path(
+        "AFBOT_LEARNER_METRIC_EVALUATION_PATH", "data/learner-metric-evaluation.json"
+    )
+    configured_learner_metric_quality_review_evidence_path = (
+        learner_metric_quality_review_evidence_path
+        or _configured_path(
+            "AFBOT_LEARNER_METRIC_QUALITY_REVIEW_EVIDENCE_PATH",
+            "data/learner-metric-quality-review-evidence.json",
+        )
+    )
+    configured_learner_metric_quality_decision_path = (
+        learner_metric_quality_decision_path
+        or _configured_path(
+            "AFBOT_LEARNER_METRIC_QUALITY_DECISION_PATH",
+            "data/learner-metric-quality-decision.json",
+        )
+    )
+    configured_learner_metric_quality_policy_path = (
+        learner_metric_quality_policy_path
+        or _configured_path(
+            "AFBOT_LEARNER_METRIC_QUALITY_POLICY_PATH",
+            "data/learner-metric-quality-policy.json",
+        )
+    )
+    configured_learner_metric_quality_qualification_evidence_path = (
+        learner_metric_quality_qualification_evidence_path
+        or _configured_path(
+            "AFBOT_LEARNER_METRIC_QUALITY_QUALIFICATION_EVIDENCE_PATH",
+            "data/learner-metric-quality-qualification-evidence.json",
+        )
+    )
+    configured_learner_metric_quality_qualification_policy_path = (
+        learner_metric_quality_qualification_policy_path
+        or _configured_path(
+            "AFBOT_LEARNER_METRIC_QUALITY_QUALIFICATION_POLICY_PATH",
+            "data/learner-metric-quality-qualification-policy.json",
         )
     )
 
@@ -432,6 +489,58 @@ def create_app(
                 ),
             ) from exc
         return LearnerQualificationEvidenceResponse(evidence=evidence)
+
+    @app.get(
+        "/api/v1/learner/metric-quality-qualification",
+        response_model=LearnerMetricQualityQualificationEvidenceResponse,
+    )
+    def learner_metric_quality_qualification() -> LearnerMetricQualityQualificationEvidenceResponse:
+        if not configured_learner_metric_quality_qualification_evidence_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="learner metric-quality qualification evidence unavailable",
+            )
+        try:
+            verified_artifact = verified_learner_artifact()
+            evidence = load_verified_metric_quality_qualification_evidence(
+                qualification_evidence_path=(
+                    configured_learner_metric_quality_qualification_evidence_path
+                ),
+                decision_path=configured_learner_metric_quality_decision_path,
+                review_path=configured_learner_metric_quality_review_evidence_path,
+                metric_evaluation_path=configured_learner_metric_evaluation_path,
+                source_policy_path=configured_learner_metric_quality_policy_path,
+                qualification_policy_path=(
+                    configured_learner_metric_quality_qualification_policy_path
+                ),
+                learner=verified_artifact.artifact,
+                candidate=verified_artifact.candidate,
+            )
+        except LearnerMetricQualityQualificationEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="learner metric-quality qualification evidence unavailable",
+            ) from exc
+        except LearnerMetricQualityQualificationEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "learner metric-quality qualification evidence integrity verification failed"
+                ),
+            ) from exc
+        except HTTPException as exc:
+            raise HTTPException(
+                status_code=404 if exc.status_code == 404 else 503,
+                detail=(
+                    "learner metric-quality qualification evidence unavailable"
+                    if exc.status_code == 404
+                    else (
+                        "learner metric-quality qualification evidence integrity "
+                        "verification failed"
+                    )
+                ),
+            ) from exc
+        return LearnerMetricQualityQualificationEvidenceResponse(evidence=evidence)
 
     @app.get("/api/v1/dataset/bundle", response_model=BundleResponse)
     def dataset_bundle() -> BundleResponse:
@@ -643,6 +752,7 @@ __all__ = [
     "CreatorQualificationsResponse",
     "HealthResponse",
     "LearnerArtifactResponse",
+    "LearnerMetricQualityQualificationEvidenceResponse",
     "LearnerRunResponse",
     "LearnerQualificationEvidenceResponse",
     "LearnerTrainingEvidenceResponse",

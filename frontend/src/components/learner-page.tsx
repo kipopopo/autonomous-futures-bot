@@ -32,6 +32,10 @@ function qualificationDecisionLabel(decision: 'qualified' | 'rejected'): string 
   return decision === 'qualified' ? 'QUALIFIED' : 'REJECTED'
 }
 
+function metricQualityDecisionLabel(decision: 'passed' | 'failed'): string {
+  return decision === 'passed' ? 'PASSED' : 'FAILED'
+}
+
 function ReadinessFact({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <article className="learner-readiness-fact">
@@ -59,6 +63,7 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
   const trainingEvidence = model.trainingEvidence
   const qualityReview = model.qualityReview
   const qualification = model.qualification
+  const metricQualityQualification = model.metricQualityQualification
 
   return (
     <section className="panel learner-readiness-panel" aria-labelledby="learner-readiness-heading">
@@ -303,6 +308,97 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
               status={model.qualificationStatus}
               title="No learner qualification evidence is rendered"
               detail="Qualification is unavailable or failed integrity verification; no decision is inferred."
+            />
+          )}
+        </section>
+
+        <section
+          className="learner-evidence-card learner-metric-quality-qualification-card"
+          aria-labelledby="learner-metric-quality-qualification-heading"
+        >
+          <div className="learner-subsection-heading">
+            <div>
+              <span className="field-label">Phase 3AE verified persisted evidence</span>
+              <h3 id="learner-metric-quality-qualification-heading">
+                Metric-quality qualification evidence
+              </h3>
+            </div>
+            <ShieldCheck size={19} aria-hidden="true" />
+          </div>
+          {metricQualityQualification ? (
+            <div className="learner-evidence-details">
+              <div className="learner-metric-quality-decision-grid">
+                <div
+                  className={`learner-metric-quality-source learner-metric-quality-source-${metricQualityQualification.sourceDecision}`}
+                >
+                  <span className="field-label">Source metric-quality decision</span>
+                  <strong>{metricQualityDecisionLabel(metricQualityQualification.sourceDecision)}</strong>
+                  <span>INPUT EVIDENCE ONLY</span>
+                </div>
+                <div className={`learner-qualification-result learner-qualification-${metricQualityQualification.decision}`}>
+                  <span className="field-label">Qualification result</span>
+                  <strong>{qualificationDecisionLabel(metricQualityQualification.decision)}</strong>
+                  <span>EVIDENCE ONLY — NOT PROMOTION</span>
+                </div>
+              </div>
+              <div>
+                <span className="field-label">Source policy</span>
+                <strong>{metricQualityQualification.sourcePolicyId}</strong>
+              </div>
+              <div>
+                <span className="field-label">Qualification policy</span>
+                <strong>{metricQualityQualification.qualificationPolicyId}</strong>
+              </div>
+              <div>
+                <span className="field-label">Windows evaluated</span>
+                <strong>{metricQualityQualification.windowsEvaluated}</strong>
+              </div>
+              <div>
+                <span className="field-label">Evaluated at</span>
+                <strong>{formatMyt(metricQualityQualification.evaluatedAt)}</strong>
+              </div>
+              <div className="learner-qualification-list">
+                <span className="field-label">Persisted gate results</span>
+                {metricQualityQualification.gates.map((gate) => (
+                  <div className="learner-qualification-row" key={gate.gateId}>
+                    <strong>{gate.gateId}</strong>
+                    <span>
+                      {gate.passed ? 'PASSED' : 'FAILED'} · {gate.reasonCode}
+                      {gate.observedWindows !== null && gate.minimumWindows !== null
+                        ? ` · ${gate.observedWindows}/${gate.minimumWindows} windows`
+                        : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <span className="field-label">Source policy SHA-256</span>
+                <code title={metricQualityQualification.sourcePolicyHash}>
+                  {shortHash(metricQualityQualification.sourcePolicyHash)}
+                </code>
+              </div>
+              <div>
+                <span className="field-label">Qualification policy SHA-256</span>
+                <code title={metricQualityQualification.qualificationPolicyHash}>
+                  {shortHash(metricQualityQualification.qualificationPolicyHash)}
+                </code>
+              </div>
+              <div>
+                <span className="field-label">Qualification SHA-256</span>
+                <code title={metricQualityQualification.qualificationHash}>
+                  {shortHash(metricQualityQualification.qualificationHash)}
+                </code>
+              </div>
+              <div>
+                <span className="field-label">Safety state</span>
+                <strong>{metricQualityQualification.promotionState} · paper activation off · execution authority off</strong>
+              </div>
+            </div>
+          ) : (
+            <EvidenceState
+              status={model.metricQualityQualificationStatus}
+              title="No metric-quality qualification evidence is rendered"
+              detail="Evidence is unavailable or failed full-chain integrity verification; no result is inferred."
             />
           )}
         </section>

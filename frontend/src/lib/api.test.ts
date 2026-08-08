@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { fetchCreatorQualifications } from './api'
+import { fetchCreatorQualifications, fetchOverviewData } from './api'
 
 function response(status: number, body: unknown = {}) {
   return {
@@ -42,6 +42,31 @@ describe('fetchCreatorQualifications', () => {
 
     await expect(fetchCreatorQualifications()).rejects.toThrow(
       'GET /api/v1/creator/qualifications failed with HTTP 503',
+    )
+  })
+})
+
+describe('fetchOverviewData metric-quality qualification evidence', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('preserves a 503 from the dedicated read-only route as an integrity error', async () => {
+    const fetchMock = vi.fn().mockImplementation((path: string) => {
+      if (path === '/api/v1/learner/metric-quality-qualification') return response(503)
+      if (path === '/health') return response(200, {})
+      if (path === '/api/v1/dataset/bundle') return response(200, {})
+      if (path === '/api/v1/dataset/components') return response(200, {})
+      return response(404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchOverviewData()
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/learner/metric-quality-qualification', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(result.learnerMetricQualityQualification).toBeNull()
+    expect(result.learnerMetricQualityQualificationError).toBe(
+      'GET /api/v1/learner/metric-quality-qualification failed with HTTP 503',
     )
   })
 })

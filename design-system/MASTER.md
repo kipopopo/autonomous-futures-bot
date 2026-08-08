@@ -186,3 +186,38 @@ The page must not call row queries until a later page explicitly needs a bounded
 - unlabelled timezone display;
 - decorative Magic UI components that compete with evidence;
 - hidden error states behind an empty card.
+
+## Phase 3AE learner evidence addendum
+
+This addendum extends the Learner page only. It supersedes neither the Overview information architecture nor the read-only API boundary above.
+
+### Metric-quality qualification evidence card
+
+Render this as a dedicated full-width evidence card, not as a lifecycle control or general learner-quality summary:
+
+```text
+Metric-quality qualification evidence
+├── source metric-quality decision: PASSED | FAILED
+├── qualification result: QUALIFIED | REJECTED
+├── source + qualification policies and SHA-256 bindings
+├── persisted gate outcomes and evaluated window count
+├── MYT/GMT+8 evaluation timestamp and qualification hash
+└── unpromoted · paper activation off · execution authority off
+```
+
+- Source `PASSED` / `FAILED` and qualification `QUALIFIED` / `REJECTED` are different facts and must never be collapsed.
+- A passed source decision, or a qualified result, is **evidence only**. It is not promotion, paper activation, execution authority, or a profitability claim.
+- Use text labels beside semantic color. `PASSED` may use `--positive`; `FAILED` and `REJECTED` may use `--negative`; absence remains `UNAVAILABLE`.
+- Missing evidence maps to `UNAVAILABLE`; integrity failure maps to `INTEGRITY UNAVAILABLE`; neither may be represented as `FAILED` or `REJECTED`.
+- Preserve the complete source hash in a `title` attribute while showing a short monospace form in the card.
+- The paired source/result decision grid stacks to one column on narrow screens and introduces no decorative movement.
+
+### Learner-page API boundary
+
+The Phase 3AE card may read only:
+
+```text
+GET /api/v1/learner/metric-quality-qualification
+```
+
+`404` is ordinary absence and becomes `UNAVAILABLE`. Any non-`404` failure becomes `INTEGRITY UNAVAILABLE`; no fallback result is inferred. The UI adds no mutation, training, approval, promotion, paper-activation, exchange, or execution control.

@@ -7,6 +7,7 @@ import type {
   DashboardApiData,
   HealthResponse,
   LearnerArtifactResponse,
+  LearnerMetricQualityQualificationEvidenceResponse,
   LearnerRunResponse,
   LearnerQualityReviewEvidenceResponse,
   LearnerQualificationEvidenceResponse,
@@ -73,6 +74,16 @@ async function fetchOptionalLearnerQualification(): Promise<LearnerQualification
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
   return (await response.json()) as LearnerQualificationEvidenceResponse
+}
+
+async function fetchOptionalLearnerMetricQualityQualification(): Promise<
+  LearnerMetricQualityQualificationEvidenceResponse | null
+> {
+  const path = '/api/v1/learner/metric-quality-qualification'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as LearnerMetricQualityQualificationEvidenceResponse
 }
 
 export async function fetchCreatorQualifications(): Promise<CreatorQualificationsResponse | null> {
@@ -169,6 +180,16 @@ export async function fetchOverviewData(): Promise<DashboardApiData> {
       : 'Learner qualification evidence could not be verified'
   }
 
+  let learnerMetricQualityQualification: LearnerMetricQualityQualificationEvidenceResponse | null = null
+  let learnerMetricQualityQualificationError: string | null = null
+  try {
+    learnerMetricQualityQualification = await fetchOptionalLearnerMetricQualityQualification()
+  } catch (error) {
+    learnerMetricQualityQualificationError = error instanceof Error
+      ? error.message
+      : 'Metric-quality qualification evidence could not be verified'
+  }
+
   return {
     health,
     bundle,
@@ -186,5 +207,7 @@ export async function fetchOverviewData(): Promise<DashboardApiData> {
     learnerQualityReviewError,
     learnerQualification,
     learnerQualificationError,
+    learnerMetricQualityQualification,
+    learnerMetricQualityQualificationError,
   }
 }

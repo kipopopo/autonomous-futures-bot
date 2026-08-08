@@ -335,6 +335,84 @@ describe('buildLearnerModel', () => {
     expect(model.qualificationStatus).toBe('integrity_unavailable')
     expect(model.qualification).toBeNull()
   })
+
+  it('maps metric-quality qualification evidence separately from legacy qualification', () => {
+    const model = buildLearnerModel({
+      ...VERIFIED_DATA,
+      learnerMetricQualityQualification: {
+        verified: true,
+        evidence: {
+          qualification_version: 1,
+          qualification_id: 'metric-quality-qualification-api',
+          qualification_input_id: 'metric-quality-qualification-input-api',
+          qualification_input_hash: 'a'.repeat(64),
+          decision_id: 'metric-quality-decision-api',
+          decision_hash: 'b'.repeat(64),
+          review_id: 'metric-quality-review-api',
+          review_hash: 'c'.repeat(64),
+          metric_evaluation_run_id: 'learner-metric-api-001',
+          metric_evaluation_hash: 'd'.repeat(64),
+          learner_id: 'learner-api-001',
+          learner_artifact_hash: 'e'.repeat(64),
+          candidate_id: 'cand-learner-api',
+          candidate_artifact_hash: 'f'.repeat(64),
+          bundle_hash: '1'.repeat(64),
+          dataset_registry_hash: '2'.repeat(64),
+          source_policy_id: 'metric-quality-policy-api-v1',
+          source_policy_hash: '3'.repeat(64),
+          qualification_policy_id: 'metric-quality-qualification-policy-api-v1',
+          qualification_policy_hash: '4'.repeat(64),
+          source_decision: 'passed',
+          decision: 'qualified',
+          gates: [
+            {
+              gate_id: 'metric_quality_decision',
+              passed: true,
+              observed_windows: null,
+              minimum_windows: null,
+              source_decision: 'passed',
+              required_decision: 'passed',
+              reason_code: 'metric_quality_decision_passed',
+            },
+            {
+              gate_id: 'minimum_windows',
+              passed: true,
+              observed_windows: 1,
+              minimum_windows: 1,
+              source_decision: null,
+              required_decision: null,
+              reason_code: 'minimum_windows_passed',
+            },
+          ],
+          windows_evaluated: 1,
+          status: 'evaluated',
+          data_source: 'cached_only',
+          exchange_access: false,
+          promotion_state: 'unpromoted',
+          paper_activation: false,
+          execution_authority: false,
+          evaluated_at: '2026-08-08T03:00:00Z',
+          qualification_hash: '5'.repeat(64),
+        },
+      },
+    } as DashboardApiData)
+
+    expect(model).toMatchObject({
+      metricQualityQualificationStatus: 'verified',
+      metricQualityQualification: {
+        qualificationId: 'metric-quality-qualification-api',
+        sourceDecision: 'passed',
+        decision: 'qualified',
+        sourcePolicyId: 'metric-quality-policy-api-v1',
+        qualificationPolicyId: 'metric-quality-qualification-policy-api-v1',
+        windowsEvaluated: 1,
+        promotionState: 'unpromoted',
+        paperActivation: false,
+        executionAuthority: false,
+      },
+    })
+    expect(model.qualification).toBeNull()
+  })
 })
 
 describe('learner route', () => {

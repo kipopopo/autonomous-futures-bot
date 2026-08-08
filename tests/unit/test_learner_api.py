@@ -26,12 +26,40 @@ from autonomous_futures.domain.contracts import (
 from autonomous_futures.research.creator_artifacts import (
     build_creator_candidate_artifact,
     build_creator_candidate_registry,
+    read_creator_candidate_artifact,
     write_creator_candidate_artifact,
     write_creator_candidate_registry,
 )
 from autonomous_futures.research.learner_artifacts import (
     build_learner_artifact,
+    read_learner_artifact,
     write_learner_artifact,
+)
+from autonomous_futures.research.learner_evaluation import (
+    LearnerEvaluationWindow,
+    LearnerEvaluationWindowSpec,
+)
+from autonomous_futures.research.learner_metric_evaluation import (
+    CachedOnlyLearnerMetricAdapter,
+    write_learner_metric_evaluation_run,
+)
+from autonomous_futures.research.learner_metric_quality_decision import (
+    LearnerMetricQualityPolicy,
+    LearnerMetricQualityPolicyGate,
+    evaluate_persisted_learner_metric_quality,
+    learner_metric_quality_policy_content_hash,
+    write_learner_metric_quality_decision,
+)
+from autonomous_futures.research.learner_metric_quality_qualification import (
+    LearnerMetricQualityQualificationPolicy,
+    build_verified_learner_metric_quality_qualification_evidence,
+    write_learner_metric_quality_qualification_evidence,
+)
+from autonomous_futures.research.learner_metric_quality_review import (
+    LearnerMetricQualityReviewMetric,
+    LearnerMetricQualityReviewWindowResult,
+    execute_learner_metric_quality_review,
+    write_learner_metric_quality_review_evidence,
 )
 from autonomous_futures.research.learner_qualification import (
     LearnerQualificationEvidence,
@@ -57,6 +85,10 @@ from autonomous_futures.research.learner_runs import (
 from autonomous_futures.research.learner_training_evidence import (
     build_learner_training_evidence,
     write_learner_training_evidence,
+)
+from autonomous_futures.research.trade_simulation import (
+    TradeSimulationConfig,
+    simulate_cached_signals,
 )
 
 START = datetime(2026, 8, 7, tzinfo=UTC)
@@ -380,6 +412,270 @@ def _write_fixture(
         or tmp_path / "missing-learner-qualification-policy.json",
     )
     return app, artifact_path, run_path
+
+
+def _write_metric_quality_qualification_fixture(tmp_path: Path) -> tuple[FastAPI, dict[str, Path]]:
+    _write_fixture(tmp_path)
+    candidate_path = tmp_path / "creator-artifacts" / "candidates" / "cand-learner-api.json"
+    candidate = read_creator_candidate_artifact(candidate_path)
+    learner_path = tmp_path / "learner-artifact.json"
+    model_root = tmp_path / "models"
+    learner = read_learner_artifact(learner_path, model_root=model_root)
+    metric_start = END
+    metric_window = LearnerEvaluationWindow(
+        spec=LearnerEvaluationWindowSpec(
+            window_id="window-api-metric",
+            learner_id=learner.learner_id,
+            candidate_id=learner.candidate_id,
+            candidate_artifact_hash=learner.candidate_artifact_hash,
+            symbol=SYMBOL,
+            bundle_hash=learner.bundle_hash,
+            dataset_registry_hash=learner.dataset_registry_hash,
+            time_start=metric_start,
+            time_end=metric_start + timedelta(minutes=30),
+        ),
+        frame=pd.DataFrame(
+            {
+                "timestamp": [metric_start + timedelta(minutes=5 * index) for index in range(6)],
+                "open": [
+                    Decimal("100"),
+                    Decimal("101"),
+                    Decimal("103"),
+                    Decimal("102"),
+                    Decimal("104"),
+                    Decimal("105"),
+                ],
+                "high": [
+                    Decimal("101"),
+                    Decimal("102"),
+                    Decimal("104"),
+                    Decimal("103"),
+                    Decimal("105"),
+                    Decimal("106"),
+                ],
+                "low": [
+                    Decimal("99"),
+                    Decimal("100"),
+                    Decimal("102"),
+                    Decimal("101"),
+                    Decimal("103"),
+                    Decimal("104"),
+                ],
+                "close": [
+                    Decimal("100"),
+                    Decimal("101"),
+                    Decimal("103"),
+                    Decimal("102"),
+                    Decimal("104"),
+                    Decimal("105"),
+                ],
+            }
+        ),
+    )
+
+    def simulate(received_learner, received_candidate, frame, received_window):
+        assert received_learner == learner
+        assert received_candidate == candidate
+        frame["signal"] = [0, 1, 0, -1, 0, 0]
+        return simulate_cached_signals(
+            frame,
+            symbol=received_window.spec.symbol,
+            config=TradeSimulationConfig(
+                starting_equity=Decimal("100"),
+                position_fraction=Decimal("1"),
+                taker_fee_rate=Decimal("0"),
+                slippage_rate=Decimal("0"),
+            ),
+        )
+
+    metric_run = CachedOnlyLearnerMetricAdapter(
+        learner=learner,
+        candidate=candidate,
+        evaluation_run_id="learner-metric-api-001",
+        evaluation_version="metric-api-v1",
+        simulator=simulate,
+    ).evaluate((metric_window,), evaluated_at=OBSERVED)
+    metric_evaluation_path = tmp_path / "learner-metric-evaluation.json"
+    write_learner_metric_evaluation_run(metric_evaluation_path, metric_run)
+
+    def reviewer(received_run, received_window):
+        assert received_run == metric_run
+        return LearnerMetricQualityReviewWindowResult(
+            window_id=received_window.window_id,
+            symbol=received_window.symbol,
+            metrics=(
+                LearnerMetricQualityReviewMetric(
+                    metric_id="observed_net_pnl",
+                    value=received_window.metrics.net_pnl,
+                ),
+            ),
+        )
+
+    metric_quality_review = execute_learner_metric_quality_review(
+        metric_evaluation_path,
+        learner=learner,
+        candidate=candidate,
+        review_id="metric-quality-review-api",
+        review_version="metric-quality-api-v1",
+        reviewer=reviewer,
+        reviewed_at=OBSERVED,
+    )
+    metric_quality_review_path = tmp_path / "learner-metric-quality-review.json"
+    write_learner_metric_quality_review_evidence(
+        metric_quality_review_path,
+        metric_quality_review,
+    )
+    source_policy = LearnerMetricQualityPolicy(
+        policy_id="metric-quality-policy-api-v1",
+        minimum_windows=1,
+        gates=(
+            LearnerMetricQualityPolicyGate(
+                metric_id="observed_net_pnl",
+                comparator="gte",
+                threshold=Decimal("-100"),
+            ),
+        ),
+    )
+    decision = evaluate_persisted_learner_metric_quality(
+        metric_quality_review_path,
+        metric_evaluation_path,
+        learner=learner,
+        candidate=candidate,
+        policy=source_policy,
+        evaluated_at=OBSERVED,
+    )
+    decision_path = tmp_path / "learner-metric-quality-decision.json"
+    write_learner_metric_quality_decision(decision_path, decision)
+    qualification_policy = LearnerMetricQualityQualificationPolicy(
+        policy_id="metric-quality-qualification-policy-api-v1",
+        required_metric_quality_policy_id=source_policy.policy_id,
+        required_metric_quality_policy_hash=learner_metric_quality_policy_content_hash(
+            source_policy
+        ),
+        minimum_windows=1,
+    )
+    qualification = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        metric_quality_review_path,
+        metric_evaluation_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=qualification_policy,
+        evaluated_at=OBSERVED,
+    )
+    qualification_evidence_path = tmp_path / "learner-metric-quality-qualification.json"
+    write_learner_metric_quality_qualification_evidence(
+        qualification_evidence_path,
+        qualification,
+    )
+    source_policy_path = tmp_path / "learner-metric-quality-policy.json"
+    source_policy_path.write_text(source_policy.model_dump_json(), encoding="utf-8")
+    qualification_policy_path = tmp_path / "learner-metric-quality-qualification-policy.json"
+    qualification_policy_path.write_text(qualification_policy.model_dump_json(), encoding="utf-8")
+
+    app = create_app(
+        bundle_path=tmp_path / "dataset-bundle.json",
+        registry_path=tmp_path / "dataset-registry.json",
+        creator_candidate_registry_path=tmp_path / "creator-candidate-registry.json",
+        creator_candidate_artifact_root=tmp_path / "creator-artifacts",
+        learner_artifact_path=learner_path,
+        learner_model_root=model_root,
+        learner_metric_evaluation_path=metric_evaluation_path,
+        learner_metric_quality_review_evidence_path=metric_quality_review_path,
+        learner_metric_quality_decision_path=decision_path,
+        learner_metric_quality_policy_path=source_policy_path,
+        learner_metric_quality_qualification_evidence_path=qualification_evidence_path,
+        learner_metric_quality_qualification_policy_path=qualification_policy_path,
+    )
+    return app, {
+        "candidate": candidate_path,
+        "decision": decision_path,
+        "metric_evaluation": metric_evaluation_path,
+        "qualification": qualification_evidence_path,
+        "review": metric_quality_review_path,
+        "source_policy": source_policy_path,
+        "qualification_policy": qualification_policy_path,
+    }
+
+
+def test_metric_quality_qualification_endpoint_returns_verified_evidence_only(
+    tmp_path: Path,
+) -> None:
+    app, paths = _write_metric_quality_qualification_fixture(tmp_path)
+    source_bytes = {name: path.read_bytes() for name, path in paths.items()}
+
+    response = _request(app, "GET", "/api/v1/learner/metric-quality-qualification")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["verified"] is True
+    assert payload["evidence"]["qualification_id"] == "metric-quality-qualification-api"
+    assert payload["evidence"]["source_decision"] == "passed"
+    assert payload["evidence"]["decision"] == "qualified"
+    assert (
+        payload["evidence"]["qualification_policy_id"]
+        == "metric-quality-qualification-policy-api-v1"
+    )
+    assert payload["evidence"]["data_source"] == "cached_only"
+    assert payload["evidence"]["exchange_access"] is False
+    assert payload["evidence"]["promotion_state"] == "unpromoted"
+    assert payload["evidence"]["paper_activation"] is False
+    assert payload["evidence"]["execution_authority"] is False
+    assert _request(app, "POST", "/api/v1/learner/metric-quality-qualification").status_code == 405
+    assert {name: path.read_bytes() for name, path in paths.items()} == source_bytes
+
+
+def test_metric_quality_qualification_endpoint_is_get_only_and_missing_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        learner_metric_quality_qualification_evidence_path=(
+            tmp_path / "missing-learner-metric-quality-qualification.json"
+        )
+    )
+
+    response = _request(app, "GET", "/api/v1/learner/metric-quality-qualification")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "learner metric-quality qualification evidence unavailable"
+    }
+    assert _request(app, "POST", "/api/v1/learner/metric-quality-qualification").status_code == 405
+
+
+def test_metric_quality_qualification_endpoint_fails_closed_on_tampered_evidence(
+    tmp_path: Path,
+) -> None:
+    app, paths = _write_metric_quality_qualification_fixture(tmp_path)
+    qualification_path = paths["qualification"]
+    qualification_path.write_text(
+        qualification_path.read_text(encoding="utf-8").replace(
+            '"qualification_hash": "', '"qualification_hash": "0'
+        ),
+        encoding="utf-8",
+    )
+
+    response = _request(app, "GET", "/api/v1/learner/metric-quality-qualification")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "learner metric-quality qualification evidence integrity verification failed"
+    }
+
+
+def test_metric_quality_qualification_endpoint_fails_closed_on_malformed_policy(
+    tmp_path: Path,
+) -> None:
+    app, paths = _write_metric_quality_qualification_fixture(tmp_path)
+    paths["source_policy"].write_text("not valid JSON", encoding="utf-8")
+
+    response = _request(app, "GET", "/api/v1/learner/metric-quality-qualification")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "learner metric-quality qualification evidence integrity verification failed"
+    }
 
 
 def test_learner_evidence_endpoints_are_get_only_and_missing_is_unavailable(tmp_path: Path) -> None:
