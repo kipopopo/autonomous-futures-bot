@@ -37,6 +37,9 @@ from autonomous_futures.research.learner_metric_quality_review import (
     read_learner_metric_quality_review_evidence,
     write_learner_metric_quality_review_evidence,
 )
+from autonomous_futures.research.learner_metric_quality_review_input import (
+    load_verified_learner_metric_quality_review,
+)
 from autonomous_futures.research.learner_metric_review_input import (
     load_verified_learner_metric_review_input,
     review_persisted_learner_metric_evaluation,
@@ -604,3 +607,102 @@ def test_metric_quality_review_writer_cleans_unique_temp_file_on_link_failure(
         write_learner_metric_quality_review_evidence(path, evidence)
     assert not path.exists()
     assert not list(path.parent.glob(f".{path.name}.*.tmp"))
+
+
+def _persisted_quality_review_fixture(tmp_path: Path):
+    candidate = _candidate()
+    learner = _learner(tmp_path / "expected", candidate)
+    run = _metric_run(tmp_path / "persisted")
+    metric_path = tmp_path / "metric-evaluation.json"
+    write_learner_metric_evaluation_run(metric_path, run)
+    evidence = _quality_review_evidence(tmp_path / "review")
+    review_path = tmp_path / "review-evidence.json"
+    write_learner_metric_quality_review_evidence(review_path, evidence)
+    return review_path, metric_path, learner, candidate, run, evidence
+
+
+def test_verified_persisted_metric_quality_review_loader_binds_full_chain(
+    tmp_path: Path,
+) -> None:
+    review_path, metric_path, learner, candidate, run, evidence = _persisted_quality_review_fixture(
+        tmp_path
+    )
+    metric_bytes = metric_path.read_bytes()
+    review_bytes = review_path.read_bytes()
+
+    loaded = load_verified_learner_metric_quality_review(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+    )
+
+    assert loaded == evidence
+    assert loaded.metric_evaluation_run_id == run.evaluation_run_id
+    assert loaded.metric_evaluation_hash == run.evaluation_hash
+    assert metric_path.read_bytes() == metric_bytes
+    assert review_path.read_bytes() == review_bytes
+
+
+def test_verified_persisted_metric_quality_review_loader_rejects_binding_and_tamper(
+    tmp_path: Path,
+) -> None:
+    review_path, metric_path, learner, candidate, run, evidence = _persisted_quality_review_fixture(
+        tmp_path
+    )
+    called_candidate = candidate.model_copy(update={"bundle_hash": "c" * 64})
+    with pytest.raises(DomainViolation, match="binding"):
+        load_verified_learner_metric_quality_review(
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=called_candidate,
+        )
+
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8").replace(evidence.review_hash, "0" * 64),
+        encoding="utf-8",
+    )
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        load_verified_learner_metric_quality_review(
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+        )
+
+
+def test_verified_persisted_metric_quality_review_loader_rejects_review_run_and_window_drift(
+    tmp_path: Path,
+) -> None:
+    review_path, metric_path, learner, candidate, run, evidence = _persisted_quality_review_fixture(
+        tmp_path
+    )
+    drifted = evidence.model_copy(update={"metric_evaluation_hash": "c" * 64})
+    drifted = drifted.model_copy(
+        update={"review_hash": learner_metric_quality_review_content_hash(drifted)}
+    )
+    drift_path = tmp_path / "drifted-review.json"
+    write_learner_metric_quality_review_evidence(drift_path, drifted)
+    with pytest.raises(DomainViolation, match="binding"):
+        load_verified_learner_metric_quality_review(
+            drift_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+        )
+
+    window = evidence.windows[0].model_copy(update={"symbol": "ETHUSDT"})
+    window_drift = evidence.model_copy(update={"windows": (window,)})
+    window_drift = window_drift.model_copy(
+        update={"review_hash": learner_metric_quality_review_content_hash(window_drift)}
+    )
+    window_path = tmp_path / "window-drift-review.json"
+    write_learner_metric_quality_review_evidence(window_path, window_drift)
+    with pytest.raises(DomainViolation, match="window"):
+        load_verified_learner_metric_quality_review(
+            window_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+        )

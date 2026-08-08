@@ -62,6 +62,7 @@ from .learner_metric_quality_review import (
     read_learner_metric_quality_review_evidence,
     write_learner_metric_quality_review_evidence,
 )
+from .learner_metric_quality_review_input import load_verified_learner_metric_quality_review
 from .learner_metric_review_input import (
     LearnerMetricReviewCallback,
     load_verified_learner_metric_review_input,
@@ -209,6 +210,7 @@ __all__ = [
     "learner_metric_quality_review_content_hash",
     "read_learner_metric_quality_review_evidence",
     "write_learner_metric_quality_review_evidence",
+    "load_verified_learner_metric_quality_review",
     "LearnerQualityReviewEvidence",
     "LearnerQualityReviewMetric",
     "LearnerQualityReviewWindow",
