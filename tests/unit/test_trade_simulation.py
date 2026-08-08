@@ -46,6 +46,38 @@ def _config(*, slippage: str = "0", fee: str = "0.0004") -> TradeSimulationConfi
     )
 
 
+def _risk_frame(
+    signals: tuple[int, ...],
+    *,
+    highs: tuple[str, ...],
+    lows: tuple[str, ...],
+    closes: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
+    close_values = closes or ("100",) * len(signals)
+    return pd.DataFrame(
+        {
+            "timestamp": [START + timedelta(minutes=5 * index) for index in range(len(signals))],
+            "open": [Decimal("100")] * len(signals),
+            "high": [Decimal(value) for value in highs],
+            "low": [Decimal(value) for value in lows],
+            "close": [Decimal(value) for value in close_values],
+            "signal": signals,
+        }
+    )
+
+
+def _risk_config() -> TradeSimulationConfig:
+    return TradeSimulationConfig(
+        starting_equity=Decimal("100"),
+        position_fraction=Decimal("1"),
+        taker_fee_rate=Decimal("0"),
+        slippage_rate=Decimal("0"),
+        atr_lookback=3,
+        stop_atr_multiplier=Decimal("1"),
+        take_profit_atr_multiplier=Decimal("1"),
+    )
+
+
 @pytest.mark.parametrize("signal", [1, -1])
 def test_constant_price_round_trip_charges_both_fees_and_forces_final_close(signal: int) -> None:
     frame = _signal_frame((0, signal, 0, 0), opens=("100",) * 4, closes=("100",) * 4)
@@ -139,3 +171,65 @@ def test_simulation_config_rejects_unsafe_costs_and_bad_symbol() -> None:
 
     with pytest.raises(DataQualityError, match="symbol"):
         simulate_cached_signals(_signal_frame((0, 1, 0)), symbol="btc", config=_config())
+
+
+def test_take_profit_uses_prior_atr_not_current_candle_range() -> None:
+    frame = _risk_frame(
+        (0, 0, 0, 0, 1, 0),
+        highs=("101", "101", "101", "101", "101", "110"),
+        lows=("99", "99", "99", "99", "99", "99"),
+        closes=("100", "100", "100", "100", "100", "105"),
+    )
+
+    result = simulate_cached_signals(frame, symbol="BTCUSDT", config=_risk_config())
+
+    assert len(result.trades) == 1
+    assert result.trades[0].exit_reason == "take_profit"
+    assert result.trades[0].exit_price == Decimal("102")
+    assert result.trades[0].net_pnl == Decimal("2")
+    assert result.final_equity == Decimal("102")
+
+
+def test_protective_stop_wins_when_stop_and_target_cross_same_candle() -> None:
+    frame = _risk_frame(
+        (0, 0, 0, 0, 1, -1),
+        highs=("101", "101", "101", "101", "101", "110"),
+        lows=("99", "99", "99", "99", "99", "95"),
+    )
+
+    result = simulate_cached_signals(frame, symbol="BTCUSDT", config=_risk_config())
+
+    assert len(result.trades) == 1
+    assert result.trades[0].exit_reason == "stop_loss"
+    assert result.trades[0].exit_price == Decimal("98")
+    assert result.final_equity == Decimal("98")
+
+
+def test_short_take_profit_uses_inverse_atr_geometry() -> None:
+    frame = _risk_frame(
+        (0, 0, 0, 0, -1, 0),
+        highs=("101", "101", "101", "101", "101", "101"),
+        lows=("99", "99", "99", "99", "99", "90"),
+        closes=("100", "100", "100", "100", "100", "95"),
+    )
+
+    result = simulate_cached_signals(frame, symbol="BTCUSDT", config=_risk_config())
+
+    assert len(result.trades) == 1
+    assert result.trades[0].side == "SHORT"
+    assert result.trades[0].exit_reason == "take_profit"
+    assert result.trades[0].exit_price == Decimal("98")
+    assert result.final_equity == Decimal("102")
+
+
+def test_protected_signal_before_atr_warmup_does_not_open_unprotected_position() -> None:
+    frame = _risk_frame(
+        (0, 1, 0, 0, 0),
+        highs=("101",) * 5,
+        lows=("99",) * 5,
+    )
+
+    result = simulate_cached_signals(frame, symbol="BTCUSDT", config=_risk_config())
+
+    assert result.trades == ()
+    assert result.final_equity == Decimal("100")
