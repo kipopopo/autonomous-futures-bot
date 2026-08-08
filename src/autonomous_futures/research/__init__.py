@@ -24,7 +24,12 @@ from .creator_artifacts import (
 )
 from .feature_signals import CausalFeatureSignalEvaluator
 from .performance_metrics import TradePerformanceMetrics, calculate_performance_metrics
-from .persisted_qualification import qualify_persisted_candidate
+from .persisted_qualification import (
+    PersistedQualificationBatchFailure,
+    PersistedQualificationBatchResult,
+    qualify_persisted_candidate,
+    run_persisted_qualification_batch,
+)
 from .qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
     QualificationComparator,
@@ -81,6 +86,9 @@ __all__ = [
     "TradePerformanceMetrics",
     "calculate_performance_metrics",
     "qualify_persisted_candidate",
+    "PersistedQualificationBatchFailure",
+    "PersistedQualificationBatchResult",
+    "run_persisted_qualification_batch",
     "PersistedWalkForwardAggregation",
     "WalkForwardAggregation",
     "WalkForwardSymbolSummary",
