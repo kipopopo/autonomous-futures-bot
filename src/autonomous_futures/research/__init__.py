@@ -43,6 +43,13 @@ from .learner_evaluation import (
     write_learner_evaluation_run,
 )
 from .learner_inputs import LearnerInputMaterializer, LearnerInputWindow, LearnerInputWindowSpec
+from .learner_metric_evaluation import (
+    CachedOnlyLearnerMetricAdapter,
+    LearnerMetricEvaluationRun,
+    LearnerMetricSimulator,
+    LearnerMetricWindowEvaluation,
+    learner_metric_evaluation_content_hash,
+)
 from .learner_qualification import (
     LearnerQualificationComparator,
     LearnerQualificationDecision,
@@ -167,6 +174,11 @@ __all__ = [
     "LearnerInputMaterializer",
     "LearnerInputWindow",
     "LearnerInputWindowSpec",
+    "CachedOnlyLearnerMetricAdapter",
+    "LearnerMetricEvaluationRun",
+    "LearnerMetricSimulator",
+    "LearnerMetricWindowEvaluation",
+    "learner_metric_evaluation_content_hash",
     "LearnerQualityReviewEvidence",
     "LearnerQualityReviewMetric",
     "LearnerQualityReviewWindow",
