@@ -29,6 +29,13 @@ from autonomous_futures.research.learner_metric_evaluation import (
     read_learner_metric_evaluation_run,
     write_learner_metric_evaluation_run,
 )
+from autonomous_futures.research.learner_metric_quality_decision import (
+    LearnerMetricQualityPolicy,
+    LearnerMetricQualityPolicyGate,
+    build_learner_metric_quality_decision,
+    evaluate_persisted_learner_metric_quality,
+    learner_metric_quality_policy_content_hash,
+)
 from autonomous_futures.research.learner_metric_quality_review import (
     LearnerMetricQualityReviewMetric,
     LearnerMetricQualityReviewWindowResult,
@@ -705,4 +712,137 @@ def test_verified_persisted_metric_quality_review_loader_rejects_review_run_and_
             metric_path,
             learner=learner,
             candidate=candidate,
+        )
+
+
+def _quality_policy(metric_id: str, threshold: Decimal) -> LearnerMetricQualityPolicy:
+    return LearnerMetricQualityPolicy(
+        policy_id="metric-quality-policy-v1",
+        minimum_windows=1,
+        gates=(
+            LearnerMetricQualityPolicyGate(
+                metric_id=metric_id,
+                comparator="gte",
+                threshold=threshold,
+            ),
+        ),
+    )
+
+
+def test_metric_quality_decision_uses_verified_persisted_review_and_is_observational(
+    tmp_path: Path,
+) -> None:
+    review_path, metric_path, learner, candidate, run, evidence = _persisted_quality_review_fixture(
+        tmp_path
+    )
+    policy = _quality_policy("observed_net_pnl", Decimal("-1"))
+
+    decision = evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=policy,
+        evaluated_at=START,
+    )
+
+    assert decision.decision == "passed"
+    assert decision.review_id == evidence.review_id
+    assert decision.review_hash == evidence.review_hash
+    assert decision.metric_evaluation_run_id == run.evaluation_run_id
+    assert decision.metric_evaluation_hash == run.evaluation_hash
+    assert decision.policy_id == policy.policy_id
+    assert decision.policy_hash == learner_metric_quality_policy_content_hash(policy)
+    assert all(gate.passed for gate in decision.gates)
+    assert decision.data_source == "cached_only"
+    assert decision.exchange_access is False
+    assert decision.promotion_state == "unpromoted"
+    assert decision.paper_activation is False
+    assert decision.execution_authority is False
+
+
+def test_metric_quality_decision_rejects_missing_or_below_threshold_observations(
+    tmp_path: Path,
+) -> None:
+    review_path, metric_path, learner, candidate, run, _ = _persisted_quality_review_fixture(
+        tmp_path
+    )
+    below = _quality_policy("observed_net_pnl", Decimal("999"))
+    missing = _quality_policy("missing_observation", Decimal("0"))
+
+    below_decision = evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=below,
+        evaluated_at=START,
+    )
+    missing_decision = evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=missing,
+        evaluated_at=START,
+    )
+
+    assert below_decision.decision == "failed"
+    assert any(gate.reason_code == "metric_below_threshold" for gate in below_decision.gates)
+    assert missing_decision.decision == "failed"
+    assert any(gate.reason_code == "metric_missing" for gate in missing_decision.gates)
+
+
+def test_metric_quality_decision_hash_is_deterministic_and_tamper_fails_before_build(
+    tmp_path: Path,
+) -> None:
+    review_path, metric_path, learner, candidate, _, evidence = _persisted_quality_review_fixture(
+        tmp_path
+    )
+    policy = _quality_policy("observed_net_pnl", Decimal("-1"))
+    first = evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=policy,
+        evaluated_at=START,
+    )
+    second = evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=policy,
+        evaluated_at=START + timedelta(hours=1),
+    )
+    assert first.decision_hash == second.decision_hash
+    assert first.review_hash == evidence.review_hash
+
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8").replace(evidence.review_hash, "0" * 64),
+        encoding="utf-8",
+    )
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        evaluate_persisted_learner_metric_quality(
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            policy=policy,
+            evaluated_at=START,
+        )
+
+
+def test_metric_quality_decision_builder_rejects_non_utc_and_preserves_policy_contract(
+    tmp_path: Path,
+) -> None:
+    _, _, _, _, _, evidence = _persisted_quality_review_fixture(tmp_path)
+    policy = _quality_policy("observed_net_pnl", Decimal("-1"))
+
+    with pytest.raises(DataQualityError, match="UTC"):
+        build_learner_metric_quality_decision(
+            evidence,
+            policy=policy,
+            evaluated_at=datetime(2026, 8, 8, 12),
         )
