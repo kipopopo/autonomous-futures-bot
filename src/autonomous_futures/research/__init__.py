@@ -47,6 +47,14 @@ from .learner_runs import (
     prepare_learner_run,
 )
 from .learner_training import LearnerTrainer, LearnerTrainingOutput, execute_learner_training
+from .learner_training_evidence import (
+    LearnerTrainingEvidence,
+    LearnerTrainingEvidenceState,
+    build_learner_training_evidence,
+    learner_training_evidence_content_hash,
+    read_learner_training_evidence,
+    write_learner_training_evidence,
+)
 from .performance_metrics import TradePerformanceMetrics, calculate_performance_metrics
 from .persisted_qualification import (
     PersistedQualificationBatchFailure,
@@ -130,6 +138,12 @@ __all__ = [
     "LearnerTrainer",
     "LearnerTrainingOutput",
     "execute_learner_training",
+    "LearnerTrainingEvidence",
+    "LearnerTrainingEvidenceState",
+    "build_learner_training_evidence",
+    "learner_training_evidence_content_hash",
+    "read_learner_training_evidence",
+    "write_learner_training_evidence",
     "TradePerformanceMetrics",
     "calculate_performance_metrics",
     "qualify_persisted_candidate",
