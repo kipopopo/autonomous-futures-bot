@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
+from ..domain.errors import DomainViolation
 from ..research.creator_artifacts import CreatorCandidateArtifact
 from ..research.learner_artifacts import (
     LearnerArtifact,
     read_learner_artifact,
     verify_learner_artifact_binding,
+)
+from ..research.learner_quality_review import (
+    LearnerQualityReviewEvidence,
+    read_learner_quality_review_evidence,
 )
 from ..research.learner_runs import LearnerRun, read_learner_run
 from ..research.learner_training_evidence import (
@@ -43,6 +48,14 @@ class LearnerEvidenceIntegrityError(ValueError):
 
 class LearnerTrainingEvidenceIntegrityError(ValueError):
     """Completed-training evidence cannot be trusted after verification."""
+
+
+class LearnerQualityReviewEvidenceNotFoundError(FileNotFoundError):
+    """The configured learner quality-review evidence is unavailable."""
+
+
+class LearnerQualityReviewEvidenceIntegrityError(ValueError):
+    """Quality-review evidence cannot be trusted after verification."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,14 +186,60 @@ def load_verified_learner_training_evidence(
         raise LearnerTrainingEvidenceIntegrityError from exc
 
 
+def _resolve_artifact_ref(root: Path, reference: str) -> Path:
+    root_resolved = root.resolve()
+    path = (root_resolved / PurePosixPath(reference)).resolve()
+    try:
+        path.relative_to(root_resolved)
+    except ValueError:
+        raise DomainViolation("learner quality review reference escapes root") from None
+    return path
+
+
+def load_verified_learner_quality_review_evidence(
+    *,
+    evidence_path: Path,
+    training_evidence_path: Path,
+    run_root: Path,
+    artifact_root: Path,
+    model_root: Path,
+    candidate: CreatorCandidateArtifact,
+) -> LearnerQualityReviewEvidence:
+    if not evidence_path.exists():
+        raise LearnerQualityReviewEvidenceNotFoundError(evidence_path)
+    try:
+        training_evidence = read_learner_training_evidence(
+            training_evidence_path,
+            run_root=run_root,
+            artifact_root=artifact_root,
+            model_root=model_root,
+            candidate=candidate,
+        )
+        output_artifact = read_learner_artifact(
+            _resolve_artifact_ref(artifact_root, training_evidence.output_artifact_ref),
+            model_root=model_root,
+        )
+        return read_learner_quality_review_evidence(
+            evidence_path,
+            training_evidence=training_evidence,
+            output_artifact=output_artifact,
+            candidate=candidate,
+        )
+    except (OSError, ValueError, DomainViolation) as exc:
+        raise LearnerQualityReviewEvidenceIntegrityError from exc
+
+
 __all__ = [
     "LearnerArtifactNotFoundError",
     "LearnerEvidenceIntegrityError",
     "LearnerRunNotFoundError",
     "LearnerTrainingEvidenceIntegrityError",
     "LearnerTrainingEvidenceNotFoundError",
+    "LearnerQualityReviewEvidenceIntegrityError",
+    "LearnerQualityReviewEvidenceNotFoundError",
     "VerifiedLearnerEvidence",
     "load_verified_learner_artifact",
     "load_verified_learner_run",
     "load_verified_learner_training_evidence",
+    "load_verified_learner_quality_review_evidence",
 ]

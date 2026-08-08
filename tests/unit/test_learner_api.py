@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
+import pandas as pd
 from fastapi import FastAPI
 
 from autonomous_futures.api import create_app
@@ -29,6 +31,14 @@ from autonomous_futures.research.creator_artifacts import (
 from autonomous_futures.research.learner_artifacts import (
     build_learner_artifact,
     write_learner_artifact,
+)
+from autonomous_futures.research.learner_quality_review import (
+    LearnerQualityReviewMetric,
+    LearnerQualityReviewWindow,
+    LearnerQualityReviewWindowResult,
+    LearnerQualityReviewWindowSpec,
+    execute_learner_quality_review,
+    write_learner_quality_review_evidence,
 )
 from autonomous_futures.research.learner_runs import (
     LearnerRun,
@@ -100,7 +110,11 @@ def _request(app: FastAPI, method: str, path: str) -> httpx.Response:
 
 
 def _write_fixture(
-    tmp_path: Path, *, with_run: bool = False, with_training_evidence: bool = False
+    tmp_path: Path,
+    *,
+    with_run: bool = False,
+    with_training_evidence: bool = False,
+    with_quality_review: bool = False,
 ) -> tuple[FastAPI, Path, Path | None]:
     entries = (
         _entry(
@@ -244,6 +258,62 @@ def _write_fixture(
             candidate=candidate,
         )
 
+    quality_review_path: Path | None = None
+    if with_quality_review:
+        if run is None or evidence_path is None:
+            raise AssertionError("quality review fixture requires training evidence")
+        review_start = END
+        review_frame = pd.DataFrame(
+            {
+                "timestamp": [review_start + timedelta(minutes=5 * index) for index in range(3)],
+                "open": [Decimal("100"), Decimal("101"), Decimal("102")],
+                "high": [Decimal("101"), Decimal("102"), Decimal("103")],
+                "low": [Decimal("99"), Decimal("100"), Decimal("101")],
+                "close": [Decimal("100.5"), Decimal("101.5"), Decimal("102.5")],
+            }
+        )
+        review_window = LearnerQualityReviewWindow(
+            spec=LearnerQualityReviewWindowSpec(
+                window_id="window-api-quality",
+                symbol=SYMBOL,
+                bundle_hash=output.bundle_hash,
+                dataset_registry_hash=output.dataset_registry_hash,
+                split="holdout",
+                time_start=review_start,
+                time_end=review_start + timedelta(minutes=15),
+            ),
+            frame=review_frame,
+        )
+
+        def reviewer(received_output, frame, window):
+            return LearnerQualityReviewWindowResult(
+                window_id=window.spec.window_id,
+                symbol=window.spec.symbol,
+                rows_evaluated=len(frame),
+                metrics=(
+                    LearnerQualityReviewMetric(metric_id="holdout_score", value=Decimal("0.75")),
+                ),
+            )
+
+        quality_evidence = execute_learner_quality_review(
+            training_evidence=evidence,
+            output_artifact=output,
+            candidate=candidate,
+            windows=(review_window,),
+            review_run_id="quality-review-api",
+            review_version="holdout-review-v1",
+            reviewer=reviewer,
+            reviewed_at=OBSERVED,
+        )
+        quality_review_path = tmp_path / "learner-quality-review-evidence.json"
+        write_learner_quality_review_evidence(
+            quality_review_path,
+            quality_evidence,
+            training_evidence=evidence,
+            output_artifact=output,
+            candidate=candidate,
+        )
+
     app = create_app(
         bundle_path=bundle_path,
         registry_path=registry_path,
@@ -255,6 +325,8 @@ def _write_fixture(
         learner_training_evidence_path=evidence_path
         or tmp_path / "missing-learner-training-evidence.json",
         learner_training_artifact_root=tmp_path,
+        learner_quality_review_evidence_path=quality_review_path
+        or tmp_path / "missing-learner-quality-review-evidence.json",
     )
     return app, artifact_path, run_path
 
@@ -264,6 +336,7 @@ def test_learner_evidence_endpoints_are_get_only_and_missing_is_unavailable(tmp_
         learner_artifact_path=tmp_path / "missing-artifact.json",
         learner_model_root=tmp_path / "models",
         learner_run_path=tmp_path / "missing-run.json",
+        learner_quality_review_evidence_path=tmp_path / "missing-quality-review.json",
     )
 
     artifact_response = _request(app, "GET", "/api/v1/learner/artifact")
@@ -276,9 +349,13 @@ def test_learner_evidence_endpoints_are_get_only_and_missing_is_unavailable(tmp_
     training_response = _request(app, "GET", "/api/v1/learner/training-evidence")
     assert training_response.status_code == 404
     assert training_response.json() == {"detail": "learner training evidence unavailable"}
+    quality_response = _request(app, "GET", "/api/v1/learner/quality-review")
+    assert quality_response.status_code == 404
+    assert quality_response.json() == {"detail": "learner quality review unavailable"}
     assert _request(app, "POST", "/api/v1/learner/artifact").status_code == 405
     assert _request(app, "POST", "/api/v1/learner/run").status_code == 405
     assert _request(app, "POST", "/api/v1/learner/training-evidence").status_code == 405
+    assert _request(app, "POST", "/api/v1/learner/quality-review").status_code == 405
 
 
 def test_learner_artifact_endpoint_returns_verified_metadata_without_model_bytes(
@@ -410,3 +487,48 @@ def test_learner_training_evidence_endpoint_fails_closed_on_tampered_source_arti
 
     assert response.status_code == 503
     assert response.json() == {"detail": "learner training evidence integrity verification failed"}
+
+
+def test_learner_quality_review_endpoint_returns_verified_observation_only_evidence(
+    tmp_path: Path,
+) -> None:
+    app, _, _ = _write_fixture(
+        tmp_path,
+        with_run=True,
+        with_training_evidence=True,
+        with_quality_review=True,
+    )
+
+    response = _request(app, "GET", "/api/v1/learner/quality-review")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["verified"] is True
+    assert payload["evidence"]["status"] == "completed"
+    assert payload["evidence"]["review_conclusion"] == "observed_only"
+    assert payload["evidence"]["split"] == "holdout"
+    assert payload["evidence"]["windows"][0]["metrics"][0]["value"] == "0.75"
+    assert payload["evidence"]["promotion_state"] == "unpromoted"
+    assert payload["evidence"]["paper_activation"] is False
+    assert payload["evidence"]["execution_authority"] is False
+
+
+def test_learner_quality_review_endpoint_fails_closed_on_tampered_review(
+    tmp_path: Path,
+) -> None:
+    app, _, _ = _write_fixture(
+        tmp_path,
+        with_run=True,
+        with_training_evidence=True,
+        with_quality_review=True,
+    )
+    review_path = tmp_path / "learner-quality-review-evidence.json"
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8").replace('"review_hash": "', '"review_hash": "0'),
+        encoding="utf-8",
+    )
+
+    response = _request(app, "GET", "/api/v1/learner/quality-review")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "learner quality review integrity verification failed"}

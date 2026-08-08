@@ -197,6 +197,75 @@ describe('buildLearnerModel', () => {
       },
     })
   })
+
+  it('exposes holdout review observations without turning them into qualification', () => {
+    const model = buildLearnerModel({
+      ...VERIFIED_DATA,
+      learnerQualityReview: {
+        verified: true,
+        evidence: {
+          review_version: 1,
+          review_id: 'quality-review-api',
+          training_evidence_id: 'training-evidence-learner-api',
+          training_evidence_hash: 'a'.repeat(64),
+          output_artifact_hash: 'b'.repeat(64),
+          learner_id: 'learner-api-001',
+          learner_run_id: 'run-learner-api',
+          candidate_id: 'cand-learner-api',
+          candidate_artifact_hash: 'c'.repeat(64),
+          bundle_hash: 'd'.repeat(64),
+          dataset_registry_hash: 'e'.repeat(64),
+          review_run_id: 'quality-review-api',
+          review_version_name: 'holdout-review-v1',
+          split: 'holdout',
+          windows: [
+            {
+              window_id: 'window-api-quality',
+              symbol: 'BTCUSDT',
+              rows_evaluated: 3,
+              metrics: [{ metric_id: 'holdout_score', value: '0.75' }],
+            },
+          ],
+          status: 'completed',
+          review_conclusion: 'observed_only',
+          data_source: 'cached_only',
+          exchange_access: false,
+          promotion_state: 'unpromoted',
+          paper_activation: false,
+          execution_authority: false,
+          reviewed_at: '2026-08-08T02:00:00Z',
+          review_hash: 'f'.repeat(64),
+        },
+      },
+    } as DashboardApiData)
+
+    expect(model).toMatchObject({
+      qualityReviewStatus: 'verified',
+      qualityReview: {
+        reviewConclusion: 'observed_only',
+        split: 'holdout',
+        reviewVersion: 'holdout-review-v1',
+        windows: [{
+          windowId: 'window-api-quality',
+          rowsEvaluated: 3,
+          metrics: [{ metricId: 'holdout_score', value: '0.75' }],
+        }],
+        promotionState: 'unpromoted',
+        paperActivation: false,
+        executionAuthority: false,
+      },
+    })
+  })
+
+  it('keeps quality review integrity failure distinct from missing evidence', () => {
+    const model = buildLearnerModel({
+      ...VERIFIED_DATA,
+      learnerQualityReviewError: 'GET /api/v1/learner/quality-review failed with HTTP 503',
+    } as DashboardApiData)
+
+    expect(model.qualityReviewStatus).toBe('integrity_unavailable')
+    expect(model.qualityReview).toBeNull()
+  })
 })
 
 describe('learner route', () => {

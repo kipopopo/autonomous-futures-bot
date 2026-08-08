@@ -8,6 +8,7 @@ import type {
   HealthResponse,
   LearnerArtifactResponse,
   LearnerRunResponse,
+  LearnerQualityReviewEvidenceResponse,
   LearnerTrainingEvidenceResponse,
 } from './dashboard'
 
@@ -55,6 +56,14 @@ async function fetchOptionalLearnerTrainingEvidence(): Promise<LearnerTrainingEv
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
   return (await response.json()) as LearnerTrainingEvidenceResponse
+}
+
+async function fetchOptionalLearnerQualityReview(): Promise<LearnerQualityReviewEvidenceResponse | null> {
+  const path = '/api/v1/learner/quality-review'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as LearnerQualityReviewEvidenceResponse
 }
 
 export async function fetchCreatorQualifications(): Promise<CreatorQualificationsResponse | null> {
@@ -131,6 +140,16 @@ export async function fetchOverviewData(): Promise<DashboardApiData> {
       : 'Training completion proof could not be verified'
   }
 
+  let learnerQualityReview: LearnerQualityReviewEvidenceResponse | null = null
+  let learnerQualityReviewError: string | null = null
+  try {
+    learnerQualityReview = await fetchOptionalLearnerQualityReview()
+  } catch (error) {
+    learnerQualityReviewError = error instanceof Error
+      ? error.message
+      : 'Learner quality review evidence could not be verified'
+  }
+
   return {
     health,
     bundle,
@@ -144,5 +163,7 @@ export async function fetchOverviewData(): Promise<DashboardApiData> {
     learnerRunError,
     learnerTrainingEvidence,
     learnerTrainingEvidenceError,
+    learnerQualityReview,
+    learnerQualityReviewError,
   }
 }

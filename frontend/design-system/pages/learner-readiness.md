@@ -82,6 +82,25 @@ failure, render `INTEGRITY UNAVAILABLE`; do not collapse that into a successful
 empty state. Never show model bytes, fake progress, metrics, loss, accuracy,
 feature importance, promotion, paper activation, or execution controls.
 
+## Phase 3n holdout quality-review evidence
+
+When `/api/v1/learner/quality-review` is verified, show a separate card titled
+`Holdout quality review` with:
+
+- `OBSERVED ONLY — NO QUALIFICATION DECISION` status;
+- review run and review version;
+- `holdout` split and `cached-only` data source;
+- each persisted window ID, symbol, row count, and caller-reported metric value;
+- reviewed-at timestamp in MYT/GMT+8;
+- review SHA-256 and explicit `unpromoted` / execution-off safety state.
+
+The UI must not label a metric as passed, failed, accurate, profitable, qualified,
+promoted, or trade-ready. A metric is an observation, not a decision.
+
+If the endpoint returns 404, render `UNAVAILABLE`. If it returns an integrity
+failure, render `INTEGRITY UNAVAILABLE`. Never substitute a score, threshold,
+quality badge, or qualification state for missing evidence.
+
 ## Facts
 
 When the foundation is verified, show only persisted bundle facts already

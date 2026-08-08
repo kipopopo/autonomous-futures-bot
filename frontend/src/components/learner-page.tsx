@@ -53,6 +53,7 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
   const artifact = model.learnerArtifact
   const run = model.learnerRun
   const trainingEvidence = model.trainingEvidence
+  const qualityReview = model.qualityReview
 
   return (
     <section className="panel learner-readiness-panel" aria-labelledby="learner-readiness-heading">
@@ -198,6 +199,42 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
               status={model.trainingCompletionStatus}
               title="No completed-training proof is rendered"
               detail="This page will not invent progress, metrics, or a model result when the API has no verified evidence."
+            />
+          )}
+        </section>
+
+        <section className="learner-evidence-card" aria-labelledby="learner-quality-review-heading">
+          <div className="learner-subsection-heading">
+            <div>
+              <span className="field-label">Phase 3m observation boundary</span>
+              <h3 id="learner-quality-review-heading">Holdout quality review</h3>
+            </div>
+            <ListChecks size={19} aria-hidden="true" />
+          </div>
+          {qualityReview ? (
+            <div className="learner-evidence-details">
+              <div><span className="field-label">Plain meaning</span><strong>Reviewer observation recorded</strong></div>
+              <div><span className="field-label">Status</span><strong>OBSERVED ONLY · NO QUALIFICATION DECISION</strong></div>
+              <div><span className="field-label">Review / version</span><strong>{qualityReview.reviewRunId} · {qualityReview.reviewVersion}</strong></div>
+              <div><span className="field-label">Split</span><strong>{qualityReview.split} · cached-only</strong></div>
+              <div className="learner-quality-window-list">
+                <span className="field-label">Observed holdout windows</span>
+                {qualityReview.windows.map((window) => (
+                  <div className="learner-quality-window" key={window.windowId}>
+                    <strong>{window.windowId} · {window.symbol}</strong>
+                    <span>{window.rowsEvaluated} rows · {window.metrics.map((metric) => `${metric.metricId}: ${metric.value}`).join(' · ')}</span>
+                  </div>
+                ))}
+              </div>
+              <div><span className="field-label">Reviewed at</span><strong>{formatMyt(qualityReview.reviewedAt)}</strong></div>
+              <div><span className="field-label">Review SHA-256</span><code title={qualityReview.reviewHash}>{shortHash(qualityReview.reviewHash)}</code></div>
+              <div><span className="field-label">Safety state</span><strong>{qualityReview.promotionState} · execution authority off</strong></div>
+            </div>
+          ) : (
+            <EvidenceState
+              status={model.qualityReviewStatus}
+              title="No quality-review evidence is rendered"
+              detail="The page will not infer model quality or qualification when the review endpoint is unavailable."
             />
           )}
         </section>

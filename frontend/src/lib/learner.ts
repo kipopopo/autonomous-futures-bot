@@ -1,6 +1,8 @@
 import type {
   DashboardApiData,
   LearnerArtifactEvidence,
+  LearnerQualityReviewEvidence,
+  LearnerQualityReviewWindow,
   LearnerRunEvidence,
   LearnerTrainingEvidence,
 } from './dashboard'
@@ -54,6 +56,35 @@ export interface LearnerTrainingEvidenceModel {
   executionAuthority: false
 }
 
+export interface LearnerQualityReviewMetricModel {
+  metricId: string
+  value: string
+}
+
+export interface LearnerQualityReviewWindowModel {
+  windowId: string
+  symbol: string
+  rowsEvaluated: number
+  metrics: LearnerQualityReviewMetricModel[]
+}
+
+export interface LearnerQualityReviewModel {
+  reviewId: string
+  reviewRunId: string
+  reviewVersion: string
+  trainingEvidenceHash: string
+  outputArtifactHash: string
+  split: 'holdout'
+  windows: LearnerQualityReviewWindowModel[]
+  status: 'completed'
+  reviewConclusion: 'observed_only'
+  reviewedAt: string
+  reviewHash: string
+  promotionState: 'unpromoted'
+  paperActivation: false
+  executionAuthority: false
+}
+
 export interface LearnerModel {
   status: LearnerReadinessStatus
   symbols: string[]
@@ -65,9 +96,11 @@ export interface LearnerModel {
   learnerArtifactStatus: LearnerEvidenceStatus
   learningRunStatus: LearnerEvidenceStatus
   trainingCompletionStatus: LearnerEvidenceStatus
+  qualityReviewStatus: LearnerEvidenceStatus
   learnerArtifact: LearnerArtifactModel | null
   learnerRun: LearnerRunModel | null
   trainingEvidence: LearnerTrainingEvidenceModel | null
+  qualityReview: LearnerQualityReviewModel | null
   paperActivation: false
   executionAuthority: false
 }
@@ -123,6 +156,37 @@ function mapTrainingEvidence(evidence: LearnerTrainingEvidence): LearnerTraining
   }
 }
 
+function mapQualityReviewWindow(window: LearnerQualityReviewWindow): LearnerQualityReviewWindowModel {
+  return {
+    windowId: window.window_id,
+    symbol: window.symbol,
+    rowsEvaluated: window.rows_evaluated,
+    metrics: window.metrics.map((metric) => ({
+      metricId: metric.metric_id,
+      value: metric.value,
+    })),
+  }
+}
+
+function mapQualityReview(evidence: LearnerQualityReviewEvidence): LearnerQualityReviewModel {
+  return {
+    reviewId: evidence.review_id,
+    reviewRunId: evidence.review_run_id,
+    reviewVersion: evidence.review_version_name,
+    trainingEvidenceHash: evidence.training_evidence_hash,
+    outputArtifactHash: evidence.output_artifact_hash,
+    split: evidence.split,
+    windows: evidence.windows.map(mapQualityReviewWindow),
+    status: evidence.status,
+    reviewConclusion: evidence.review_conclusion,
+    reviewedAt: evidence.reviewed_at,
+    reviewHash: evidence.review_hash,
+    promotionState: evidence.promotion_state,
+    paperActivation: evidence.paper_activation,
+    executionAuthority: evidence.execution_authority,
+  }
+}
+
 export function buildLearnerModel(data: DashboardApiData): LearnerModel {
   const foundation = buildOverviewModel(data)
   const verified = foundation.verification === 'verified'
@@ -132,6 +196,9 @@ export function buildLearnerModel(data: DashboardApiData): LearnerModel {
   const learnerRun = verified && data.learnerRun?.verified ? mapRun(data.learnerRun.run) : null
   const trainingEvidence = verified && data.learnerTrainingEvidence?.verified
     ? mapTrainingEvidence(data.learnerTrainingEvidence.evidence)
+    : null
+  const qualityReview = verified && data.learnerQualityReview?.verified
+    ? mapQualityReview(data.learnerQualityReview.evidence)
     : null
   const learnerArtifactStatus: LearnerEvidenceStatus = !verified
     ? 'unavailable'
@@ -154,6 +221,13 @@ export function buildLearnerModel(data: DashboardApiData): LearnerModel {
       : data.learnerTrainingEvidenceError || data.learnerTrainingEvidence?.verified === false
         ? 'integrity_unavailable'
         : 'unavailable'
+  const qualityReviewStatus: LearnerEvidenceStatus = !verified
+    ? 'unavailable'
+    : qualityReview
+      ? 'verified'
+      : data.learnerQualityReviewError || data.learnerQualityReview?.verified === false
+        ? 'integrity_unavailable'
+        : 'unavailable'
 
   return {
     status: verified ? 'verified' : 'unavailable',
@@ -166,9 +240,11 @@ export function buildLearnerModel(data: DashboardApiData): LearnerModel {
     learnerArtifactStatus,
     learningRunStatus,
     trainingCompletionStatus,
+    qualityReviewStatus,
     learnerArtifact,
     learnerRun,
     trainingEvidence,
+    qualityReview,
     paperActivation: false,
     executionAuthority: false,
   }

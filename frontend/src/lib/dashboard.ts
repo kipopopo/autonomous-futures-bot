@@ -240,6 +240,50 @@ export interface LearnerTrainingEvidenceResponse {
   evidence: LearnerTrainingEvidence
 }
 
+export interface LearnerQualityReviewMetric {
+  metric_id: string
+  value: string
+}
+
+export interface LearnerQualityReviewWindow {
+  window_id: string
+  symbol: string
+  rows_evaluated: number
+  metrics: LearnerQualityReviewMetric[]
+}
+
+export interface LearnerQualityReviewEvidence {
+  review_version: 1
+  review_id: string
+  training_evidence_id: string
+  training_evidence_hash: string
+  output_artifact_hash: string
+  learner_id: string
+  learner_run_id: string
+  candidate_id: string
+  candidate_artifact_hash: string
+  bundle_hash: string
+  dataset_registry_hash: string
+  review_run_id: string
+  review_version_name: string
+  split: 'holdout'
+  windows: LearnerQualityReviewWindow[]
+  status: 'completed'
+  review_conclusion: 'observed_only'
+  data_source: 'cached_only'
+  exchange_access: false
+  promotion_state: 'unpromoted'
+  paper_activation: false
+  execution_authority: false
+  reviewed_at: string
+  review_hash: string
+}
+
+export interface LearnerQualityReviewEvidenceResponse {
+  verified: boolean
+  evidence: LearnerQualityReviewEvidence
+}
+
 export interface DashboardApiData {
   health: HealthResponse | null
   bundle: BundleResponse | null
@@ -253,6 +297,8 @@ export interface DashboardApiData {
   learnerRunError?: string | null
   learnerTrainingEvidence?: LearnerTrainingEvidenceResponse | null
   learnerTrainingEvidenceError?: string | null
+  learnerQualityReview?: LearnerQualityReviewEvidenceResponse | null
+  learnerQualityReviewError?: string | null
 }
 
 export type VerificationState = 'verified' | 'error'
