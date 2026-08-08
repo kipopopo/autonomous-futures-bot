@@ -47,8 +47,12 @@ from autonomous_futures.research.learner_metric_quality_qualification import (
     LearnerMetricQualityQualificationEvidence,
     LearnerMetricQualityQualificationPolicy,
     build_verified_learner_metric_quality_qualification_evidence,
+    learner_metric_quality_qualification_content_hash,
     read_learner_metric_quality_qualification_evidence,
     write_learner_metric_quality_qualification_evidence,
+)
+from autonomous_futures.research.learner_metric_quality_qualification_evidence_input import (
+    load_verified_learner_metric_quality_qualification_evidence,
 )
 from autonomous_futures.research.learner_metric_quality_qualification_input import (
     LearnerMetricQualityQualificationInput,
@@ -1433,3 +1437,191 @@ def test_metric_quality_qualification_persistence_preserves_rejected_evidence(
     assert rejected.decision == "rejected"
     assert write_learner_metric_quality_qualification_evidence(path, rejected) == rejected
     assert read_learner_metric_quality_qualification_evidence(path).decision == "rejected"
+
+
+def test_verified_persisted_metric_quality_qualification_loader_returns_full_chain_evidence(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, source_policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    qualification_policy = _metric_quality_qualification_policy(source_policy)
+    evidence = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=qualification_policy,
+        evaluated_at=START,
+    )
+    qualification_path = tmp_path / "metric-quality-qualification.json"
+    write_learner_metric_quality_qualification_evidence(qualification_path, evidence)
+    qualification_bytes = qualification_path.read_bytes()
+    decision_bytes = decision_path.read_bytes()
+    review_bytes = review_path.read_bytes()
+    metric_bytes = metric_path.read_bytes()
+
+    loaded = load_verified_learner_metric_quality_qualification_evidence(
+        qualification_path,
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=qualification_policy,
+    )
+
+    assert loaded == evidence
+    assert qualification_path.read_bytes() == qualification_bytes
+    assert decision_path.read_bytes() == decision_bytes
+    assert review_path.read_bytes() == review_bytes
+    assert metric_path.read_bytes() == metric_bytes
+
+
+def test_verified_persisted_metric_quality_qualification_loader_rejects_policy_drift(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, source_policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    qualification_policy = _metric_quality_qualification_policy(source_policy)
+    evidence = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=qualification_policy,
+        evaluated_at=START,
+    )
+    qualification_path = tmp_path / "metric-quality-qualification.json"
+    write_learner_metric_quality_qualification_evidence(qualification_path, evidence)
+    drifted_policy = _metric_quality_qualification_policy(source_policy, minimum_windows=2)
+    assert drifted_policy.policy_id == qualification_policy.policy_id
+
+    with pytest.raises(DomainViolation, match="qualification policy binding"):
+        load_verified_learner_metric_quality_qualification_evidence(
+            qualification_path,
+            decision_path,
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            source_policy=source_policy,
+            qualification_policy=drifted_policy,
+        )
+
+
+def test_verified_persisted_metric_quality_qualification_loader_rejects_valid_hash_semantic_drift(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, source_policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    qualification_policy = _metric_quality_qualification_policy(source_policy)
+    evidence = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=qualification_policy,
+        evaluated_at=START,
+    )
+    semantic_drift = evidence.model_copy(update={"windows_evaluated": 2})
+    semantic_drift = semantic_drift.model_copy(
+        update={
+            "qualification_hash": learner_metric_quality_qualification_content_hash(semantic_drift)
+        }
+    )
+    drifted_path = tmp_path / "semantic-drift-qualification.json"
+    write_learner_metric_quality_qualification_evidence(drifted_path, semantic_drift)
+
+    with pytest.raises(DomainViolation, match="qualification evidence binding"):
+        load_verified_learner_metric_quality_qualification_evidence(
+            drifted_path,
+            decision_path,
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            source_policy=source_policy,
+            qualification_policy=qualification_policy,
+        )
+
+
+def test_verified_persisted_metric_quality_qualification_loader_rejects_source_policy_drift(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, source_policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    qualification_policy = _metric_quality_qualification_policy(source_policy)
+    evidence = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=qualification_policy,
+        evaluated_at=START,
+    )
+    qualification_path = tmp_path / "metric-quality-qualification.json"
+    write_learner_metric_quality_qualification_evidence(qualification_path, evidence)
+    drifted_source_policy = _quality_policy("observed_net_pnl", Decimal("-2"))
+    assert drifted_source_policy.policy_id == source_policy.policy_id
+
+    with pytest.raises(DomainViolation, match="decision policy binding"):
+        load_verified_learner_metric_quality_qualification_evidence(
+            qualification_path,
+            decision_path,
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            source_policy=drifted_source_policy,
+            qualification_policy=qualification_policy,
+        )
+
+
+def test_verified_persisted_metric_quality_qualification_loader_rejects_tampered_decision(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, source_policy, decision = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    qualification_policy = _metric_quality_qualification_policy(source_policy)
+    evidence = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=qualification_policy,
+        evaluated_at=START,
+    )
+    qualification_path = tmp_path / "metric-quality-qualification.json"
+    write_learner_metric_quality_qualification_evidence(qualification_path, evidence)
+    decision_path.write_text(
+        decision_path.read_text(encoding="utf-8").replace(decision.decision_hash, "0" * 64),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        load_verified_learner_metric_quality_qualification_evidence(
+            qualification_path,
+            decision_path,
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            source_policy=source_policy,
+            qualification_policy=qualification_policy,
+        )

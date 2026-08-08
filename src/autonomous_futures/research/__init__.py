@@ -81,6 +81,9 @@ from .learner_metric_quality_qualification import (
     read_learner_metric_quality_qualification_evidence,
     write_learner_metric_quality_qualification_evidence,
 )
+from .learner_metric_quality_qualification_evidence_input import (
+    load_verified_learner_metric_quality_qualification_evidence,
+)
 from .learner_metric_quality_qualification_input import (
     LearnerMetricQualityQualificationInput,
     build_verified_learner_metric_quality_qualification_input,
@@ -271,6 +274,7 @@ __all__ = [
     "learner_metric_quality_qualification_policy_content_hash",
     "read_learner_metric_quality_qualification_evidence",
     "write_learner_metric_quality_qualification_evidence",
+    "load_verified_learner_metric_quality_qualification_evidence",
     "LearnerQualityReviewEvidence",
     "LearnerQualityReviewMetric",
     "LearnerQualityReviewWindow",
