@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 import pandas as pd
 from pydantic import Field, ValidationError, field_validator, model_validator
 
 from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
+from ..domain.errors import DomainViolation
 from .creator_artifacts import CreatorCandidateArtifact
 from .learner_artifacts import LearnerArtifact
 from .learner_evaluation import LearnerEvaluationWindow
@@ -193,10 +197,56 @@ class CachedOnlyLearnerMetricAdapter:
         )
 
 
+def read_learner_metric_evaluation_run(path: Path) -> LearnerMetricEvaluationRun:
+    """Read and verify one persisted cached-only learner metric evaluation run."""
+    try:
+        run = LearnerMetricEvaluationRun.model_validate_json(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise FileNotFoundError(path) from exc
+    except (ValidationError, ValueError) as exc:
+        raise DataQualityError("invalid persisted learner metric evaluation run") from exc
+    if learner_metric_evaluation_content_hash(run) != run.evaluation_hash:
+        raise DomainViolation(f"learner metric evaluation run hash mismatch: {path}")
+    return run
+
+
+def write_learner_metric_evaluation_run(
+    path: Path,
+    run: LearnerMetricEvaluationRun,
+) -> LearnerMetricEvaluationRun:
+    """Persist one metric evaluation run with atomic write-once semantics."""
+    if learner_metric_evaluation_content_hash(run) != run.evaluation_hash:
+        raise DomainViolation("learner metric evaluation run hash mismatch")
+    if path.exists():
+        existing = read_learner_metric_evaluation_run(path)
+        if existing != run:
+            raise DomainViolation(f"learner metric evaluation run path is immutable: {path}")
+        return existing
+
+    payload = json.dumps(run.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+        os.link(temporary_path, path)
+    except FileExistsError:
+        existing = read_learner_metric_evaluation_run(path)
+        if existing != run:
+            raise DomainViolation(
+                f"learner metric evaluation run path is immutable: {path}"
+            ) from None
+        return existing
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return read_learner_metric_evaluation_run(path)
+
+
 __all__ = [
     "CachedOnlyLearnerMetricAdapter",
     "LearnerMetricEvaluationRun",
     "LearnerMetricSimulator",
     "LearnerMetricWindowEvaluation",
     "learner_metric_evaluation_content_hash",
+    "read_learner_metric_evaluation_run",
+    "write_learner_metric_evaluation_run",
 ]

@@ -15,6 +15,7 @@ from autonomous_futures.domain.contracts import (
     StrategySpec,
     StrategyUniverse,
 )
+from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.research.creator_artifacts import build_creator_candidate_artifact
 from autonomous_futures.research.learner_artifacts import build_learner_artifact
 from autonomous_futures.research.learner_evaluation import (
@@ -24,6 +25,8 @@ from autonomous_futures.research.learner_evaluation import (
 from autonomous_futures.research.learner_metric_evaluation import (
     CachedOnlyLearnerMetricAdapter,
     LearnerMetricWindowEvaluation,
+    read_learner_metric_evaluation_run,
+    write_learner_metric_evaluation_run,
 )
 from autonomous_futures.research.trade_simulation import (
     TradeSimulationConfig,
@@ -236,3 +239,74 @@ def test_metric_adapter_rejects_empty_run_and_invalid_timestamp(tmp_path: Path) 
         adapter.evaluate((), evaluated_at=START)
     with pytest.raises(DataQualityError, match="timezone-aware UTC"):
         adapter.evaluate((_window(learner, "window-01"),), evaluated_at=datetime(2026, 8, 8, 13))
+
+
+def _metric_run(tmp_path: Path, *, evaluated_at: datetime = datetime(2026, 8, 8, 13, tzinfo=UTC)):
+    candidate = _candidate()
+    learner = _learner(tmp_path, candidate)
+
+    def simulate(received_learner, received_candidate, frame, received_window):
+        frame["signal"] = [0, 1, 0, -1, 0, 0]
+        return simulate_cached_signals(frame, symbol=received_window.spec.symbol, config=_config())
+
+    adapter = CachedOnlyLearnerMetricAdapter(
+        learner=learner,
+        candidate=candidate,
+        evaluation_run_id="learner-metric-run-001",
+        evaluation_version="learner-metric-v1",
+        simulator=simulate,
+    )
+    return adapter.evaluate((_window(learner, "window-01"),), evaluated_at=evaluated_at)
+
+
+def test_metric_evaluation_persistence_is_verified_and_write_once(tmp_path: Path) -> None:
+    run = _metric_run(tmp_path)
+    path = tmp_path / "evaluations" / "metric-evaluation.json"
+
+    persisted = write_learner_metric_evaluation_run(path, run)
+    assert persisted == run
+    assert read_learner_metric_evaluation_run(path) == run
+    assert write_learner_metric_evaluation_run(path, run) == run
+    assert persisted.data_source == "cached_only"
+    assert persisted.exchange_access is False
+
+    changed_audit_time = _metric_run(
+        tmp_path / "changed",
+        evaluated_at=datetime(2026, 8, 8, 14, tzinfo=UTC),
+    )
+    assert changed_audit_time.evaluation_hash == run.evaluation_hash
+    with pytest.raises(DomainViolation, match="immutable"):
+        write_learner_metric_evaluation_run(path, changed_audit_time)
+
+
+def test_metric_evaluation_persistence_fails_closed_on_tamper_malformed_and_missing(
+    tmp_path: Path,
+) -> None:
+    run = _metric_run(tmp_path)
+    path = tmp_path / "metric-evaluation.json"
+    write_learner_metric_evaluation_run(path, run)
+
+    tampered = path.read_text(encoding="utf-8").replace(run.evaluation_hash, "0" * 64)
+    path.write_text(tampered, encoding="utf-8")
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        read_learner_metric_evaluation_run(path)
+
+    malformed_path = tmp_path / "malformed.json"
+    malformed_path.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(DataQualityError, match="invalid persisted"):
+        read_learner_metric_evaluation_run(malformed_path)
+
+    with pytest.raises(FileNotFoundError):
+        read_learner_metric_evaluation_run(tmp_path / "missing.json")
+
+
+def test_metric_evaluation_writer_rejects_hash_mismatch_before_filesystem_work(
+    tmp_path: Path,
+) -> None:
+    run = _metric_run(tmp_path)
+    path = tmp_path / "metric-evaluation.json"
+    invalid = run.model_copy(update={"evaluation_hash": "0" * 64})
+
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        write_learner_metric_evaluation_run(path, invalid)
+    assert not path.exists()

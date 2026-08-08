@@ -49,6 +49,8 @@ from .learner_metric_evaluation import (
     LearnerMetricSimulator,
     LearnerMetricWindowEvaluation,
     learner_metric_evaluation_content_hash,
+    read_learner_metric_evaluation_run,
+    write_learner_metric_evaluation_run,
 )
 from .learner_qualification import (
     LearnerQualificationComparator,
@@ -179,6 +181,8 @@ __all__ = [
     "LearnerMetricSimulator",
     "LearnerMetricWindowEvaluation",
     "learner_metric_evaluation_content_hash",
+    "read_learner_metric_evaluation_run",
+    "write_learner_metric_evaluation_run",
     "LearnerQualityReviewEvidence",
     "LearnerQualityReviewMetric",
     "LearnerQualityReviewWindow",
