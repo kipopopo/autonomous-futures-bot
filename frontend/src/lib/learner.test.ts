@@ -141,6 +141,62 @@ describe('buildLearnerModel', () => {
       learningRunStatus: 'unavailable',
     })
   })
+
+  it('shows completed training as provenance only, never as model quality', () => {
+    const model = buildLearnerModel({
+      ...VERIFIED_DATA,
+      learnerTrainingEvidence: {
+        verified: true,
+        evidence: {
+          evidence_version: 1,
+          evidence_id: 'training-evidence-learner-api',
+          prepared_run_id: 'run-learner-api',
+          prepared_run_ref: 'learner-run.json',
+          prepared_run_hash: 'a'.repeat(64),
+          source_learner_artifact_ref: 'learner-artifact.json',
+          source_learner_artifact_hash: 'b'.repeat(64),
+          output_artifact_ref: 'trained/learner.json',
+          output_artifact_hash: 'c'.repeat(64),
+          learner_id: 'learner-api-001',
+          learner_run_id: 'run-learner-api',
+          candidate_id: 'cand-learner-api',
+          candidate_artifact_hash: 'd'.repeat(64),
+          bundle_hash: 'e'.repeat(64),
+          dataset_registry_hash: 'f'.repeat(64),
+          input_window_ids: ['input-api-001'],
+          input_symbols: ['BTCUSDT'],
+          feature_ids: ['returns'],
+          training_window_start: '2026-08-08T00:00:00Z',
+          training_window_end: '2026-08-08T01:00:00Z',
+          learner_version: 'output-v1',
+          model_family: 'explicit-test-output',
+          status: 'completed',
+          training_metrics: null,
+          data_source: 'cached_only',
+          exchange_access: false,
+          promotion_state: 'unpromoted',
+          paper_activation: false,
+          execution_authority: false,
+          created_at: '2026-08-08T02:00:00Z',
+          evidence_hash: '1'.repeat(64),
+        },
+      },
+    } as DashboardApiData)
+
+    expect(model).toMatchObject({
+      trainingCompletionStatus: 'verified',
+      trainingEvidence: {
+        status: 'completed',
+        learnerVersion: 'output-v1',
+        modelFamily: 'explicit-test-output',
+        outputArtifactHash: 'c'.repeat(64),
+        trainingMetrics: null,
+        promotionState: 'unpromoted',
+        paperActivation: false,
+        executionAuthority: false,
+      },
+    })
+  })
 })
 
 describe('learner route', () => {

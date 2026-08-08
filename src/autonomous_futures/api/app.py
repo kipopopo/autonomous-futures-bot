@@ -13,6 +13,7 @@ from ..domain.contracts import DomainModel
 from ..research.creator_artifacts import CreatorCandidateRegistry
 from ..research.learner_artifacts import LearnerArtifact
 from ..research.learner_runs import LearnerRun
+from ..research.learner_training_evidence import LearnerTrainingEvidence
 from ..research.qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
     QualificationDecision,
@@ -37,9 +38,12 @@ from .learner import (
     LearnerArtifactNotFoundError,
     LearnerEvidenceIntegrityError,
     LearnerRunNotFoundError,
+    LearnerTrainingEvidenceIntegrityError,
+    LearnerTrainingEvidenceNotFoundError,
     VerifiedLearnerEvidence,
     load_verified_learner_artifact,
     load_verified_learner_run,
+    load_verified_learner_training_evidence,
 )
 from .qualification import (
     CreatorQualificationArtifactIntegrityError,
@@ -120,6 +124,11 @@ class LearnerRunResponse(DomainModel):
     run: LearnerRun
 
 
+class LearnerTrainingEvidenceResponse(DomainModel):
+    verified: Literal[True] = True
+    evidence: LearnerTrainingEvidence
+
+
 class ComponentsResponse(DomainModel):
     verified: Literal[True] = True
     component_count: int
@@ -153,6 +162,8 @@ def create_app(
     learner_artifact_path: Path | None = None,
     learner_model_root: Path | None = None,
     learner_run_path: Path | None = None,
+    learner_training_evidence_path: Path | None = None,
+    learner_training_artifact_root: Path | None = None,
 ) -> FastAPI:
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
@@ -180,6 +191,12 @@ def create_app(
     )
     configured_learner_run_path = learner_run_path or _configured_path(
         "AFBOT_LEARNER_RUN_PATH", "data/learner-run.json"
+    )
+    configured_learner_training_evidence_path = learner_training_evidence_path or _configured_path(
+        "AFBOT_LEARNER_TRAINING_EVIDENCE_PATH", "data/learner-training-evidence.json"
+    )
+    configured_learner_training_artifact_root = learner_training_artifact_root or _configured_path(
+        "AFBOT_LEARNER_TRAINING_ARTIFACT_ROOT", "data"
     )
 
     app = FastAPI(
@@ -249,6 +266,46 @@ def create_app(
                 detail="learner run integrity verification failed",
             ) from exc
         return LearnerRunResponse(run=run)
+
+    @app.get(
+        "/api/v1/learner/training-evidence",
+        response_model=LearnerTrainingEvidenceResponse,
+    )
+    def learner_training_evidence() -> LearnerTrainingEvidenceResponse:
+        if not configured_learner_training_evidence_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="learner training evidence unavailable",
+            )
+        try:
+            verified_artifact = verified_learner_artifact()
+            evidence = load_verified_learner_training_evidence(
+                evidence_path=configured_learner_training_evidence_path,
+                run_root=configured_learner_run_path.parent,
+                artifact_root=configured_learner_training_artifact_root,
+                model_root=configured_learner_model_root,
+                candidate=verified_artifact.candidate,
+            )
+        except LearnerTrainingEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="learner training evidence unavailable",
+            ) from exc
+        except LearnerTrainingEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="learner training evidence integrity verification failed",
+            ) from exc
+        except HTTPException as exc:
+            raise HTTPException(
+                status_code=404 if exc.status_code == 404 else 503,
+                detail=(
+                    "learner training evidence unavailable"
+                    if exc.status_code == 404
+                    else "learner training evidence integrity verification failed"
+                ),
+            ) from exc
+        return LearnerTrainingEvidenceResponse(evidence=evidence)
 
     @app.get("/api/v1/dataset/bundle", response_model=BundleResponse)
     def dataset_bundle() -> BundleResponse:
@@ -461,6 +518,7 @@ __all__ = [
     "HealthResponse",
     "LearnerArtifactResponse",
     "LearnerRunResponse",
+    "LearnerTrainingEvidenceResponse",
     "RegistryResponse",
     "RowsResponse",
     "app",

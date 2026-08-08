@@ -35,6 +35,10 @@ from autonomous_futures.research.learner_runs import (
     learner_run_content_hash,
     write_learner_run,
 )
+from autonomous_futures.research.learner_training_evidence import (
+    build_learner_training_evidence,
+    write_learner_training_evidence,
+)
 
 START = datetime(2026, 8, 7, tzinfo=UTC)
 END = START + timedelta(hours=1)
@@ -95,7 +99,9 @@ def _request(app: FastAPI, method: str, path: str) -> httpx.Response:
     return asyncio.run(send())
 
 
-def _write_fixture(tmp_path: Path, *, with_run: bool = False) -> tuple[FastAPI, Path, Path | None]:
+def _write_fixture(
+    tmp_path: Path, *, with_run: bool = False, with_training_evidence: bool = False
+) -> tuple[FastAPI, Path, Path | None]:
     entries = (
         _entry(
             "kline",
@@ -171,6 +177,7 @@ def _write_fixture(tmp_path: Path, *, with_run: bool = False) -> tuple[FastAPI, 
     artifact_path = tmp_path / "learner-artifact.json"
     write_learner_artifact(artifact_path, learner, model_root=model_root)
 
+    run: LearnerRun | None = None
     run_path: Path | None = None
     if with_run:
         run = LearnerRun(
@@ -195,6 +202,48 @@ def _write_fixture(tmp_path: Path, *, with_run: bool = False) -> tuple[FastAPI, 
         run_path = tmp_path / "learner-run.json"
         write_learner_run(run_path, run)
 
+    evidence_path: Path | None = None
+    if with_training_evidence:
+        if run is None:
+            raise AssertionError("training evidence fixture requires a persisted run")
+        output_bytes = b"verified trained learner model bytes"
+        output_model_path = model_root / "output.bin"
+        output_model_path.write_bytes(output_bytes)
+        output = build_learner_artifact(
+            candidate=candidate,
+            learner_id=learner.learner_id,
+            learner_run_id=run.run_id,
+            learner_version="output-v1",
+            model_family="explicit-test-output",
+            feature_ids=learner.feature_ids,
+            training_window_start=START,
+            training_window_end=END,
+            model_artifact_ref="output.bin",
+            model_artifact_hash=hashlib.sha256(output_bytes).hexdigest(),
+            created_at=OBSERVED,
+        )
+        output_path = tmp_path / "trained" / "learner.json"
+        write_learner_artifact(output_path, output, model_root=model_root)
+        evidence = build_learner_training_evidence(
+            prepared_run=run,
+            source_learner=learner,
+            output_artifact=output,
+            candidate=candidate,
+            source_learner_artifact_ref="learner-artifact.json",
+            prepared_run_ref="learner-run.json",
+            output_artifact_ref="trained/learner.json",
+            created_at=OBSERVED,
+        )
+        evidence_path = tmp_path / "learner-training-evidence.json"
+        write_learner_training_evidence(
+            evidence_path,
+            evidence,
+            run_root=tmp_path,
+            artifact_root=tmp_path,
+            model_root=model_root,
+            candidate=candidate,
+        )
+
     app = create_app(
         bundle_path=bundle_path,
         registry_path=registry_path,
@@ -203,6 +252,9 @@ def _write_fixture(tmp_path: Path, *, with_run: bool = False) -> tuple[FastAPI, 
         learner_artifact_path=artifact_path,
         learner_model_root=model_root,
         learner_run_path=run_path or tmp_path / "missing-learner-run.json",
+        learner_training_evidence_path=evidence_path
+        or tmp_path / "missing-learner-training-evidence.json",
+        learner_training_artifact_root=tmp_path,
     )
     return app, artifact_path, run_path
 
@@ -221,8 +273,12 @@ def test_learner_evidence_endpoints_are_get_only_and_missing_is_unavailable(tmp_
     assert artifact_response.json() == {"detail": "learner artifact unavailable"}
     assert run_response.status_code == 404
     assert run_response.json() == {"detail": "learner run unavailable"}
+    training_response = _request(app, "GET", "/api/v1/learner/training-evidence")
+    assert training_response.status_code == 404
+    assert training_response.json() == {"detail": "learner training evidence unavailable"}
     assert _request(app, "POST", "/api/v1/learner/artifact").status_code == 405
     assert _request(app, "POST", "/api/v1/learner/run").status_code == 405
+    assert _request(app, "POST", "/api/v1/learner/training-evidence").status_code == 405
 
 
 def test_learner_artifact_endpoint_returns_verified_metadata_without_model_bytes(
@@ -292,3 +348,65 @@ def test_learner_run_endpoint_fails_closed_on_malformed_persisted_run(tmp_path: 
 
     assert response.status_code == 503
     assert response.json() == {"detail": "learner run integrity verification failed"}
+
+
+def test_learner_training_evidence_endpoint_returns_completed_provenance(
+    tmp_path: Path,
+) -> None:
+    app, _, _ = _write_fixture(tmp_path, with_run=True, with_training_evidence=True)
+
+    response = _request(app, "GET", "/api/v1/learner/training-evidence")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["verified"] is True
+    assert payload["evidence"]["status"] == "completed"
+    assert payload["evidence"]["output_artifact_hash"] != "0" * 64
+    assert payload["evidence"]["training_metrics"] is None
+    assert payload["evidence"]["promotion_state"] == "unpromoted"
+    assert payload["evidence"]["paper_activation"] is False
+    assert payload["evidence"]["execution_authority"] is False
+
+
+def test_learner_training_evidence_endpoint_fails_closed_on_tampered_output_model(
+    tmp_path: Path,
+) -> None:
+    app, _, _ = _write_fixture(tmp_path, with_run=True, with_training_evidence=True)
+    (tmp_path / "models" / "output.bin").write_bytes(b"tampered output model")
+
+    response = _request(app, "GET", "/api/v1/learner/training-evidence")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "learner training evidence integrity verification failed"}
+
+
+def test_learner_training_evidence_endpoint_fails_closed_on_malformed_evidence(
+    tmp_path: Path,
+) -> None:
+    app, _, _ = _write_fixture(tmp_path, with_run=True, with_training_evidence=True)
+    (tmp_path / "learner-training-evidence.json").write_text(
+        "{ malformed training evidence",
+        encoding="utf-8",
+    )
+
+    response = _request(app, "GET", "/api/v1/learner/training-evidence")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "learner training evidence integrity verification failed"}
+
+
+def test_learner_training_evidence_endpoint_fails_closed_on_tampered_source_artifact(
+    tmp_path: Path,
+) -> None:
+    app, artifact_path, _ = _write_fixture(tmp_path, with_run=True, with_training_evidence=True)
+    artifact_path.write_text(
+        artifact_path.read_text(encoding="utf-8").replace(
+            '"artifact_hash": "', '"artifact_hash": "0'
+        ),
+        encoding="utf-8",
+    )
+
+    response = _request(app, "GET", "/api/v1/learner/training-evidence")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "learner training evidence integrity verification failed"}

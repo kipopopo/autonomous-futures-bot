@@ -3,9 +3,9 @@
 ## Purpose
 
 Add the next read-only research-plane page after the Creator qualification
-surface. This page reports whether the verified causal data foundation is ready
-for a future learner artifact; it does not implement learning, model training,
-metric calculation, or execution.
+surface. This page reports verified learner evidence in plain language. It can
+show that an explicit training caller recorded a completed output, but it does
+not claim that the model is good, profitable, promoted, paper-active, or live.
 
 ## Information architecture
 
@@ -13,12 +13,13 @@ metric calculation, or execution.
 2. The page heading is `Learner research readiness`.
 3. The verified foundation identity is shown only when the existing overview
    verification contract passes.
-4. Learner artifact, learning run, model metrics, feature importance, and paper
-   activation remain explicit `UNAVAILABLE` states because no verified learner
-   API/artifact is connected.
+4. Learner artifact, prepared run, completed-training proof, model metrics,
+   feature importance, and paper activation each have separate explicit states.
 5. No Creator qualification data is copied or inferred into Learner.
 6. Verified persisted learner artifact and prepared-run evidence are shown only
    when their dedicated read-only endpoints pass integrity and binding checks.
+7. Completed-training proof is shown only when the persisted evidence envelope
+   and all linked run/artifact/model hashes pass verification.
 
 ## Visible states
 
@@ -28,6 +29,7 @@ Verified foundation:
 DATA FOUNDATION VERIFIED
 Learner artifact: UNAVAILABLE
 Learning run: UNAVAILABLE
+Training completion proof: UNAVAILABLE
 Paper activation: OFF
 Execution authority: OFF
 ```
@@ -58,6 +60,23 @@ When `/api/v1/learner/run` is verified, show a separate provenance card with:
 - training window;
 - explicit `output_artifact_hash: null` and `training_metrics: null` semantics.
 
+## Phase 3l completed-training proof
+
+When `/api/v1/learner/training-evidence` is verified, show a plain-language
+card titled `Training completion proof` with:
+
+- `COMPLETED — provenance only` status;
+- output learner version and model family;
+- output artifact SHA-256 and evidence SHA-256;
+- recorded completion time in MYT/GMT+8;
+- a clear note: this proves that an explicit caller produced and persisted
+  model bytes; it does not prove accuracy, profitability, qualification,
+  promotion, paper activation, or live readiness.
+
+If the endpoint returns 404, render `UNAVAILABLE`. If it returns an integrity
+failure, render `INTEGRITY UNAVAILABLE`. Never replace either state with a
+fake completion percentage, loss, accuracy, or activity count.
+
 If either endpoint returns 404, render `UNAVAILABLE`. If it returns an integrity
 failure, render `INTEGRITY UNAVAILABLE`; do not collapse that into a successful
 empty state. Never show model bytes, fake progress, metrics, loss, accuracy,
@@ -74,8 +93,8 @@ available from the existing read-only overview contract:
 - bundle hash;
 - registry hash.
 
-Do not add hardcoded training progress, loss, accuracy, model version,
-feature importance, candidate count, or performance values.
+Do not add hardcoded training progress, loss, accuracy, feature importance,
+candidate count, performance values, or training activity.
 
 ## Safety and accessibility
 

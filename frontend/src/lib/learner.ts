@@ -2,6 +2,7 @@ import type {
   DashboardApiData,
   LearnerArtifactEvidence,
   LearnerRunEvidence,
+  LearnerTrainingEvidence,
 } from './dashboard'
 import { buildOverviewModel } from './dashboard'
 
@@ -39,6 +40,20 @@ export interface LearnerRunModel {
   executionAuthority: false
 }
 
+export interface LearnerTrainingEvidenceModel {
+  evidenceId: string
+  learnerVersion: string
+  modelFamily: string
+  outputArtifactHash: string
+  evidenceHash: string
+  completedAt: string
+  status: 'completed'
+  trainingMetrics: null
+  promotionState: 'unpromoted'
+  paperActivation: false
+  executionAuthority: false
+}
+
 export interface LearnerModel {
   status: LearnerReadinessStatus
   symbols: string[]
@@ -49,8 +64,10 @@ export interface LearnerModel {
   registryHash: string | null
   learnerArtifactStatus: LearnerEvidenceStatus
   learningRunStatus: LearnerEvidenceStatus
+  trainingCompletionStatus: LearnerEvidenceStatus
   learnerArtifact: LearnerArtifactModel | null
   learnerRun: LearnerRunModel | null
+  trainingEvidence: LearnerTrainingEvidenceModel | null
   paperActivation: false
   executionAuthority: false
 }
@@ -90,6 +107,22 @@ function mapRun(run: LearnerRunEvidence): LearnerRunModel {
   }
 }
 
+function mapTrainingEvidence(evidence: LearnerTrainingEvidence): LearnerTrainingEvidenceModel {
+  return {
+    evidenceId: evidence.evidence_id,
+    learnerVersion: evidence.learner_version,
+    modelFamily: evidence.model_family,
+    outputArtifactHash: evidence.output_artifact_hash,
+    evidenceHash: evidence.evidence_hash,
+    completedAt: evidence.created_at,
+    status: evidence.status,
+    trainingMetrics: evidence.training_metrics,
+    promotionState: evidence.promotion_state,
+    paperActivation: evidence.paper_activation,
+    executionAuthority: evidence.execution_authority,
+  }
+}
+
 export function buildLearnerModel(data: DashboardApiData): LearnerModel {
   const foundation = buildOverviewModel(data)
   const verified = foundation.verification === 'verified'
@@ -97,6 +130,9 @@ export function buildLearnerModel(data: DashboardApiData): LearnerModel {
     ? mapArtifact(data.learnerArtifact.artifact)
     : null
   const learnerRun = verified && data.learnerRun?.verified ? mapRun(data.learnerRun.run) : null
+  const trainingEvidence = verified && data.learnerTrainingEvidence?.verified
+    ? mapTrainingEvidence(data.learnerTrainingEvidence.evidence)
+    : null
   const learnerArtifactStatus: LearnerEvidenceStatus = !verified
     ? 'unavailable'
     : learnerArtifact
@@ -111,6 +147,13 @@ export function buildLearnerModel(data: DashboardApiData): LearnerModel {
       : data.learnerRunError || data.learnerRun?.verified === false
         ? 'integrity_unavailable'
         : 'unavailable'
+  const trainingCompletionStatus: LearnerEvidenceStatus = !verified
+    ? 'unavailable'
+    : trainingEvidence
+      ? 'verified'
+      : data.learnerTrainingEvidenceError || data.learnerTrainingEvidence?.verified === false
+        ? 'integrity_unavailable'
+        : 'unavailable'
 
   return {
     status: verified ? 'verified' : 'unavailable',
@@ -122,8 +165,10 @@ export function buildLearnerModel(data: DashboardApiData): LearnerModel {
     registryHash: verified ? foundation.registryHash : null,
     learnerArtifactStatus,
     learningRunStatus,
+    trainingCompletionStatus,
     learnerArtifact,
     learnerRun,
+    trainingEvidence,
     paperActivation: false,
     executionAuthority: false,
   }

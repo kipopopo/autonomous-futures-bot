@@ -201,6 +201,45 @@ export interface LearnerRunResponse {
   run: LearnerRunEvidence
 }
 
+export interface LearnerTrainingEvidence {
+  evidence_version: 1
+  evidence_id: string
+  prepared_run_id: string
+  prepared_run_ref: string
+  prepared_run_hash: string
+  source_learner_artifact_ref: string
+  source_learner_artifact_hash: string
+  output_artifact_ref: string
+  output_artifact_hash: string
+  learner_id: string
+  learner_run_id: string
+  candidate_id: string
+  candidate_artifact_hash: string
+  bundle_hash: string
+  dataset_registry_hash: string
+  input_window_ids: string[]
+  input_symbols: string[]
+  feature_ids: string[]
+  training_window_start: string
+  training_window_end: string
+  learner_version: string
+  model_family: string
+  status: 'completed'
+  training_metrics: null
+  data_source: 'cached_only'
+  exchange_access: false
+  promotion_state: 'unpromoted'
+  paper_activation: false
+  execution_authority: false
+  created_at: string
+  evidence_hash: string
+}
+
+export interface LearnerTrainingEvidenceResponse {
+  verified: boolean
+  evidence: LearnerTrainingEvidence
+}
+
 export interface DashboardApiData {
   health: HealthResponse | null
   bundle: BundleResponse | null
@@ -212,6 +251,8 @@ export interface DashboardApiData {
   learnerArtifactError?: string | null
   learnerRun?: LearnerRunResponse | null
   learnerRunError?: string | null
+  learnerTrainingEvidence?: LearnerTrainingEvidenceResponse | null
+  learnerTrainingEvidenceError?: string | null
 }
 
 export type VerificationState = 'verified' | 'error'

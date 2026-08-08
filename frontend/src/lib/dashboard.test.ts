@@ -81,7 +81,7 @@ describe('buildOverviewModel', () => {
 
     await fetchOverviewData()
 
-    expect(fetchMock).toHaveBeenCalledTimes(7)
+    expect(fetchMock).toHaveBeenCalledTimes(8)
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/health',
       '/api/v1/dataset/bundle',
@@ -90,6 +90,7 @@ describe('buildOverviewModel', () => {
       '/api/v1/creator/qualifications',
       '/api/v1/learner/artifact',
       '/api/v1/learner/run',
+      '/api/v1/learner/training-evidence',
     ])
   })
 

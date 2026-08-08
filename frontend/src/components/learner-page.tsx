@@ -1,4 +1,4 @@
-import { CircleAlert, DatabaseZap, FileCheck2, ListChecks, LockKeyhole, ShieldCheck } from 'lucide-react'
+import { BadgeCheck, CircleAlert, DatabaseZap, FileCheck2, ListChecks, LockKeyhole, ShieldCheck } from 'lucide-react'
 
 import type { LearnerEvidenceStatus, LearnerModel } from '@/lib/learner'
 
@@ -52,6 +52,7 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
   const verified = model.status === 'verified'
   const artifact = model.learnerArtifact
   const run = model.learnerRun
+  const trainingEvidence = model.trainingEvidence
 
   return (
     <section className="panel learner-readiness-panel" aria-labelledby="learner-readiness-heading">
@@ -85,6 +86,11 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
           label="Learning run"
           value={statusLabel(model.learningRunStatus)}
           detail={run ? 'Prepared provenance verified' : 'No verified run evidence'}
+        />
+        <ReadinessFact
+          label="Training completion proof"
+          value={statusLabel(model.trainingCompletionStatus)}
+          detail={trainingEvidence ? 'Output file and evidence hashes verified' : 'No verified completion proof'}
         />
         <ReadinessFact label="Paper activation" value="OFF" detail="Activation is not available here" />
       </div>
@@ -165,6 +171,33 @@ export function LearnerPage({ model }: { model: LearnerModel }) {
               status={model.learningRunStatus}
               title="No persisted run is rendered"
               detail="Prepared provenance appears only after its hash and artifact binding verify."
+            />
+          )}
+        </section>
+
+        <section className="learner-evidence-card" aria-labelledby="learner-training-evidence-heading">
+          <div className="learner-subsection-heading">
+            <div>
+              <span className="field-label">Phase 3l evidence boundary</span>
+              <h3 id="learner-training-evidence-heading">Training completion proof</h3>
+            </div>
+            <BadgeCheck size={19} aria-hidden="true" />
+          </div>
+          {trainingEvidence ? (
+            <div className="learner-evidence-details">
+              <div><span className="field-label">Plain meaning</span><strong>Trainer output was saved and verified</strong></div>
+              <div><span className="field-label">Status</span><strong>COMPLETED · PROVENANCE ONLY</strong></div>
+              <div><span className="field-label">Model version / family</span><strong>{trainingEvidence.learnerVersion} · {trainingEvidence.modelFamily}</strong></div>
+              <div><span className="field-label">Recorded at</span><strong>{formatMyt(trainingEvidence.completedAt)}</strong></div>
+              <div><span className="field-label">Output file SHA-256</span><code title={trainingEvidence.outputArtifactHash}>{shortHash(trainingEvidence.outputArtifactHash)}</code></div>
+              <div><span className="field-label">Evidence SHA-256</span><code title={trainingEvidence.evidenceHash}>{shortHash(trainingEvidence.evidenceHash)}</code></div>
+              <div><span className="field-label">What this does not prove</span><strong>Quality, profitability, promotion, or trading permission</strong></div>
+            </div>
+          ) : (
+            <EvidenceState
+              status={model.trainingCompletionStatus}
+              title="No completed-training proof is rendered"
+              detail="This page will not invent progress, metrics, or a model result when the API has no verified evidence."
             />
           )}
         </section>

@@ -10,6 +10,10 @@ from ..research.learner_artifacts import (
     verify_learner_artifact_binding,
 )
 from ..research.learner_runs import LearnerRun, read_learner_run
+from ..research.learner_training_evidence import (
+    LearnerTrainingEvidence,
+    read_learner_training_evidence,
+)
 from .catalog import (
     DatasetCatalogIntegrityError,
     load_verified_dataset_catalog,
@@ -29,8 +33,16 @@ class LearnerRunNotFoundError(FileNotFoundError):
     """The configured persisted learner run is unavailable."""
 
 
+class LearnerTrainingEvidenceNotFoundError(FileNotFoundError):
+    """The configured completed-training evidence is unavailable."""
+
+
 class LearnerEvidenceIntegrityError(ValueError):
     """Learner evidence cannot be trusted after integrity/binding checks."""
+
+
+class LearnerTrainingEvidenceIntegrityError(ValueError):
+    """Completed-training evidence cannot be trusted after verification."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,11 +151,36 @@ def load_verified_learner_run(
     return run
 
 
+def load_verified_learner_training_evidence(
+    *,
+    evidence_path: Path,
+    run_root: Path,
+    artifact_root: Path,
+    model_root: Path,
+    candidate: CreatorCandidateArtifact,
+) -> LearnerTrainingEvidence:
+    if not evidence_path.exists():
+        raise LearnerTrainingEvidenceNotFoundError(evidence_path)
+    try:
+        return read_learner_training_evidence(
+            evidence_path,
+            run_root=run_root,
+            artifact_root=artifact_root,
+            model_root=model_root,
+            candidate=candidate,
+        )
+    except (OSError, ValueError) as exc:
+        raise LearnerTrainingEvidenceIntegrityError from exc
+
+
 __all__ = [
     "LearnerArtifactNotFoundError",
     "LearnerEvidenceIntegrityError",
     "LearnerRunNotFoundError",
+    "LearnerTrainingEvidenceIntegrityError",
+    "LearnerTrainingEvidenceNotFoundError",
     "VerifiedLearnerEvidence",
     "load_verified_learner_artifact",
     "load_verified_learner_run",
+    "load_verified_learner_training_evidence",
 ]
