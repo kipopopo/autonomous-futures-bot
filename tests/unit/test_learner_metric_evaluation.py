@@ -43,6 +43,11 @@ from autonomous_futures.research.learner_metric_quality_decision import (
 from autonomous_futures.research.learner_metric_quality_decision_input import (
     load_verified_learner_metric_quality_decision,
 )
+from autonomous_futures.research.learner_metric_quality_qualification import (
+    LearnerMetricQualityQualificationEvidence,
+    LearnerMetricQualityQualificationPolicy,
+    build_verified_learner_metric_quality_qualification_evidence,
+)
 from autonomous_futures.research.learner_metric_quality_qualification_input import (
     LearnerMetricQualityQualificationInput,
     build_verified_learner_metric_quality_qualification_input,
@@ -1126,4 +1131,173 @@ def test_metric_quality_qualification_input_rejects_non_utc_prepared_at(
             candidate=candidate,
             policy=policy,
             prepared_at=START.replace(tzinfo=None),
+        )
+
+
+def _metric_quality_qualification_policy(
+    source_policy: LearnerMetricQualityPolicy,
+    *,
+    minimum_windows: int = 1,
+) -> LearnerMetricQualityQualificationPolicy:
+    return LearnerMetricQualityQualificationPolicy(
+        policy_id="metric-quality-qualification-policy-v1",
+        required_metric_quality_policy_id=source_policy.policy_id,
+        required_metric_quality_policy_hash=learner_metric_quality_policy_content_hash(
+            source_policy
+        ),
+        minimum_windows=minimum_windows,
+    )
+
+
+def test_verified_metric_quality_qualification_evidence_is_deterministic_and_unpromoted(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, source_policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    qualification_policy = _metric_quality_qualification_policy(source_policy)
+    decision_bytes = decision_path.read_bytes()
+    review_bytes = review_path.read_bytes()
+    metric_bytes = metric_path.read_bytes()
+
+    first = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=qualification_policy,
+        evaluated_at=START,
+    )
+    second = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=qualification_policy,
+        evaluated_at=START + timedelta(hours=1),
+    )
+
+    assert isinstance(first, LearnerMetricQualityQualificationEvidence)
+    assert first.decision == "qualified"
+    assert first.source_decision == "passed"
+    assert first.qualification_hash == second.qualification_hash
+    assert first.qualification_policy_id == qualification_policy.policy_id
+    assert all(gate.passed for gate in first.gates)
+    assert first.data_source == "cached_only"
+    assert first.exchange_access is False
+    assert first.promotion_state == "unpromoted"
+    assert first.paper_activation is False
+    assert first.execution_authority is False
+    assert decision_path.read_bytes() == decision_bytes
+    assert review_path.read_bytes() == review_bytes
+    assert metric_path.read_bytes() == metric_bytes
+
+
+def test_verified_metric_quality_qualification_evidence_rejects_failed_source_decision(
+    tmp_path: Path,
+) -> None:
+    fixture = _persisted_metric_quality_decision_fixture(tmp_path)
+    _, review_path, metric_path, learner, candidate, _, _ = fixture
+    failed_source_policy = _quality_policy("observed_net_pnl", Decimal("999"))
+    failed_source_decision = evaluate_persisted_learner_metric_quality(
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        policy=failed_source_policy,
+        evaluated_at=START,
+    )
+    failed_decision_path = tmp_path / "failed-decision.json"
+    write_learner_metric_quality_decision(failed_decision_path, failed_source_decision)
+
+    evidence = build_verified_learner_metric_quality_qualification_evidence(
+        failed_decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=failed_source_policy,
+        qualification_policy=_metric_quality_qualification_policy(failed_source_policy),
+        evaluated_at=START,
+    )
+
+    assert evidence.decision == "rejected"
+    assert evidence.source_decision == "failed"
+    assert any(gate.reason_code == "metric_quality_decision_not_passed" for gate in evidence.gates)
+    assert evidence.promotion_state == "unpromoted"
+    assert evidence.execution_authority is False
+
+
+def test_verified_metric_quality_qualification_evidence_rejects_insufficient_windows(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, source_policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+
+    evidence = build_verified_learner_metric_quality_qualification_evidence(
+        decision_path,
+        review_path,
+        metric_path,
+        learner=learner,
+        candidate=candidate,
+        source_policy=source_policy,
+        qualification_policy=_metric_quality_qualification_policy(source_policy, minimum_windows=2),
+        evaluated_at=START,
+    )
+
+    assert evidence.source_decision == "passed"
+    assert evidence.decision == "rejected"
+    assert any(gate.reason_code == "minimum_windows_below_threshold" for gate in evidence.gates)
+    assert evidence.promotion_state == "unpromoted"
+    assert evidence.execution_authority is False
+
+
+def test_verified_metric_quality_qualification_evidence_rejects_source_policy_binding_drift(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, source_policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+    drifted_qualification_policy = LearnerMetricQualityQualificationPolicy(
+        policy_id="metric-quality-qualification-policy-v1",
+        required_metric_quality_policy_id=source_policy.policy_id,
+        required_metric_quality_policy_hash="c" * 64,
+        minimum_windows=1,
+    )
+
+    with pytest.raises(DomainViolation, match="source policy"):
+        build_verified_learner_metric_quality_qualification_evidence(
+            decision_path,
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            source_policy=source_policy,
+            qualification_policy=drifted_qualification_policy,
+            evaluated_at=START,
+        )
+
+
+def test_verified_metric_quality_qualification_evidence_rejects_non_utc_audit_time(
+    tmp_path: Path,
+) -> None:
+    decision_path, review_path, metric_path, learner, candidate, source_policy, _ = (
+        _persisted_metric_quality_decision_fixture(tmp_path)
+    )
+
+    with pytest.raises(DataQualityError, match="evaluated_at"):
+        build_verified_learner_metric_quality_qualification_evidence(
+            decision_path,
+            review_path,
+            metric_path,
+            learner=learner,
+            candidate=candidate,
+            source_policy=source_policy,
+            qualification_policy=_metric_quality_qualification_policy(source_policy),
+            evaluated_at=START.replace(tzinfo=None),
         )
