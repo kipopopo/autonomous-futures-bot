@@ -45,6 +45,8 @@ from .learner_runs import (
     LearnerRunState,
     learner_run_content_hash,
     prepare_learner_run,
+    read_learner_run,
+    write_learner_run,
 )
 from .learner_training import LearnerTrainer, LearnerTrainingOutput, execute_learner_training
 from .learner_training_evidence import (
@@ -135,6 +137,8 @@ __all__ = [
     "LearnerRunState",
     "learner_run_content_hash",
     "prepare_learner_run",
+    "read_learner_run",
+    "write_learner_run",
     "LearnerTrainer",
     "LearnerTrainingOutput",
     "execute_learner_training",

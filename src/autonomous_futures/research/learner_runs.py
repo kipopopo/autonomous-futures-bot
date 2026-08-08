@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
 from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
+from ..domain.errors import DomainViolation
 from .learner_artifacts import LearnerArtifact
 from .learner_inputs import LearnerInputWindow
 
@@ -179,9 +182,51 @@ def prepare_learner_run(
     return provisional.model_copy(update={"run_hash": _run_content_hash(provisional)})
 
 
+def read_learner_run(path: Path) -> LearnerRun:
+    """Read and verify one persisted prepared learner run."""
+    try:
+        run = LearnerRun.model_validate_json(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise FileNotFoundError(path) from exc
+    except (ValidationError, ValueError) as exc:
+        raise DataQualityError("invalid persisted learner run") from exc
+    if _run_content_hash(run) != run.run_hash:
+        raise DomainViolation(f"learner run hash mismatch: {path}")
+    return run
+
+
+def write_learner_run(path: Path, run: LearnerRun) -> LearnerRun:
+    """Persist one prepared learner run with atomic write-once semantics."""
+    if _run_content_hash(run) != run.run_hash:
+        raise DomainViolation("learner run hash mismatch")
+    if path.exists():
+        existing = read_learner_run(path)
+        if existing != run:
+            raise DomainViolation(f"learner run path is immutable: {path}")
+        return existing
+
+    payload = json.dumps(run.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+    try:
+        os.link(temporary_path, path)
+    except FileExistsError:
+        temporary_path.unlink(missing_ok=True)
+        existing = read_learner_run(path)
+        if existing != run:
+            raise DomainViolation(f"learner run path is immutable: {path}") from None
+        return existing
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return read_learner_run(path)
+
+
 __all__ = [
     "LearnerRun",
     "LearnerRunState",
     "learner_run_content_hash",
     "prepare_learner_run",
+    "read_learner_run",
+    "write_learner_run",
 ]

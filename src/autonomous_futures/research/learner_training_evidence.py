@@ -18,7 +18,7 @@ from .learner_artifacts import (
     read_learner_artifact,
     verify_learner_artifact_binding,
 )
-from .learner_runs import LearnerRun, learner_run_content_hash
+from .learner_runs import LearnerRun, learner_run_content_hash, read_learner_run
 
 LearnerTrainingEvidenceState = Literal["completed"]
 
@@ -269,11 +269,9 @@ def _resolve_ref(root: Path, reference: str) -> Path:
 
 def _read_run(path: Path) -> LearnerRun:
     try:
-        run = LearnerRun.model_validate_json(path.read_text(encoding="utf-8"))
+        run = read_learner_run(path)
     except (OSError, ValidationError, ValueError) as exc:
         raise DomainViolation("learner training evidence prepared run is invalid") from exc
-    if learner_run_content_hash(run) != run.run_hash:
-        raise DomainViolation("learner training evidence prepared run hash mismatch")
     return run
 
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -24,7 +23,11 @@ from autonomous_futures.research.learner_artifacts import (
     write_learner_artifact,
 )
 from autonomous_futures.research.learner_inputs import LearnerInputMaterializer
-from autonomous_futures.research.learner_runs import LearnerRun, prepare_learner_run
+from autonomous_futures.research.learner_runs import (
+    LearnerRun,
+    prepare_learner_run,
+    write_learner_run,
+)
 from autonomous_futures.research.learner_training import (
     LearnerTrainingOutput,
     execute_learner_training,
@@ -148,10 +151,7 @@ def _persist_source_and_run(
     run_root = tmp_path / "runs"
     run_path = run_root / "run.json"
     run_path.parent.mkdir(parents=True)
-    run_path.write_text(
-        json.dumps(run.model_dump(mode="json"), sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    write_learner_run(run_path, run)
     return source_path, run_path
 
 

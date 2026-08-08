@@ -15,10 +15,16 @@ from autonomous_futures.domain.contracts import (
     StrategySpec,
     StrategyUniverse,
 )
+from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.research.creator_artifacts import build_creator_candidate_artifact
 from autonomous_futures.research.learner_artifacts import build_learner_artifact
 from autonomous_futures.research.learner_inputs import LearnerInputMaterializer, LearnerInputWindow
-from autonomous_futures.research.learner_runs import LearnerRun, prepare_learner_run
+from autonomous_futures.research.learner_runs import (
+    LearnerRun,
+    prepare_learner_run,
+    read_learner_run,
+    write_learner_run,
+)
 
 START = datetime(2026, 8, 8, 12, tzinfo=UTC)
 BUNDLE_HASH = "a" * 64
@@ -211,3 +217,56 @@ def test_prepared_run_rejects_invalid_identity_and_timestamp(tmp_path: Path) -> 
             run_id="run-learner-prepared-001",
             prepared_at=datetime(2026, 8, 8, 13),
         )
+
+
+def test_prepared_run_persistence_is_verified_and_preserves_safety(tmp_path: Path) -> None:
+    learner, btc, eth = _windows(tmp_path)
+    run = prepare_learner_run(
+        learner=learner,
+        windows=(btc, eth),
+        run_id="run-learner-persisted-001",
+        prepared_at=datetime(2026, 8, 8, 13, tzinfo=UTC),
+    )
+    path = tmp_path / "runs" / "prepared.json"
+
+    assert write_learner_run(path, run) == run
+    assert write_learner_run(path, run) == run
+    assert read_learner_run(path) == run
+    assert run.status == "prepared"
+    assert run.output_artifact_hash is None
+    assert run.training_metrics is None
+    assert run.data_source == "cached_only"
+    assert run.execution_authority is False
+
+
+def test_prepared_run_persistence_is_write_once_and_rejects_tampering(tmp_path: Path) -> None:
+    learner, btc, eth = _windows(tmp_path)
+    run = prepare_learner_run(
+        learner=learner,
+        windows=(btc, eth),
+        run_id="run-learner-persisted-001",
+        prepared_at=datetime(2026, 8, 8, 13, tzinfo=UTC),
+    )
+    path = tmp_path / "runs" / "prepared.json"
+    write_learner_run(path, run)
+
+    changed_audit = run.model_copy(update={"prepared_at": datetime(2026, 8, 8, 14, tzinfo=UTC)})
+    with pytest.raises(DomainViolation, match="immutable"):
+        write_learner_run(path, changed_audit)
+
+    bad_hash = run.model_copy(update={"run_hash": "c" * 64})
+    with pytest.raises(DomainViolation, match="hash"):
+        write_learner_run(tmp_path / "runs" / "bad.json", bad_hash)
+
+    tampered = path.read_text(encoding="utf-8").replace(run.run_hash, "0" * 64)
+    path.write_text(tampered, encoding="utf-8")
+    with pytest.raises(DomainViolation, match="hash"):
+        read_learner_run(path)
+
+    malformed = tmp_path / "runs" / "malformed.json"
+    malformed.write_text("{}", encoding="utf-8")
+    with pytest.raises(DataQualityError, match="invalid persisted"):
+        read_learner_run(malformed)
+
+    with pytest.raises(FileNotFoundError):
+        read_learner_run(tmp_path / "runs" / "missing.json")
