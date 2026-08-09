@@ -12,6 +12,7 @@ from .errors import DomainViolation
 class ExecutionEnvironment(StrEnum):
     RESEARCH = "research"
     PAPER = "paper"
+    SHADOW = "shadow"
     DEMO = "demo"
     LIVE = "live"
 
@@ -26,10 +27,15 @@ class EnvironmentBoundary(DomainModel):
 
     @model_validator(mode="after")
     def protect_pre_live_environments(self) -> EnvironmentBoundary:
-        if self.environment in (ExecutionEnvironment.RESEARCH, ExecutionEnvironment.PAPER):
+        if self.environment in (
+            ExecutionEnvironment.RESEARCH,
+            ExecutionEnvironment.PAPER,
+            ExecutionEnvironment.SHADOW,
+        ):
             if self.authenticated_exchange:
                 raise ValueError(
-                    "authenticated exchange access is forbidden for research and paper environments"
+                    "authenticated exchange access is forbidden for research, paper, "
+                    "and shadow environments"
                 )
         return self
 

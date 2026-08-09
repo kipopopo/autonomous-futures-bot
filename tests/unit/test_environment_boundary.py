@@ -18,14 +18,15 @@ def test_default_boundaries_are_isolated_for_all_runtime_environments() -> None:
     assert {item.environment for item in boundaries} == {
         ExecutionEnvironment.RESEARCH,
         ExecutionEnvironment.PAPER,
+        ExecutionEnvironment.SHADOW,
         ExecutionEnvironment.DEMO,
         ExecutionEnvironment.LIVE,
     }
     validate_isolation(boundaries)
-    assert len({item.storage_root for item in boundaries}) == 4
-    assert len({item.database_namespace for item in boundaries}) == 4
-    assert len({item.event_stream_namespace for item in boundaries}) == 4
-    assert len({item.credential_namespace for item in boundaries}) == 4
+    assert len({item.storage_root for item in boundaries}) == 5
+    assert len({item.database_namespace for item in boundaries}) == 5
+    assert len({item.event_stream_namespace for item in boundaries}) == 5
+    assert len({item.credential_namespace for item in boundaries}) == 5
 
 
 def test_shared_storage_or_ledger_namespace_is_rejected() -> None:
@@ -43,8 +44,12 @@ def test_shared_storage_or_ledger_namespace_is_rejected() -> None:
         validate_isolation(boundaries)
 
 
-def test_research_and_paper_cannot_enable_authenticated_exchange() -> None:
-    for environment in (ExecutionEnvironment.RESEARCH, ExecutionEnvironment.PAPER):
+def test_research_paper_and_shadow_cannot_enable_authenticated_exchange() -> None:
+    for environment in (
+        ExecutionEnvironment.RESEARCH,
+        ExecutionEnvironment.PAPER,
+        ExecutionEnvironment.SHADOW,
+    ):
         with pytest.raises(ValidationError, match="authenticated"):
             EnvironmentBoundary(
                 environment=environment,

@@ -1,4 +1,4 @@
-# ADR-0002: Isolate research, paper, demo, and live environments
+# ADR-0002: Isolate research, paper, shadow, demo, and live environments
 
 - **Status:** Accepted
 - **Date:** 2026-08-06
@@ -6,8 +6,8 @@
 
 ## Context
 
-The project has four operational environments with different evidence and execution
-risk: `research`, `paper`, `demo`, and `live`. Reusing a storage root, database
+The project has five operational environments with different evidence and execution
+risk: `research`, `paper`, `shadow`, `demo`, and `live`. Reusing a storage root, database
 namespace, event stream, or credential namespace could make an artifact or order
 state appear to belong to the wrong environment. A boolean runtime flag is not a
 sufficient safety boundary.
@@ -22,7 +22,7 @@ Every environment receives a distinct, explicit:
 - credential namespace.
 
 The domain contract validates uniqueness across all configured environments.
-`research` and `paper` are forbidden from enabling authenticated exchange access.
+`research`, `paper`, and `shadow` are forbidden from enabling authenticated exchange access.
 `demo` and `live` remain separate environments even when an adapter is eventually
 implemented. Promotion copies immutable manifests by hash; it does not merge
 runtime state or credentials.
@@ -53,7 +53,7 @@ uniqueness validation.
 
 The contract is covered by `tests/unit/test_environment_boundary.py`:
 
-- all four default environments are present and isolated;
+- all five default environments are present and isolated;
 - duplicate storage/database namespaces are rejected;
-- research/paper authenticated access is rejected;
+- research/paper/shadow authenticated access is rejected;
 - duplicate environment identity is rejected.
