@@ -31,3 +31,8 @@ post-commit: 374 passed in 6.89s
 Static gates passed: Ruff, format, mypy (85 source files), lock check,
 compileall, and diff check. No quality, qualification, promotion, paper,
 provider, exchange, order, or execution authority was added.
+
+> **Historical report:** Phase 3BB is no longer the latest completed phase.
+> Current verification is tracked in
+> [`PHASE_3BX_VERIFICATION.md`](./PHASE_3BX_VERIFICATION.md), covering the
+> completed Phase 3BC–3BX continuity and current Phase 3BX evidence.
