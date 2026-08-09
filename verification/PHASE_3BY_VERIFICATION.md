@@ -97,7 +97,7 @@ f4d8151 Add review handoff observation review result
 Verification report commit:
 
 ```text
-[report commit]
+ec2062d Add Phase 3BY verification report
 ```
 
 Both commits were pushed to `origin/main`. The final report delivery must retain
