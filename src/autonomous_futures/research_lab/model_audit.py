@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
+from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
+from ..domain.errors import DomainViolation
 from .model_policy import ResearchRole
 
 ModelCallOutcome = Literal[
@@ -136,3 +141,55 @@ def model_call_audit_content_hash(audit: ModelCallAudit) -> str:
     payload = audit.model_dump(mode="json", exclude={"observed_at", "audit_hash"})
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return sha256(canonical).hexdigest()
+
+
+def read_model_call_audit(path: Path) -> ModelCallAudit:
+    """Read and hash-verify one persisted non-authoritative model-call audit."""
+    try:
+        audit = ModelCallAudit.model_validate_json(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise FileNotFoundError(path) from exc
+    except ValidationError as exc:
+        if any("model call audit hash mismatch" in error["msg"] for error in exc.errors()):
+            raise DomainViolation(f"model call audit hash mismatch: {path}") from None
+        raise DataQualityError("invalid persisted model call audit") from exc
+    except ValueError as exc:
+        raise DataQualityError("invalid persisted model call audit") from exc
+    if model_call_audit_content_hash(audit) != audit.audit_hash:
+        raise DomainViolation(f"model call audit hash mismatch: {path}")
+    return audit
+
+
+def write_model_call_audit(path: Path, audit: ModelCallAudit) -> ModelCallAudit:
+    """Persist a model-call audit atomically and write-once without provider interaction."""
+    if model_call_audit_content_hash(audit) != audit.audit_hash:
+        raise DomainViolation("model call audit hash mismatch")
+    if path.exists():
+        existing = read_model_call_audit(path)
+        if existing != audit:
+            raise DomainViolation(f"model call audit path is immutable: {path}")
+        return existing
+
+    payload = json.dumps(audit.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+        os.link(temporary_path, path)
+    except FileExistsError:
+        existing = read_model_call_audit(path)
+        if existing != audit:
+            raise DomainViolation(f"model call audit path is immutable: {path}") from None
+        return existing
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return read_model_call_audit(path)
+
+
+__all__ = [
+    "ModelCallAudit",
+    "ModelCallOutcome",
+    "model_call_audit_content_hash",
+    "read_model_call_audit",
+    "write_model_call_audit",
+]
