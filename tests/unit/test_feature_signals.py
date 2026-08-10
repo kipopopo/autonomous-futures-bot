@@ -13,8 +13,10 @@ from autonomous_futures.domain.contracts import (
     StrategySpec,
     StrategyUniverse,
 )
+from autonomous_futures.research.candidate_window_simulation import simulate_candidate_window
 from autonomous_futures.research.creator_artifacts import build_creator_candidate_artifact
 from autonomous_futures.research.feature_signals import CausalFeatureSignalEvaluator
+from autonomous_futures.research.trade_simulation import TradeSimulationConfig
 
 START = datetime(2026, 8, 7, 12, tzinfo=UTC)
 BUNDLE_HASH = "a" * 64
@@ -118,6 +120,41 @@ def test_signal_entries_are_fresh_states_not_repeated_or_neutral_reversals() -> 
     assert result.loc[3, "signal"] == 1
     assert result.loc[7, "signal"] == -1
     assert result.loc[10, "signal"] == 1
+
+
+def test_candidate_window_simulation_composes_causal_signals_with_cached_ledger() -> None:
+    source = _frame()
+    result = simulate_candidate_window(
+        _candidate(),
+        source,
+        symbol="BTCUSDT",
+        config=TradeSimulationConfig(
+            starting_equity=Decimal("100"),
+            position_fraction=Decimal("1"),
+            taker_fee_rate=Decimal("0"),
+            slippage_rate=Decimal("0"),
+        ),
+    )
+
+    assert result.symbol == "BTCUSDT"
+    assert result.trades
+    assert result.data_source == "cached_only"
+    pd.testing.assert_frame_equal(source, _frame())
+
+
+def test_candidate_window_simulation_rejects_outside_universe_symbol() -> None:
+    with pytest.raises(DataQualityError, match="candidate universe"):
+        simulate_candidate_window(
+            _candidate(),
+            _frame(),
+            symbol="ETHUSDT",
+            config=TradeSimulationConfig(
+                starting_equity=Decimal("100"),
+                position_fraction=Decimal("1"),
+                taker_fee_rate=Decimal("0"),
+                slippage_rate=Decimal("0"),
+            ),
+        )
 
 
 def test_expression_feature_must_be_declared() -> None:
