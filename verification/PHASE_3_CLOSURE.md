@@ -1,7 +1,7 @@
 # Phase 3 Closure and Phase 4 Entry Gate
 
-**Date:** 2026-08-10  
-**Architecture runtime:** `gpt-5.6-terra` / `openai-codex` / Medium  
+**Date:** 2026-08-10
+**Architecture runtime:** `gpt-5.6-terra` / `openai-codex` / Medium
 **Decision:** **PHASE 3 CLOSED** — sufficient audit-integrity foundation; proceed to bounded Phase 4 research-evidence aggregation only.
 
 ## Why this closure exists
