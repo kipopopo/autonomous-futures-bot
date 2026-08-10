@@ -1,6 +1,6 @@
 # Phase 4G Verification — Deterministic Evidence Gap Reporting
 
-**Runtime:** `gpt-5.6-luna` / `openai-codex` / Medium  
+**Runtime:** `gpt-5.6-luna` / `openai-codex` / Medium
 **Status:** VERIFIED
 
 ## Delivered
