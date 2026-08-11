@@ -128,6 +128,27 @@ def test_bollinger_zscore_is_supported_and_uses_only_prior_bars() -> None:
     pd.testing.assert_frame_equal(source, _frame())
 
 
+def test_rsi_is_supported_and_uses_only_prior_bars() -> None:
+    candidate = _candidate(
+        feature_names=("rsi",),
+        long_expression="rsi < 30",
+        short_expression="rsi > 70",
+    )
+    source = _frame()
+    mutated = source.copy(deep=True)
+    mutated.loc[8, "close"] = Decimal("9999")
+    mutated.loc[8, "high"] = Decimal("10000")
+
+    original = CausalFeatureSignalEvaluator().evaluate(candidate, source)
+    changed = CausalFeatureSignalEvaluator().evaluate(candidate, mutated)
+
+    assert "rsi" in original.columns
+    assert original.loc[8, "rsi"] == changed.loc[8, "rsi"]
+    assert original.loc[8, "signal"] == changed.loc[8, "signal"]
+    assert original["rsi"].dropna().between(0, 100).all()
+    pd.testing.assert_frame_equal(source, _frame())
+
+
 def test_signal_entries_are_fresh_states_not_repeated_or_neutral_reversals() -> None:
     candidate = _candidate()
     result = CausalFeatureSignalEvaluator().evaluate(candidate, _frame())
@@ -184,9 +205,9 @@ def test_expression_feature_must_be_declared() -> None:
         CausalFeatureSignalEvaluator().evaluate(candidate, _frame())
 
 
-def test_unsupported_feature_is_rejected() -> None:
+def test_unimplemented_approved_feature_is_rejected() -> None:
     candidate = _candidate(
-        feature_names=("rsi",), long_expression="rsi > 50", short_expression="rsi < 50"
+        feature_names=("atr",), long_expression="atr > 50", short_expression="atr < 50"
     )
 
     with pytest.raises(DataQualityError, match="not supported"):

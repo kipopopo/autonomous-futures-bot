@@ -17,6 +17,7 @@ _SUPPORTED_FEATURES = frozenset(
         "donchian_high",
         "donchian_low",
         "bollinger_zscore",
+        "rsi",
         "regime_trend",
     }
 )
@@ -81,6 +82,19 @@ def _feature_series(
         mean = close.rolling(window=lookback, min_periods=lookback).mean()
         standard_deviation = close.rolling(window=lookback, min_periods=lookback).std(ddof=0)
         raw = (close - mean).div(standard_deviation.mask(standard_deviation == 0))
+    elif name == "rsi":
+        delta = close.diff()
+        gain = (
+            delta.clip(lower=0).ewm(alpha=1 / lookback, adjust=False, min_periods=lookback).mean()
+        )
+        loss = (
+            (-delta.clip(upper=0))
+            .ewm(alpha=1 / lookback, adjust=False, min_periods=lookback)
+            .mean()
+        )
+        relative_strength = gain.div(loss)
+        raw = 100 - (100 / (1 + relative_strength))
+        raw = raw.mask((gain == 0) & (loss == 0), 50).mask((loss == 0) & (gain > 0), 100)
     else:
         ema = close.ewm(span=lookback, adjust=False, min_periods=lookback).mean()
         slope = ema.diff()
