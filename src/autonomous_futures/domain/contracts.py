@@ -74,6 +74,39 @@ class PositionState(DomainModel):
     side: Literal["LONG", "SHORT"]
 
 
+class PaperExecutionRequest(DomainModel):
+    """Validated paper-only input; activation and execution remain blocked."""
+
+    candidate_id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    candidate_artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    qualified_symbols: tuple[str, ...] = Field(min_length=1)
+    symbol: str = Field(min_length=1, pattern=r"^[A-Z0-9]+$")
+    side: Literal["LONG", "SHORT"]
+    mark_price: StrictPositiveDecimal
+    quantity: StrictPositiveDecimal
+    fee_rate: StrictNonNegativeDecimal
+    slippage_bps: StrictNonNegativeDecimal
+    activation_state: Literal["blocked"] = "blocked"
+    paper_activation: Literal[False] = False
+    execution_authority: Literal[False] = False
+    exchange_access: Literal[False] = False
+
+    @field_validator("qualified_symbols")
+    @classmethod
+    def qualified_symbols_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values) or any(
+            not value or value != value.upper() for value in values
+        ):
+            raise ValueError("qualified symbols must be unique uppercase values")
+        return values
+
+    @model_validator(mode="after")
+    def symbol_is_qualified(self) -> PaperExecutionRequest:
+        if self.symbol not in self.qualified_symbols:
+            raise ValueError("symbol must be in the qualified universe")
+        return self
+
+
 class StrategyUniverse(DomainModel):
     symbols: tuple[str, ...] = Field(min_length=1)
     timeframe: Literal["5m"]
