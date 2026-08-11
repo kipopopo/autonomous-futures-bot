@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -68,9 +68,17 @@ class TradePerformanceMetrics(DomainModel):
         expected_drawdown_pct = self.max_drawdown / self.peak_equity * Decimal("100")
         if self.max_drawdown_pct != expected_drawdown_pct:
             raise ValueError("drawdown percentage is inconsistent with peak equity")
-        if self.final_equity != self.starting_equity + self.net_pnl:
+        expected_final = self.starting_equity + self.net_pnl
+        if self.final_equity != expected_final:
             raise ValueError("final equity must equal starting equity plus net P&L")
         return self
+
+
+def _sum_decimal(values: tuple[Decimal, ...]) -> Decimal:
+    with localcontext() as context:
+        context.prec = max(context.prec, 80)
+        total = sum(values, Decimal("0"))
+    return +total
 
 
 def calculate_performance_metrics(result: TradeSimulationResult) -> TradePerformanceMetrics:
@@ -79,9 +87,9 @@ def calculate_performance_metrics(result: TradeSimulationResult) -> TradePerform
     winning_trades = sum(pnl > 0 for pnl in net_pnls)
     losing_trades = sum(pnl < 0 for pnl in net_pnls)
     breakeven_trades = sum(pnl == 0 for pnl in net_pnls)
-    gross_profit = sum((pnl for pnl in net_pnls if pnl > 0), Decimal("0"))
-    gross_loss = sum((-pnl for pnl in net_pnls if pnl < 0), Decimal("0"))
-    net_pnl = sum(net_pnls, Decimal("0"))
+    gross_profit = _sum_decimal(tuple(pnl for pnl in net_pnls if pnl > 0))
+    gross_loss = _sum_decimal(tuple(-pnl for pnl in net_pnls if pnl < 0))
+    net_pnl = _sum_decimal(net_pnls)
     peak_equity = max((result.starting_equity, *(point.equity for point in result.equity_curve)))
     max_drawdown = _max_drawdown(result.starting_equity, result.equity_curve)
     return TradePerformanceMetrics(

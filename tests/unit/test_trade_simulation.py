@@ -161,6 +161,17 @@ def test_simulation_does_not_mutate_signal_frame_and_is_deterministic() -> None:
     pd.testing.assert_frame_equal(frame, before)
 
 
+def test_repeated_trades_keep_final_equity_exactly_reconciled() -> None:
+    count = 400
+    signals = tuple(0 if index == 0 else 1 if index % 2 else -1 for index in range(count))
+    prices = tuple(str(100 + index / 10) for index in range(count))
+    frame = _signal_frame(signals, opens=prices, closes=prices)
+
+    result = simulate_cached_signals(frame, symbol="BTCUSDT", config=_config())
+
+    assert result.final_equity == result.equity_curve[-1].equity
+
+
 def test_invalid_signal_or_missing_signal_is_rejected() -> None:
     invalid = _signal_frame((0, 2, 0))
     with pytest.raises(DataQualityError, match="signal"):

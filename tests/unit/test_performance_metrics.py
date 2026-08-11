@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
+import pandas as pd
 import pytest
 from pydantic import ValidationError
 
@@ -13,7 +14,9 @@ from autonomous_futures.research.performance_metrics import (
 from autonomous_futures.research.trade_simulation import (
     EquityPoint,
     SimulatedTrade,
+    TradeSimulationConfig,
     TradeSimulationResult,
+    simulate_cached_signals,
 )
 
 START = datetime(2026, 8, 7, 12, tzinfo=UTC)
@@ -125,6 +128,38 @@ def test_metrics_are_deterministic_and_cached_only() -> None:
     assert first == second
     assert first.data_source == "cached_only"
     assert first.exchange_access is False
+
+
+def test_metrics_reconcile_repeated_realistic_decimal_trades() -> None:
+    count = 400
+    signals = tuple(0 if index == 0 else 1 if index % 2 else -1 for index in range(count))
+    prices = tuple(Decimal(str(100 + index / 10)) for index in range(count))
+    frame = pd.DataFrame(
+        {
+            "timestamp": [START + timedelta(minutes=5 * index) for index in range(count)],
+            "open": prices,
+            "high": tuple(price + Decimal("1") for price in prices),
+            "low": tuple(price - Decimal("1") for price in prices),
+            "close": prices,
+            "signal": signals,
+        }
+    )
+    result = simulate_cached_signals(
+        frame,
+        symbol="BTCUSDT",
+        config=TradeSimulationConfig(
+            starting_equity=Decimal("100"),
+            position_fraction=Decimal("1"),
+            taker_fee_rate=Decimal("0.0004"),
+            slippage_rate=Decimal("0.0002"),
+        ),
+    )
+
+    metrics = calculate_performance_metrics(result)
+
+    with localcontext() as context:
+        context.prec = 80
+        assert metrics.net_pnl == metrics.gross_profit - metrics.gross_loss
 
 
 def test_metric_contract_rejects_inconsistent_trade_buckets() -> None:

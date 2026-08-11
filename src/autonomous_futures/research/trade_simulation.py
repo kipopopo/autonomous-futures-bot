@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import Literal
 
 import pandas as pd
@@ -13,6 +13,13 @@ from ..data.parquet import DataQualityError, canonicalize_bars
 from ..domain.contracts import DomainModel, StrictNonNegativeDecimal, StrictPositiveDecimal
 
 FractionDecimal = Decimal
+
+
+def _sum_decimal(values: tuple[Decimal, ...]) -> Decimal:
+    with localcontext() as context:
+        context.prec = max(context.prec, 80)
+        total = sum(values, Decimal("0"))
+    return +total
 
 
 class TradeSimulationConfig(DomainModel):
@@ -110,15 +117,15 @@ class TradeSimulationResult(DomainModel):
     def validate_result_accounting(self) -> TradeSimulationResult:
         if self.equity_curve[-1].equity != self.final_equity:
             raise ValueError("final equity must equal the last equity-curve point")
-        expected_final_equity = self.starting_equity + sum(
-            (trade.net_pnl for trade in self.trades), Decimal("0")
+        expected_final_equity = self.starting_equity + _sum_decimal(
+            tuple(trade.net_pnl for trade in self.trades)
         )
         if self.final_equity != expected_final_equity:
             raise ValueError("final equity must equal starting equity plus net trade P&L")
-        if self.total_fees != sum((trade.fees for trade in self.trades), Decimal("0")):
+        if self.total_fees != _sum_decimal(tuple(trade.fees for trade in self.trades)):
             raise ValueError("total fees must equal the trade ledger")
-        if self.total_slippage_cost != sum(
-            (trade.slippage_cost for trade in self.trades), Decimal("0")
+        if self.total_slippage_cost != _sum_decimal(
+            tuple(trade.slippage_cost for trade in self.trades)
         ):
             raise ValueError("total slippage must equal the trade ledger")
         return self
@@ -486,12 +493,19 @@ def simulate_cached_signals(
             )
         )
 
+    ledger_final_equity = config.starting_equity + _sum_decimal(
+        tuple(trade.net_pnl for trade in trades)
+    )
+    # Reconcile accumulated Decimal rounding at the terminal ledger boundary.
+    cash = ledger_final_equity
+    equity_points[-1] = EquityPoint(timestamp=equity_points[-1].timestamp, equity=cash)
+
     return TradeSimulationResult(
         symbol=symbol,
         starting_equity=config.starting_equity,
         final_equity=cash,
-        total_fees=sum((trade.fees for trade in trades), Decimal("0")),
-        total_slippage_cost=sum((trade.slippage_cost for trade in trades), Decimal("0")),
+        total_fees=_sum_decimal(tuple(trade.fees for trade in trades)),
+        total_slippage_cost=_sum_decimal(tuple(trade.slippage_cost for trade in trades)),
         trades=tuple(trades),
         equity_curve=tuple(equity_points),
     )
