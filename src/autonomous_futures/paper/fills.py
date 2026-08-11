@@ -1,5 +1,7 @@
 """Paper-only deterministic fill calculations; no network or persistence."""
 
+from __future__ import annotations
+
 from decimal import Decimal
 from typing import Literal
 

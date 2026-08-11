@@ -54,6 +54,18 @@ uv lock --check:   passed
 git diff --check:  passed
 ```
 
+## Python 3.11 compatibility follow-up
+
+The bare global full suite remains invalid because it lacks `pyarrow`, but its
+collection exposed one independent paper-module defect: Python 3.11 evaluated
+the `PaperRoundTripResult` self-return annotation during class creation. Adding
+`from __future__ import annotations` fixes that import-time error.
+
+```text
+bare tests/unit/test_paper_fills.py: 3 passed
+locked full suite after fix:          498 passed
+```
+
 ## Scope and safety
 
 No ledger, database, scheduler, service, API, position lifecycle, paper
