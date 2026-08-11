@@ -11,7 +11,14 @@ from ..data.parquet import DataQualityError, canonicalize_bars
 from .creator_artifacts import CreatorCandidateArtifact
 
 _SUPPORTED_FEATURES = frozenset(
-    {"returns", "ema_slope", "donchian_high", "donchian_low", "regime_trend"}
+    {
+        "returns",
+        "ema_slope",
+        "donchian_high",
+        "donchian_low",
+        "bollinger_zscore",
+        "regime_trend",
+    }
 )
 _REQUIRED_OHLC = ("open", "high", "low", "close")
 _COMPARISON = re.compile(
@@ -70,6 +77,10 @@ def _feature_series(
         raw = high.rolling(window=lookback, min_periods=lookback).max()
     elif name == "donchian_low":
         raw = low.rolling(window=lookback, min_periods=lookback).min()
+    elif name == "bollinger_zscore":
+        mean = close.rolling(window=lookback, min_periods=lookback).mean()
+        standard_deviation = close.rolling(window=lookback, min_periods=lookback).std(ddof=0)
+        raw = (close - mean).div(standard_deviation.mask(standard_deviation == 0))
     else:
         ema = close.ewm(span=lookback, adjust=False, min_periods=lookback).mean()
         slope = ema.diff()

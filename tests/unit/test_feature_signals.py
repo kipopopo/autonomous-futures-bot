@@ -108,6 +108,26 @@ def test_supported_features_are_prior_bar_only_and_input_is_unchanged() -> None:
     pd.testing.assert_frame_equal(source, before)
 
 
+def test_bollinger_zscore_is_supported_and_uses_only_prior_bars() -> None:
+    candidate = _candidate(
+        feature_names=("bollinger_zscore",),
+        long_expression="bollinger_zscore < -1",
+        short_expression="bollinger_zscore > 1",
+    )
+    source = _frame()
+    mutated = source.copy(deep=True)
+    mutated.loc[8, "close"] = Decimal("9999")
+    mutated.loc[8, "high"] = Decimal("10000")
+
+    original = CausalFeatureSignalEvaluator().evaluate(candidate, source)
+    changed = CausalFeatureSignalEvaluator().evaluate(candidate, mutated)
+
+    assert "bollinger_zscore" in original.columns
+    assert original.loc[8, "bollinger_zscore"] == changed.loc[8, "bollinger_zscore"]
+    assert original.loc[8, "signal"] == changed.loc[8, "signal"]
+    pd.testing.assert_frame_equal(source, _frame())
+
+
 def test_signal_entries_are_fresh_states_not_repeated_or_neutral_reversals() -> None:
     candidate = _candidate()
     result = CausalFeatureSignalEvaluator().evaluate(candidate, _frame())
