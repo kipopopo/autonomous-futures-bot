@@ -47,6 +47,7 @@ from .collection import (
     read_collection_manifest,
     write_collection_manifest,
 )
+from .derivative_collection import collect_mark_price_artifact
 from .derivatives_artifacts import (
     DerivativesArtifactManifest,
     read_derivatives_artifact_manifest,
@@ -149,6 +150,7 @@ __all__ = [
     "canonicalize_bars",
     "canonicalize_funding_rows",
     "canonicalize_mark_price_klines",
+    "collect_mark_price_artifact",
     "build_exchange_filter_snapshot",
     "classify_public_transport_error",
     "describe_data_file",
