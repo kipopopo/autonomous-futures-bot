@@ -16,7 +16,7 @@ contracts.
 | Dataset bundle | `d75de67e440d1caa9f33af05647cb782893b93c3a167836d93087981ab3edc95` |
 | Components | 13: 6 kline, 3 mark-price, 3 funding, 1 exchange-filter |
 | Bundle range | `2023-10-31T08:00:00Z` → `2023-11-10T03:40:00Z` |
-| Mark rows | 90,188 per BTCUSDT/ETHUSDT/SOLUSDT |
+| Mark rows | `2,828` per BTCUSDT/ETHUSDT/SOLUSDT |
 
 The registry and bundle were read back through their hash-verifying readers.
 Generated remote artifacts are under the ignored `research/immutable-data/`
