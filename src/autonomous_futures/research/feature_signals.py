@@ -18,6 +18,7 @@ _SUPPORTED_FEATURES = frozenset(
         "donchian_low",
         "bollinger_zscore",
         "rsi",
+        "adx",
         "regime_trend",
     }
 )
@@ -95,6 +96,24 @@ def _feature_series(
         relative_strength = gain.div(loss)
         raw = 100 - (100 / (1 + relative_strength))
         raw = raw.mask((gain == 0) & (loss == 0), 50).mask((loss == 0) & (gain > 0), 100)
+    elif name == "adx":
+        upward_move = high.diff()
+        downward_move = -low.diff()
+        plus_dm = upward_move.where((upward_move > downward_move) & (upward_move > 0), 0)
+        minus_dm = downward_move.where((downward_move > upward_move) & (downward_move > 0), 0)
+        true_range = pd.concat(
+            [(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
+        ).max(axis=1)
+        atr = true_range.ewm(alpha=1 / lookback, adjust=False, min_periods=lookback).mean()
+        plus_di = 100 * plus_dm.ewm(
+            alpha=1 / lookback, adjust=False, min_periods=lookback
+        ).mean().div(atr)
+        minus_di = 100 * minus_dm.ewm(
+            alpha=1 / lookback, adjust=False, min_periods=lookback
+        ).mean().div(atr)
+        directional_sum = (plus_di + minus_di).replace(0, float("nan"))
+        dx = 100 * (plus_di - minus_di).abs().div(directional_sum)
+        raw = dx.ewm(alpha=1 / lookback, adjust=False, min_periods=lookback).mean().fillna(0)
     else:
         ema = close.ewm(span=lookback, adjust=False, min_periods=lookback).mean()
         slope = ema.diff()
