@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from ..domain.contracts import DomainModel, StrictNonNegativeDecimal, StrictPositiveDecimal
-from .trade_simulation import EquityPoint, TradeSimulationResult
+from .trade_simulation import EquityPoint, TradeSimulationResult, _net_decimal
 
 
 class TradePerformanceMetrics(DomainModel):
@@ -89,7 +89,7 @@ def calculate_performance_metrics(result: TradeSimulationResult) -> TradePerform
     breakeven_trades = sum(pnl == 0 for pnl in net_pnls)
     gross_profit = _sum_decimal(tuple(pnl for pnl in net_pnls if pnl > 0))
     gross_loss = _sum_decimal(tuple(-pnl for pnl in net_pnls if pnl < 0))
-    net_pnl = _sum_decimal(net_pnls)
+    net_pnl = _net_decimal(net_pnls)
     peak_equity = max((result.starting_equity, *(point.equity for point in result.equity_curve)))
     max_drawdown = _max_drawdown(result.starting_equity, result.equity_curve)
     return TradePerformanceMetrics(

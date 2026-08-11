@@ -22,6 +22,12 @@ def _sum_decimal(values: tuple[Decimal, ...]) -> Decimal:
     return +total
 
 
+def _net_decimal(values: tuple[Decimal, ...]) -> Decimal:
+    return _sum_decimal(tuple(value for value in values if value > 0)) - _sum_decimal(
+        tuple(-value for value in values if value < 0)
+    )
+
+
 class TradeSimulationConfig(DomainModel):
     """Deterministic unlevered research costs and protective risk for one window."""
 
@@ -117,7 +123,7 @@ class TradeSimulationResult(DomainModel):
     def validate_result_accounting(self) -> TradeSimulationResult:
         if self.equity_curve[-1].equity != self.final_equity:
             raise ValueError("final equity must equal the last equity-curve point")
-        expected_final_equity = self.starting_equity + _sum_decimal(
+        expected_final_equity = self.starting_equity + _net_decimal(
             tuple(trade.net_pnl for trade in self.trades)
         )
         if self.final_equity != expected_final_equity:
@@ -493,7 +499,7 @@ def simulate_cached_signals(
             )
         )
 
-    ledger_final_equity = config.starting_equity + _sum_decimal(
+    ledger_final_equity = config.starting_equity + _net_decimal(
         tuple(trade.net_pnl for trade in trades)
     )
     # Reconcile accumulated Decimal rounding at the terminal ledger boundary.

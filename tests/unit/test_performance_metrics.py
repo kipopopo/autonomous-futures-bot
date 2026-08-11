@@ -162,6 +162,22 @@ def test_metrics_reconcile_repeated_realistic_decimal_trades() -> None:
         assert metrics.net_pnl == metrics.gross_profit - metrics.gross_loss
 
 
+def test_metrics_canonicalize_mixed_sign_decimal_sums() -> None:
+    values = (
+        "0.1234567890123456789012345678",
+        "-0.9876543210987654321098765432",
+        "0.2222222222222222222222222222",
+        "-0.1111111111111111111111111111",
+        "0.3333333333333333333333333333",
+    )
+    signed_sum = sum((Decimal(value) for value in values), Decimal("0"))
+    result = _result(pnl_values=values, equity_values=("100", str(Decimal("100") + signed_sum)))
+
+    metrics = calculate_performance_metrics(result)
+
+    assert metrics.net_pnl == metrics.gross_profit - metrics.gross_loss
+
+
 def test_metric_contract_rejects_inconsistent_trade_buckets() -> None:
     with pytest.raises(ValidationError):
         TradePerformanceMetrics(
