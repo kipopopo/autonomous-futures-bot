@@ -24,6 +24,11 @@ The pinned SSH command did not reach a remote shell, so this is transport
 unavailability rather than an authentication, repository, Python, feature, or
 qualification result.
 
+The user confirmed the operational cause: the current FELDA internet connection
+blocks outbound access to the Kainode VPS IP. This explains the ICMP/TCP/SSH
+symptoms but does not change the evidence decision; the remote worker remains
+unavailable from this network.
+
 ## Phase 6S impact
 
 ```text
@@ -57,6 +62,6 @@ paper_activation:     false
 execution_authority:  false
 ```
 
-Next action is provider-console/network recovery and a fresh pinned SSH
-preflight. Do not retry the Phase 6S cohort until transport and exact-commit
-synchronization are verified.
+Next action is to switch to an allowed network path (for example, an approved
+alternative connection) and run a fresh pinned SSH preflight. Do not retry the
+Phase 6S cohort until transport and exact-commit synchronization are verified.
