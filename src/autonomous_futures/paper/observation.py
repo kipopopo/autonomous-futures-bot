@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal, localcontext
+from typing import Literal
 
 from pydantic import Field, TypeAdapter, field_validator
 
@@ -26,9 +27,9 @@ class PaperObservation(DomainModel):
     cumulative_fees: StrictNonNegativeDecimal
     cumulative_slippage: StrictNonNegativeDecimal
     accounting_complete: bool
-    paper_activation: bool = False
-    execution_authority: bool = False
-    exchange_access: bool = False
+    paper_activation: Literal[False] = False
+    execution_authority: Literal[False] = False
+    exchange_access: Literal[False] = False
     reason_codes: tuple[str, ...] = Field(min_length=1)
 
     @field_validator("observed_at")
