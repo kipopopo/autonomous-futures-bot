@@ -75,3 +75,23 @@ def test_observation_inspect_cli_rejects_malformed_candidate_binding(tmp_path, c
         "error_code": "invalid_input",
         "status": "error",
     }
+
+
+def test_observation_inspect_cli_does_not_create_absent_journal(tmp_path, capsys) -> None:
+    from autonomous_futures.paper.observation_inspect_cli import main
+
+    path = tmp_path / "absent.sqlite3"
+    exit_code = main(
+        [
+            "--observation-path",
+            str(path),
+            "--candidate-id",
+            "cand-scope-rsi-adx-001",
+            "--candidate-artifact-hash",
+            "a" * 64,
+        ]
+    )
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "unavailable"}
+    assert not path.exists()
