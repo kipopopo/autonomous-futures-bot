@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
-from ..domain.contracts import DomainModel, StrictPositiveDecimal
+from ..domain.contracts import DomainModel, StrictNonNegativeDecimal, StrictPositiveDecimal
 
 
 class PaperLedgerError(ValueError):
@@ -24,6 +25,11 @@ class PaperLedgerEntry(DomainModel):
     quantity: StrictPositiveDecimal
     fill_price: StrictPositiveDecimal
     occurred_at: datetime
+    entry_fee: StrictNonNegativeDecimal | None = None
+    exit_fee: StrictNonNegativeDecimal | None = None
+    slippage_cost: StrictNonNegativeDecimal | None = None
+    gross_pnl: Decimal | None = None
+    net_pnl: Decimal | None = None
 
     @field_validator("occurred_at")
     @classmethod
@@ -31,6 +37,31 @@ class PaperLedgerEntry(DomainModel):
         if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
             raise ValueError("paper ledger timestamps must be timezone-aware UTC")
         return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def close_accounting_is_complete(self) -> PaperLedgerEntry:
+        accounting = (
+            self.entry_fee,
+            self.exit_fee,
+            self.slippage_cost,
+            self.gross_pnl,
+            self.net_pnl,
+        )
+        if self.event == "open" and any(value is not None for value in accounting):
+            raise ValueError("paper open must not include close accounting")
+        if self.event == "close":
+            if any(value is None for value in accounting):
+                raise ValueError("paper close requires complete accounting")
+            assert self.entry_fee is not None
+            assert self.exit_fee is not None
+            assert self.slippage_cost is not None
+            assert self.gross_pnl is not None
+            assert self.net_pnl is not None
+            if not self.gross_pnl.is_finite() or not self.net_pnl.is_finite():
+                raise ValueError("paper P&L must be finite")
+            if self.net_pnl != self.gross_pnl - self.entry_fee - self.exit_fee:
+                raise ValueError("paper net P&L must include all fees")
+        return self
 
 
 class PaperLedger:

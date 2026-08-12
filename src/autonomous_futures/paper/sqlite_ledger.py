@@ -29,10 +29,21 @@ class SqlitePaperLedger:
                 side TEXT NOT NULL,
                 quantity TEXT NOT NULL,
                 fill_price TEXT NOT NULL,
-                occurred_at TEXT NOT NULL
+                occurred_at TEXT NOT NULL,
+                entry_fee TEXT,
+                exit_fee TEXT,
+                slippage_cost TEXT,
+                gross_pnl TEXT,
+                net_pnl TEXT
             )
             """
         )
+        existing_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(paper_ledger_events)")
+        }
+        for column in ("entry_fee", "exit_fee", "slippage_cost", "gross_pnl", "net_pnl"):
+            if column not in existing_columns:
+                connection.execute(f"ALTER TABLE paper_ledger_events ADD COLUMN {column} TEXT")
         return connection
 
     @staticmethod
@@ -48,39 +59,41 @@ class SqlitePaperLedger:
                 "quantity": Decimal(str(row[6])),
                 "fill_price": Decimal(str(row[7])),
                 "occurred_at": row[8],
+                "entry_fee": None if row[9] is None else Decimal(str(row[9])),
+                "exit_fee": None if row[10] is None else Decimal(str(row[10])),
+                "slippage_cost": None if row[11] is None else Decimal(str(row[11])),
+                "gross_pnl": None if row[12] is None else Decimal(str(row[12])),
+                "net_pnl": None if row[13] is None else Decimal(str(row[13])),
             }
         )
 
+    def _entries(self, connection: sqlite3.Connection) -> tuple[PaperLedgerEntry, ...]:
+        rows = connection.execute(
+            """
+            SELECT event, trade_id, candidate_id, candidate_artifact_hash, symbol,
+                   side, quantity, fill_price, occurred_at, entry_fee, exit_fee,
+                   slippage_cost, gross_pnl, net_pnl
+            FROM paper_ledger_events
+            ORDER BY sequence
+            """
+        ).fetchall()
+        return tuple(self._entry(row) for row in rows)
+
     def load(self) -> PaperLedger:
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT event, trade_id, candidate_id, candidate_artifact_hash, symbol,
-                       side, quantity, fill_price, occurred_at
-                FROM paper_ledger_events
-                ORDER BY sequence
-                """
-            ).fetchall()
-        return PaperLedger(tuple(self._entry(row) for row in rows))
+            return PaperLedger(self._entries(connection))
 
     def append(self, entry: PaperLedgerEntry) -> None:
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT event, trade_id, candidate_id, candidate_artifact_hash, symbol,
-                       side, quantity, fill_price, occurred_at
-                FROM paper_ledger_events
-                ORDER BY sequence
-                """
-            ).fetchall()
-            ledger = PaperLedger(tuple(self._entry(row) for row in rows))
+            ledger = PaperLedger(self._entries(connection))
             ledger.append(entry)
             connection.execute(
                 """
                 INSERT INTO paper_ledger_events (
                     event, trade_id, candidate_id, candidate_artifact_hash, symbol,
-                    side, quantity, fill_price, occurred_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    side, quantity, fill_price, occurred_at, entry_fee, exit_fee,
+                    slippage_cost, gross_pnl, net_pnl
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entry.event,
@@ -92,5 +105,10 @@ class SqlitePaperLedger:
                     str(entry.quantity),
                     str(entry.fill_price),
                     entry.occurred_at.isoformat(),
+                    None if entry.entry_fee is None else str(entry.entry_fee),
+                    None if entry.exit_fee is None else str(entry.exit_fee),
+                    None if entry.slippage_cost is None else str(entry.slippage_cost),
+                    None if entry.gross_pnl is None else str(entry.gross_pnl),
+                    None if entry.net_pnl is None else str(entry.net_pnl),
                 ),
             )

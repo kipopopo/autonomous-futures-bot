@@ -33,6 +33,11 @@ def _close() -> PaperLedgerEntry:
         quantity=Decimal("0.1"),
         fill_price=Decimal("110"),
         occurred_at=datetime(2026, 8, 11, 1, tzinfo=UTC),
+        entry_fee=Decimal("0.01"),
+        exit_fee=Decimal("0.02"),
+        slippage_cost=Decimal("0.02"),
+        gross_pnl=Decimal("1"),
+        net_pnl=Decimal("0.97"),
     )
 
 
