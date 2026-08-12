@@ -39,7 +39,7 @@ class PaperLedgerEntry(DomainModel):
         return value.astimezone(UTC)
 
     @model_validator(mode="after")
-    def close_accounting_is_complete(self) -> PaperLedgerEntry:
+    def accounting_is_complete(self) -> PaperLedgerEntry:
         accounting = (
             self.entry_fee,
             self.exit_fee,
@@ -47,8 +47,11 @@ class PaperLedgerEntry(DomainModel):
             self.gross_pnl,
             self.net_pnl,
         )
-        if self.event == "open" and any(value is not None for value in accounting):
-            raise ValueError("paper open must not include close accounting")
+        if self.event == "open":
+            if any(value is not None for value in (self.exit_fee, self.gross_pnl, self.net_pnl)):
+                raise ValueError("paper open must not include close accounting")
+            if (self.entry_fee is None) != (self.slippage_cost is None):
+                raise ValueError("paper open requires complete entry accounting")
         if self.event == "close":
             if any(value is None for value in accounting):
                 raise ValueError("paper close requires complete accounting")

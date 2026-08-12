@@ -101,12 +101,18 @@ def observe_paper_ledger(
         )
     )
     exposure = _sum(tuple(marks[entry.symbol] * entry.quantity for entry in opens))
-    equity = starting + realized + unrealized
+    open_fees = _sum(tuple(entry.entry_fee for entry in opens if entry.entry_fee is not None))
+    open_slippage = _sum(
+        tuple(entry.slippage_cost for entry in opens if entry.slippage_cost is not None)
+    )
+    equity = starting + realized + unrealized - open_fees
     peak = max(starting, previous_peak, equity)
     with localcontext() as context:
         context.prec = max(context.prec, 80)
         drawdown = min(Decimal("0"), (equity - peak) / peak)
-    complete = not opens
+    complete = all(
+        entry.entry_fee is not None and entry.slippage_cost is not None for entry in opens
+    )
     return PaperObservation(
         candidate_id=candidate_id,
         candidate_artifact_hash=candidate_artifact_hash,
@@ -118,8 +124,8 @@ def observe_paper_ledger(
         drawdown_pct=drawdown,
         open_position_count=len(opens),
         quote_exposure=exposure,
-        cumulative_fees=fees,
-        cumulative_slippage=slippage,
+        cumulative_fees=fees + open_fees,
+        cumulative_slippage=slippage + open_slippage,
         accounting_complete=complete,
         reason_codes=(
             ("paper_observation_complete",)
