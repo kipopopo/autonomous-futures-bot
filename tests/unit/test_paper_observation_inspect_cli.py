@@ -54,3 +54,24 @@ def test_observation_inspect_cli_prints_latest_snapshot(tmp_path, capsys) -> Non
     assert payload["execution_authority"] is False
     assert payload["exchange_access"] is False
     assert len(SqlitePaperObservations(path).read("cand-scope-rsi-adx-001", "a" * 64)) == 2
+
+
+def test_observation_inspect_cli_rejects_malformed_candidate_binding(tmp_path, capsys) -> None:
+    from autonomous_futures.paper.observation_inspect_cli import main
+
+    exit_code = main(
+        [
+            "--observation-path",
+            str(tmp_path / "observations.sqlite3"),
+            "--candidate-id",
+            "not-a-candidate",
+            "--candidate-artifact-hash",
+            "not-a-hash",
+        ]
+    )
+
+    assert exit_code == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "error_code": "invalid_input",
+        "status": "error",
+    }

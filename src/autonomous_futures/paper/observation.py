@@ -39,6 +39,11 @@ class PaperObservation(DomainModel):
         return value.astimezone(UTC)
 
 
+class PaperObservationBinding(DomainModel):
+    candidate_id: str = Field(pattern=r"^cand-[a-z0-9][a-z0-9-]{0,63}$")
+    candidate_artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 def _sum(values: tuple[Decimal, ...]) -> Decimal:
     with localcontext() as context:
         context.prec = max(context.prec, 80)

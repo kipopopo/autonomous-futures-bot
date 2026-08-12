@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .observation import observe_paper_ledger
+from .observation import PaperObservationBinding, observe_paper_ledger
 from .sqlite_ledger import SqlitePaperLedger
 from .sqlite_observation import SqlitePaperObservations
 
@@ -70,10 +70,14 @@ def _print_json(payload: dict[str, object]) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        snapshot = observe_paper_ledger(
-            SqlitePaperLedger(args.ledger_path).load(),
+        binding = PaperObservationBinding(
             candidate_id=args.candidate_id,
             candidate_artifact_hash=args.candidate_artifact_hash,
+        )
+        snapshot = observe_paper_ledger(
+            SqlitePaperLedger(args.ledger_path).load(),
+            candidate_id=binding.candidate_id,
+            candidate_artifact_hash=binding.candidate_artifact_hash,
             starting_equity=_parse_decimal(args.starting_equity),
             previous_peak_equity=_parse_decimal(args.previous_peak_equity),
             mark_prices=_load_marks(args.marks_path),

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from .observation import PaperObservationBinding
 from .sqlite_observation import SqlitePaperObservations
 
 
@@ -26,8 +27,12 @@ def _print_json(payload: dict[str, object]) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        binding = PaperObservationBinding(
+            candidate_id=args.candidate_id,
+            candidate_artifact_hash=args.candidate_artifact_hash,
+        )
         observations = SqlitePaperObservations(args.observation_path).read(
-            args.candidate_id, args.candidate_artifact_hash
+            binding.candidate_id, binding.candidate_artifact_hash
         )
     except (OSError, ValidationError, ValueError) as exc:
         del exc
