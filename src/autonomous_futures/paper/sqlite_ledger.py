@@ -80,6 +80,8 @@ class SqlitePaperLedger:
         return tuple(self._entry(row) for row in rows)
 
     def load(self) -> PaperLedger:
+        if not self._path.exists():
+            return PaperLedger()
         with self._connect() as connection:
             return PaperLedger(self._entries(connection))
 

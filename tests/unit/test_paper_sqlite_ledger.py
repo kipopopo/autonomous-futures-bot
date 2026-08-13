@@ -74,3 +74,10 @@ def test_sqlite_paper_ledger_rejects_invalid_duplicate_open_without_persisting_i
         storage.append(_open(trade_id="paper-002"))
 
     assert storage.load().entries == (_open(),)
+
+
+def test_sqlite_paper_ledger_loads_absent_path_without_creating_it(tmp_path: Path) -> None:
+    path = tmp_path / "absent-paper-ledger.sqlite3"
+
+    assert SqlitePaperLedger(path).load().entries == ()
+    assert not path.exists()
