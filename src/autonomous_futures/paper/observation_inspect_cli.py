@@ -31,9 +31,6 @@ def main(argv: list[str] | None = None) -> int:
             candidate_id=args.candidate_id,
             candidate_artifact_hash=args.candidate_artifact_hash,
         )
-        if not args.observation_path.exists():
-            _print_json({"status": "unavailable"})
-            return 0
         observations = SqlitePaperObservations(args.observation_path).read(
             binding.candidate_id, binding.candidate_artifact_hash
         )

@@ -57,3 +57,10 @@ def test_sqlite_paper_observations_preserve_incomplete_snapshot_as_diagnostic_ev
         incomplete,
         complete,
     )
+
+
+def test_sqlite_paper_observations_read_absent_path_without_creating_it(tmp_path: Path) -> None:
+    path = tmp_path / "absent-paper-observations.sqlite3"
+
+    assert SqlitePaperObservations(path).read(CANDIDATE_ID, CANDIDATE_HASH) == ()
+    assert not path.exists()

@@ -46,6 +46,8 @@ class SqlitePaperObservations:
             )
 
     def read(self, candidate_id: str, candidate_artifact_hash: str) -> tuple[PaperObservation, ...]:
+        if not self._path.exists():
+            return ()
         with self._connect() as connection:
             rows = connection.execute(
                 """
