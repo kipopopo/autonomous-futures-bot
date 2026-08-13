@@ -28,4 +28,11 @@ def test_sqlite_paper_ledger_adds_accounting_columns_to_legacy_event_table(tmp_p
 
     with sqlite3.connect(path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(paper_ledger_events)")}
-    assert {"entry_fee", "exit_fee", "slippage_cost", "gross_pnl", "net_pnl"} <= columns
+    assert {
+        "approval_id",
+        "entry_fee",
+        "exit_fee",
+        "slippage_cost",
+        "gross_pnl",
+        "net_pnl",
+    } <= columns

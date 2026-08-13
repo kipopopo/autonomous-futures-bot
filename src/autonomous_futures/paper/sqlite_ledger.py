@@ -30,6 +30,7 @@ class SqlitePaperLedger:
                 quantity TEXT NOT NULL,
                 fill_price TEXT NOT NULL,
                 occurred_at TEXT NOT NULL,
+                approval_id TEXT,
                 entry_fee TEXT,
                 exit_fee TEXT,
                 slippage_cost TEXT,
@@ -41,7 +42,14 @@ class SqlitePaperLedger:
         existing_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(paper_ledger_events)")
         }
-        for column in ("entry_fee", "exit_fee", "slippage_cost", "gross_pnl", "net_pnl"):
+        for column in (
+            "approval_id",
+            "entry_fee",
+            "exit_fee",
+            "slippage_cost",
+            "gross_pnl",
+            "net_pnl",
+        ):
             if column not in existing_columns:
                 connection.execute(f"ALTER TABLE paper_ledger_events ADD COLUMN {column} TEXT")
         return connection
@@ -59,11 +67,12 @@ class SqlitePaperLedger:
                 "quantity": Decimal(str(row[6])),
                 "fill_price": Decimal(str(row[7])),
                 "occurred_at": row[8],
-                "entry_fee": None if row[9] is None else Decimal(str(row[9])),
-                "exit_fee": None if row[10] is None else Decimal(str(row[10])),
-                "slippage_cost": None if row[11] is None else Decimal(str(row[11])),
-                "gross_pnl": None if row[12] is None else Decimal(str(row[12])),
-                "net_pnl": None if row[13] is None else Decimal(str(row[13])),
+                "approval_id": row[9],
+                "entry_fee": None if row[10] is None else Decimal(str(row[10])),
+                "exit_fee": None if row[11] is None else Decimal(str(row[11])),
+                "slippage_cost": None if row[12] is None else Decimal(str(row[12])),
+                "gross_pnl": None if row[13] is None else Decimal(str(row[13])),
+                "net_pnl": None if row[14] is None else Decimal(str(row[14])),
             }
         )
 
@@ -71,7 +80,7 @@ class SqlitePaperLedger:
         rows = connection.execute(
             """
             SELECT event, trade_id, candidate_id, candidate_artifact_hash, symbol,
-                   side, quantity, fill_price, occurred_at, entry_fee, exit_fee,
+                   side, quantity, fill_price, occurred_at, approval_id, entry_fee, exit_fee,
                    slippage_cost, gross_pnl, net_pnl
             FROM paper_ledger_events
             ORDER BY sequence
@@ -93,9 +102,9 @@ class SqlitePaperLedger:
                 """
                 INSERT INTO paper_ledger_events (
                     event, trade_id, candidate_id, candidate_artifact_hash, symbol,
-                    side, quantity, fill_price, occurred_at, entry_fee, exit_fee,
+                    side, quantity, fill_price, occurred_at, approval_id, entry_fee, exit_fee,
                     slippage_cost, gross_pnl, net_pnl
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entry.event,
@@ -107,6 +116,7 @@ class SqlitePaperLedger:
                     str(entry.quantity),
                     str(entry.fill_price),
                     entry.occurred_at.isoformat(),
+                    entry.approval_id,
                     None if entry.entry_fee is None else str(entry.entry_fee),
                     None if entry.exit_fee is None else str(entry.exit_fee),
                     None if entry.slippage_cost is None else str(entry.slippage_cost),

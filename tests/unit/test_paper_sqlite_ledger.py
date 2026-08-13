@@ -81,3 +81,13 @@ def test_sqlite_paper_ledger_loads_absent_path_without_creating_it(tmp_path: Pat
 
     assert SqlitePaperLedger(path).load().entries == ()
     assert not path.exists()
+
+
+def test_sqlite_paper_ledger_rehydrates_approval_id_for_replay_protection(tmp_path: Path) -> None:
+    path = tmp_path / "paper-ledger.sqlite3"
+    storage = SqlitePaperLedger(path)
+    storage.append(_open().model_copy(update={"approval_id": "approval-open-001"}))
+
+    rehydrated = storage.load()
+
+    assert rehydrated.entries[0].approval_id == "approval-open-001"

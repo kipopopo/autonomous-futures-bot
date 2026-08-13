@@ -1,7 +1,13 @@
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from autonomous_futures.domain.contracts import PaperExecutionRequest
-from autonomous_futures.paper.safety import PaperSafetyEvidence, evaluate_paper_safety
+from autonomous_futures.paper.safety import (
+    PaperActionApproval,
+    PaperSafetyEvidence,
+    evaluate_paper_action_permission,
+    evaluate_paper_safety,
+)
 
 
 def _request() -> PaperExecutionRequest:
@@ -63,3 +69,81 @@ def test_paper_safety_gate_blocks_evidence_for_another_candidate() -> None:
         "candidate_evidence_mismatch",
         "paper_activation_not_authorized",
     )
+
+
+def test_one_shot_approval_permits_only_the_bound_local_open_action() -> None:
+    approval = PaperActionApproval(
+        approval_id="approval-open-001",
+        candidate_id="cand-scope-rsi-adx-001",
+        candidate_artifact_hash="a" * 64,
+        trade_id="paper-001",
+        action="open",
+        approved_at=datetime(2026, 8, 13, tzinfo=UTC),
+        expires_at=datetime(2026, 8, 13, tzinfo=UTC) + timedelta(minutes=1),
+    )
+
+    decision = evaluate_paper_action_permission(
+        _request(),
+        _evidence(),
+        approval,
+        trade_id="paper-001",
+        action="open",
+        occurred_at=approval.approved_at,
+    )
+
+    assert decision.permitted is True
+    assert decision.paper_activation is False
+    assert decision.execution_authority is False
+    assert decision.exchange_access is False
+
+
+def test_one_shot_approval_blocks_expired_or_mismatched_local_action() -> None:
+    approval = PaperActionApproval(
+        approval_id="approval-open-001",
+        candidate_id="cand-scope-rsi-adx-001",
+        candidate_artifact_hash="a" * 64,
+        trade_id="paper-001",
+        action="open",
+        approved_at=datetime(2026, 8, 13, tzinfo=UTC),
+        expires_at=datetime(2026, 8, 13, tzinfo=UTC) + timedelta(minutes=1),
+    )
+
+    decision = evaluate_paper_action_permission(
+        _request(),
+        _evidence(),
+        approval,
+        trade_id="paper-002",
+        action="close",
+        occurred_at=approval.expires_at,
+    )
+
+    assert decision.permitted is False
+    assert decision.reason_codes == (
+        "approval_action_mismatch",
+        "approval_expired",
+        "approval_trade_mismatch",
+    )
+
+
+def test_one_shot_approval_blocks_action_before_approval_time() -> None:
+    approval = PaperActionApproval(
+        approval_id="approval-open-001",
+        candidate_id="cand-scope-rsi-adx-001",
+        candidate_artifact_hash="a" * 64,
+        trade_id="paper-001",
+        action="open",
+        approved_at=datetime(2026, 8, 13, tzinfo=UTC),
+        expires_at=datetime(2026, 8, 13, tzinfo=UTC) + timedelta(minutes=1),
+    )
+
+    decision = evaluate_paper_action_permission(
+        _request(),
+        _evidence(),
+        approval,
+        trade_id="paper-001",
+        action="open",
+        occurred_at=approval.approved_at - timedelta(microseconds=1),
+    )
+
+    assert decision.permitted is False
+    assert decision.reason_codes == ("approval_not_yet_valid",)

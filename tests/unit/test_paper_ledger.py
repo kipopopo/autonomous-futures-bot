@@ -67,3 +67,11 @@ def test_paper_ledger_close_removes_rehydrated_open_position_without_rewriting_h
 def test_paper_ledger_rejects_close_without_matching_open() -> None:
     with pytest.raises(PaperLedgerError, match="missing open"):
         PaperLedger((_close(),))
+
+
+def test_paper_ledger_rejects_reused_one_shot_approval_id() -> None:
+    approved_open = _open().model_copy(update={"approval_id": "approval-open-001"})
+    ledger = PaperLedger((approved_open,))
+
+    with pytest.raises(PaperLedgerError, match="reused paper approval ID"):
+        ledger.append(_close().model_copy(update={"approval_id": "approval-open-001"}))

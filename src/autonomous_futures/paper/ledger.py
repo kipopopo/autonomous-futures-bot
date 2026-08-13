@@ -25,6 +25,7 @@ class PaperLedgerEntry(DomainModel):
     quantity: StrictPositiveDecimal
     fill_price: StrictPositiveDecimal
     occurred_at: datetime
+    approval_id: str | None = Field(default=None, min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
     entry_fee: StrictNonNegativeDecimal | None = None
     exit_fee: StrictNonNegativeDecimal | None = None
     slippage_cost: StrictNonNegativeDecimal | None = None
@@ -74,6 +75,7 @@ class PaperLedger:
         self._entries: list[PaperLedgerEntry] = []
         self._open_by_trade_id: dict[str, PaperLedgerEntry] = {}
         self._open_by_candidate_symbol: dict[tuple[str, str], PaperLedgerEntry] = {}
+        self._approval_ids: set[str] = set()
         for entry in entries:
             self.append(entry)
 
@@ -85,6 +87,8 @@ class PaperLedger:
         return tuple(self._open_by_trade_id.values())
 
     def append(self, entry: PaperLedgerEntry) -> None:
+        if entry.approval_id is not None and entry.approval_id in self._approval_ids:
+            raise PaperLedgerError("reused paper approval ID")
         key = (entry.candidate_id, entry.symbol)
         if entry.event == "open":
             if key in self._open_by_candidate_symbol:
@@ -116,3 +120,5 @@ class PaperLedger:
             del self._open_by_trade_id[entry.trade_id]
             del self._open_by_candidate_symbol[key]
         self._entries.append(entry)
+        if entry.approval_id is not None:
+            self._approval_ids.add(entry.approval_id)
