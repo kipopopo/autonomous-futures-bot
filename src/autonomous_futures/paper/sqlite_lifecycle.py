@@ -61,19 +61,40 @@ class SqlitePaperLifecycle:
         candidate_artifact_hash: str,
         trade_id: str,
     ) -> tuple[PaperLifecycleTelemetry, ...]:
+        return self._read(
+            "candidate_id = ? AND candidate_artifact_hash = ? AND trade_id = ?",
+            (candidate_id, candidate_artifact_hash, trade_id),
+        )
+
+    def read_candidate(
+        self,
+        *,
+        candidate_id: str,
+        candidate_artifact_hash: str,
+    ) -> tuple[PaperLifecycleTelemetry, ...]:
+        return self._read(
+            "candidate_id = ? AND candidate_artifact_hash = ?",
+            (candidate_id, candidate_artifact_hash),
+        )
+
+    def _read(
+        self,
+        where: str,
+        parameters: tuple[str, ...],
+    ) -> tuple[PaperLifecycleTelemetry, ...]:
         if not self._path.exists():
             return ()
         with sqlite3.connect(self._path) as connection:
             if not self._has_table(connection):
                 return ()
             rows = connection.execute(
-                """
+                f"""
                 SELECT payload
                 FROM paper_lifecycle_marks
-                WHERE candidate_id = ? AND candidate_artifact_hash = ? AND trade_id = ?
+                WHERE {where}
                 ORDER BY sequence
                 """,
-                (candidate_id, candidate_artifact_hash, trade_id),
+                parameters,
             ).fetchall()
         return tuple(PaperLifecycleTelemetry.model_validate_json(row[0]) for row in rows)
 
