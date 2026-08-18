@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping
+from urllib.parse import urlencode
 
 from pydantic import Field
 
 from .domain.contracts import DomainModel
-from .testnet import TESTNET_REST_BASE_URL, classify_testnet_error
+from .testnet import TESTNET_REST_BASE_URL, classify_testnet_error, validate_testnet_rest_url
 
 
 class TestnetResponse(DomainModel):
@@ -16,10 +20,11 @@ class TestnetResponse(DomainModel):
 
 
 class TestnetExchangeSymbol(DomainModel):
-    symbol: str = Field(pattern=r"^[A-Z0-9]+$")
+    symbol: str = Field(min_length=1)
     status: str = Field(min_length=1)
     base_asset: str = Field(min_length=1)
     quote_asset: str = Field(min_length=1)
+    contract_type: str = Field(min_length=1)
 
 
 class TestnetExchangeInfo(DomainModel):
@@ -33,6 +38,38 @@ class TestnetReadOnlyError(ValueError):
 
 
 TestnetTransport = Callable[[str, str, dict[str, str]], TestnetResponse]
+
+
+def public_testnet_transport(
+    method: str,
+    url: str,
+    query: dict[str, str],
+) -> TestnetResponse:
+    """Perform one allow-listed public GET; it never retries or sends credentials."""
+    if method != "GET":
+        raise ValueError("public testnet transport permits GET only")
+    validated_url = validate_testnet_rest_url(url)
+    if query:
+        validated_url += "?" + urlencode(sorted(query.items()))
+    request = urllib.request.Request(
+        validated_url,
+        method="GET",
+        headers={"Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return TestnetResponse(
+                status_code=response.status,
+                body=json.loads(response.read().decode("utf-8")),
+            )
+    except urllib.error.HTTPError as exc:
+        try:
+            body: object = json.loads(exc.read().decode("utf-8"))
+        except json.JSONDecodeError:
+            body = {"msg": str(exc)}
+        except UnicodeDecodeError:
+            body = {"msg": str(exc)}
+        return TestnetResponse(status_code=exc.code, body=body)
 
 
 class TestnetReadOnlyClient:
@@ -82,6 +119,7 @@ class TestnetReadOnlyClient:
                         status=raw_symbol["status"],
                         base_asset=raw_symbol["baseAsset"],
                         quote_asset=raw_symbol["quoteAsset"],
+                        contract_type=raw_symbol["contractType"],
                     )
                 )
         except (KeyError, TypeError, ValueError) as exc:
@@ -94,6 +132,6 @@ class TestnetReadOnlyClient:
     def get_symbol(self, symbol: str) -> TestnetExchangeSymbol:
         info = self.get_exchange_info()
         for item in info.symbols:
-            if item.symbol == symbol:
+            if item.symbol == symbol and item.contract_type == "PERPETUAL":
                 return item
         raise ValueError(f"testnet symbol unavailable: {symbol}")
