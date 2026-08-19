@@ -103,3 +103,23 @@ def test_account_reconciliation_blocks_drift_and_unexpected_positions() -> None:
     assert result.missing_symbols == ("ETHUSDT",)
     assert result.unexpected_symbols == ("BTCUSDT",)
     assert result.reason_codes == ("testnet_account_position_drift",)
+
+
+def test_account_parser_accepts_position_rows_without_optional_price_fields() -> None:
+    from autonomous_futures.testnet_private import parse_testnet_account_snapshot
+
+    body = _account_body()
+    body["positions"] = [
+        {
+            "symbol": "BTCUSDT",
+            "positionAmt": "0.0008",
+            "positionSide": "BOTH",
+            "updateTime": 123,
+        }
+    ]
+
+    snapshot = parse_testnet_account_snapshot(body)
+
+    assert snapshot.positions[0].position_amt == Decimal("0.0008")
+    assert snapshot.positions[0].entry_price is None
+    assert snapshot.positions[0].mark_price is None

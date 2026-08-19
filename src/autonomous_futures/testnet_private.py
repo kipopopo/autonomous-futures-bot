@@ -28,14 +28,14 @@ class TestnetAccountAsset(DomainModel):
 class TestnetAccountPosition(DomainModel):
     symbol: str = Field(min_length=1)
     position_amt: Decimal
-    entry_price: Decimal
-    mark_price: Decimal
+    entry_price: Decimal | None
+    mark_price: Decimal | None
     position_side: Literal["BOTH", "LONG", "SHORT"]
 
     @field_validator("position_amt", "entry_price", "mark_price")
     @classmethod
-    def values_are_finite(cls, value: Decimal) -> Decimal:
-        if not value.is_finite():
+    def values_are_finite(cls, value: Decimal | None) -> Decimal | None:
+        if value is not None and not value.is_finite():
             raise ValueError("testnet account position values must be finite")
         return value
 
@@ -133,8 +133,12 @@ def parse_testnet_account_snapshot(body: Mapping[str, object]) -> TestnetAccount
             TestnetAccountPosition(
                 symbol=row["symbol"],
                 position_amt=_decimal(row["positionAmt"], "position amount"),
-                entry_price=_decimal(row["entryPrice"], "entry price"),
-                mark_price=_decimal(row["markPrice"], "mark price"),
+                entry_price=None
+                if "entryPrice" not in row
+                else _decimal(row["entryPrice"], "entry price"),
+                mark_price=None
+                if "markPrice" not in row
+                else _decimal(row["markPrice"], "mark price"),
                 position_side=row["positionSide"],
             )
             for row in raw_positions
