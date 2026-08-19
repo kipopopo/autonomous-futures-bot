@@ -6,6 +6,7 @@ import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -60,7 +61,7 @@ def create_testnet_activation_designation(
     designated_at: datetime,
     expires_at: datetime,
     symbol: str,
-    max_quote_notional: object,
+    max_quote_notional: Decimal,
 ) -> TestnetActivationDesignation:
     if review.decision != "accept_testnet_observation":
         raise ValueError("activation designation requires accepted testnet evidence review")
