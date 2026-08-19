@@ -23,8 +23,9 @@ def _inputs(**changes: object) -> dict[str, object]:
         "symbol_approved": True,
         "explicit_live_activation": True,
         "symbol": "BTCUSDT",
-        "max_quote_notional": Decimal("100"),
-        "max_daily_loss_quote": Decimal("5"),
+        "max_quote_notional_pct": Decimal("50"),
+        "max_capital_at_risk_pct": Decimal("1"),
+        "max_daily_loss_pct": Decimal("2"),
     }
     payload.update(changes)
     return payload

@@ -33,8 +33,9 @@ class LiveActivationReview(DomainModel):
     symbol_approved: bool
     explicit_live_activation: bool
     symbol: str = Field(pattern=r"^[A-Z0-9]+$")
-    max_quote_notional: StrictPositiveDecimal
-    max_daily_loss_quote: StrictPositiveDecimal
+    max_quote_notional_pct: StrictPositiveDecimal
+    max_capital_at_risk_pct: StrictPositiveDecimal
+    max_daily_loss_pct: StrictPositiveDecimal
     state: Literal["reviewed_not_activated"] = "reviewed_not_activated"
     live_enabled: Literal[False] = False
     network_allowed: Literal[False] = False
@@ -95,8 +96,9 @@ def create_live_activation_review(
     symbol_approved: bool,
     explicit_live_activation: bool,
     symbol: str,
-    max_quote_notional: Decimal,
-    max_daily_loss_quote: Decimal,
+    max_quote_notional_pct: Decimal,
+    max_capital_at_risk_pct: Decimal,
+    max_daily_loss_pct: Decimal,
 ) -> LiveActivationReview:
     review = LiveActivationReview.model_construct(
         review_id=review_id,
@@ -116,8 +118,9 @@ def create_live_activation_review(
         symbol_approved=symbol_approved,
         explicit_live_activation=explicit_live_activation,
         symbol=symbol,
-        max_quote_notional=max_quote_notional,
-        max_daily_loss_quote=max_daily_loss_quote,
+        max_quote_notional_pct=max_quote_notional_pct,
+        max_capital_at_risk_pct=max_capital_at_risk_pct,
+        max_daily_loss_pct=max_daily_loss_pct,
         state="reviewed_not_activated",
         live_enabled=False,
         network_allowed=False,
