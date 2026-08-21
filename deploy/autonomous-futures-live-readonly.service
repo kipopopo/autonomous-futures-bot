@@ -1,0 +1,21 @@
+[Unit]
+Description=Autonomous Futures Bot one-shot live read-only account reconciliation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=afbot-admin
+Group=afbot-admin
+WorkingDirectory=/opt/autonomous-futures-bot
+Environment=PYTHONPATH=/opt/autonomous-futures-bot/src
+ExecStart=/opt/autonomous-futures-bot/.venv/bin/python -m autonomous_futures.live_readonly_cli --token-db /var/lib/autonomous-futures/live-activation-tokens.sqlite3 --credential-dir ${CREDENTIALS_DIRECTORY}
+LoadCredentialEncrypted=BINANCE_LIVE_API_KEY:/etc/autonomous-futures/credentials/BINANCE_LIVE_API_KEY
+LoadCredentialEncrypted=BINANCE_LIVE_SECRET_KEY:/etc/autonomous-futures/credentials/BINANCE_LIVE_SECRET_KEY
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_INET AF_INET6
+Restart=no
+TimeoutStartSec=30
