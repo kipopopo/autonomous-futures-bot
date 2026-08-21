@@ -1,0 +1,21 @@
+[Unit]
+Description=Autonomous Futures Bot manual live preflight
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=afbot-admin
+Group=afbot-admin
+WorkingDirectory=/opt/autonomous-futures-bot
+Environment=PYTHONPATH=/opt/autonomous-futures-bot/src
+ExecStart=/opt/autonomous-futures-bot/.venv/bin/python -m autonomous_futures.live_preflight_cli --token-db /var/lib/autonomous-futures/live-activation-tokens.sqlite3 --credential-dir ${CREDENTIALS_DIRECTORY} --base-url https://fapi.binance.com
+LoadCredentialEncrypted=BINANCE_LIVE_API_KEY:/etc/autonomous-futures/credentials/BINANCE_LIVE_API_KEY
+LoadCredentialEncrypted=BINANCE_LIVE_SECRET_KEY:/etc/autonomous-futures/credentials/BINANCE_LIVE_SECRET_KEY
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX
+Restart=no
+TimeoutStartSec=60
