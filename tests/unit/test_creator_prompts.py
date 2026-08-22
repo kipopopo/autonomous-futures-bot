@@ -1,5 +1,9 @@
+from autonomous_futures.research.creator_failure_feedback import CreatorQualificationFailureFeedback
 from autonomous_futures.research.creator_generator import CreatorGenerationRequest
-from autonomous_futures.research.creator_prompts import build_creator_proposal_messages
+from autonomous_futures.research.creator_prompts import (
+    build_creator_proposal_messages,
+    build_creator_revision_messages,
+)
 
 
 def test_creator_prompt_contains_exact_schema_and_evidence_scope() -> None:
@@ -135,3 +139,42 @@ def test_creator_prompt_spells_out_signal_expression_grammar() -> None:
     assert "each condition must be feature_name operator numeric_threshold" in system_prompt
     assert "join conditions only with and or" in system_prompt
     assert "feature-to-feature comparisons are not allowed" in system_prompt
+
+
+def test_creator_revision_prompt_consumes_structured_failure_feedback() -> None:
+    request = CreatorGenerationRequest(
+        research_run_id="run-prompt-002",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=2,
+    )
+    feedback = CreatorQualificationFailureFeedback.model_validate(
+        {
+            "candidate_id": "cand-doge-trend-breakout-001",
+            "candidate_artifact_hash": "a" * 64,
+            "bundle_hash": "b" * 64,
+            "dataset_registry_hash": "c" * 64,
+            "qualification_hash": "d" * 64,
+            "qualification_policy_id": "policy-creator-001",
+            "failed_gates": [
+                {
+                    "gate_id": "oos_profit_factor_min",
+                    "passed": False,
+                    "observed": "0.97",
+                    "threshold": "1",
+                    "comparator": "gte",
+                    "reason_code": "oos_profit_factor_below_threshold",
+                }
+            ],
+            "failure_reason_codes": ["oos_profit_factor_below_threshold"],
+        }
+    )
+
+    messages = build_creator_revision_messages(
+        request, bundle_hash="b" * 64, symbol="DOGEUSDT", feedback=feedback
+    )
+
+    assert "cand-doge-trend-breakout-001" in messages[1]["content"]
+    assert "oos_profit_factor_min" in messages[1]["content"]
+    assert "oos_profit_factor_below_threshold" in messages[1]["content"]
+    assert "Do not relax qualification gates" in messages[1]["content"]

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 
+from .creator_failure_feedback import CreatorQualificationFailureFeedback
 from .creator_generator import CreatorGenerationRequest
 from .feature_signals import SUPPORTED_FEATURES
 
@@ -49,4 +51,44 @@ def build_creator_proposal_messages(
     )
 
 
-__all__ = ["build_creator_proposal_messages"]
+def build_creator_revision_messages(
+    request: CreatorGenerationRequest,
+    *,
+    bundle_hash: str,
+    symbol: str,
+    feedback: CreatorQualificationFailureFeedback,
+) -> tuple[Mapping[str, str], Mapping[str, str]]:
+    if feedback.bundle_hash != bundle_hash:
+        raise ValueError("failure feedback bundle does not match prompt bundle")
+    system, base_user = build_creator_proposal_messages(
+        request, bundle_hash=bundle_hash, symbol=symbol
+    )
+    failed_gates = [
+        {
+            "gate_id": gate.gate_id,
+            "reason_code": gate.reason_code,
+            "observed": str(gate.observed) if gate.observed is not None else None,
+            "threshold": str(gate.threshold) if gate.threshold is not None else None,
+            "comparator": gate.comparator,
+        }
+        for gate in feedback.failed_gates
+    ]
+    feedback_payload = json.dumps(
+        {
+            "candidate_id": feedback.candidate_id,
+            "qualification_hash": feedback.qualification_hash,
+            "failed_gates": failed_gates,
+            "failure_reason_codes": feedback.failure_reason_codes,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    revision_user = (
+        f"{base_user['content']} Previous candidate feedback={feedback_payload}. "
+        "Create a new candidate strategy_id; do not repeat the previous candidate. "
+        "Address the failed gates. Do not relax qualification gates."
+    )
+    return system, {"role": "user", "content": revision_user}
+
+
+__all__ = ["build_creator_proposal_messages", "build_creator_revision_messages"]
