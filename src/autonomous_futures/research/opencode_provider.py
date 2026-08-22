@@ -86,29 +86,37 @@ class OpenCodeJsonClient:
         temperature: float,
         max_output_tokens: int,
     ) -> Mapping[str, object]:
-        try:
-            response = self.client.post(
-                f"{self.config.base_url}/chat/completions",
-                headers={
-                    "Accept": "application/json",
-                    "Authorization": f"Bearer {self.config.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self.config.model_id,
-                    "messages": list(messages),
-                    "temperature": temperature,
-                    "max_tokens": max_output_tokens,
-                    "response_format": {"type": "json_object"},
-                },
-            )
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise ProviderTransportError(
-                "provider_http_error", metadata={"status_code": exc.response.status_code}
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise ProviderTransportError("provider_transport_error") from exc
+        response: httpx.Response | None = None
+        for attempt in range(2):
+            try:
+                response = self.client.post(
+                    f"{self.config.base_url}/chat/completions",
+                    headers={
+                        "Accept": "application/json",
+                        "Authorization": f"Bearer {self.config.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.config.model_id,
+                        "messages": list(messages),
+                        "temperature": temperature,
+                        "max_tokens": max_output_tokens,
+                        "response_format": {"type": "json_object"},
+                    },
+                )
+                response.raise_for_status()
+                break
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in {500, 502, 503, 504} and attempt == 0:
+                    # ponytail: one immediate retry; add backoff only if measured need exists.
+                    continue
+                raise ProviderTransportError(
+                    "provider_http_error", metadata={"status_code": exc.response.status_code}
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise ProviderTransportError("provider_transport_error") from exc
+        if response is None:
+            raise ProviderTransportError("provider_transport_error")
 
         try:
             body = response.json()
