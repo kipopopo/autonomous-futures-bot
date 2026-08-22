@@ -62,6 +62,7 @@ class OpenCodeJsonClient:
                     "messages": list(messages),
                     "temperature": temperature,
                     "max_tokens": max_output_tokens,
+                    "response_format": {"type": "json_object"},
                 },
             )
             response.raise_for_status()
@@ -73,7 +74,13 @@ class OpenCodeJsonClient:
         try:
             body = response.json()
             content = body["choices"][0]["message"]["content"]
-            payload = json.loads(content) if isinstance(content, str) else content
+            if isinstance(content, str):
+                normalized = content.strip()
+                if normalized.startswith("```json") and normalized.endswith("```"):
+                    normalized = normalized[len("```json") : -len("```")].strip()
+                payload = json.loads(normalized)
+            else:
+                payload = content
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise ProviderTransportError("provider_payload_invalid") from exc
         if not isinstance(payload, Mapping):

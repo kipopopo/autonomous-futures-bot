@@ -65,7 +65,9 @@ def test_opencode_client_posts_exact_model_and_returns_json_object() -> None:
     assert payload["proposal_id"] == "proposal-provider-001"
     assert captured[0].url == "https://provider.test/v1/chat/completions"
     assert captured[0].headers["authorization"] == "Bearer test-secret-not-real"
-    assert json.loads(captured[0].content)["model"] == "x-preview-f-free"
+    request_body = json.loads(captured[0].content)
+    assert request_body["model"] == "x-preview-f-free"
+    assert request_body["response_format"] == {"type": "json_object"}
 
 
 def test_opencode_client_hides_http_error_body() -> None:
@@ -81,6 +83,22 @@ def test_opencode_client_hides_http_error_body() -> None:
             )
 
     assert "SECRET_PROVIDER_RESPONSE" not in str(error.value)
+
+
+def test_opencode_client_accepts_one_fenced_json_object() -> None:
+    content = "```json\n" + json.dumps(_proposal("run-provider-001")) + "\n```"
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        payload = OpenCodeJsonClient(_config(), client=http_client).complete_json(
+            messages=({"role": "user", "content": "return JSON"},),
+            temperature=0.2,
+            max_output_tokens=100,
+        )
+
+    assert payload["proposal_id"] == "proposal-provider-001"
 
 
 def test_proposal_transport_connects_provider_to_existing_generator() -> None:
