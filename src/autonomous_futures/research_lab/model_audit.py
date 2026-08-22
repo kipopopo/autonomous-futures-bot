@@ -34,7 +34,7 @@ class ModelCallAudit(DomainModel):
     policy_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
     policy_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     provider: Literal["opencode"]
-    model_id: Literal["deepseek-v4-flash-free"]
+    model_id: Literal["x-preview-f-free"]
     prompt_template_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     system_policy_version: str = Field(min_length=1, max_length=64)
     input_evidence_refs: tuple[str, ...] = Field(min_length=1)
@@ -91,7 +91,7 @@ class ModelCallAudit(DomainModel):
         policy_id: str,
         policy_hash: str,
         provider: Literal["opencode"],
-        model_id: Literal["deepseek-v4-flash-free"],
+        model_id: Literal["x-preview-f-free"],
         prompt_template_hash: str,
         system_policy_version: str,
         input_evidence_refs: tuple[str, ...],

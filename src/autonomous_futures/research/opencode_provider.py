@@ -26,7 +26,7 @@ class ProviderTransportError(RuntimeError):
 class OpenCodeProviderConfig(DomainModel):
     base_url: str = Field(min_length=1)
     api_key: str = Field(min_length=1)
-    model_id: Literal["deepseek-v4-flash-free"] = "deepseek-v4-flash-free"
+    model_id: Literal["x-preview-f-free"] = "x-preview-f-free"
 
     @field_validator("base_url")
     @classmethod

@@ -19,7 +19,7 @@ def _success_kwargs() -> dict[str, object]:
         "policy_id": "research-model-policy-v1",
         "policy_hash": "a" * 64,
         "provider": "opencode",
-        "model_id": "deepseek-v4-flash-free",
+        "model_id": "x-preview-f-free",
         "prompt_template_hash": "b" * 64,
         "system_policy_version": "research-system-policy-v1",
         "input_evidence_refs": ("dataset-manifest:abc", "prior-failure:def"),
@@ -42,7 +42,7 @@ def test_successful_model_call_audit_binds_policy_and_hashes() -> None:
     assert audit.policy_id == "research-model-policy-v1"
     assert audit.policy_hash == "a" * 64
     assert audit.role == "hypothesis_generator"
-    assert (audit.provider, audit.model_id) == ("opencode", "deepseek-v4-flash-free")
+    assert (audit.provider, audit.model_id) == ("opencode", "x-preview-f-free")
     assert audit.prompt_template_hash == "b" * 64
     assert audit.input_evidence_refs == ("dataset-manifest:abc", "prior-failure:def")
     assert audit.output_schema_id == "hypothesis-v1"

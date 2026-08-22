@@ -34,7 +34,7 @@ The proposal remains aligned with the core constraints:
 - Research parallelism is bounded; account truth, risk authority, promotion, and order authority remain serial.
 - Kainode is the target only after hardening and benchmark verification.
 - Paper safety, immutable evidence, deterministic gates, reconciliation, and live-authorization separation remain explicit.
-- The OpenCode contract remains exact: `deepseek-v4-flash-free`, no silent fallback, and fail-closed behavior on unavailability.
+- The OpenCode contract remains exact: `x-preview-f-free`, no silent fallback, and fail-closed behavior on unavailability.
 
 The proposal was also corrected so the deployment model now says PostgreSQL 18 is a directly managed Kainode service; Docker Compose is only an optional local-development convenience.
 

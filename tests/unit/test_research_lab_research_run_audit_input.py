@@ -33,7 +33,7 @@ def _policy() -> ResearchModelPolicy:
             LLMRolePolicy(
                 role="hypothesis_generator",
                 provider="opencode",
-                model_id="deepseek-v4-flash-free",
+                model_id="x-preview-f-free",
                 temperature=Decimal("0.20"),
                 max_output_tokens=800,
                 max_requests_per_batch=4,
@@ -51,7 +51,7 @@ def _envelope(policy: ResearchModelPolicy) -> ResearchRunAuditEnvelope:
         policy_id=policy.policy_id,
         policy_hash=policy.policy_hash,
         provider="opencode",
-        model_id="deepseek-v4-flash-free",
+        model_id="x-preview-f-free",
         prompt_template_hash="b" * 64,
         system_policy_version="research-system-policy-v1",
         input_evidence_refs=("dataset-manifest:abc",),
@@ -113,7 +113,7 @@ def test_verified_research_run_audit_loader_rejects_valid_role_drift(
             LLMRolePolicy(
                 role="economic_critic",
                 provider="opencode",
-                model_id="deepseek-v4-flash-free",
+                model_id="x-preview-f-free",
                 temperature=Decimal("0.20"),
                 max_output_tokens=800,
                 max_requests_per_batch=4,

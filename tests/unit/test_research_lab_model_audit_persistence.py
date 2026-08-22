@@ -22,7 +22,7 @@ def _audit() -> ModelCallAudit:
         policy_id="research-model-policy-v1",
         policy_hash="a" * 64,
         provider="opencode",
-        model_id="deepseek-v4-flash-free",
+        model_id="x-preview-f-free",
         prompt_template_hash="b" * 64,
         system_policy_version="research-system-policy-v1",
         input_evidence_refs=("dataset-manifest:abc", "prior-failure:def"),

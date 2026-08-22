@@ -17,7 +17,7 @@ def _role(role: str) -> LLMRolePolicy:
     return LLMRolePolicy(
         role=role,
         provider="opencode",
-        model_id="deepseek-v4-flash-free",
+        model_id="x-preview-f-free",
         temperature=Decimal("0.20"),
         max_output_tokens=800,
         max_requests_per_batch=4,
@@ -44,7 +44,7 @@ def test_research_model_policy_is_pinned_sorted_and_canonically_hashed() -> None
         "strategy_spec_author",
     )
     assert {(role.provider, role.model_id) for role in policy.roles} == {
-        ("opencode", "deepseek-v4-flash-free")
+        ("opencode", "x-preview-f-free")
     }
     assert research_model_policy_content_hash(policy) == policy.policy_hash
     assert len(policy.policy_hash) == 64
@@ -64,7 +64,7 @@ def test_role_policy_rejects_invalid_budget_values(field: str, value: Decimal | 
     payload: dict[str, object] = {
         "role": "hypothesis_generator",
         "provider": "opencode",
-        "model_id": "deepseek-v4-flash-free",
+        "model_id": "x-preview-f-free",
         "temperature": Decimal("0.20"),
         "max_output_tokens": 800,
         "max_requests_per_batch": 4,
