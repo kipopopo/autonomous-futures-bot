@@ -10,7 +10,7 @@ import pandas as pd
 from ..data.parquet import DataQualityError, canonicalize_bars
 from .creator_artifacts import CreatorCandidateArtifact
 
-_SUPPORTED_FEATURES = frozenset(
+SUPPORTED_FEATURES = frozenset(
     {
         "returns",
         "ema_slope",
@@ -152,7 +152,7 @@ def materialize_causal_features(
     feature_names = tuple(feature.name for feature in feature_refs)
     if len(set(feature_names)) != len(feature_names):
         raise DataQualityError("candidate features must be unique")
-    if unsupported := sorted(set(feature_names).difference(_SUPPORTED_FEATURES)):
+    if unsupported := sorted(set(feature_names).difference(SUPPORTED_FEATURES)):
         raise DataQualityError("feature is not supported: " + ", ".join(unsupported))
 
     result = canonical.copy(deep=True)
@@ -182,7 +182,7 @@ class CausalFeatureSignalEvaluator:
         undeclared = sorted(set(expression_features).difference(feature_names))
         if undeclared:
             raise DataQualityError("signal feature is not declared: " + ", ".join(undeclared))
-        unsupported_expression = sorted(set(expression_features).difference(_SUPPORTED_FEATURES))
+        unsupported_expression = sorted(set(expression_features).difference(SUPPORTED_FEATURES))
         if unsupported_expression:
             raise DataQualityError(
                 "signal feature is not supported: " + ", ".join(unsupported_expression)
@@ -220,4 +220,4 @@ class CausalFeatureSignalEvaluator:
         return condition.astype(bool)
 
 
-__all__ = ["CausalFeatureSignalEvaluator", "materialize_causal_features"]
+__all__ = ["CausalFeatureSignalEvaluator", "SUPPORTED_FEATURES", "materialize_causal_features"]

@@ -101,3 +101,20 @@ def test_creator_prompt_spells_out_condition_and_veto_types() -> None:
     assert "entry.long and entry.short must be strings" in system_prompt
     assert "exit.long and exit.short must be strings" in system_prompt
     assert "vetoes must be a non-empty array of strings" in system_prompt
+
+
+def test_creator_prompt_uses_cached_evaluator_feature_capability() -> None:
+    request = CreatorGenerationRequest(
+        research_run_id="run-prompt-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+
+    system_prompt = build_creator_proposal_messages(
+        request, bundle_hash="a" * 64, symbol="DOGEUSDT"
+    )[0]["content"]
+
+    assert "features must use only" in system_prompt
+    assert "relative_volume" not in system_prompt
+    assert "rsi" in system_prompt

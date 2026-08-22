@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from ..domain.contracts import ALLOWED_FEATURES
 from .creator_generator import CreatorGenerationRequest
+from .feature_signals import SUPPORTED_FEATURES
 
 _HASH = re.compile(r"^[0-9a-f]{64}$")
 _SYMBOL = re.compile(r"^[A-Z0-9]+$")
@@ -18,7 +18,7 @@ _SYSTEM_PROMPT = (
     "markdown, code fences, prose, URLs, secrets, tools, or orders. strategy_id must "
     "start with cand- and research_run_id must match the supplied run. "
     "family must be one of regime_gated_breakout, range_mean_reversion, experimental; "
-    f"features must use only {', '.join(sorted(ALLOWED_FEATURES))}; each feature needs "
+    f"features must use only {', '.join(sorted(SUPPORTED_FEATURES))}; each feature needs "
     'a positive lookback and shift >= 1; universe must use timeframe="5m" and '
     'regime_context_timeframe="15m". proposal_id must start with proposal- and '
     "use lowercase letters, digits, and hyphens only; dsl_version must be the integer 1; "
