@@ -101,6 +101,34 @@ def test_opencode_client_accepts_one_fenced_json_object() -> None:
     assert payload["proposal_id"] == "proposal-provider-001"
 
 
+def test_opencode_client_exposes_safe_metadata_for_non_json_content() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"finish_reason": "stop", "message": {"content": "plain model text"}}]
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ProviderTransportError, match="provider_payload_invalid") as error:
+            OpenCodeJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": "return JSON"},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
+
+    assert error.value.metadata == {
+        "status_code": 200,
+        "response_keys": ("choices",),
+        "choice_count": 1,
+        "finish_reason": "stop",
+        "content_kind": "string",
+        "content_length": 16,
+        "content_sha256": "71f15fcc98b0323a09898de7569cff1cd21db29beeed1c78aa49749df1562668",
+    }
+
+
 def test_proposal_transport_connects_provider_to_existing_generator() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(

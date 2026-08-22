@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -18,8 +19,9 @@ from .creator_generator import CreatorGenerationRequest
 class ProviderTransportError(RuntimeError):
     """Stable provider failure without response-body or secret leakage."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, metadata: Mapping[str, object] | None = None) -> None:
         self.code = code
+        self.metadata = dict(metadata or {})
         super().__init__(code)
 
 
@@ -41,6 +43,41 @@ class OpenCodeProviderConfig(DomainModel):
 class OpenCodeJsonClient:
     config: OpenCodeProviderConfig
     client: httpx.Client
+
+    @staticmethod
+    def _response_metadata(body: object, *, status_code: int) -> dict[str, object]:
+        metadata: dict[str, object] = {
+            "status_code": status_code,
+            "response_keys": tuple(sorted(body)) if isinstance(body, Mapping) else (),
+            "choice_count": 0,
+            "finish_reason": None,
+            "content_kind": "missing",
+            "content_length": 0,
+            "content_sha256": None,
+        }
+        if not isinstance(body, Mapping) or not isinstance(body.get("choices"), list):
+            return metadata
+        choices = body["choices"]
+        metadata["choice_count"] = len(choices)
+        if not choices or not isinstance(choices[0], Mapping):
+            return metadata
+        first_choice = choices[0]
+        metadata["finish_reason"] = first_choice.get("finish_reason")
+        message = first_choice.get("message")
+        content = message.get("content") if isinstance(message, Mapping) else None
+        metadata["content_kind"] = (
+            "string"
+            if isinstance(content, str)
+            else "object"
+            if isinstance(content, Mapping)
+            else "null"
+            if content is None
+            else type(content).__name__
+        )
+        if isinstance(content, str):
+            metadata["content_length"] = len(content)
+            metadata["content_sha256"] = sha256(content.encode()).hexdigest()
+        return metadata
 
     def complete_json(
         self,
@@ -67,12 +104,15 @@ class OpenCodeJsonClient:
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise ProviderTransportError("provider_http_error") from exc
+            raise ProviderTransportError(
+                "provider_http_error", metadata={"status_code": exc.response.status_code}
+            ) from exc
         except httpx.HTTPError as exc:
             raise ProviderTransportError("provider_transport_error") from exc
 
         try:
             body = response.json()
+            metadata = self._response_metadata(body, status_code=response.status_code)
             content = body["choices"][0]["message"]["content"]
             if isinstance(content, str):
                 normalized = content.strip()
@@ -82,7 +122,19 @@ class OpenCodeJsonClient:
             else:
                 payload = content
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise ProviderTransportError("provider_payload_invalid") from exc
+            metadata = locals().get(
+                "metadata",
+                {
+                    "status_code": response.status_code,
+                    "response_keys": (),
+                    "choice_count": 0,
+                    "finish_reason": None,
+                    "content_kind": "invalid_json",
+                    "content_length": 0,
+                    "content_sha256": None,
+                },
+            )
+            raise ProviderTransportError("provider_payload_invalid", metadata=metadata) from exc
         if not isinstance(payload, Mapping):
             raise ProviderTransportError("provider_payload_invalid")
         return payload
