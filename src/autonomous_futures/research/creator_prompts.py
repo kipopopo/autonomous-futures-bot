@@ -25,7 +25,8 @@ _SYSTEM_PROMPT = (
     "universe must contain a symbols array; entry and exit must each be objects with "
     'string keys "long" and "short", not strings; entry.long and entry.short must be '
     "strings; exit.long and exit.short must be strings; vetoes must be a non-empty array "
-    "of strings."
+    "of strings. each condition must be feature_name operator numeric_threshold; join "
+    "conditions only with and or; feature-to-feature comparisons are not allowed."
 )
 
 

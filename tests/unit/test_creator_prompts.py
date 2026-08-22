@@ -118,3 +118,20 @@ def test_creator_prompt_uses_cached_evaluator_feature_capability() -> None:
     assert "features must use only" in system_prompt
     assert "relative_volume" not in system_prompt
     assert "rsi" in system_prompt
+
+
+def test_creator_prompt_spells_out_signal_expression_grammar() -> None:
+    request = CreatorGenerationRequest(
+        research_run_id="run-prompt-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+
+    system_prompt = build_creator_proposal_messages(
+        request, bundle_hash="a" * 64, symbol="DOGEUSDT"
+    )[0]["content"]
+
+    assert "each condition must be feature_name operator numeric_threshold" in system_prompt
+    assert "join conditions only with and or" in system_prompt
+    assert "feature-to-feature comparisons are not allowed" in system_prompt
