@@ -9,7 +9,11 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from ..domain.contracts import DomainModel
-from .creator_proposals import CreatorProposal, parse_creator_proposal
+from .creator_proposals import (
+    CreatorProposal,
+    creator_proposal_schema_diagnostics,
+    parse_creator_proposal,
+)
 
 
 class CreatorGenerationRequest(DomainModel):
@@ -36,6 +40,7 @@ class CreatorGenerationResult(DomainModel):
     decision: Literal["accepted", "rejected"]
     proposal: CreatorProposal | None = None
     reason_codes: tuple[str, ...] = Field(min_length=1)
+    schema_diagnostics: tuple[str, ...] = ()
     raw_output: None = None
     promotion_state: Literal["unpromoted"] = "unpromoted"
     paper_activation: Literal[False] = False
@@ -47,6 +52,13 @@ class CreatorGenerationResult(DomainModel):
     def reason_codes_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if values != tuple(sorted(set(values))) or any(not value for value in values):
             raise ValueError("generation reason codes must be sorted and unique")
+        return values
+
+    @field_validator("schema_diagnostics")
+    @classmethod
+    def schema_diagnostics_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if values != tuple(sorted(set(values))) or any(not value for value in values):
+            raise ValueError("schema diagnostics must be sorted and unique")
         return values
 
     @model_validator(mode="after")
@@ -82,7 +94,11 @@ class CreatorGenerator:
         try:
             proposal = parse_creator_proposal(payload)
         except Exception:
-            return CreatorGenerationResult(decision="rejected", reason_codes=("schema_rejected",))
+            return CreatorGenerationResult(
+                decision="rejected",
+                reason_codes=("schema_rejected",),
+                schema_diagnostics=creator_proposal_schema_diagnostics(payload),
+            )
         if proposal.research_run_id != request.research_run_id:
             return CreatorGenerationResult(
                 decision="rejected", reason_codes=("research_run_mismatch",)

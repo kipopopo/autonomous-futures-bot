@@ -70,6 +70,17 @@ def test_generator_rejects_schema_invalid_fake_output_without_candidate() -> Non
     assert result.decision == "rejected"
     assert result.proposal is None
     assert result.reason_codes == ("schema_rejected",)
+    assert result.schema_diagnostics == (
+        "strategy.dsl_version:missing",
+        "strategy.entry:missing",
+        "strategy.exit:missing",
+        "strategy.family:missing",
+        "strategy.features:missing",
+        "strategy.strategy_id:missing",
+        "strategy.universe:missing",
+        "strategy.unsafe:extra_forbidden",
+        "strategy.vetoes:missing",
+    )
 
 
 def test_generator_rejects_proposal_from_different_research_run() -> None:

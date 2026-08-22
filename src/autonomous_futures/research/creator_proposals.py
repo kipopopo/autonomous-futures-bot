@@ -111,6 +111,19 @@ def parse_creator_proposal(payload: Mapping[str, object]) -> CreatorProposal:
     return provisional.model_copy(update={"proposal_hash": _proposal_content_hash(provisional)})
 
 
+def creator_proposal_schema_diagnostics(payload: Mapping[str, object]) -> tuple[str, ...]:
+    """Return field/type diagnostics without returning untrusted input values."""
+    try:
+        CreatorProposal.model_validate({**payload, "proposal_hash": "0" * 64})
+    except ValidationError as exc:
+        diagnostics = {
+            f"{'.'.join(str(part) for part in error['loc']) or 'root'}:{error['type']}"
+            for error in exc.errors()
+        }
+        return tuple(sorted(diagnostics))
+    return ()
+
+
 def build_candidate_from_proposal(
     proposal: CreatorProposal,
     *,
@@ -208,6 +221,7 @@ __all__ = [
     "CreatorProposalOutcome",
     "build_candidate_from_proposal",
     "build_creator_proposal_outcome",
+    "creator_proposal_schema_diagnostics",
     "parse_creator_proposal",
     "proposal_content_hash",
     "read_creator_proposal_outcome",
