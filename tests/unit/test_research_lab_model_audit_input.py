@@ -28,7 +28,7 @@ def _policy() -> ResearchModelPolicy:
             LLMRolePolicy(
                 role="hypothesis_generator",
                 provider="opencode",
-                model_id="x-preview-f-free",
+                model_id="deepseek-v4-flash",
                 temperature=Decimal("0.20"),
                 max_output_tokens=800,
                 max_requests_per_batch=4,
@@ -46,7 +46,7 @@ def _audit(policy: ResearchModelPolicy) -> ModelCallAudit:
         policy_id=policy.policy_id,
         policy_hash=policy.policy_hash,
         provider="opencode",
-        model_id="x-preview-f-free",
+        model_id="deepseek-v4-flash",
         prompt_template_hash="b" * 64,
         system_policy_version="research-system-policy-v1",
         input_evidence_refs=("dataset-manifest:abc",),
@@ -92,7 +92,7 @@ def test_verified_model_call_audit_loader_rejects_valid_policy_hash_drift(
             LLMRolePolicy(
                 role="hypothesis_generator",
                 provider="opencode",
-                model_id="x-preview-f-free",
+                model_id="deepseek-v4-flash",
                 temperature=Decimal("0.25"),
                 max_output_tokens=800,
                 max_requests_per_batch=4,
@@ -115,7 +115,7 @@ def test_verified_model_call_audit_loader_rejects_valid_hash_role_drift(tmp_path
             LLMRolePolicy(
                 role="economic_critic",
                 provider="opencode",
-                model_id="x-preview-f-free",
+                model_id="deepseek-v4-flash",
                 temperature=Decimal("0.20"),
                 max_output_tokens=800,
                 max_requests_per_batch=4,

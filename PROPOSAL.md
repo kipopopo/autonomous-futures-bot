@@ -568,7 +568,7 @@ No agent both creates and approves the same candidate.
 
 ### 7.2 Model/provider design
 
-Version 1 locks every embedded research-role call to the **OpenCode provider** and exact model identifier **`x-preview-f-free`**. This is an application-runtime decision: the backend calls the provider directly through an OpenAI-compatible `LLMProvider` interface, not through Hermes delegation or an interactive agent session.
+Version 1 locks every embedded research-role call to the **OpenCode provider** and exact model identifier **`deepseek-v4-flash`**. This is an application-runtime decision: the backend calls the provider directly through an OpenAI-compatible `LLMProvider` interface, not through Hermes delegation or an interactive agent session.
 
 The provider API base URL and API key remain deployment-only credentials; they are never placed in source, `.env.example`, StrategySpecs, the database, trial records, prompts, logs, or this proposal. Kainode's verified systemd 255 runtime supports `systemd-creds`; after VPS hardening, the OpenCode key will be delivered to the non-root service through a root-managed encrypted systemd credential and read from its private `$CREDENTIALS_DIRECTORY` at startup. Startup must verify that the configured provider exposes the exact model ID. If it does not, the research cycle records `provider_model_unavailable` and stops—there is no silent model substitution.
 
@@ -1435,7 +1435,7 @@ Recommended defaults:
 | Begin implementation? | Only Phase 0 after proposal acceptance |
 | First integration | Public data + internal paper broker |
 | Exchange credentials during Phases 0–5 | None |
-| LLM provider | OpenCode, with `x-preview-f-free` for every embedded research role |
+| LLM provider | OpenCode, with `deepseek-v4-flash` for every embedded research role |
 | Initial symbols | BTCUSDT, ETHUSDT, SOLUSDT |
 | Initial timeframe | 5m signal, 15m closed-bar regime context |
 | Initial strategy families | Regime trend/breakout, then range mean reversion |

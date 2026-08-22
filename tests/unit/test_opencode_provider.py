@@ -66,7 +66,7 @@ def test_opencode_client_posts_exact_model_and_returns_json_object() -> None:
     assert captured[0].url == "https://provider.test/v1/chat/completions"
     assert captured[0].headers["authorization"] == "Bearer test-secret-not-real"
     request_body = json.loads(captured[0].content)
-    assert request_body["model"] == "x-preview-f-free"
+    assert request_body["model"] == "deepseek-v4-flash"
     assert request_body["response_format"] == {"type": "json_object"}
 
 

@@ -3,7 +3,7 @@
 ## Status
 
 - **Selected provider:** OpenCode
-- **Selected model:** `x-preview-f-free`
+- **Selected model:** `deepseek-v4-flash`
 - **Credential installed on Kainode VPS:** **Yes — encrypted systemd credential only**
 - **Credential stored in repository / proposal / report / database:** **No**
 - **Systemd credential support on Kainode:** **Verified** (`systemd 255`, `systemd-creds` present)
@@ -48,7 +48,7 @@ The service contract will use a logical credential name such as `opencode_api_ke
 
 ## Runtime safeguards
 
-- Validate the exact configured model ID, `x-preview-f-free`, before a research batch starts.
+- Validate the exact configured model ID, `deepseek-v4-flash`, before a research batch starts.
 - If the model is unavailable, malformed, unauthorized, or rate-limited beyond bounded retry policy, persist a `provider_model_unavailable` / provider-failure event and stop that research batch.
 - Do not silently switch providers or models.
 - Never expose an `Authorization` header in logs, metrics, exception text, trial evidence, or dashboards.

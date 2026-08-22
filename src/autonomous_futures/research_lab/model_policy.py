@@ -22,7 +22,7 @@ class LLMRolePolicy(DomainModel):
 
     role: ResearchRole
     provider: Literal["opencode"]
-    model_id: Literal["x-preview-f-free"]
+    model_id: Literal["deepseek-v4-flash"]
     temperature: Decimal
     max_output_tokens: int = Field(gt=0, strict=True)
     max_requests_per_batch: int = Field(gt=0, strict=True)
