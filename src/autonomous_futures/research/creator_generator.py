@@ -41,6 +41,7 @@ class CreatorGenerationResult(DomainModel):
     proposal: CreatorProposal | None = None
     reason_codes: tuple[str, ...] = Field(min_length=1)
     schema_diagnostics: tuple[str, ...] = ()
+    provider_metadata: dict[str, object] = Field(default_factory=dict)
     raw_output: None = None
     promotion_state: Literal["unpromoted"] = "unpromoted"
     paper_activation: Literal[False] = False
@@ -71,6 +72,23 @@ class CreatorGenerationResult(DomainModel):
 
 
 ProposalTransport = Callable[[CreatorGenerationRequest], Mapping[str, object]]
+_SAFE_PROVIDER_METADATA_KEYS = frozenset(
+    {
+        "choice_count",
+        "content_kind",
+        "content_length",
+        "content_sha256",
+        "finish_reason",
+        "response_keys",
+        "status_code",
+    }
+)
+
+
+def _safe_provider_metadata(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    return {key: value[key] for key in sorted(_SAFE_PROVIDER_METADATA_KEYS) if key in value}
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +107,11 @@ class CreatorGenerator:
                 if isinstance(provider_code, str) and provider_code.startswith("provider_")
                 else "provider_error"
             )
-            return CreatorGenerationResult(decision="rejected", reason_codes=(reason_code,))
+            return CreatorGenerationResult(
+                decision="rejected",
+                reason_codes=(reason_code,),
+                provider_metadata=_safe_provider_metadata(getattr(exc, "metadata", None)),
+            )
 
         try:
             proposal = parse_creator_proposal(payload)
