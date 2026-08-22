@@ -41,3 +41,26 @@ def test_creator_prompt_rejects_unsafe_scope_values() -> None:
         assert "bundle_hash" in str(exc) or "symbol" in str(exc)
     else:
         raise AssertionError("unsafe prompt scope must fail closed")
+
+
+def test_creator_prompt_spells_out_strategy_value_constraints() -> None:
+    request = CreatorGenerationRequest(
+        research_run_id="run-prompt-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+
+    system_prompt = build_creator_proposal_messages(
+        request, bundle_hash="a" * 64, symbol="DOGEUSDT"
+    )[0]["content"]
+
+    assert "family must be one of" in system_prompt
+    assert "regime_gated_breakout" in system_prompt
+    assert "range_mean_reversion" in system_prompt
+    assert "experimental" in system_prompt
+    assert "features must use only" in system_prompt
+    assert "rsi" in system_prompt
+    assert "shift >= 1" in system_prompt
+    assert 'timeframe="5m"' in system_prompt
+    assert 'regime_context_timeframe="15m"' in system_prompt

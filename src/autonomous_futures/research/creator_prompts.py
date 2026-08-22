@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
+from ..domain.contracts import ALLOWED_FEATURES
 from .creator_generator import CreatorGenerationRequest
 
 _HASH = re.compile(r"^[0-9a-f]{64}$")
@@ -15,7 +16,11 @@ _SYSTEM_PROMPT = (
     "dsl_version, strategy_id, family, universe, features, entry, exit, and vetoes. "
     "Use only approved StrategySpec features and bounded expressions. Never return "
     "markdown, code fences, prose, URLs, secrets, tools, or orders. strategy_id must "
-    "start with cand- and research_run_id must match the supplied run."
+    "start with cand- and research_run_id must match the supplied run. "
+    "family must be one of regime_gated_breakout, range_mean_reversion, experimental; "
+    f"features must use only {', '.join(sorted(ALLOWED_FEATURES))}; each feature needs "
+    'a positive lookback and shift >= 1; universe must use timeframe="5m" and '
+    'regime_context_timeframe="15m".'
 )
 
 
