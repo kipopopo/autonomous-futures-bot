@@ -18,6 +18,10 @@ from autonomous_futures.research.cached_evaluation import (
 from autonomous_futures.research.creator_artifacts import build_creator_candidate_artifact
 from autonomous_futures.research.creator_batch import CreatorBatchResult, CreatorBatchTrial
 from autonomous_futures.research.creator_cached_evaluation import evaluate_creator_batch_cached
+from autonomous_futures.research.creator_failure_feedback import (
+    CreatorQualificationFailureFeedback,
+    build_creator_qualification_failure_feedback,
+)
 from autonomous_futures.research.creator_qualification import (
     CreatorQualificationResult,
     qualify_creator_cached_evaluations,
@@ -170,3 +174,34 @@ def test_blocked_cached_evaluation_produces_no_qualification_artifact() -> None:
 
     assert result.qualifications == ()
     assert result.blocked_candidate_ids == (candidate.candidate_id,)
+
+
+def test_rejected_qualification_becomes_structured_learner_feedback() -> None:
+    candidate = _candidate()
+    result = qualify_creator_cached_evaluations(
+        _evaluated(candidate),
+        candidates={candidate.candidate_id: candidate},
+        policy=WalkForwardQualificationPolicy(
+            policy_id="policy-creator-001",
+            minimum_windows=1,
+            minimum_trades=1,
+            minimum_profit_factor=Decimal("1"),
+            maximum_drawdown_pct=Decimal("0.5"),
+            minimum_average_return_pct=Decimal("0"),
+        ),
+        evaluator_run_id="creator-oos-001",
+        evaluator_version="cached-oos-v1",
+        evaluated_at=START,
+    )
+
+    feedback = build_creator_qualification_failure_feedback(result.qualifications[0])
+
+    assert isinstance(feedback, CreatorQualificationFailureFeedback)
+    assert feedback.candidate_id == candidate.candidate_id
+    assert feedback.qualification_hash == result.qualifications[0].qualification_hash
+    gate_ids = tuple(gate.gate_id for gate in feedback.failed_gates)
+    assert gate_ids == tuple(sorted(gate_ids))
+    assert feedback.failure_reason_codes == tuple(sorted(feedback.failure_reason_codes))
+    assert gate_ids
+    assert feedback.promotion_state == "unpromoted"
+    assert feedback.execution_authority is False
