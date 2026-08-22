@@ -23,7 +23,9 @@ _SYSTEM_PROMPT = (
     'regime_context_timeframe="15m". proposal_id must start with proposal- and '
     "use lowercase letters, digits, and hyphens only; dsl_version must be the integer 1; "
     "universe must contain a symbols array; entry and exit must each be objects with "
-    'string keys "long" and "short", not strings.'
+    'string keys "long" and "short", not strings; entry.long and entry.short must be '
+    "strings; exit.long and exit.short must be strings; vetoes must be a non-empty array "
+    "of strings."
 )
 
 

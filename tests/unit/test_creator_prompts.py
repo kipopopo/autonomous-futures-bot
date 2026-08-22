@@ -84,3 +84,20 @@ def test_creator_prompt_spells_out_json_field_shapes() -> None:
     assert (
         'entry and exit must each be objects with string keys "long" and "short"' in system_prompt
     )
+
+
+def test_creator_prompt_spells_out_condition_and_veto_types() -> None:
+    request = CreatorGenerationRequest(
+        research_run_id="run-prompt-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+
+    system_prompt = build_creator_proposal_messages(
+        request, bundle_hash="a" * 64, symbol="DOGEUSDT"
+    )[0]["content"]
+
+    assert "entry.long and entry.short must be strings" in system_prompt
+    assert "exit.long and exit.short must be strings" in system_prompt
+    assert "vetoes must be a non-empty array of strings" in system_prompt
