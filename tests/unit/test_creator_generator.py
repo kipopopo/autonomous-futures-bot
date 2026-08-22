@@ -91,3 +91,17 @@ def test_generator_converts_transport_failure_to_stable_provider_error() -> None
     assert result.decision == "rejected"
     assert result.reason_codes == ("provider_error",)
     assert result.raw_output is None
+
+
+def test_generator_preserves_stable_provider_error_code_without_raw_details() -> None:
+    class ProviderFailure(RuntimeError):
+        code = "provider_payload_invalid"
+
+    def transport(_: CreatorGenerationRequest) -> Mapping[str, object]:
+        raise ProviderFailure("raw provider detail must not escape")
+
+    result = CreatorGenerator(transport=transport).generate(_request())
+
+    assert result.decision == "rejected"
+    assert result.reason_codes == ("provider_payload_invalid",)
+    assert result.raw_output is None

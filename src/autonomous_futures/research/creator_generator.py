@@ -70,8 +70,14 @@ class CreatorGenerator:
     def generate(self, request: CreatorGenerationRequest) -> CreatorGenerationResult:
         try:
             payload = self.transport(request)
-        except Exception:
-            return CreatorGenerationResult(decision="rejected", reason_codes=("provider_error",))
+        except Exception as exc:
+            provider_code = getattr(exc, "code", None)
+            reason_code = (
+                provider_code
+                if isinstance(provider_code, str) and provider_code.startswith("provider_")
+                else "provider_error"
+            )
+            return CreatorGenerationResult(decision="rejected", reason_codes=(reason_code,))
 
         try:
             proposal = parse_creator_proposal(payload)
