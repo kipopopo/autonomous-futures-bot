@@ -157,6 +157,21 @@ def test_creator_prompt_requires_exact_declared_feature_names() -> None:
     assert "do not append lookback or shift" in system_prompt
 
 
+def test_creator_prompt_requires_features_json_array() -> None:
+    request = CreatorGenerationRequest(
+        research_run_id="run-prompt-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+
+    system_prompt = build_creator_proposal_messages(
+        request, bundle_hash="a" * 64, symbol="DOGEUSDT"
+    )[0]["content"]
+
+    assert "features must be a JSON array of objects" in system_prompt
+
+
 def test_creator_revision_prompt_consumes_structured_failure_feedback() -> None:
     request = CreatorGenerationRequest(
         research_run_id="run-prompt-002",
