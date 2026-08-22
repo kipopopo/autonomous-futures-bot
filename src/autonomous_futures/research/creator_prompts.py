@@ -20,7 +20,10 @@ _SYSTEM_PROMPT = (
     "family must be one of regime_gated_breakout, range_mean_reversion, experimental; "
     f"features must use only {', '.join(sorted(ALLOWED_FEATURES))}; each feature needs "
     'a positive lookback and shift >= 1; universe must use timeframe="5m" and '
-    'regime_context_timeframe="15m".'
+    'regime_context_timeframe="15m". proposal_id must start with proposal- and '
+    "use lowercase letters, digits, and hyphens only; dsl_version must be the integer 1; "
+    "universe must contain a symbols array; entry and exit must each be objects with "
+    'string keys "long" and "short", not strings.'
 )
 
 
