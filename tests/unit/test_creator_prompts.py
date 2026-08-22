@@ -141,6 +141,22 @@ def test_creator_prompt_spells_out_signal_expression_grammar() -> None:
     assert "feature-to-feature comparisons are not allowed" in system_prompt
 
 
+def test_creator_prompt_requires_exact_declared_feature_names() -> None:
+    request = CreatorGenerationRequest(
+        research_run_id="run-prompt-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+
+    system_prompt = build_creator_proposal_messages(
+        request, bundle_hash="a" * 64, symbol="DOGEUSDT"
+    )[0]["content"]
+
+    assert "expressions must reference the exact feature name declared in features" in system_prompt
+    assert "do not append lookback or shift" in system_prompt
+
+
 def test_creator_revision_prompt_consumes_structured_failure_feedback() -> None:
     request = CreatorGenerationRequest(
         research_run_id="run-prompt-002",

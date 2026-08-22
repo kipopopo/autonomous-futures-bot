@@ -28,7 +28,9 @@ _SYSTEM_PROMPT = (
     'string keys "long" and "short", not strings; entry.long and entry.short must be '
     "strings; exit.long and exit.short must be strings; vetoes must be a non-empty array "
     "of strings. each condition must be feature_name operator numeric_threshold; join "
-    "conditions only with and or; feature-to-feature comparisons are not allowed."
+    "conditions only with and or; feature-to-feature comparisons are not allowed. "
+    "expressions must reference the exact feature name declared in features; do not "
+    "append lookback or shift."
 )
 
 
