@@ -74,6 +74,7 @@ def test_opencode_critic_transport_reaches_existing_critic_contract() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         assert body["model"] == "deepseek-v4-flash"
+        assert body["max_tokens"] == 4096
         return httpx.Response(
             200, json={"choices": [{"message": {"content": json.dumps(payload)}}]}
         )

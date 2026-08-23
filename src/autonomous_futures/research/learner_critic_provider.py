@@ -55,7 +55,7 @@ class OpenCodeCriticTransport:
     system_prompt: str
     user_prompt_builder: Callable[[LearnerCriticRequest], str]
     temperature: float = 0.2
-    max_output_tokens: int = 1024
+    max_output_tokens: int = 4096
 
     def __call__(self, request: LearnerCriticRequest) -> Mapping[str, object]:
         return self.client.complete_json(
