@@ -24,6 +24,11 @@ from autonomous_futures.research.learner_artifacts import (
     build_learner_artifact,
     write_learner_artifact,
 )
+from autonomous_futures.research.learner_critic import LearnerCriticRequest, parse_learner_critique
+from autonomous_futures.research.learner_critic_evidence import build_learner_critique_evidence
+from autonomous_futures.research.learner_critic_training import (
+    execute_learner_critic_training_with_evidence,
+)
 from autonomous_futures.research.learner_inputs import LearnerInputMaterializer
 from autonomous_futures.research.learner_runs import prepare_learner_run
 from autonomous_futures.research.learner_training import LearnerTrainingOutput
@@ -233,3 +238,79 @@ def test_feedback_binding_mismatch_blocks_trainer_before_filesystem_work(tmp_pat
         )
     assert called is False
     assert not (tmp_path / "runs").exists()
+
+
+def test_persisted_critic_evidence_feeds_existing_injected_training_pipeline(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate()
+    model_root = tmp_path / "models"
+    learner = _learner(candidate, model_root)
+    windows = _frames(candidate, learner)
+    prepared = prepare_learner_run(
+        learner=learner,
+        windows=windows,
+        run_id="run-feedback-training-001",
+        prepared_at=START + timedelta(hours=1),
+    )
+    source_path = tmp_path / "artifacts" / "source.json"
+    write_learner_artifact(source_path, learner, model_root=model_root)
+    feedback = _feedback(candidate)
+    request = LearnerCriticRequest(
+        research_run_id="run-feedback-training-001",
+        candidate_id=candidate.candidate_id,
+        candidate_artifact_hash=candidate.artifact_hash,
+        feedback=feedback,
+        input_evidence_refs=("feedback/hash", "qualification/hash"),
+        output_schema_id="learner-critic-v1",
+        attempt=1,
+    )
+    evidence = build_learner_critique_evidence(
+        request=request,
+        critique=parse_learner_critique(
+            {
+                "review_id": "review-feedback-training-001",
+                "research_run_id": request.research_run_id,
+                "candidate_id": candidate.candidate_id,
+                "decision": "revise",
+                "failure_reason_codes": list(feedback.failure_reason_codes),
+                "revision_actions": ["change_entry_threshold"],
+            }
+        ),
+        evidence_id="critic-evidence-training-001",
+        created_at=START + timedelta(hours=2),
+    )
+    observed: list[tuple[str, str]] = []
+
+    def trainer(received_evidence, callback_run, frames):
+        observed.append((received_evidence.evidence_id, callback_run.run_id))
+        assert tuple(frames) == ("BTCUSDT",)
+        return LearnerTrainingOutput(
+            model_artifact_ref="trained/model.bin",
+            model_family="critic_guided_trainer",
+            learner_version="trained-v1",
+            model_bytes=b"critic-guided-model",
+        )
+
+    result = execute_learner_critic_training_with_evidence(
+        evidence=evidence,
+        prepared_run=prepared,
+        source_learner=learner,
+        candidate=candidate,
+        windows=windows,
+        trainer=trainer,
+        run_root=tmp_path / "runs",
+        prepared_run_ref="prepared.json",
+        artifact_root=tmp_path / "artifacts",
+        source_learner_artifact_ref="source.json",
+        output_artifact_ref="trained.json",
+        model_root=model_root,
+        evidence_root=tmp_path / "training-evidence",
+        evidence_ref="training.json",
+        artifact_created_at=START + timedelta(hours=3),
+        evidence_created_at=START + timedelta(hours=3),
+    )
+
+    assert observed == [(evidence.evidence_id, prepared.run_id)]
+    assert result.candidate_id == candidate.candidate_id
+    assert result.promotion_state == "unpromoted"
