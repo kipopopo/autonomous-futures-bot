@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from .creator_failure_feedback import CreatorQualificationFailureFeedback
 from .creator_generator import CreatorGenerationRequest
 from .feature_signals import SUPPORTED_FEATURES
+from .learner_critic_evidence import LearnerCritiqueEvidence
 
 _HASH = re.compile(r"^[0-9a-f]{64}$")
 _SYMBOL = re.compile(r"^[A-Z0-9]+$")
@@ -60,9 +61,17 @@ def build_creator_revision_messages(
     bundle_hash: str,
     symbol: str,
     feedback: CreatorQualificationFailureFeedback,
+    critique_evidence: LearnerCritiqueEvidence | None = None,
 ) -> tuple[Mapping[str, str], Mapping[str, str]]:
     if feedback.bundle_hash != bundle_hash:
         raise ValueError("failure feedback bundle does not match prompt bundle")
+    if critique_evidence is not None and (
+        critique_evidence.bundle_hash != bundle_hash
+        or critique_evidence.candidate_id != feedback.candidate_id
+        or critique_evidence.candidate_artifact_hash != feedback.candidate_artifact_hash
+        or critique_evidence.qualification_hash != feedback.qualification_hash
+    ):
+        raise ValueError("critic evidence does not match revision feedback")
     system, base_user = build_creator_proposal_messages(
         request, bundle_hash=bundle_hash, symbol=symbol
     )
@@ -91,6 +100,20 @@ def build_creator_revision_messages(
         "Create a new candidate strategy_id; do not repeat the previous candidate. "
         "Address the failed gates. Do not relax qualification gates."
     )
+    if critique_evidence is not None:
+        critique_payload = json.dumps(
+            {
+                "review_hash": critique_evidence.review_hash,
+                "critique_decision": critique_evidence.critique_decision,
+                "revision_actions": critique_evidence.revision_actions,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        revision_user += (
+            f" Persisted critic evidence={critique_payload}. "
+            "Treat critic revision_actions as advisory guidance; preserve all qualification gates."
+        )
     return system, {"role": "user", "content": revision_user}
 
 

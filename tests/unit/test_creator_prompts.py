@@ -1,9 +1,13 @@
+from datetime import UTC, datetime
+
 from autonomous_futures.research.creator_failure_feedback import CreatorQualificationFailureFeedback
 from autonomous_futures.research.creator_generator import CreatorGenerationRequest
 from autonomous_futures.research.creator_prompts import (
     build_creator_proposal_messages,
     build_creator_revision_messages,
 )
+from autonomous_futures.research.learner_critic import LearnerCriticRequest, parse_learner_critique
+from autonomous_futures.research.learner_critic_evidence import build_learner_critique_evidence
 
 
 def test_creator_prompt_contains_exact_schema_and_evidence_scope() -> None:
@@ -209,3 +213,70 @@ def test_creator_revision_prompt_consumes_structured_failure_feedback() -> None:
     assert "oos_profit_factor_min" in messages[1]["content"]
     assert "oos_profit_factor_below_threshold" in messages[1]["content"]
     assert "Do not relax qualification gates" in messages[1]["content"]
+
+
+def test_creator_revision_prompt_consumes_persisted_critic_actions() -> None:
+    request = CreatorGenerationRequest(
+        research_run_id="run-prompt-003",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=3,
+    )
+    feedback = CreatorQualificationFailureFeedback.model_validate(
+        {
+            "candidate_id": "cand-doge-meanrev-002",
+            "candidate_artifact_hash": "a" * 64,
+            "bundle_hash": "b" * 64,
+            "dataset_registry_hash": "c" * 64,
+            "qualification_hash": "d" * 64,
+            "qualification_policy_id": "policy-creator-001",
+            "failed_gates": [
+                {
+                    "gate_id": "oos_profit_factor_min",
+                    "passed": False,
+                    "observed": "0",
+                    "threshold": "1",
+                    "comparator": "gte",
+                    "reason_code": "oos_profit_factor_below_threshold",
+                }
+            ],
+            "failure_reason_codes": ["oos_profit_factor_below_threshold"],
+        }
+    )
+    critic_request = LearnerCriticRequest(
+        research_run_id="run-critic-011",
+        candidate_id=feedback.candidate_id,
+        candidate_artifact_hash=feedback.candidate_artifact_hash,
+        feedback=feedback,
+        input_evidence_refs=("feedback/hash", "qualification/hash"),
+        output_schema_id="learner-critic-v1",
+        attempt=1,
+    )
+    critique_evidence = build_learner_critique_evidence(
+        request=critic_request,
+        critique=parse_learner_critique(
+            {
+                "review_id": "review-critic-011-cand-doge-meanrev-002",
+                "research_run_id": "run-critic-011",
+                "candidate_id": feedback.candidate_id,
+                "decision": "revise",
+                "failure_reason_codes": list(feedback.failure_reason_codes),
+                "revision_actions": ["change_entry_threshold", "change_exit_threshold"],
+            }
+        ),
+        evidence_id="critic-evidence-011",
+        created_at=datetime(2026, 8, 23, tzinfo=UTC),
+    )
+
+    messages = build_creator_revision_messages(
+        request,
+        bundle_hash="b" * 64,
+        symbol="DOGEUSDT",
+        feedback=feedback,
+        critique_evidence=critique_evidence,
+    )
+
+    assert "critic evidence" in messages[1]["content"]
+    assert "change_entry_threshold" in messages[1]["content"]
+    assert "change_exit_threshold" in messages[1]["content"]
+    assert critique_evidence.review_hash in messages[1]["content"]
