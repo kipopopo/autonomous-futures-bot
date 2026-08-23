@@ -14,7 +14,7 @@ _SYSTEM_PROMPT = (
     "decision, failure_reason_codes, and revision_actions. review_id must start with "
     "review-; decision must be revise or stop; failure_reason_codes must exactly preserve "
     "the supplied failed reasons; revision_actions must be a non-empty JSON array of "
-    "strings. Example valid shape: "
+    "strings. revision_actions must be sorted lexicographically and unique. Example valid shape: "
     '{"review_id": "review-example-001", "research_run_id": "run-example-001", '
     '"candidate_id": "cand-example-001", "decision": "revise", '
     '"failure_reason_codes": ["oos_profit_factor_below_threshold"], '
