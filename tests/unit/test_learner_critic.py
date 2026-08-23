@@ -120,3 +120,18 @@ def test_critic_schema_diagnostics_expose_field_types_not_values() -> None:
 
     assert diagnostics == ("revision_actions:missing",)
     assert "cand-critic-001" not in diagnostics
+
+
+def test_critic_schema_diagnostics_name_noncanonical_action_list() -> None:
+    payload = {
+        "review_id": "review-critic-001",
+        "research_run_id": "run-critic-001",
+        "candidate_id": "cand-critic-001",
+        "decision": "revise",
+        "failure_reason_codes": ["oos_profit_factor_below_threshold"],
+        "revision_actions": ["change_entry_threshold", "change_entry_threshold"],
+    }
+
+    assert learner_critic_schema_diagnostics(payload) == (
+        "revision_actions:critic_list_not_canonical",
+    )

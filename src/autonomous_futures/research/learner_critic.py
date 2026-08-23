@@ -8,6 +8,7 @@ from hashlib import sha256
 from typing import Literal
 
 from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
@@ -61,9 +62,13 @@ class LearnerCritique(DomainModel):
     @classmethod
     def lists_are_sorted_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if any(not value.strip() for value in values):
-            raise ValueError("critic lists must be non-empty")
+            raise PydanticCustomError("critic_lists_empty", "critic lists must be non-empty")
         if values != tuple(sorted(set(values))):
-            raise ValueError("critic lists must be sorted and unique")
+            raise PydanticCustomError(
+                "critic_list_not_canonical",
+                "critic list must be sorted and unique",
+                {"field": "list"},
+            )
         return values
 
 
