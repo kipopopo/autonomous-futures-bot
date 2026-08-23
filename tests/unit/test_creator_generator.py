@@ -93,6 +93,16 @@ def test_generator_rejects_proposal_from_different_research_run() -> None:
     assert result.reason_codes == ("research_run_mismatch",)
 
 
+def test_generator_rejects_forbidden_prior_candidate_id() -> None:
+    request = _request().model_copy(update={"forbidden_candidate_ids": ("cand-generator-001",)})
+
+    result = CreatorGenerator(transport=lambda _: _proposal()).generate(request)
+
+    assert result.decision == "rejected"
+    assert result.proposal is None
+    assert result.reason_codes == ("candidate_id_forbidden",)
+
+
 def test_generator_converts_transport_failure_to_stable_provider_error() -> None:
     def transport(_: CreatorGenerationRequest) -> Mapping[str, object]:
         raise TimeoutError("do not expose this")

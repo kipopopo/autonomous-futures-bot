@@ -23,6 +23,7 @@ class CreatorGenerationRequest(DomainModel):
     input_evidence_refs: tuple[str, ...] = Field(min_length=1)
     output_schema_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
     attempt: int = Field(ge=1, strict=True)
+    forbidden_candidate_ids: tuple[str, ...] = ()
 
     @field_validator("input_evidence_refs")
     @classmethod
@@ -31,6 +32,13 @@ class CreatorGenerationRequest(DomainModel):
             raise ValueError("input evidence references must be non-empty")
         if values != tuple(sorted(values)) or len(set(values)) != len(values):
             raise ValueError("input evidence references must be sorted and unique")
+        return values
+
+    @field_validator("forbidden_candidate_ids")
+    @classmethod
+    def forbidden_candidate_ids_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if values != tuple(sorted(set(values))):
+            raise ValueError("forbidden candidate IDs must be sorted and unique")
         return values
 
 
@@ -124,6 +132,10 @@ class CreatorGenerator:
         if proposal.research_run_id != request.research_run_id:
             return CreatorGenerationResult(
                 decision="rejected", reason_codes=("research_run_mismatch",)
+            )
+        if proposal.strategy.strategy_id in request.forbidden_candidate_ids:
+            return CreatorGenerationResult(
+                decision="rejected", reason_codes=("candidate_id_forbidden",)
             )
         return CreatorGenerationResult(
             decision="accepted",
