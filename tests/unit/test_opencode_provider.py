@@ -109,6 +109,33 @@ def test_opencode_client_retries_one_transient_server_error() -> None:
     assert payload["proposal_id"] == "proposal-provider-001"
 
 
+def test_opencode_client_retries_one_truncated_json_payload() -> None:
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(
+                200,
+                json={"choices": [{"finish_reason": "length", "message": {"content": ""}}]},
+            )
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps(_proposal("run-provider-001"))}}]},
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        payload = OpenCodeJsonClient(_config(), client=http_client).complete_json(
+            messages=({"role": "user", "content": "return JSON"},),
+            temperature=0.2,
+            max_output_tokens=100,
+        )
+
+    assert calls == 2
+    assert payload["proposal_id"] == "proposal-provider-001"
+
+
 def test_opencode_client_accepts_one_fenced_json_object() -> None:
     content = "```json\n" + json.dumps(_proposal("run-provider-001")) + "\n```"
 

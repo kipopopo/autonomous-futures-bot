@@ -86,8 +86,8 @@ class OpenCodeJsonClient:
         temperature: float,
         max_output_tokens: int,
     ) -> Mapping[str, object]:
-        response: httpx.Response | None = None
         for attempt in range(2):
+            response: httpx.Response | None = None
             try:
                 response = self.client.post(
                     f"{self.config.base_url}/chat/completions",
@@ -105,7 +105,6 @@ class OpenCodeJsonClient:
                     },
                 )
                 response.raise_for_status()
-                break
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code in {500, 502, 503, 504} and attempt == 0:
                     # ponytail: one immediate retry; add backoff only if measured need exists.
@@ -115,37 +114,41 @@ class OpenCodeJsonClient:
                 ) from exc
             except httpx.HTTPError as exc:
                 raise ProviderTransportError("provider_transport_error") from exc
-        if response is None:
-            raise ProviderTransportError("provider_transport_error")
+            if response is None:
+                raise ProviderTransportError("provider_transport_error")
 
-        try:
-            body = response.json()
-            metadata = self._response_metadata(body, status_code=response.status_code)
-            content = body["choices"][0]["message"]["content"]
-            if isinstance(content, str):
-                normalized = content.strip()
-                if normalized.startswith("```json") and normalized.endswith("```"):
-                    normalized = normalized[len("```json") : -len("```")].strip()
-                payload = json.loads(normalized)
-            else:
-                payload = content
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
-            metadata = locals().get(
-                "metadata",
-                {
-                    "status_code": response.status_code,
-                    "response_keys": (),
-                    "choice_count": 0,
-                    "finish_reason": None,
-                    "content_kind": "invalid_json",
-                    "content_length": 0,
-                    "content_sha256": None,
-                },
-            )
-            raise ProviderTransportError("provider_payload_invalid", metadata=metadata) from exc
-        if not isinstance(payload, Mapping):
-            raise ProviderTransportError("provider_payload_invalid")
-        return payload
+            metadata: dict[str, object] = {
+                "status_code": response.status_code,
+                "response_keys": (),
+                "choice_count": 0,
+                "finish_reason": None,
+                "content_kind": "invalid_json",
+                "content_length": 0,
+                "content_sha256": None,
+            }
+            try:
+                body = response.json()
+                metadata = self._response_metadata(body, status_code=response.status_code)
+                content = body["choices"][0]["message"]["content"]
+                if isinstance(content, str):
+                    normalized = content.strip()
+                    if normalized.startswith("```json") and normalized.endswith("```"):
+                        normalized = normalized[len("```json") : -len("```")].strip()
+                    payload = json.loads(normalized)
+                else:
+                    payload = content
+            except (KeyError, IndexError, TypeError, ValueError) as exc:
+                if metadata.get("finish_reason") == "length" and attempt == 0:
+                    # ponytail: one retry for measured truncation; no retry for
+                    # other payload failures.
+                    continue
+                raise ProviderTransportError("provider_payload_invalid", metadata=metadata) from exc
+            if not isinstance(payload, Mapping):
+                if metadata.get("finish_reason") == "length" and attempt == 0:
+                    continue
+                raise ProviderTransportError("provider_payload_invalid", metadata=metadata)
+            return payload
+        raise ProviderTransportError("provider_transport_error")
 
 
 @dataclass(frozen=True, slots=True)
