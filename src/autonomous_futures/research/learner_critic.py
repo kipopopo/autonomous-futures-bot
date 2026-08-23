@@ -105,6 +105,7 @@ class LearnerCriticResult(DomainModel):
     critique: LearnerCritique | None = None
     reason_codes: tuple[str, ...] = Field(min_length=1)
     schema_diagnostics: tuple[str, ...] = ()
+    provider_metadata: dict[str, object] = Field(default_factory=dict)
     raw_output: None = None
     promotion_state: Literal["unpromoted"] = "unpromoted"
     paper_activation: Literal[False] = False
@@ -133,6 +134,23 @@ class LearnerCriticResult(DomainModel):
 
 
 CriticTransport = Callable[[LearnerCriticRequest], Mapping[str, object]]
+_SAFE_PROVIDER_METADATA_KEYS = frozenset(
+    {
+        "choice_count",
+        "content_kind",
+        "content_length",
+        "content_sha256",
+        "finish_reason",
+        "response_keys",
+        "status_code",
+    }
+)
+
+
+def _safe_provider_metadata(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    return {key: value[key] for key in sorted(_SAFE_PROVIDER_METADATA_KEYS) if key in value}
 
 
 class LearnerCritic:
@@ -147,7 +165,11 @@ class LearnerCritic:
             reason = (
                 code if isinstance(code, str) and code.startswith("provider_") else "provider_error"
             )
-            return LearnerCriticResult(decision="rejected", reason_codes=(reason,))
+            return LearnerCriticResult(
+                decision="rejected",
+                reason_codes=(reason,),
+                provider_metadata=_safe_provider_metadata(getattr(exc, "metadata", None)),
+            )
         try:
             critique = parse_learner_critique(payload)
         except DataQualityError:

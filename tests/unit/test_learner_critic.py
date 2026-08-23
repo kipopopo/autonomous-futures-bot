@@ -135,3 +135,26 @@ def test_critic_schema_diagnostics_name_noncanonical_action_list() -> None:
     assert learner_critic_schema_diagnostics(payload) == (
         "revision_actions:critic_list_not_canonical",
     )
+
+
+def test_critic_provider_failure_exposes_only_safe_metadata() -> None:
+    class ProviderFailure(RuntimeError):
+        code = "provider_payload_invalid"
+        metadata = {
+            "status_code": 200,
+            "finish_reason": "length",
+            "content_length": 0,
+            "secret": "must-not-leak",
+        }
+
+    result = LearnerCritic(transport=lambda _: (_ for _ in ()).throw(ProviderFailure())).review(
+        _request()
+    )
+
+    assert result.reason_codes == ("provider_payload_invalid",)
+    assert result.provider_metadata == {
+        "content_length": 0,
+        "finish_reason": "length",
+        "status_code": 200,
+    }
+    assert "secret" not in result.provider_metadata
