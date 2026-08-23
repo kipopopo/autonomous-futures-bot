@@ -9,6 +9,7 @@ from autonomous_futures.research.learner_critic import (
     LearnerCritic,
     LearnerCriticRequest,
     LearnerCritique,
+    learner_critic_schema_diagnostics,
 )
 
 
@@ -104,3 +105,18 @@ def test_critic_request_rejects_feedback_candidate_binding_drift() -> None:
             output_schema_id="learner-critic-v1",
             attempt=1,
         )
+
+
+def test_critic_schema_diagnostics_expose_field_types_not_values() -> None:
+    payload = {
+        "review_id": "review-critic-001",
+        "research_run_id": "run-critic-001",
+        "candidate_id": "cand-critic-001",
+        "decision": "revise",
+        "failure_reason_codes": ["oos_profit_factor_below_threshold"],
+    }
+
+    diagnostics = learner_critic_schema_diagnostics(payload)
+
+    assert diagnostics == ("revision_actions:missing",)
+    assert "cand-critic-001" not in diagnostics

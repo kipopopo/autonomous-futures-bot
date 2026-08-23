@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from hashlib import sha256
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
@@ -82,10 +82,24 @@ def parse_learner_critique(payload: Mapping[str, object]) -> LearnerCritique:
     )
 
 
+def learner_critic_schema_diagnostics(payload: Mapping[str, object]) -> tuple[str, ...]:
+    """Return field/type diagnostics without returning untrusted input values."""
+    try:
+        LearnerCritique.model_validate({**payload, "review_hash": "0" * 64})
+    except ValidationError as exc:
+        diagnostics = {
+            f"{'.'.join(str(part) for part in error['loc']) or 'root'}:{error['type']}"
+            for error in exc.errors()
+        }
+        return tuple(sorted(diagnostics))
+    return ()
+
+
 class LearnerCriticResult(DomainModel):
     decision: Literal["accepted", "rejected"]
     critique: LearnerCritique | None = None
     reason_codes: tuple[str, ...] = Field(min_length=1)
+    schema_diagnostics: tuple[str, ...] = ()
     raw_output: None = None
     promotion_state: Literal["unpromoted"] = "unpromoted"
     paper_activation: Literal[False] = False
@@ -97,6 +111,13 @@ class LearnerCriticResult(DomainModel):
     def reason_codes_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if values != tuple(sorted(set(values))) or any(not value for value in values):
             raise ValueError("critic reason codes must be sorted and unique")
+        return values
+
+    @field_validator("schema_diagnostics")
+    @classmethod
+    def schema_diagnostics_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if values != tuple(sorted(set(values))) or any(not value for value in values):
+            raise ValueError("critic schema diagnostics must be sorted and unique")
         return values
 
     @model_validator(mode="after")
@@ -125,7 +146,11 @@ class LearnerCritic:
         try:
             critique = parse_learner_critique(payload)
         except DataQualityError:
-            return LearnerCriticResult(decision="rejected", reason_codes=("schema_rejected",))
+            return LearnerCriticResult(
+                decision="rejected",
+                reason_codes=("schema_rejected",),
+                schema_diagnostics=learner_critic_schema_diagnostics(payload),
+            )
         if critique.research_run_id != request.research_run_id:
             return LearnerCriticResult(decision="rejected", reason_codes=("research_run_mismatch",))
         if critique.candidate_id != request.candidate_id:
@@ -144,5 +169,6 @@ __all__ = [
     "LearnerCriticResult",
     "LearnerCritique",
     "learner_critique_content_hash",
+    "learner_critic_schema_diagnostics",
     "parse_learner_critique",
 ]
