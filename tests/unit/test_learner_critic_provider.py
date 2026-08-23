@@ -56,6 +56,7 @@ def test_critic_prompt_binds_failure_evidence_and_exact_output_contract() -> Non
     assert "Return exactly one JSON object" in system["content"]
     assert "decision" in system["content"]
     assert "revision_actions" in system["content"]
+    assert '"revision_actions": ["change_entry_threshold"]' in system["content"]
     assert "Do not relax qualification gates" in system["content"]
     assert "oos_profit_factor_min" in user["content"]
     assert "oos_profit_factor_below_threshold" in user["content"]
