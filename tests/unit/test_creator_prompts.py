@@ -182,6 +182,7 @@ def test_creator_revision_prompt_consumes_structured_failure_feedback() -> None:
         input_evidence_refs=("bundle/hash",),
         output_schema_id="creator-proposal-v1",
         attempt=2,
+        forbidden_candidate_ids=("cand-doge-trend-breakout-001",),
     )
     feedback = CreatorQualificationFailureFeedback.model_validate(
         {
@@ -213,6 +214,7 @@ def test_creator_revision_prompt_consumes_structured_failure_feedback() -> None:
     assert "oos_profit_factor_min" in messages[1]["content"]
     assert "oos_profit_factor_below_threshold" in messages[1]["content"]
     assert "Do not relax qualification gates" in messages[1]["content"]
+    assert "forbidden_candidate_ids" in messages[1]["content"]
 
 
 def test_creator_revision_prompt_consumes_persisted_critic_actions() -> None:
@@ -221,6 +223,7 @@ def test_creator_revision_prompt_consumes_persisted_critic_actions() -> None:
         input_evidence_refs=("bundle/hash",),
         output_schema_id="creator-proposal-v1",
         attempt=3,
+        forbidden_candidate_ids=("cand-doge-meanrev-002",),
     )
     feedback = CreatorQualificationFailureFeedback.model_validate(
         {

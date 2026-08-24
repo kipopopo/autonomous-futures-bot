@@ -65,6 +65,10 @@ def build_creator_revision_messages(
 ) -> tuple[Mapping[str, str], Mapping[str, str]]:
     if feedback.bundle_hash != bundle_hash:
         raise ValueError("failure feedback bundle does not match prompt bundle")
+    if not request.forbidden_candidate_ids:
+        raise ValueError("revision request requires forbidden candidate IDs")
+    if feedback.candidate_id not in request.forbidden_candidate_ids:
+        raise ValueError("revision request must forbid the previous candidate")
     if critique_evidence is not None and (
         critique_evidence.bundle_hash != bundle_hash
         or critique_evidence.candidate_id != feedback.candidate_id
@@ -98,6 +102,7 @@ def build_creator_revision_messages(
     revision_user = (
         f"{base_user['content']} Previous candidate feedback={feedback_payload}. "
         "Create a new candidate strategy_id; do not repeat the previous candidate. "
+        f"forbidden_candidate_ids={json.dumps(request.forbidden_candidate_ids)}. "
         "Address the failed gates. Do not relax qualification gates."
     )
     if critique_evidence is not None:
