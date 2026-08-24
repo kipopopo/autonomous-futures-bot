@@ -89,6 +89,7 @@ def test_creator_prompt_spells_out_json_field_shapes() -> None:
     assert "proposal_id must start with proposal-" in system_prompt
     assert "dsl_version must be the integer 1" in system_prompt
     assert "universe must contain a symbols array" in system_prompt
+    assert "feature objects must use keys name, lookback, and shift" in system_prompt
     assert (
         'entry and exit must each be objects with string keys "long" and "short"' in system_prompt
     )
