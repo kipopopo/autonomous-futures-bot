@@ -31,6 +31,11 @@ from .learner_artifacts import (
     verify_learner_artifact_binding,
     write_learner_artifact,
 )
+from .learner_bootstrap import (
+    LearnerBootstrapResult,
+    LearnerBootstrapTrainer,
+    bootstrap_learner_training,
+)
 from .learner_evaluation import (
     CachedOnlyLearnerEvaluatorAdapter,
     LearnerEvaluationRun,
@@ -217,6 +222,9 @@ __all__ = [
     "read_learner_artifact",
     "verify_learner_artifact_binding",
     "write_learner_artifact",
+    "LearnerBootstrapResult",
+    "LearnerBootstrapTrainer",
+    "bootstrap_learner_training",
     "CachedOnlyLearnerEvaluatorAdapter",
     "LearnerEvaluationRun",
     "LearnerEvaluationWindow",
