@@ -129,6 +129,19 @@ def test_causal_context_is_unusable_until_15m_close_boundary() -> None:
     pd.testing.assert_frame_equal(context, _context_frame())
 
 
+def test_causal_context_normalizes_mixed_timestamp_precision() -> None:
+    primary = _primary_frame()
+    context = _context_frame()
+    primary["timestamp"] = pd.DatetimeIndex(primary["timestamp"]).as_unit("ms")
+    context["timestamp"] = pd.DatetimeIndex(context["timestamp"]).as_unit("us")
+    context["close_time"] = pd.DatetimeIndex(context["close_time"]).as_unit("us")
+
+    result = materialize_causal_context(primary, context)
+
+    assert result["context_close"].iloc[:3].isna().all()
+    assert result["context_close"].iloc[3] == Decimal("105")
+
+
 def test_causal_context_uses_prior_closed_context_when_available() -> None:
     primary = _primary_frame()
     earlier_context = _context_frame()

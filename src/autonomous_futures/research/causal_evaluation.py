@@ -62,10 +62,15 @@ def materialize_causal_context(
     context_for_merge["context_available_at"] = context_for_merge["context_close_time"] + timedelta(
         milliseconds=1
     )
+    primary_for_merge = primary_canonical.sort_values("timestamp", kind="mergesort").copy()
+    primary_for_merge["timestamp"] = pd.DatetimeIndex(primary_for_merge["timestamp"]).as_unit("us")
+    context_for_merge["context_available_at"] = pd.DatetimeIndex(
+        context_for_merge["context_available_at"]
+    ).as_unit("us")
     context_for_merge = context_for_merge.sort_values("context_available_at", kind="mergesort")
 
     merged = pd.merge_asof(
-        primary_canonical.sort_values("timestamp", kind="mergesort"),
+        primary_for_merge,
         context_for_merge,
         left_on="timestamp",
         right_on="context_available_at",
