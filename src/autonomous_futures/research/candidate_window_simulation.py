@@ -19,6 +19,16 @@ def simulate_candidate_window(
     if symbol not in candidate.strategy.universe.symbols:
         raise DataQualityError("simulation symbol is not present in candidate universe")
     signals = CausalFeatureSignalEvaluator().evaluate(candidate, frame)
+    risk = candidate.strategy.risk
+    if risk is not None:
+        config = config.model_copy(
+            update={
+                "position_fraction": risk.position_fraction,
+                "stop_atr_multiplier": risk.stop_atr_multiplier,
+                "take_profit_atr_multiplier": risk.take_profit_atr_multiplier,
+                "trailing_atr_multiplier": risk.trailing_atr_multiplier,
+            }
+        )
     return simulate_cached_signals(signals, symbol=symbol, config=config)
 
 

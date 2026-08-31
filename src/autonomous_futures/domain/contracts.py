@@ -170,8 +170,21 @@ class EntryExit(DomainModel):
         return value
 
 
+class CandidateSimulationRisk(DomainModel):
+    """Bounded cached-simulation risk; never leverage or execution authority."""
+
+    position_fraction: Annotated[Decimal, Field(strict=True, gt=Decimal("0"), le=Decimal("0.5"))]
+    stop_atr_multiplier: Annotated[Decimal, Field(strict=True, gt=Decimal("0"), le=Decimal("100"))]
+    take_profit_atr_multiplier: Annotated[
+        Decimal, Field(strict=True, ge=Decimal("0"), le=Decimal("100"))
+    ]
+    trailing_atr_multiplier: Annotated[
+        Decimal, Field(strict=True, ge=Decimal("0"), le=Decimal("100"))
+    ]
+
+
 class StrategySpec(DomainModel):
-    dsl_version: Literal[1]
+    dsl_version: Literal[1, 2]
     strategy_id: str = Field(min_length=1)
     family: Literal["regime_gated_breakout", "range_mean_reversion", "experimental"]
     universe: StrategyUniverse
@@ -179,6 +192,15 @@ class StrategySpec(DomainModel):
     entry: EntryExit
     exit: EntryExit
     vetoes: tuple[str, ...] = Field(min_length=1)
+    risk: CandidateSimulationRisk | None = None
+
+    @model_validator(mode="after")
+    def risk_matches_dsl_version(self) -> StrategySpec:
+        if self.dsl_version == 2 and self.risk is None:
+            raise ValueError("dsl_version 2 requires simulation risk")
+        if self.dsl_version == 1 and self.risk is not None:
+            raise ValueError("dsl_version 1 forbids simulation risk")
+        return self
 
 
 def parse_strategy_spec(payload: Mapping[str, object]) -> StrategySpec:

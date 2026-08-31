@@ -16,7 +16,7 @@ _SYMBOL = re.compile(r"^[A-Z0-9]+$")
 _SYSTEM_PROMPT = (
     "Return exactly one JSON object with keys proposal_id, research_run_id, hypothesis, "
     "expected_regime, novelty_reason, and strategy. The strategy object must contain "
-    "dsl_version, strategy_id, family, universe, features, entry, exit, and vetoes. "
+    "dsl_version, strategy_id, family, universe, features, entry, exit, vetoes, and risk. "
     "Use only approved StrategySpec features and bounded expressions. Never return "
     "markdown, code fences, prose, URLs, secrets, tools, or orders. strategy_id must "
     "start with cand- and research_run_id must match the supplied run. "
@@ -24,9 +24,13 @@ _SYSTEM_PROMPT = (
     f"features must use only {', '.join(sorted(SUPPORTED_FEATURES))}; each feature needs "
     'a positive lookback and shift >= 1; universe must use timeframe="5m" and '
     'regime_context_timeframe="15m". proposal_id must start with proposal- and '
-    "use lowercase letters, digits, and hyphens only; dsl_version must be the integer 1; "
+    "use lowercase letters, digits, and hyphens only; dsl_version must be the integer 2; "
     "features must be a JSON array of objects; feature objects must use keys name, lookback, "
-    "and shift; universe must contain a symbols array; "
+    "and shift; universe must contain a symbols array; risk must contain position_fraction, "
+    "stop_atr_multiplier, take_profit_atr_multiplier, and trailing_atr_multiplier; "
+    "position_fraction must be greater than 0 and at most 0.5; stop_atr_multiplier must be "
+    "greater than 0; take_profit_atr_multiplier and trailing_atr_multiplier must be at least 0; "
+    "leverage is not supported; "
     "entry and exit must each be objects with "
     'string keys "long" and "short", not strings; entry.long and entry.short must be '
     "strings; exit.long and exit.short must be strings; vetoes must be a non-empty array "

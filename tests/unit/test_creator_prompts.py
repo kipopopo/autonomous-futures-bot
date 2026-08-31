@@ -27,6 +27,7 @@ def test_creator_prompt_contains_exact_schema_and_evidence_scope() -> None:
     assert messages[0]["role"] == "system"
     assert "proposal_id" in messages[0]["content"]
     assert "strategy_id" in messages[0]["content"]
+    assert "features, entry, exit, vetoes, and risk" in messages[0]["content"]
     assert "Return exactly one JSON object" in messages[0]["content"]
     assert messages[1]["role"] == "user"
     assert "run-prompt-001" in messages[1]["content"]
@@ -87,12 +88,29 @@ def test_creator_prompt_spells_out_json_field_shapes() -> None:
     )[0]["content"]
 
     assert "proposal_id must start with proposal-" in system_prompt
-    assert "dsl_version must be the integer 1" in system_prompt
+    assert "dsl_version must be the integer 2" in system_prompt
     assert "universe must contain a symbols array" in system_prompt
     assert "feature objects must use keys name, lookback, and shift" in system_prompt
     assert (
         'entry and exit must each be objects with string keys "long" and "short"' in system_prompt
     )
+
+
+def test_creator_prompt_requires_v2_simulation_risk_profile() -> None:
+    request = CreatorGenerationRequest(
+        research_run_id="run-prompt-risk-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+
+    system_prompt = build_creator_proposal_messages(
+        request, bundle_hash="a" * 64, symbol="DOGEUSDT"
+    )[0]["content"]
+
+    assert "dsl_version must be the integer 2" in system_prompt
+    assert "risk must contain position_fraction" in system_prompt
+    assert "leverage is not supported" in system_prompt
 
 
 def test_creator_prompt_spells_out_condition_and_veto_types() -> None:

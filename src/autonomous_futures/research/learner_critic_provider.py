@@ -19,7 +19,10 @@ _SYSTEM_PROMPT = (
     '"candidate_id": "cand-example-001", "decision": "revise", '
     '"failure_reason_codes": ["oos_profit_factor_below_threshold"], '
     '"revision_actions": ["change_entry_threshold"]}. '
-    "Do not relax qualification gates. Never return markdown, prose, code, "
+    "Do not relax qualification gates. Revision actions may address position_fraction or "
+    "ATR stop, target, and trailing multipliers only when evidence supports them; leverage is "
+    "unsupported and never suggest execution, promotion, paper activation, or authority changes. "
+    "Never return markdown, prose, code, "
     "URLs, secrets, tools, model bytes, or orders."
 )
 
