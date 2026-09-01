@@ -110,6 +110,14 @@ class GoogleAIStudioJsonClient:
                     "temperature": temperature,
                     "max_tokens": max_output_tokens,
                     "response_format": {"type": "json_object"},
+                    "extra_body": {
+                        "google": {
+                            "thinking_config": {
+                                "thinking_level": "minimal",
+                                "include_thoughts": False,
+                            }
+                        }
+                    },
                 },
             )
             response.raise_for_status()

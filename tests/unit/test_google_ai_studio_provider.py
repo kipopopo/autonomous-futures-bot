@@ -75,6 +75,34 @@ def test_google_ai_studio_client_posts_exact_model_and_returns_json_object() -> 
     assert request_body["response_format"] == {"type": "json_object"}
 
 
+def test_google_ai_studio_client_disables_gemma4_thinking_for_json() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps(_proposal("run-provider-001"))}}]},
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+            messages=({"role": "user", "content": "return JSON"},),
+            temperature=0.0,
+            max_output_tokens=256,
+        )
+
+    request_body = json.loads(captured[0].content)
+    assert request_body["extra_body"] == {
+        "google": {
+            "thinking_config": {
+                "thinking_level": "minimal",
+                "include_thoughts": False,
+            }
+        }
+    }
+
+
 def test_google_ai_studio_client_hides_http_error_body() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(429, text="SECRET_PROVIDER_RESPONSE")

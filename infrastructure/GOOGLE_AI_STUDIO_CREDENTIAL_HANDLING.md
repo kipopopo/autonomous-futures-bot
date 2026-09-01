@@ -54,6 +54,7 @@ Use a logical credential name such as `google_ai_studio_api_key`. The applicatio
 
 - Validate the exact configured base URL and selected model ID before a research batch starts.
 - Permit only `gemma-4-26b-a4b-it` and `gemma-4-31b-it`; no silent model substitution.
+- For JSON-bound Gemma 4 calls, set `thinking_level` to `minimal` and `include_thoughts` to `false` through Google's explicit request extension; do not combine it with `reasoning_effort`.
 - If the model is unavailable, malformed, unauthorized, or transport-failed, persist only safe failure metadata and stop that research batch.
 - Do not silently switch providers or models.
 - Never expose an `Authorization` header or response body in logs, metrics, exception text, trial evidence, or dashboards.

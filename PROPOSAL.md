@@ -572,6 +572,8 @@ Version 1 locks every embedded research-role call to **Google AI Studio** throug
 
 The provider API base URL and API key remain deployment-only credentials; they are never placed in source, `.env.example`, StrategySpecs, the database, trial records, prompts, logs, or this proposal. Kainode's verified systemd 255 runtime supports `systemd-creds`; after VPS hardening, the Google AI Studio key will be delivered to the non-root service through a root-managed encrypted systemd credential and read from its private `$CREDENTIALS_DIRECTORY` at startup. Startup must verify that the configured provider exposes the exact selected model ID. If it does not, the research cycle records `provider_model_unavailable` and stops—there is no silent model substitution.
 
+Gemma 4 JSON-bound calls explicitly set Google's `extra_body.google.thinking_config` to `thinking_level="minimal"` with `include_thoughts=false`; the provider does not send a concurrent `reasoning_effort` control. This keeps reasoning output from consuming the bounded structured-output response while preserving fail-closed parsing.
+
 Role-level configuration remains explicit even though the provider is shared and the model is selected per role:
 
 ```text
