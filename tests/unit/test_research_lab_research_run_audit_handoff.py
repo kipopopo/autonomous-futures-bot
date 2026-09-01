@@ -32,12 +32,12 @@ def _policy() -> ResearchModelPolicy:
         roles=(
             LLMRolePolicy(
                 role="hypothesis_generator",
-                provider="opencode",
-                model_id="deepseek-v4-flash",
+                provider="google_ai_studio",
+                model_id="gemma-4-26b-a4b-it",
                 temperature=Decimal("0.20"),
                 max_output_tokens=800,
                 max_requests_per_batch=4,
-                max_retries=1,
+                max_retries=0,
             ),
         ),
     )
@@ -56,8 +56,8 @@ def _audit(
         role="hypothesis_generator",
         policy_id=policy.policy_id,
         policy_hash=policy.policy_hash,
-        provider="opencode",
-        model_id="deepseek-v4-flash",
+        provider="google_ai_studio",
+        model_id="gemma-4-26b-a4b-it",
         prompt_template_hash="b" * 64,
         system_policy_version="research-system-policy-v1",
         input_evidence_refs=("dataset-manifest:abc",),

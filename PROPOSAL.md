@@ -568,11 +568,11 @@ No agent both creates and approves the same candidate.
 
 ### 7.2 Model/provider design
 
-Version 1 locks every embedded research-role call to the **OpenCode provider** and exact model identifier **`deepseek-v4-flash`**. This is an application-runtime decision: the backend calls the provider directly through an OpenAI-compatible `LLMProvider` interface, not through Hermes delegation or an interactive agent session.
+Version 1 locks every embedded research-role call to **Google AI Studio** through its official OpenAI-compatible endpoint. The permitted model identifiers are **`gemma-4-26b-a4b-it`** and **`gemma-4-31b-it`**; role policy selects one explicitly and no silent substitution is allowed. This is an application-runtime decision: the backend calls the provider directly through an OpenAI-compatible `LLMProvider` interface, not through Hermes delegation or an interactive agent session.
 
-The provider API base URL and API key remain deployment-only credentials; they are never placed in source, `.env.example`, StrategySpecs, the database, trial records, prompts, logs, or this proposal. Kainode's verified systemd 255 runtime supports `systemd-creds`; after VPS hardening, the OpenCode key will be delivered to the non-root service through a root-managed encrypted systemd credential and read from its private `$CREDENTIALS_DIRECTORY` at startup. Startup must verify that the configured provider exposes the exact model ID. If it does not, the research cycle records `provider_model_unavailable` and stops—there is no silent model substitution.
+The provider API base URL and API key remain deployment-only credentials; they are never placed in source, `.env.example`, StrategySpecs, the database, trial records, prompts, logs, or this proposal. Kainode's verified systemd 255 runtime supports `systemd-creds`; after VPS hardening, the Google AI Studio key will be delivered to the non-root service through a root-managed encrypted systemd credential and read from its private `$CREDENTIALS_DIRECTORY` at startup. Startup must verify that the configured provider exposes the exact selected model ID. If it does not, the research cycle records `provider_model_unavailable` and stops—there is no silent model substitution.
 
-Role-level configuration remains explicit even though the initial provider/model is shared:
+Role-level configuration remains explicit even though the provider is shared and the model is selected per role:
 
 ```text
 role -> provider -> model -> temperature -> token/request limit
@@ -589,9 +589,9 @@ For every model call, store:
 - retry count and error;
 - final output hash.
 
-Free availability does not mean unlimited throughput. The shared model still has hard per-role token/request limits, a global in-flight-call cap, bounded retries, and a research-batch budget. A model may not select its own replacement or raise its token/request budget. Model changes are configuration deployments with evaluation evidence.
+Free availability does not mean unlimited throughput. Each permitted model still has hard per-role token/request limits, a global in-flight-call cap, no automatic retries, and a research-batch budget. A model may not select its own replacement or raise its token/request budget. Model changes are configuration deployments with evaluation evidence.
 
-Using the same model for generator, author, critic, and analyst roles does not merge their authority: they have different prompt templates, input bundles, schema outputs, trial identities, and deterministic gates. In particular, no role may create and approve the same candidate.
+Using either permitted model for generator, author, critic, and analyst roles does not merge their authority: they have different prompt templates, input bundles, schema outputs, trial identities, and deterministic gates. In particular, no role may create and approve the same candidate.
 
 ### 7.3 Bounded creativity
 
@@ -1396,7 +1396,7 @@ This roadmap uses capability gates rather than calendar promises.
 | VPS/process/database failure | High | Watchdogs, backup tests | Restart-safe event ledger; restore drills; systemd |
 | LLM/infrastructure cost exceeds gains | High | Economic P&L | Hard research quota; separate cost accounting |
 | Model/provider behaviour changes | High | Versioned evaluation suite | Pin exact model; promotion tests before model change |
-| OpenCode model unavailable or rate-limited | High | Startup model check, request telemetry, bounded retries | Stop that research cycle; do not silently substitute a model |
+| Google AI Studio model unavailable or rate-limited | High | Startup model check, request telemetry, bounded retries | Stop that research cycle; do not silently substitute a model |
 
 ---
 
@@ -1435,7 +1435,7 @@ Recommended defaults:
 | Begin implementation? | Only Phase 0 after proposal acceptance |
 | First integration | Public data + internal paper broker |
 | Exchange credentials during Phases 0–5 | None |
-| LLM provider | OpenCode, with `deepseek-v4-flash` for every embedded research role |
+| LLM provider | Google AI Studio, with `gemma-4-26b-a4b-it` and `gemma-4-31b-it` selected explicitly per embedded research role |
 | Initial symbols | BTCUSDT, ETHUSDT, SOLUSDT |
 | Initial timeframe | 5m signal, 15m closed-bar regime context |
 | Initial strategy families | Regime trend/breakout, then range mean reversion |

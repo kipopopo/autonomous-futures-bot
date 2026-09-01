@@ -1,4 +1,4 @@
-"""OpenCode transport and prompt contract for the injected Learner/Critic boundary."""
+"""Google AI Studio transport and prompt contract for Learner/Critic."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from .google_ai_studio_provider import GoogleAIStudioJsonClient
 from .learner_critic import LearnerCriticRequest
-from .opencode_provider import OpenCodeJsonClient
 
 _SYSTEM_PROMPT = (
     "Return exactly one JSON object with keys review_id, research_run_id, candidate_id, "
@@ -58,8 +58,8 @@ def build_learner_critic_messages(
 
 
 @dataclass(frozen=True, slots=True)
-class OpenCodeCriticTransport:
-    client: OpenCodeJsonClient
+class GoogleAIStudioCriticTransport:
+    client: GoogleAIStudioJsonClient
     system_prompt: str
     user_prompt_builder: Callable[[LearnerCriticRequest], str]
     temperature: float = 0.2
@@ -76,4 +76,4 @@ class OpenCodeCriticTransport:
         )
 
 
-__all__ = ["OpenCodeCriticTransport", "build_learner_critic_messages"]
+__all__ = ["GoogleAIStudioCriticTransport", "build_learner_critic_messages"]

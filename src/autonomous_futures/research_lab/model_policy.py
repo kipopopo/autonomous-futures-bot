@@ -16,17 +16,20 @@ ResearchRole = Literal[
     "failure_analyst",
 ]
 
+ResearchProvider = Literal["google_ai_studio"]
+GemmaModelId = Literal["gemma-4-26b-a4b-it", "gemma-4-31b-it"]
+
 
 class LLMRolePolicy(DomainModel):
     """Pinned, non-authoritative policy for one embedded research role."""
 
     role: ResearchRole
-    provider: Literal["opencode"]
-    model_id: Literal["deepseek-v4-flash"]
+    provider: ResearchProvider
+    model_id: GemmaModelId
     temperature: Decimal
     max_output_tokens: int = Field(gt=0, strict=True)
     max_requests_per_batch: int = Field(gt=0, strict=True)
-    max_retries: int = Field(ge=0, strict=True)
+    max_retries: Literal[0] = 0
 
     @field_validator("temperature")
     @classmethod

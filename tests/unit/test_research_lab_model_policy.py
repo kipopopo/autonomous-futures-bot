@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from autonomous_futures.research_lab.model_policy import (
+    GemmaModelId,
     LLMRolePolicy,
     ResearchModelPolicy,
     build_research_model_policy,
@@ -13,15 +14,15 @@ from autonomous_futures.research_lab.model_policy import (
 )
 
 
-def _role(role: str) -> LLMRolePolicy:
+def _role(role: str, model_id: GemmaModelId = "gemma-4-26b-a4b-it") -> LLMRolePolicy:
     return LLMRolePolicy(
         role=role,
-        provider="opencode",
-        model_id="deepseek-v4-flash",
+        provider="google_ai_studio",
+        model_id=model_id,
         temperature=Decimal("0.20"),
         max_output_tokens=800,
         max_requests_per_batch=4,
-        max_retries=1,
+        max_retries=0,
     )
 
 
@@ -30,10 +31,10 @@ def test_research_model_policy_is_pinned_sorted_and_canonically_hashed() -> None
         policy_id="research-model-policy-v1",
         policy_version=1,
         roles=(
-            _role("strategy_spec_author"),
+            _role("strategy_spec_author", "gemma-4-31b-it"),
             _role("failure_analyst"),
             _role("hypothesis_generator"),
-            _role("economic_critic"),
+            _role("economic_critic", "gemma-4-31b-it"),
         ),
     )
 
@@ -44,7 +45,8 @@ def test_research_model_policy_is_pinned_sorted_and_canonically_hashed() -> None
         "strategy_spec_author",
     )
     assert {(role.provider, role.model_id) for role in policy.roles} == {
-        ("opencode", "deepseek-v4-flash")
+        ("google_ai_studio", "gemma-4-26b-a4b-it"),
+        ("google_ai_studio", "gemma-4-31b-it"),
     }
     assert research_model_policy_content_hash(policy) == policy.policy_hash
     assert len(policy.policy_hash) == 64
@@ -57,18 +59,19 @@ def test_research_model_policy_is_pinned_sorted_and_canonically_hashed() -> None
         ("temperature", Decimal("2.01")),
         ("max_output_tokens", 0),
         ("max_requests_per_batch", 0),
+        ("max_retries", 1),
         ("max_retries", -1),
     ],
 )
 def test_role_policy_rejects_invalid_budget_values(field: str, value: Decimal | int) -> None:
     payload: dict[str, object] = {
         "role": "hypothesis_generator",
-        "provider": "opencode",
-        "model_id": "deepseek-v4-flash",
+        "provider": "google_ai_studio",
+        "model_id": "gemma-4-26b-a4b-it",
         "temperature": Decimal("0.20"),
         "max_output_tokens": 800,
         "max_requests_per_batch": 4,
-        "max_retries": 1,
+        "max_retries": 0,
     }
     payload[field] = value
 

@@ -5,12 +5,15 @@ import json
 import httpx
 
 from autonomous_futures.research.creator_failure_feedback import CreatorQualificationFailureFeedback
+from autonomous_futures.research.google_ai_studio_provider import (
+    GoogleAIStudioJsonClient,
+    GoogleAIStudioProviderConfig,
+)
 from autonomous_futures.research.learner_critic import LearnerCritic, LearnerCriticRequest
 from autonomous_futures.research.learner_critic_provider import (
-    OpenCodeCriticTransport,
+    GoogleAIStudioCriticTransport,
     build_learner_critic_messages,
 )
-from autonomous_futures.research.opencode_provider import OpenCodeJsonClient, OpenCodeProviderConfig
 
 
 def _feedback() -> CreatorQualificationFailureFeedback:
@@ -65,7 +68,7 @@ def test_critic_prompt_binds_failure_evidence_and_exact_output_contract() -> Non
     assert "oos_profit_factor_below_threshold" in user["content"]
 
 
-def test_opencode_critic_transport_reaches_existing_critic_contract() -> None:
+def test_google_ai_studio_critic_transport_reaches_existing_critic_contract() -> None:
     payload = {
         "review_id": "review-provider-001",
         "research_run_id": "run-critic-provider-001",
@@ -77,7 +80,7 @@ def test_opencode_critic_transport_reaches_existing_critic_contract() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        assert body["model"] == "deepseek-v4-flash"
+        assert body["model"] == "gemma-4-26b-a4b-it"
         assert body["max_tokens"] == 4096
         return httpx.Response(
             200, json={"choices": [{"message": {"content": json.dumps(payload)}}]}
@@ -86,9 +89,12 @@ def test_opencode_critic_transport_reaches_existing_critic_contract() -> None:
     request = _request()
     system, user = build_learner_critic_messages(request)
     with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
-        transport = OpenCodeCriticTransport(
-            client=OpenCodeJsonClient(
-                OpenCodeProviderConfig(base_url="https://provider.test/v1", api_key="not-real"),
+        transport = GoogleAIStudioCriticTransport(
+            client=GoogleAIStudioJsonClient(
+                GoogleAIStudioProviderConfig(
+                    base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                    api_key="not-real",
+                ),
                 client=http_client,
             ),
             system_prompt=system["content"],

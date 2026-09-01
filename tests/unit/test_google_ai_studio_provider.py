@@ -4,12 +4,13 @@ import json
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from autonomous_futures.research.creator_generator import CreatorGenerationRequest, CreatorGenerator
-from autonomous_futures.research.opencode_provider import (
-    OpenCodeJsonClient,
-    OpenCodeProposalTransport,
-    OpenCodeProviderConfig,
+from autonomous_futures.research.google_ai_studio_provider import (
+    GoogleAIStudioJsonClient,
+    GoogleAIStudioProposalTransport,
+    GoogleAIStudioProviderConfig,
     ProviderTransportError,
 )
 
@@ -38,14 +39,15 @@ def _proposal(run_id: str) -> dict[str, object]:
     }
 
 
-def _config() -> OpenCodeProviderConfig:
-    return OpenCodeProviderConfig(
-        base_url="https://provider.test/v1",
+def _config(model_id: str = "gemma-4-26b-a4b-it") -> GoogleAIStudioProviderConfig:
+    return GoogleAIStudioProviderConfig(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
         api_key="test-secret-not-real",
+        model_id=model_id,
     )
 
 
-def test_opencode_client_posts_exact_model_and_returns_json_object() -> None:
+def test_google_ai_studio_client_posts_exact_model_and_returns_json_object() -> None:
     captured: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -56,27 +58,30 @@ def test_opencode_client_posts_exact_model_and_returns_json_object() -> None:
         )
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
-        payload = OpenCodeJsonClient(_config(), client=http_client).complete_json(
+        payload = GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
             messages=({"role": "user", "content": "return JSON"},),
             temperature=0.2,
             max_output_tokens=100,
         )
 
     assert payload["proposal_id"] == "proposal-provider-001"
-    assert captured[0].url == "https://provider.test/v1/chat/completions"
+    assert (
+        captured[0].url
+        == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    )
     assert captured[0].headers["authorization"] == "Bearer test-secret-not-real"
     request_body = json.loads(captured[0].content)
-    assert request_body["model"] == "deepseek-v4-flash"
+    assert request_body["model"] == "gemma-4-26b-a4b-it"
     assert request_body["response_format"] == {"type": "json_object"}
 
 
-def test_opencode_client_hides_http_error_body() -> None:
+def test_google_ai_studio_client_hides_http_error_body() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(429, text="SECRET_PROVIDER_RESPONSE")
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
         with pytest.raises(ProviderTransportError, match="provider_http_error") as error:
-            OpenCodeJsonClient(_config(), client=http_client).complete_json(
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
                 messages=({"role": "user", "content": "return JSON"},),
                 temperature=0.2,
                 max_output_tokens=100,
@@ -85,13 +90,13 @@ def test_opencode_client_hides_http_error_body() -> None:
     assert "SECRET_PROVIDER_RESPONSE" not in str(error.value)
 
 
-def test_opencode_client_exposes_only_transport_error_type() -> None:
+def test_google_ai_studio_client_exposes_only_transport_error_type() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("SECRET_TRANSPORT_ERROR")
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
         with pytest.raises(ProviderTransportError, match="provider_transport_error") as error:
-            OpenCodeJsonClient(_config(), client=http_client).complete_json(
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
                 messages=({"role": "user", "content": "return JSON"},),
                 temperature=0.2,
                 max_output_tokens=100,
@@ -101,65 +106,55 @@ def test_opencode_client_exposes_only_transport_error_type() -> None:
     assert "SECRET_TRANSPORT_ERROR" not in str(error.value)
 
 
-def test_opencode_client_retries_one_transient_server_error() -> None:
+def test_google_ai_studio_client_does_not_retry_transient_server_error() -> None:
     calls = 0
 
     def handler(_: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        if calls == 1:
-            return httpx.Response(500, text="SECRET_PROVIDER_RESPONSE")
-        return httpx.Response(
-            200,
-            json={"choices": [{"message": {"content": json.dumps(_proposal("run-provider-001"))}}]},
-        )
+        return httpx.Response(500, text="SECRET_PROVIDER_RESPONSE")
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
-        payload = OpenCodeJsonClient(_config(), client=http_client).complete_json(
-            messages=({"role": "user", "content": "return JSON"},),
-            temperature=0.2,
-            max_output_tokens=100,
-        )
-
-    assert calls == 2
-    assert payload["proposal_id"] == "proposal-provider-001"
-
-
-def test_opencode_client_retries_one_truncated_json_payload() -> None:
-    calls = 0
-
-    def handler(_: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return httpx.Response(
-                200,
-                json={"choices": [{"finish_reason": "length", "message": {"content": ""}}]},
+        with pytest.raises(ProviderTransportError, match="provider_http_error"):
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": "return JSON"},),
+                temperature=0.2,
+                max_output_tokens=100,
             )
+
+    assert calls == 1
+
+
+def test_google_ai_studio_client_does_not_retry_truncated_json_payload() -> None:
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
         return httpx.Response(
             200,
-            json={"choices": [{"message": {"content": json.dumps(_proposal("run-provider-001"))}}]},
+            json={"choices": [{"finish_reason": "length", "message": {"content": ""}}]},
         )
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
-        payload = OpenCodeJsonClient(_config(), client=http_client).complete_json(
-            messages=({"role": "user", "content": "return JSON"},),
-            temperature=0.2,
-            max_output_tokens=100,
-        )
+        with pytest.raises(ProviderTransportError, match="provider_payload_invalid"):
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": "return JSON"},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
 
-    assert calls == 2
-    assert payload["proposal_id"] == "proposal-provider-001"
+    assert calls == 1
 
 
-def test_opencode_client_accepts_one_fenced_json_object() -> None:
+def test_google_ai_studio_client_accepts_one_fenced_json_object() -> None:
     content = "```json\n" + json.dumps(_proposal("run-provider-001")) + "\n```"
 
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
-        payload = OpenCodeJsonClient(_config(), client=http_client).complete_json(
+        payload = GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
             messages=({"role": "user", "content": "return JSON"},),
             temperature=0.2,
             max_output_tokens=100,
@@ -168,7 +163,7 @@ def test_opencode_client_accepts_one_fenced_json_object() -> None:
     assert payload["proposal_id"] == "proposal-provider-001"
 
 
-def test_opencode_client_exposes_safe_metadata_for_non_json_content() -> None:
+def test_google_ai_studio_client_exposes_safe_metadata_for_non_json_content() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -179,7 +174,7 @@ def test_opencode_client_exposes_safe_metadata_for_non_json_content() -> None:
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
         with pytest.raises(ProviderTransportError, match="provider_payload_invalid") as error:
-            OpenCodeJsonClient(_config(), client=http_client).complete_json(
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
                 messages=({"role": "user", "content": "return JSON"},),
                 temperature=0.2,
                 max_output_tokens=100,
@@ -196,7 +191,7 @@ def test_opencode_client_exposes_safe_metadata_for_non_json_content() -> None:
     }
 
 
-def test_proposal_transport_connects_provider_to_existing_generator() -> None:
+def test_google_ai_studio_proposal_transport_connects_provider_to_existing_generator() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -210,8 +205,8 @@ def test_proposal_transport_connects_provider_to_existing_generator() -> None:
         attempt=1,
     )
     with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
-        transport = OpenCodeProposalTransport(
-            client=OpenCodeJsonClient(_config(), client=http_client),
+        transport = GoogleAIStudioProposalTransport(
+            client=GoogleAIStudioJsonClient(_config(), client=http_client),
             system_prompt="Return only the declared JSON schema.",
             user_prompt_builder=lambda item: f"run={item.research_run_id}",
         )
@@ -219,3 +214,31 @@ def test_proposal_transport_connects_provider_to_existing_generator() -> None:
 
     assert result.decision == "accepted"
     assert result.proposal is not None
+
+
+def test_google_ai_studio_client_accepts_second_pinned_gemma_model() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps(_proposal("run-provider-001"))}}]},
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        GoogleAIStudioJsonClient(_config("gemma-4-31b-it"), client=http_client).complete_json(
+            messages=({"role": "user", "content": "return JSON"},),
+            temperature=0.2,
+            max_output_tokens=100,
+        )
+
+    assert json.loads(captured[0].content)["model"] == "gemma-4-31b-it"
+
+
+def test_google_ai_studio_config_rejects_non_official_base_url() -> None:
+    with pytest.raises(ValidationError, match="official"):
+        GoogleAIStudioProviderConfig(
+            base_url="https://provider.test/v1",
+            api_key="test-secret-not-real",
+        )

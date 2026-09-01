@@ -27,12 +27,12 @@ def _policy() -> ResearchModelPolicy:
         roles=(
             LLMRolePolicy(
                 role="hypothesis_generator",
-                provider="opencode",
-                model_id="deepseek-v4-flash",
+                provider="google_ai_studio",
+                model_id="gemma-4-26b-a4b-it",
                 temperature=Decimal("0.20"),
                 max_output_tokens=800,
                 max_requests_per_batch=4,
-                max_retries=1,
+                max_retries=0,
             ),
         ),
     )
@@ -45,8 +45,8 @@ def _audit(policy: ResearchModelPolicy) -> ModelCallAudit:
         role="hypothesis_generator",
         policy_id=policy.policy_id,
         policy_hash=policy.policy_hash,
-        provider="opencode",
-        model_id="deepseek-v4-flash",
+        provider="google_ai_studio",
+        model_id="gemma-4-26b-a4b-it",
         prompt_template_hash="b" * 64,
         system_policy_version="research-system-policy-v1",
         input_evidence_refs=("dataset-manifest:abc",),
@@ -91,12 +91,12 @@ def test_verified_model_call_audit_loader_rejects_valid_policy_hash_drift(
         roles=(
             LLMRolePolicy(
                 role="hypothesis_generator",
-                provider="opencode",
-                model_id="deepseek-v4-flash",
+                provider="google_ai_studio",
+                model_id="gemma-4-26b-a4b-it",
                 temperature=Decimal("0.25"),
                 max_output_tokens=800,
                 max_requests_per_batch=4,
-                max_retries=1,
+                max_retries=0,
             ),
         ),
     )
@@ -114,12 +114,12 @@ def test_verified_model_call_audit_loader_rejects_valid_hash_role_drift(tmp_path
         roles=(
             LLMRolePolicy(
                 role="economic_critic",
-                provider="opencode",
-                model_id="deepseek-v4-flash",
+                provider="google_ai_studio",
+                model_id="gemma-4-26b-a4b-it",
                 temperature=Decimal("0.20"),
                 max_output_tokens=800,
                 max_requests_per_batch=4,
-                max_retries=1,
+                max_retries=0,
             ),
         ),
     )
