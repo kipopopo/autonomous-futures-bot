@@ -46,6 +46,42 @@ non-root Autonomous Futures Bot service reads the key at startup
 
 The service contract will use a logical credential name such as `opencode_api_key`. The application reads its contents from the systemd credential directory and keeps it only in process memory while its HTTP client is active.
 
+## Safe rotation and staging
+
+The key pasted into chat is exposed. Revoke it in the provider console and create a replacement before staging anything. Never send the replacement through chat, a repository file, a command argument, or a log.
+
+From Windows Git Bash, enter the replacement only at the hidden local prompt and pipe it directly to the pinned VPS command:
+
+```bash
+PLINK='/c/Program Files/PuTTY/plink'
+SSH_KEY='C:/Users/thaqi/.ssh/kainode_ed25519.ppk'
+HOSTKEY='SHA256:2EHNUWXLj2BPt/163uW942G+grhLoDVxhmtyrw7vdjQ'
+read -r -s -p 'New OpenCode API key: ' OPENCODE_API_KEY
+printf '\n'
+if [ -n "$OPENCODE_API_KEY" ]; then
+  printf '%s' "$OPENCODE_API_KEY" |
+    "$PLINK" -batch -ssh -i "$SSH_KEY" -hostkey "$HOSTKEY" \
+      afbot-admin@147.79.18.15 \
+      'sudo -n systemd-creds encrypt --name=opencode_api_key - /etc/autonomous-futures/credentials/opencode_api_key && sudo -n chown root:root /etc/autonomous-futures/credentials/opencode_api_key && sudo -n chmod 600 /etc/autonomous-futures/credentials/opencode_api_key'
+else
+  printf 'Key was empty; nothing was staged.\n' >&2
+fi
+unset OPENCODE_API_KEY
+```
+
+Verify metadata only; this must not print the credential contents:
+
+```bash
+PLINK='/c/Program Files/PuTTY/plink'
+SSH_KEY='C:/Users/thaqi/.ssh/kainode_ed25519.ppk'
+HOSTKEY='SHA256:2EHNUWXLj2BPt/163uW942G+grhLoDVxhmtyrw7vdjQ'
+"$PLINK" -batch -ssh -i "$SSH_KEY" -hostkey "$HOSTKEY" \
+  afbot-admin@147.79.18.15 \
+  'sudo -n stat -c "mode=%a owner=%U group=%G type=%F" /etc/autonomous-futures/credentials/opencode_api_key'
+```
+
+Expected metadata is `mode=600 owner=root group=root type=regular file`. Tell the operator only that staging completed; do not paste the key or command output containing it.
+
 ## Runtime safeguards
 
 - Validate the exact configured model ID, `deepseek-v4-flash`, before a research batch starts.
