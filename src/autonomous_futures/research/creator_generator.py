@@ -89,6 +89,7 @@ _SAFE_PROVIDER_METADATA_KEYS = frozenset(
         "finish_reason",
         "response_keys",
         "status_code",
+        "transport_error_type",
     }
 )
 

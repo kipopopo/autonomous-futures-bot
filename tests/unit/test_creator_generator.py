@@ -136,6 +136,7 @@ def test_generator_preserves_only_safe_provider_metadata() -> None:
             "finish_reason": "length",
             "content_length": 0,
             "content_sha256": "a" * 64,
+            "transport_error_type": "ReadTimeout",
             "secret": "must not escape",
         }
 
@@ -149,4 +150,5 @@ def test_generator_preserves_only_safe_provider_metadata() -> None:
         "content_sha256": "a" * 64,
         "finish_reason": "length",
         "status_code": 200,
+        "transport_error_type": "ReadTimeout",
     }

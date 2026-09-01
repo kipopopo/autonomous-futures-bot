@@ -144,6 +144,7 @@ def test_critic_provider_failure_exposes_only_safe_metadata() -> None:
             "status_code": 200,
             "finish_reason": "length",
             "content_length": 0,
+            "transport_error_type": "ReadTimeout",
             "secret": "must-not-leak",
         }
 
@@ -156,5 +157,6 @@ def test_critic_provider_failure_exposes_only_safe_metadata() -> None:
         "content_length": 0,
         "finish_reason": "length",
         "status_code": 200,
+        "transport_error_type": "ReadTimeout",
     }
     assert "secret" not in result.provider_metadata

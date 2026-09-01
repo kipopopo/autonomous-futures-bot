@@ -85,6 +85,22 @@ def test_opencode_client_hides_http_error_body() -> None:
     assert "SECRET_PROVIDER_RESPONSE" not in str(error.value)
 
 
+def test_opencode_client_exposes_only_transport_error_type() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("SECRET_TRANSPORT_ERROR")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ProviderTransportError, match="provider_transport_error") as error:
+            OpenCodeJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": "return JSON"},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
+
+    assert error.value.metadata == {"transport_error_type": "ReadTimeout"}
+    assert "SECRET_TRANSPORT_ERROR" not in str(error.value)
+
+
 def test_opencode_client_retries_one_transient_server_error() -> None:
     calls = 0
 

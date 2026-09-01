@@ -113,7 +113,10 @@ class OpenCodeJsonClient:
                     "provider_http_error", metadata={"status_code": exc.response.status_code}
                 ) from exc
             except httpx.HTTPError as exc:
-                raise ProviderTransportError("provider_transport_error") from exc
+                raise ProviderTransportError(
+                    "provider_transport_error",
+                    metadata={"transport_error_type": type(exc).__name__},
+                ) from exc
             if response is None:
                 raise ProviderTransportError("provider_transport_error")
 
