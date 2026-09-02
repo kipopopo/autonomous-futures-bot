@@ -5,10 +5,12 @@ from pathlib import Path
 
 import pytest
 
+from autonomous_futures.domain.contracts import StrategySpec
 from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.research.creator_proposals import (
     CreatorProposal,
     build_candidate_from_proposal,
+    canonical_creator_candidate_id,
     parse_creator_proposal,
     read_creator_proposal_outcome,
     write_creator_proposal_outcome,
@@ -60,6 +62,14 @@ def test_valid_proposal_builds_testing_candidate_without_raw_output() -> None:
     assert candidate.candidate_id != "cand-doge-proposal-001"
     assert candidate.state == "testing"
     assert candidate.bundle_hash == BUNDLE_HASH
+
+
+def test_historical_strategy_maps_to_the_same_local_candidate_id() -> None:
+    payload = _payload()
+    proposal = parse_creator_proposal(payload)
+    historical_strategy = StrategySpec.model_validate(payload["strategy"])
+
+    assert canonical_creator_candidate_id(historical_strategy) == proposal.strategy.strategy_id
 
 
 def test_invalid_or_unsafe_proposal_is_rejected_before_candidate_build() -> None:

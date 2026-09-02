@@ -98,7 +98,7 @@ def _proposal_content_hash(proposal: CreatorProposal) -> str:
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _canonical_candidate_id(strategy: StrategySpec) -> str:
+def canonical_creator_candidate_id(strategy: StrategySpec) -> str:
     payload = strategy.model_dump(mode="json", exclude={"strategy_id"})
     digest = sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return f"cand-{digest}"
@@ -117,7 +117,7 @@ def parse_creator_proposal(payload: Mapping[str, object]) -> CreatorProposal:
     provisional = provisional.model_copy(
         update={
             "strategy": provisional.strategy.model_copy(
-                update={"strategy_id": _canonical_candidate_id(provisional.strategy)}
+                update={"strategy_id": canonical_creator_candidate_id(provisional.strategy)}
             )
         }
     )
@@ -234,6 +234,7 @@ __all__ = [
     "CreatorProposalOutcome",
     "build_candidate_from_proposal",
     "build_creator_proposal_outcome",
+    "canonical_creator_candidate_id",
     "creator_proposal_schema_diagnostics",
     "parse_creator_proposal",
     "proposal_content_hash",
