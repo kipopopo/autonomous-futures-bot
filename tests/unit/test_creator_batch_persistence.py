@@ -73,10 +73,39 @@ def test_batch_trial_persistence_round_trips_safe_schema_diagnostics(tmp_path: P
     assert read_creator_batch_trial_evidence(tmp_path / "diagnostics.json").trial == trial
 
 
+def test_batch_trial_persistence_round_trips_provider_metadata_and_detects_tampering(
+    tmp_path: Path,
+) -> None:
+    trial = CreatorBatchTrial(
+        research_run_id="run-provider",
+        decision="rejected",
+        reason_codes=("provider_payload_invalid",),
+        provider_metadata={
+            "content_sha256": "c" * 64,
+            "finish_reason": "length",
+            "status_code": 200,
+        },
+    )
+    path = tmp_path / "provider.json"
+    evidence = build_creator_batch_trial_evidence(trial, recorded_at=RECORDED_AT)
+
+    persisted = write_creator_batch_trial_evidence(path, evidence)
+
+    assert persisted.trial.provider_metadata == trial.provider_metadata
+    assert read_creator_batch_trial_evidence(path).trial == trial
+
+    tampered = json.loads(path.read_text(encoding="utf-8"))
+    tampered["trial"]["provider_metadata"]["status_code"] = 500
+    path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(DomainViolation, match="hash mismatch"):
+        read_creator_batch_trial_evidence(path)
+
+
 def test_legacy_trial_evidence_without_schema_diagnostics_remains_readable(tmp_path: Path) -> None:
     evidence = build_creator_batch_trial_evidence(_trial("run-legacy"), recorded_at=RECORDED_AT)
     payload = evidence.model_dump(mode="json")
     payload["trial"].pop("schema_diagnostics")
+    payload["trial"].pop("provider_metadata", None)
     hash_payload = {
         key: value for key, value in payload.items() if key not in {"recorded_at", "evidence_hash"}
     }

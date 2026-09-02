@@ -22,6 +22,7 @@ class CreatorBatchTrial(DomainModel):
     decision: Literal["accepted", "rejected"]
     reason_codes: tuple[str, ...] = Field(min_length=1)
     schema_diagnostics: tuple[str, ...] = ()
+    provider_metadata: dict[str, object] = Field(default_factory=dict)
     candidate_artifact_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("schema_diagnostics")
@@ -99,6 +100,7 @@ def run_creator_batch(
                     decision="rejected",
                     reason_codes=generated.reason_codes,
                     schema_diagnostics=generated.schema_diagnostics,
+                    provider_metadata=generated.provider_metadata,
                 )
             )
             continue
@@ -113,6 +115,7 @@ def run_creator_batch(
                     candidate_id=candidate_id,
                     decision="rejected",
                     reason_codes=("duplicate_candidate_id",),
+                    provider_metadata=generated.provider_metadata,
                 )
             )
             continue
@@ -134,6 +137,7 @@ def run_creator_batch(
                 candidate_id=candidate_id,
                 decision="accepted",
                 reason_codes=("candidate_accepted_for_testing",),
+                provider_metadata=generated.provider_metadata,
                 candidate_artifact_hash=candidate.artifact_hash,
             )
         )

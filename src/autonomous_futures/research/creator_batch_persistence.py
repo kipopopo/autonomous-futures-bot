@@ -36,6 +36,9 @@ def _content_hash(evidence: CreatorBatchTrialEvidence) -> str:
     if not evidence.trial.schema_diagnostics:
         # Preserve version-1 hashes for evidence written before diagnostics existed.
         payload["trial"].pop("schema_diagnostics", None)
+    if not evidence.trial.provider_metadata:
+        # Preserve version-1 hashes for evidence written before provider metadata existed.
+        payload["trial"].pop("provider_metadata", None)
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 

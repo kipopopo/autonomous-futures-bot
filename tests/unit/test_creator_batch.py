@@ -116,3 +116,34 @@ def test_batch_seeds_are_deterministic_and_candidates_are_testing_only() -> None
     assert candidate.bundle_hash == BUNDLE_HASH
     assert result.paper_activation is False
     assert result.promotion_state == "unpromoted"
+
+
+def test_batch_preserves_only_safe_provider_metadata_on_rejected_trial() -> None:
+    class ProviderFailure(RuntimeError):
+        code = "provider_payload_invalid"
+        metadata = {
+            "status_code": 200,
+            "finish_reason": "length",
+            "content_sha256": "c" * 64,
+            "secret": "must not persist",
+        }
+
+    def transport(_: CreatorGenerationRequest) -> Mapping[str, object]:
+        raise ProviderFailure("raw provider detail must not escape")
+
+    result = run_creator_batch(
+        (_request("run-provider"),),
+        generator=CreatorGenerator(transport=transport),
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=REGISTRY_HASH,
+        creator_run_id="creator-batch-001",
+        research_seed=70001,
+        created_at=CREATED_AT,
+    )
+
+    assert result.trials[0].provider_metadata == {
+        "content_sha256": "c" * 64,
+        "finish_reason": "length",
+        "status_code": 200,
+    }
+    assert "secret" not in result.trials[0].provider_metadata
