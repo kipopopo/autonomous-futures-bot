@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 
 import httpx
 import pytest
@@ -242,6 +243,46 @@ def test_google_ai_studio_proposal_transport_connects_provider_to_existing_gener
 
     assert result.decision == "accepted"
     assert result.proposal is not None
+
+
+def test_google_ai_studio_proposal_transport_preserves_metadata_on_schema_rejection() -> None:
+    content = json.dumps(
+        {
+            **_proposal("run-provider-001"),
+            "strategy": {"unsafe": True},
+        }
+    )
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"finish_reason": "stop", "message": {"content": content}}]},
+        )
+
+    request = CreatorGenerationRequest(
+        research_run_id="run-provider-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        transport = GoogleAIStudioProposalTransport(
+            client=GoogleAIStudioJsonClient(_config(), client=http_client),
+            system_prompt="Return only the declared JSON schema.",
+            user_prompt_builder=lambda item: f"run={item.research_run_id}",
+        )
+        result = CreatorGenerator(transport=transport).generate(request)
+
+    assert result.reason_codes == ("schema_rejected",)
+    assert result.provider_metadata == {
+        "choice_count": 1,
+        "content_kind": "string",
+        "content_length": len(content),
+        "content_sha256": sha256(content.encode()).hexdigest(),
+        "finish_reason": "stop",
+        "response_keys": ("choices",),
+        "status_code": 200,
+    }
 
 
 def test_google_ai_studio_client_accepts_second_pinned_gemma_model() -> None:

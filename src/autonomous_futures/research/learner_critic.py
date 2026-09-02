@@ -171,6 +171,7 @@ class LearnerCritic:
                 reason_codes=(reason,),
                 provider_metadata=_safe_provider_metadata(getattr(exc, "metadata", None)),
             )
+        provider_metadata = _safe_provider_metadata(getattr(payload, "metadata", None))
         try:
             critique = parse_learner_critique(payload)
         except DataQualityError:
@@ -178,6 +179,7 @@ class LearnerCritic:
                 decision="rejected",
                 reason_codes=("schema_rejected",),
                 schema_diagnostics=learner_critic_schema_diagnostics(payload),
+                provider_metadata=provider_metadata,
             )
         if critique.research_run_id != request.research_run_id:
             return LearnerCriticResult(decision="rejected", reason_codes=("research_run_mismatch",))

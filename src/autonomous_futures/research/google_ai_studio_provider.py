@@ -28,6 +28,16 @@ class ProviderTransportError(RuntimeError):
         super().__init__(code)
 
 
+class ProviderJsonPayload(dict[str, object]):
+    """Parsed provider JSON with safe response metadata kept in memory only."""
+
+    metadata: dict[str, object]
+
+    def __init__(self, payload: Mapping[str, object], *, metadata: Mapping[str, object]) -> None:
+        super().__init__(payload)
+        self.metadata = dict(metadata)
+
+
 class GoogleAIStudioProviderConfig(DomainModel):
     base_url: str = GOOGLE_AI_STUDIO_OPENAI_BASE_URL
     api_key: str = Field(min_length=1)
@@ -95,7 +105,7 @@ class GoogleAIStudioJsonClient:
         messages: Sequence[Mapping[str, str]],
         temperature: float,
         max_output_tokens: int,
-    ) -> Mapping[str, object]:
+    ) -> ProviderJsonPayload:
         try:
             response = self.client.post(
                 f"{self.config.base_url}/chat/completions",
@@ -155,7 +165,7 @@ class GoogleAIStudioJsonClient:
             raise ProviderTransportError("provider_payload_invalid", metadata=metadata) from exc
         if not isinstance(payload, Mapping):
             raise ProviderTransportError("provider_payload_invalid", metadata=metadata)
-        return payload
+        return ProviderJsonPayload(payload, metadata=metadata)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,5 +193,6 @@ __all__ = [
     "GoogleAIStudioModelId",
     "GoogleAIStudioProposalTransport",
     "GoogleAIStudioProviderConfig",
+    "ProviderJsonPayload",
     "ProviderTransportError",
 ]

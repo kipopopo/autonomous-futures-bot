@@ -122,6 +122,7 @@ class CreatorGenerator:
                 provider_metadata=_safe_provider_metadata(getattr(exc, "metadata", None)),
             )
 
+        provider_metadata = _safe_provider_metadata(getattr(payload, "metadata", None))
         try:
             proposal = parse_creator_proposal(payload)
         except Exception:
@@ -129,6 +130,7 @@ class CreatorGenerator:
                 decision="rejected",
                 reason_codes=("schema_rejected",),
                 schema_diagnostics=creator_proposal_schema_diagnostics(payload),
+                provider_metadata=provider_metadata,
             )
         if proposal.research_run_id != request.research_run_id:
             return CreatorGenerationResult(

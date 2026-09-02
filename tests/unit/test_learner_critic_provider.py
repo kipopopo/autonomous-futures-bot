@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 
 import httpx
 
@@ -105,3 +106,47 @@ def test_google_ai_studio_critic_transport_reaches_existing_critic_contract() ->
     assert result.decision == "accepted"
     assert result.critique is not None
     assert result.critique.review_hash != "0" * 64
+
+
+def test_google_ai_studio_critic_transport_preserves_metadata_on_schema_rejection() -> None:
+    payload = {
+        "review_id": "review-provider-001",
+        "research_run_id": "run-critic-provider-001",
+        "candidate_id": "cand-critic-001",
+        "decision": "revise",
+        "failure_reason_codes": ["oos_profit_factor_below_threshold"],
+    }
+    content = json.dumps(payload)
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"finish_reason": "stop", "message": {"content": content}}]},
+        )
+
+    request = _request()
+    system, user = build_learner_critic_messages(request)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        transport = GoogleAIStudioCriticTransport(
+            client=GoogleAIStudioJsonClient(
+                GoogleAIStudioProviderConfig(
+                    base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                    api_key="not-real",
+                ),
+                client=http_client,
+            ),
+            system_prompt=system["content"],
+            user_prompt_builder=lambda _: user["content"],
+        )
+        result = LearnerCritic(transport=transport).review(request)
+
+    assert result.reason_codes == ("schema_rejected",)
+    assert result.provider_metadata == {
+        "choice_count": 1,
+        "content_kind": "string",
+        "content_length": len(content),
+        "content_sha256": sha256(content.encode()).hexdigest(),
+        "finish_reason": "stop",
+        "response_keys": ("choices",),
+        "status_code": 200,
+    }
