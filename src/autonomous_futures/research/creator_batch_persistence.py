@@ -33,6 +33,9 @@ class CreatorBatchTrialEvidence(DomainModel):
 
 def _content_hash(evidence: CreatorBatchTrialEvidence) -> str:
     payload = evidence.model_dump(mode="json", exclude={"recorded_at", "evidence_hash"})
+    if not evidence.trial.schema_diagnostics:
+        # Preserve version-1 hashes for evidence written before diagnostics existed.
+        payload["trial"].pop("schema_diagnostics", None)
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 

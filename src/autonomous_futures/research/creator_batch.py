@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from ..domain.contracts import DomainModel
 from .creator_artifacts import CreatorCandidateArtifact
@@ -21,7 +21,15 @@ class CreatorBatchTrial(DomainModel):
     candidate_id: str | None = Field(default=None, pattern=r"^cand-[a-z0-9][a-z0-9-]{0,63}$")
     decision: Literal["accepted", "rejected"]
     reason_codes: tuple[str, ...] = Field(min_length=1)
+    schema_diagnostics: tuple[str, ...] = ()
     candidate_artifact_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("schema_diagnostics")
+    @classmethod
+    def schema_diagnostics_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if values != tuple(sorted(set(values))) or any(not value for value in values):
+            raise ValueError("schema diagnostics must be sorted and unique")
+        return values
 
     @model_validator(mode="after")
     def validate_trial_binding(self) -> CreatorBatchTrial:
@@ -90,6 +98,7 @@ def run_creator_batch(
                     research_run_id=request.research_run_id,
                     decision="rejected",
                     reason_codes=generated.reason_codes,
+                    schema_diagnostics=generated.schema_diagnostics,
                 )
             )
             continue

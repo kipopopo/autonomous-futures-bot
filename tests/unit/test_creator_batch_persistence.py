@@ -1,4 +1,6 @@
+import json
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -54,3 +56,34 @@ def test_batch_trial_persistence_keeps_order_and_writes_all_trials(tmp_path: Pat
         "trial-0000-run-one.json",
         "trial-0001-run-two.json",
     ]
+
+
+def test_batch_trial_persistence_round_trips_safe_schema_diagnostics(tmp_path: Path) -> None:
+    trial = CreatorBatchTrial(
+        research_run_id="run-diagnostics",
+        decision="rejected",
+        reason_codes=("schema_rejected",),
+        schema_diagnostics=("strategy.entry:missing",),
+    )
+    evidence = build_creator_batch_trial_evidence(trial, recorded_at=RECORDED_AT)
+
+    persisted = write_creator_batch_trial_evidence(tmp_path / "diagnostics.json", evidence)
+
+    assert persisted.trial.schema_diagnostics == ("strategy.entry:missing",)
+    assert read_creator_batch_trial_evidence(tmp_path / "diagnostics.json").trial == trial
+
+
+def test_legacy_trial_evidence_without_schema_diagnostics_remains_readable(tmp_path: Path) -> None:
+    evidence = build_creator_batch_trial_evidence(_trial("run-legacy"), recorded_at=RECORDED_AT)
+    payload = evidence.model_dump(mode="json")
+    payload["trial"].pop("schema_diagnostics")
+    hash_payload = {
+        key: value for key, value in payload.items() if key not in {"recorded_at", "evidence_hash"}
+    }
+    payload["evidence_hash"] = sha256(
+        json.dumps(hash_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert read_creator_batch_trial_evidence(path) == evidence

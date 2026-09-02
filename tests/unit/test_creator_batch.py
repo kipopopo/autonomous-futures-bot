@@ -54,7 +54,10 @@ def test_batch_builds_candidates_and_deduplicates_ids() -> None:
     payloads = {
         "run-a": _proposal("proposal-a", "cand-a", "run-a"),
         "run-b": _proposal("proposal-b", "cand-a", "run-b"),
-        "run-c": {"invalid": True},
+        "run-c": {
+            **_proposal("proposal-c", "cand-c", "run-c"),
+            "strategy": {"unsafe": True},
+        },
     }
 
     def transport(request: CreatorGenerationRequest) -> Mapping[str, object]:
@@ -79,6 +82,17 @@ def test_batch_builds_candidates_and_deduplicates_ids() -> None:
     )
     assert result.trials[1].reason_codes == ("duplicate_candidate_id",)
     assert result.trials[2].reason_codes == ("schema_rejected",)
+    assert result.trials[2].schema_diagnostics == (
+        "strategy.dsl_version:missing",
+        "strategy.entry:missing",
+        "strategy.exit:missing",
+        "strategy.family:missing",
+        "strategy.features:missing",
+        "strategy.strategy_id:missing",
+        "strategy.universe:missing",
+        "strategy.unsafe:extra_forbidden",
+        "strategy.vetoes:missing",
+    )
     assert result.exchange_access is False
     assert result.execution_authority is False
 
