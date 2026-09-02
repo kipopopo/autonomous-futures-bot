@@ -19,7 +19,8 @@ _SYSTEM_PROMPT = (
     "dsl_version, strategy_id, family, universe, features, entry, exit, vetoes, and risk. "
     "Use only approved StrategySpec features and bounded expressions. Never return "
     "markdown, code fences, prose, URLs, secrets, tools, or orders. strategy_id must "
-    "start with cand- and research_run_id must match the supplied run. "
+    "start with cand- but is an untrusted placeholder replaced by a local content hash; "
+    "research_run_id must match the supplied run. "
     "family must be one of regime_gated_breakout, range_mean_reversion, experimental; "
     f"features must use only {', '.join(sorted(SUPPORTED_FEATURES))}; each feature needs "
     'a positive lookback and shift >= 1; universe must use timeframe="5m" and '
@@ -107,7 +108,8 @@ def build_creator_revision_messages(
     )
     revision_user = (
         f"{base_user['content']} Previous candidate feedback={feedback_payload}. "
-        "Create a new candidate strategy_id; do not repeat the previous candidate. "
+        "Materially revise the strategy; changing only strategy_id does not create a new "
+        "candidate. "
         f"forbidden_candidate_ids={json.dumps(request.forbidden_candidate_ids)}. "
         "Address the failed gates. Do not relax qualification gates."
     )

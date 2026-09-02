@@ -98,6 +98,12 @@ def _proposal_content_hash(proposal: CreatorProposal) -> str:
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def _canonical_candidate_id(strategy: StrategySpec) -> str:
+    payload = strategy.model_dump(mode="json", exclude={"strategy_id"})
+    digest = sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return f"cand-{digest}"
+
+
 def proposal_content_hash(proposal: CreatorProposal) -> str:
     return _proposal_content_hash(proposal)
 
@@ -108,6 +114,13 @@ def parse_creator_proposal(payload: Mapping[str, object]) -> CreatorProposal:
         provisional = CreatorProposal.model_validate({**payload, "proposal_hash": "0" * 64})
     except ValidationError as exc:
         raise DataQualityError("invalid Creator proposal: " + str(exc)) from None
+    provisional = provisional.model_copy(
+        update={
+            "strategy": provisional.strategy.model_copy(
+                update={"strategy_id": _canonical_candidate_id(provisional.strategy)}
+            )
+        }
+    )
     return provisional.model_copy(update={"proposal_hash": _proposal_content_hash(provisional)})
 
 

@@ -9,7 +9,10 @@ from autonomous_futures.research.creator_generator import (
 )
 
 
-def _proposal(run_id: str = "run-generator-001") -> dict[str, object]:
+def _proposal(
+    run_id: str = "run-generator-001",
+    candidate_id: str = "cand-generator-001",
+) -> dict[str, object]:
     return {
         "proposal_id": "proposal-generator-001",
         "research_run_id": run_id,
@@ -18,7 +21,7 @@ def _proposal(run_id: str = "run-generator-001") -> dict[str, object]:
         "novelty_reason": "Generated for a new evidence scope",
         "strategy": {
             "dsl_version": 1,
-            "strategy_id": "cand-generator-001",
+            "strategy_id": candidate_id,
             "family": "range_mean_reversion",
             "universe": {
                 "symbols": ["DOGEUSDT"],
@@ -93,10 +96,16 @@ def test_generator_rejects_proposal_from_different_research_run() -> None:
     assert result.reason_codes == ("research_run_mismatch",)
 
 
-def test_generator_rejects_forbidden_prior_candidate_id() -> None:
-    request = _request().model_copy(update={"forbidden_candidate_ids": ("cand-generator-001",)})
+def test_generator_assigns_local_candidate_id_before_forbidden_lineage_check() -> None:
+    first = CreatorGenerator(transport=lambda _: _proposal()).generate(_request())
+    assert first.proposal is not None
+    candidate_id = first.proposal.strategy.strategy_id
+    assert candidate_id != "cand-generator-001"
+    request = _request().model_copy(update={"forbidden_candidate_ids": (candidate_id,)})
 
-    result = CreatorGenerator(transport=lambda _: _proposal()).generate(request)
+    result = CreatorGenerator(
+        transport=lambda _: _proposal(candidate_id="cand-provider-bypass-999")
+    ).generate(request)
 
     assert result.decision == "rejected"
     assert result.proposal is None

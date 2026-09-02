@@ -74,7 +74,8 @@ def test_batch_builds_candidates_and_deduplicates_ids() -> None:
     )
 
     assert isinstance(result, CreatorBatchResult)
-    assert tuple(candidate.candidate_id for candidate in result.accepted_candidates) == ("cand-a",)
+    assert len(result.accepted_candidates) == 1
+    assert result.accepted_candidates[0].candidate_id.startswith("cand-")
     assert tuple(trial.decision for trial in result.trials) == (
         "accepted",
         "rejected",

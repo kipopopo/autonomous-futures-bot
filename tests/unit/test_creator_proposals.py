@@ -56,7 +56,8 @@ def test_valid_proposal_builds_testing_candidate_without_raw_output() -> None:
     )
 
     assert isinstance(proposal, CreatorProposal)
-    assert candidate.candidate_id == "cand-doge-proposal-001"
+    assert candidate.candidate_id == proposal.strategy.strategy_id
+    assert candidate.candidate_id != "cand-doge-proposal-001"
     assert candidate.state == "testing"
     assert candidate.bundle_hash == BUNDLE_HASH
 
