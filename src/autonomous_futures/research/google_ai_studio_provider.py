@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from hashlib import sha256
 from typing import Literal
 from urllib.parse import urlsplit
@@ -158,7 +159,7 @@ class GoogleAIStudioJsonClient:
                 normalized = content.strip()
                 if normalized.startswith("```json") and normalized.endswith("```"):
                     normalized = normalized[len("```json") : -len("```")].strip()
-                payload = json.loads(normalized)
+                payload = json.loads(normalized, parse_float=Decimal)
             else:
                 payload = content
         except (KeyError, IndexError, TypeError, ValueError) as exc:

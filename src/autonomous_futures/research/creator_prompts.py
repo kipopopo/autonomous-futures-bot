@@ -30,6 +30,7 @@ _SYSTEM_PROMPT = (
     "stop_atr_multiplier, take_profit_atr_multiplier, and trailing_atr_multiplier; "
     "position_fraction must be greater than 0 and at most 0.5; stop_atr_multiplier must be "
     "greater than 0; take_profit_atr_multiplier and trailing_atr_multiplier must be at least 0; "
+    "risk values must be unquoted JSON numbers with a decimal point: 0.1, 1.5, 2.0, and 0.0; "
     "leverage is not supported; "
     "entry and exit must each be objects with "
     'string keys "long" and "short", not strings; entry.long and entry.short must be '

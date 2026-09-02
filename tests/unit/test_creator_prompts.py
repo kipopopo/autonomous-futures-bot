@@ -111,6 +111,8 @@ def test_creator_prompt_requires_v2_simulation_risk_profile() -> None:
     assert "dsl_version must be the integer 2" in system_prompt
     assert "risk must contain position_fraction" in system_prompt
     assert "leverage is not supported" in system_prompt
+    assert "risk values must be unquoted JSON numbers with a decimal point" in system_prompt
+    assert "0.1, 1.5, 2.0, and 0.0" in system_prompt
 
 
 def test_creator_prompt_spells_out_condition_and_veto_types() -> None:

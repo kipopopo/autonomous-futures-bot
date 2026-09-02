@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from hashlib import sha256
 
 import httpx
@@ -243,6 +244,45 @@ def test_google_ai_studio_proposal_transport_connects_provider_to_existing_gener
 
     assert result.decision == "accepted"
     assert result.proposal is not None
+
+
+def test_google_ai_studio_proposal_transport_preserves_v2_decimal_risk_values() -> None:
+    proposal = _proposal("run-provider-v2-001")
+    proposal["strategy"] = {
+        **proposal["strategy"],  # type: ignore[dict-item]
+        "dsl_version": 2,
+        "risk": {
+            "position_fraction": 0.1,
+            "stop_atr_multiplier": 1.5,
+            "take_profit_atr_multiplier": 2.0,
+            "trailing_atr_multiplier": 0.0,
+        },
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps(proposal)}}]},
+        )
+
+    request = CreatorGenerationRequest(
+        research_run_id="run-provider-v2-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        transport = GoogleAIStudioProposalTransport(
+            client=GoogleAIStudioJsonClient(_config(), client=http_client),
+            system_prompt="Return only the declared JSON schema.",
+            user_prompt_builder=lambda item: f"run={item.research_run_id}",
+        )
+        result = CreatorGenerator(transport=transport).generate(request)
+
+    assert result.decision == "accepted"
+    assert result.proposal is not None
+    assert result.proposal.strategy.risk is not None
+    assert result.proposal.strategy.risk.position_fraction == Decimal("0.1")
 
 
 def test_google_ai_studio_proposal_transport_preserves_metadata_on_schema_rejection() -> None:
