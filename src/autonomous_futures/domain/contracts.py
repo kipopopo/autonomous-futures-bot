@@ -77,7 +77,7 @@ class PositionState(DomainModel):
 class PaperExecutionRequest(DomainModel):
     """Validated paper-only input; activation and execution remain blocked."""
 
-    candidate_id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    candidate_id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
     candidate_artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     qualified_symbols: tuple[str, ...] = Field(min_length=1)
     symbol: str = Field(min_length=1, pattern=r"^[A-Z0-9]+$")

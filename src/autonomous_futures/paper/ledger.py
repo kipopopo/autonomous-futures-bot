@@ -18,7 +18,7 @@ class PaperLedgerError(ValueError):
 class PaperLedgerEntry(DomainModel):
     event: Literal["open", "close"]
     trade_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
-    candidate_id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    candidate_id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
     candidate_artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     symbol: str = Field(min_length=1, pattern=r"^[A-Z0-9]+$")
     side: Literal["LONG", "SHORT"]
