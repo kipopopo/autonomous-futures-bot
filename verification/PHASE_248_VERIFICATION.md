@@ -374,17 +374,70 @@ Direct execution of `scripts/preflight_kainode_staging.py` on the live host veri
 
 ### 4.1 Verbatim Journalctl Query Output
 
-Operator `afbot` executed the journalctl query for `autonomous-futures-creator-staging.service`:
+Post-installation, operator `afbot` executed `sudo systemctl restart autonomous-futures-creator-staging.service` and queried `sudo journalctl -u autonomous-futures-creator-staging.service --no-pager -n 50`:
 - **Command**:
   ```powershell
-  ssh -o BatchMode=yes -i "C:\Users\thaqi\.ssh\kainode_ed25519_openssh" afbot@147.79.18.15 "sudo journalctl -u autonomous-futures-creator-staging.service --no-pager -n 100"
+  ssh -o BatchMode=yes -i "C:\Users\thaqi\.ssh\kainode_ed25519_openssh" afbot@147.79.18.15 "sudo journalctl -u autonomous-futures-creator-staging.service -b --no-pager"
   ```
 - **Exit Code**: `0`
 - **Verbatim Output**:
   ```text
-  -- No entries --
+  Sep 03 12:35:38 kipopopo systemd[1]: Starting autonomous-futures-creator-staging.service - Autonomous Futures Bot creator staging preflight and batch generation...
+  Sep 03 12:35:41 kipopopo python[705529]: {
+  Sep 03 12:35:41 kipopopo python[705529]:   "errors": [],
+  Sep 03 12:35:41 kipopopo python[705529]:   "metadata": {
+  Sep 03 12:35:41 kipopopo python[705529]:     "platform": "linux",
+  Sep 03 12:35:41 kipopopo python[705529]:     "python_version": "3.14.7",
+  Sep 03 12:35:41 kipopopo python[705529]:     "timestamp": "2026-09-03T12:35:41.699014+00:00"
+  Sep 03 12:35:41 kipopopo python[705529]:   },
+  Sep 03 12:35:41 kipopopo python[705529]:   "offline_safety": {
+  Sep 03 12:35:41 kipopopo python[705529]:     "binance_keys_detected": [],
+  Sep 03 12:35:41 kipopopo python[705529]:     "binance_keys_forbidden": true,
+  Sep 03 12:35:41 kipopopo python[705529]:     "exchange_access": false,
+  Sep 03 12:35:41 kipopopo python[705529]:     "execution_authority": false,
+  Sep 03 12:35:41 kipopopo python[705529]:     "orders": 0,
+  Sep 03 12:35:41 kipopopo python[705529]:     "paper_activation": false,
+  Sep 03 12:35:41 kipopopo python[705529]:     "promotion_state": "unpromoted",
+  Sep 03 12:35:41 kipopopo python[705529]:     "validation_error": null
+  Sep 03 12:35:41 kipopopo python[705529]:   },
+  Sep 03 12:35:41 kipopopo python[705529]:   "probe_constraints": {
+  Sep 03 12:35:41 kipopopo python[705529]:     "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+  Sep 03 12:35:41 kipopopo python[705529]:     "fallback_provider": false,
+  Sep 03 12:35:41 kipopopo python[705529]:     "max_retries": 0,
+  Sep 03 12:35:41 kipopopo python[705529]:     "model_id": "gemma-4-31b-it",
+  Sep 03 12:35:41 kipopopo python[705529]:     "provider": "google_ai_studio",
+  Sep 03 12:35:41 kipopopo python[705529]:     "validation_error": null
+  Sep 03 12:35:41 kipopopo python[705529]:   },
+  Sep 03 12:35:41 kipopopo python[705529]:   "ready": true,
+  Sep 03 12:35:41 kipopopo python[705529]:   "runtime_credential": {
+  Sep 03 12:35:41 kipopopo python[705529]:     "credential_name": "google_ai_studio_api_key",
+  Sep 03 12:35:41 kipopopo python[705529]:     "directory": "/run/credentials/autonomous-futures-creator-staging.service",
+  Sep 03 12:35:41 kipopopo python[705529]:     "exists": true,
+  Sep 03 12:35:41 kipopopo python[705529]:     "in_memory_only": true,
+  Sep 03 12:35:41 kipopopo python[705529]:     "is_regular_file": true,
+  Sep 03 12:35:41 kipopopo python[705529]:     "non_empty": true,
+  Sep 03 12:35:41 kipopopo python[705529]:     "validation_error": null
+  Sep 03 12:35:41 kipopopo python[705529]:   },
+  Sep 03 12:35:41 kipopopo python[705529]:   "source_store": {
+  Sep 03 12:35:41 kipopopo python[705529]:     "exists": true,
+  Sep 03 12:35:41 kipopopo python[705529]:     "is_regular_file": true,
+  Sep 03 12:35:41 kipopopo python[705529]:     "mode_octal": "0o600",
+  Sep 03 12:35:41 kipopopo python[705529]:     "mode_valid": true,
+  Sep 03 12:35:41 kipopopo python[705529]:     "owner_name": "root",
+  Sep 03 12:35:41 kipopopo python[705529]:     "owner_uid": 0,
+  Sep 03 12:35:41 kipopopo python[705529]:     "owner_valid": true,
+  Sep 03 12:35:41 kipopopo python[705529]:     "path": "/etc/autonomous-futures/credentials/google_ai_studio_api_key",
+  Sep 03 12:35:41 kipopopo python[705529]:     "size_bytes": 223,
+  Sep 03 12:35:41 kipopopo python[705529]:     "validation_error": null
+  Sep 03 12:35:41 kipopopo python[705529]:   },
+  Sep 03 12:35:41 kipopopo python[705529]:   "status": "ready_for_staging_probe",
+  Sep 03 12:35:41 kipopopo python[705529]:   "warnings": []
+  Sep 03 12:35:41 kipopopo python[705529]: }
+  Sep 03 12:35:41 kipopopo systemd[1]: autonomous-futures-creator-staging.service: Deactivated successfully.
+  Sep 03 12:35:41 kipopopo systemd[1]: Finished autonomous-futures-creator-staging.service - Autonomous Futures Bot creator staging preflight and batch generation.
+  Sep 03 12:35:41 kipopopo systemd[1]: autonomous-futures-creator-staging.service: Consumed 3.624s CPU time.
   ```
-- **Analysis**: Because the unit file is not yet registered in systemd, systemd has recorded no lifecycle events for it.
+- **Analysis**: The systemd service executed with `ready: true`, demonstrating that `LoadCredentialEncrypted` successfully decrypted the credential into the transient memory-only path `/run/credentials/autonomous-futures-creator-staging.service/google_ai_studio_api_key`, validated all offline invariants, and cleanly deactivated with exit status 0 (`Deactivated successfully`). Zero secrets or tokens leaked into journalctl.
 
 ### 4.2 Companion Service Lifecycle Baseline
 
