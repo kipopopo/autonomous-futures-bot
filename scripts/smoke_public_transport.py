@@ -9,6 +9,7 @@ from autonomous_futures.data.alignment import (
     canonicalize_mark_price_klines,
 )
 from autonomous_futures.data.backfill import BackfillWindow, merge_kline_rows
+from autonomous_futures.data.builder import KlineInterval
 from autonomous_futures.data.exchange_filters import build_exchange_filter_snapshot
 from autonomous_futures.data.public_collector import fully_closed_end_ms, server_time
 from autonomous_futures.data.transport import (
@@ -20,7 +21,7 @@ from autonomous_futures.data.transport import (
 )
 
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
-INTERVALS = (("5m", 300_000), ("15m", 900_000))
+INTERVALS: tuple[tuple[KlineInterval, int], ...] = (("5m", 300_000), ("15m", 900_000))
 
 
 def main() -> None:

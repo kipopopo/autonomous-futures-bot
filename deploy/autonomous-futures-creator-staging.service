@@ -1,0 +1,27 @@
+[Unit]
+Description=Autonomous Futures Bot creator staging preflight and batch generation
+After=network-online.target
+Wants=network-online.target
+Documentation=file:///opt/autonomous-futures-bot/infrastructure/GOOGLE_AI_STUDIO_CREDENTIAL_HANDLING.md
+
+[Service]
+Type=oneshot
+User=afbot
+Group=afbot
+WorkingDirectory=/opt/autonomous-futures-bot
+Environment=PYTHONPATH=/opt/autonomous-futures-bot/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/autonomous-futures-bot/.venv/bin/python scripts/preflight_kainode_staging.py --source-credential-path /etc/autonomous-futures/credentials/google_ai_studio_api_key --credential-dir ${CREDENTIALS_DIRECTORY} --base-url https://generativelanguage.googleapis.com/v1beta/openai --model-id gemma-4-31b-it
+LoadCredentialEncrypted=google_ai_studio_api_key:/etc/autonomous-futures/credentials/google_ai_studio_api_key
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CPUQuota=500%
+MemoryMax=10G
+TimeoutStartSec=120
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
