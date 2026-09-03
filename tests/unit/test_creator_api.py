@@ -5,9 +5,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi import FastAPI
 
 from autonomous_futures.api import create_app
+from autonomous_futures.api.creator import (
+    CreatorCandidateRegistryIntegrityError,
+    collect_verified_creator_candidate_ids,
+)
 from autonomous_futures.domain.contracts import (
     EntryExit,
     FeatureRef,
@@ -20,6 +25,7 @@ from autonomous_futures.research.creator_artifacts import (
     write_creator_candidate_artifact,
     write_creator_candidate_registry,
 )
+from autonomous_futures.research.creator_proposals import canonical_creator_candidate_id
 
 CREATED_AT = datetime(2026, 8, 7, 12, tzinfo=UTC)
 
@@ -123,3 +129,92 @@ def test_creator_registry_fails_closed_on_tampered_artifact(tmp_path: Path) -> N
 
     assert response.status_code == 503
     assert response.json() == {"detail": "creator candidate registry integrity verification failed"}
+
+
+def test_verified_creator_candidate_history_collects_every_registry(tmp_path: Path) -> None:
+    history_root = tmp_path / "history"
+    artifacts = []
+    for run_id, candidate_id in (("run-a", "cand-history-a"), ("run-b", "cand-history-b")):
+        artifact = build_creator_candidate_artifact(
+            candidate_id=candidate_id,
+            strategy=_strategy().model_copy(update={"strategy_id": candidate_id}),
+            bundle_hash="a" * 64,
+            dataset_registry_hash="b" * 64,
+            creator_run_id=run_id,
+            research_seed=23,
+            created_at=CREATED_AT,
+        )
+        run_root = history_root / run_id
+        write_creator_candidate_artifact(run_root / "candidates" / f"{candidate_id}.json", artifact)
+        registry = build_creator_candidate_registry(
+            ((artifact, f"candidates/{candidate_id}.json"),), created_at=CREATED_AT
+        )
+        write_creator_candidate_registry(run_root / "creator-candidate-registry.json", registry)
+        artifacts.extend((candidate_id, canonical_creator_candidate_id(artifact.strategy)))
+
+    assert collect_verified_creator_candidate_ids(history_root) == tuple(sorted(set(artifacts)))
+
+
+def test_verified_creator_candidate_history_rejects_tampered_artifact(tmp_path: Path) -> None:
+    app, artifact_path = _write_creator_fixture(tmp_path)
+    del app
+    artifact_path.write_text(
+        artifact_path.read_text(encoding="utf-8").replace(
+            "creator-run-api", "creator-run-tampered"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CreatorCandidateRegistryIntegrityError):
+        collect_verified_creator_candidate_ids(tmp_path)
+
+
+def test_verified_creator_candidate_history_rejects_conflicting_identity(tmp_path: Path) -> None:
+    history_root = tmp_path / "history"
+    for run_id, seed in (("run-a", 23), ("run-b", 24)):
+        artifact = build_creator_candidate_artifact(
+            candidate_id="cand-history-conflict",
+            strategy=_strategy().model_copy(update={"strategy_id": "cand-history-conflict"}),
+            bundle_hash="a" * 64,
+            dataset_registry_hash="b" * 64,
+            creator_run_id=run_id,
+            research_seed=seed,
+            created_at=CREATED_AT,
+        )
+        run_root = history_root / run_id
+        write_creator_candidate_artifact(
+            run_root / "candidates" / "cand-history-conflict.json", artifact
+        )
+        registry = build_creator_candidate_registry(
+            ((artifact, "candidates/cand-history-conflict.json"),), created_at=CREATED_AT
+        )
+        write_creator_candidate_registry(run_root / "creator-candidate-registry.json", registry)
+
+    with pytest.raises(CreatorCandidateRegistryIntegrityError, match="multiple artifacts"):
+        collect_verified_creator_candidate_ids(history_root)
+
+
+def test_verified_creator_candidate_history_includes_canonical_strategy_identity(
+    tmp_path: Path,
+) -> None:
+    artifact = build_creator_candidate_artifact(
+        candidate_id="cand-provider-history",
+        strategy=_strategy().model_copy(update={"strategy_id": "cand-provider-history"}),
+        bundle_hash="a" * 64,
+        dataset_registry_hash="b" * 64,
+        creator_run_id="run-history",
+        research_seed=23,
+        created_at=CREATED_AT,
+    )
+    run_root = tmp_path / "history"
+    write_creator_candidate_artifact(
+        run_root / "candidates" / "cand-provider-history.json", artifact
+    )
+    registry = build_creator_candidate_registry(
+        ((artifact, "candidates/cand-provider-history.json"),), created_at=CREATED_AT
+    )
+    write_creator_candidate_registry(run_root / "creator-candidate-registry.json", registry)
+
+    assert collect_verified_creator_candidate_ids(run_root) == tuple(
+        sorted((artifact.candidate_id, canonical_creator_candidate_id(artifact.strategy)))
+    )
