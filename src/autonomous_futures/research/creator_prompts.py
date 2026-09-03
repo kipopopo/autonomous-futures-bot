@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from decimal import Decimal
 
 from .creator_failure_feedback import CreatorQualificationFailureFeedback
 from .creator_generator import CreatorGenerationRequest
@@ -54,6 +55,52 @@ def build_creator_proposal_messages(
         f"research_run_id={request.research_run_id}; symbol={symbol}; "
         f"bundle_hash={bundle_hash}; output_schema={request.output_schema_id}; "
         f"input_evidence_refs={','.join(request.input_evidence_refs)}. "
+        "Create one falsifiable strategy hypothesis for this exact evidence scope."
+    )
+    return (
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    )
+
+
+CAPITAL_AND_LEVERAGE_GUIDELINES: str = (
+    "Capital and Leverage Guidelines: Starting capital baseline is exactly 100 USDT. "
+    "Design strategy entry conviction and risk parameters for prudent, confidence-scaled "
+    "dynamic leverage: allocate higher effective position sizing and risk only during "
+    "high-conviction signals with strict multi-feature confirmation (e.g. alignment across "
+    "trend and momentum features); enforce defensive, minimal risk exposure during baseline "
+    "or uncertain market regimes to strictly protect the 100 USDT account from liquidation "
+    "or severe drawdown. Note: The strategy JSON schema strictly forbids extra keys (such as "
+    "'leverage' or 'capital') — describe your dynamic leverage thesis in 'hypothesis' and "
+    "'novelty_reason', and calibrate 'position_fraction' (between 0.01 and 0.50) and "
+    "'stop_atr_multiplier' accordingly."
+)
+
+
+def build_phase_252_proposal_messages(
+    request: CreatorGenerationRequest,
+    *,
+    bundle_hash: str,
+    symbol: str,
+    starting_capital_usd: Decimal | float | int | str = Decimal("100"),
+) -> tuple[Mapping[str, str], Mapping[str, str]]:
+    if not _HASH.fullmatch(bundle_hash):
+        raise ValueError("bundle_hash must be a lowercase SHA-256")
+    if not _SYMBOL.fullmatch(symbol):
+        raise ValueError("symbol must be uppercase alphanumeric")
+    try:
+        capital_dec = Decimal(str(starting_capital_usd))
+    except Exception as exc:
+        raise ValueError("starting_capital_usd must be a valid numeric amount") from exc
+    if capital_dec <= 0:
+        raise ValueError("starting_capital_usd must be positive")
+
+    user_prompt = (
+        f"research_run_id={request.research_run_id}; symbol={symbol}; "
+        f"bundle_hash={bundle_hash}; output_schema={request.output_schema_id}; "
+        f"input_evidence_refs={','.join(request.input_evidence_refs)}; "
+        f"starting_capital_usd={capital_dec}; "
+        f"guidelines={CAPITAL_AND_LEVERAGE_GUIDELINES}. "
         "Create one falsifiable strategy hypothesis for this exact evidence scope."
     )
     return (
@@ -130,4 +177,9 @@ def build_creator_revision_messages(
     return system, {"role": "user", "content": revision_user}
 
 
-__all__ = ["build_creator_proposal_messages", "build_creator_revision_messages"]
+__all__ = [
+    "CAPITAL_AND_LEVERAGE_GUIDELINES",
+    "build_creator_proposal_messages",
+    "build_creator_revision_messages",
+    "build_phase_252_proposal_messages",
+]

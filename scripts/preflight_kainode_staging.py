@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 _SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -13,6 +14,10 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 from autonomous_futures.creator_staging_probe import execute_creator_staging_probe  # noqa: E402
+from autonomous_futures.phase_252_batch import (  # noqa: E402
+    PHASE_252_DEFAULT_ASSETS,
+    execute_phase_252_batch_campaign,
+)
 from autonomous_futures.research.google_ai_studio_provider import (  # noqa: E402
     GOOGLE_AI_STUDIO_OPENAI_BASE_URL,
     _sanitize_error_text,
@@ -79,6 +84,25 @@ def _parser() -> argparse.ArgumentParser:
         help="Execute single Creator diagnostic probe following successful preflight",
     )
     parser.add_argument(
+        "--batch-campaign",
+        dest="batch_campaign",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Execute Phase 252 bounded 4-asset batch campaign following successful preflight",
+    )
+    parser.add_argument(
+        "--batch-assets",
+        nargs="+",
+        default=None,
+        help="Target assets for batch campaign (default: BTCUSDT ETHUSDT SOLUSDT DOGEUSDT)",
+    )
+    parser.add_argument(
+        "--capital-usd",
+        type=Decimal,
+        default=Decimal("100"),
+        help="Baseline starting capital in USDT for batch campaign (default: 100)",
+    )
+    parser.add_argument(
         "--evidence-dir",
         type=Path,
         default=Path("artifacts/research/phase249"),
@@ -129,6 +153,59 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
     if not report.ready:
         return 3
+
+    should_execute_batch = False
+    if args.batch_campaign is True:
+        should_execute_batch = True
+    elif args.batch_campaign is False:
+        should_execute_batch = False
+    else:
+        env_batch = os.environ.get("AUTONOMOUS_FUTURES_BATCH_CAMPAIGN", "").lower()
+        if env_batch in ("1", "true", "yes"):
+            should_execute_batch = True
+        elif args.execute_probe is True:
+            should_execute_batch = False
+        else:
+            # Auto-detect staging service execution environment:
+            # When CREDENTIALS_DIRECTORY is present in os.environ and contains runtime key,
+            # and source credential path matches default staging path,
+            # default to Phase 252 batch campaign.
+            cred_dir_env = os.environ.get("CREDENTIALS_DIRECTORY")
+            if (
+                cred_dir_env
+                and (Path(cred_dir_env) / "google_ai_studio_api_key").is_file()
+                and args.source_credential_path == DEFAULT_ENCRYPTED_SOURCE_PATH
+            ):
+                should_execute_batch = True
+
+    if should_execute_batch:
+        evidence_dir = args.evidence_dir
+        if evidence_dir == Path("artifacts/research/phase249"):
+            evidence_dir = Path("artifacts/research/phase252")
+        campaign_id = args.campaign_id
+        if campaign_id == "creator-batch-20260903-phase249":
+            campaign_id = "creator-batch-20260904-phase252"
+        assets = args.batch_assets or list(PHASE_252_DEFAULT_ASSETS)
+        try:
+            batch_summary = execute_phase_252_batch_campaign(
+                credential_dir=args.credential_dir,
+                base_url=args.base_url,
+                model_id=args.model_id,
+                assets=assets,
+                starting_capital_usd=args.capital_usd,
+                max_retries=args.max_retries,
+                fallback_provider=args.fallback_provider,
+                evidence_root=evidence_dir,
+                campaign_id=campaign_id,
+            )
+        except Exception as exc:
+            sanitized = _sanitize_error_text(str(exc))
+            del exc
+            print(json.dumps({"error_code": "batch_execution_failed", "message": sanitized}))
+            return 3
+
+        print(json.dumps(batch_summary, indent=2, sort_keys=True))
+        return 0
 
     should_execute_probe = False
     if args.execute_probe is True:
