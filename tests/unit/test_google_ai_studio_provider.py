@@ -351,3 +351,316 @@ def test_google_ai_studio_config_rejects_non_official_base_url() -> None:
             base_url="https://provider.test/v1",
             api_key="test-secret-not-real",
         )
+
+
+def test_google_ai_studio_client_extracts_error_and_redacts_credentials_on_http_400() -> None:
+    secret_key = "test-secret-not-real"
+    secret_prompt = "bounded hypothesis with proprietary signal alpha = rsi(14) < 30"
+    raw_error_payload = {
+        "error": {
+            "code": 400,
+            "message": (
+                f"Invalid request with key {secret_key} and prompt '{secret_prompt}' "
+                "and Authorization Bearer secret-token-xyz-12345 "
+                "AIzaSyDUMMYKEY01234567890123456789012"
+            ),
+            "status": "INVALID_ARGUMENT",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "API_KEY_INVALID",
+                    "domain": "googleapis.com",
+                    "metadata": {"service": "generativelanguage.googleapis.com"},
+                }
+            ],
+        }
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=raw_error_payload)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ProviderTransportError, match="provider_http_error") as exc_info:
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": secret_prompt},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
+
+    err = exc_info.value
+    # 1. Structured attribute & metadata extraction
+    assert err.code == "provider_http_error"
+    assert err.status_code == 400
+    assert err.error_status == "INVALID_ARGUMENT"
+    assert err.error_code == 400
+    assert err.error_reason == "API_KEY_INVALID"
+    assert err.metadata["status_code"] == 400
+    assert err.metadata["error_status"] == "INVALID_ARGUMENT"
+    assert err.metadata["error_code"] == 400
+    assert err.metadata["error_reason"] == "API_KEY_INVALID"
+
+    # 2. Strict credential & prompt redaction
+    for target in (str(err), *[str(v) for v in err.metadata.values()]):
+        assert secret_key not in target
+        assert secret_prompt not in target
+        assert "secret-token-xyz-12345" not in target
+        assert "AIzaSyDUMMYKEY" not in target
+
+    # 3. Non-leakage of raw response body
+    assert "raw_body" not in err.metadata
+    assert "raw_response" not in err.metadata
+    assert "body" not in err.metadata
+    assert json.dumps(raw_error_payload) not in str(err.metadata)
+
+
+def test_google_ai_studio_client_extracts_openai_format_error_on_http_400() -> None:
+    secret_prompt = "user prompt that triggered bad request"
+    raw_error_payload = {
+        "error": {
+            "message": f"Unrecognized request argument in prompt: {secret_prompt}",
+            "type": "invalid_request_error",
+            "param": "messages",
+            "code": "invalid_argument",
+        }
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=raw_error_payload)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ProviderTransportError, match="provider_http_error") as exc_info:
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": secret_prompt},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
+
+    err = exc_info.value
+    assert err.status_code == 400
+    assert err.error_code in ("invalid_argument", "invalid_request_error", 400)
+    assert err.metadata["status_code"] == 400
+    assert secret_prompt not in str(err)
+    assert secret_prompt not in str(err.metadata)
+
+
+def test_google_ai_studio_proposal_transport_propagates_structured_error_on_http_400() -> None:
+    secret_prompt = "run-provider-001 secret research hypothesis"
+    raw_error_payload = {
+        "error": {
+            "code": 400,
+            "message": (
+                f"Malformed payload for prompt: {secret_prompt} with Bearer token-leak-attempt"
+            ),
+            "status": "INVALID_ARGUMENT",
+            "details": [{"reason": "INVALID_ARGUMENT"}],
+        }
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=raw_error_payload)
+
+    request = CreatorGenerationRequest(
+        research_run_id="run-provider-001",
+        input_evidence_refs=("bundle/hash",),
+        output_schema_id="creator-proposal-v1",
+        attempt=1,
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        transport = GoogleAIStudioProposalTransport(
+            client=GoogleAIStudioJsonClient(_config(), client=http_client),
+            system_prompt="Return only the declared JSON schema.",
+            user_prompt_builder=lambda item: f"run={item.research_run_id} {secret_prompt}",
+        )
+        result = CreatorGenerator(transport=transport).generate(request)
+
+    # 1. Decision and reason codes
+    assert result.decision == "rejected"
+    assert result.proposal is None
+    assert result.reason_codes == ("provider_http_error",)
+    assert result.raw_output is None
+
+    # 2. Structured metadata preservation in provider_metadata
+    assert result.provider_metadata["status_code"] == 400
+    assert result.provider_metadata["error_status"] == "INVALID_ARGUMENT"
+    assert result.provider_metadata["error_reason"] == "INVALID_ARGUMENT"
+
+    # 3. Non-leakage assertions
+    assert secret_prompt not in str(result.provider_metadata)
+    assert "token-leak-attempt" not in str(result.provider_metadata)
+    assert json.dumps(raw_error_payload) not in str(result.provider_metadata)
+
+    # 4. Mandatory offline safety invariants
+    assert result.promotion_state == "unpromoted"
+    assert result.paper_activation is False
+    assert result.execution_authority is False
+    assert result.exchange_access is False
+
+
+def test_google_ai_studio_client_handles_degraded_html_error_on_http_400() -> None:
+    html_content = (
+        "<!DOCTYPE html><html><body><h1>400 Bad Request</h1>"
+        "<p>Invalid URL key=AIzaSySecretKey012345678901234567890</p></body></html>"
+    )
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            text=html_content,
+            headers={"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ProviderTransportError, match="provider_http_error") as exc_info:
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": "return JSON"},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
+
+    err = exc_info.value
+    assert err.status_code == 400
+    assert err.error_code == "http_400"
+    assert err.error_reason == "http_400_html_error"
+    assert "AIzaSySecretKey" not in str(err)
+    assert "AIzaSySecretKey" not in str(err.metadata)
+    assert "<html" not in str(err.metadata)
+
+
+def test_google_ai_studio_client_handles_degraded_empty_error_on_http_400() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, content=b"")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ProviderTransportError, match="provider_http_error") as exc_info:
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": "return JSON"},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
+
+    err = exc_info.value
+    assert err.status_code == 400
+    assert err.error_code == "http_400"
+    assert err.error_reason == "http_400_empty_response"
+    assert err.metadata["content_kind"] == "empty"
+
+
+def test_google_ai_studio_client_redacts_credentials_in_message_without_details() -> None:
+    """Verifies credential redaction when error.details is omitted (preventing test facade)."""
+    secret_key = "AIzaSyDUMMYKEY01234567890123456789012"
+    secret_prompt = "bounded proprietary prompt signal"
+    raw_error_payload = {
+        "error": {
+            "code": 400,
+            "message": (
+                f"Invalid request with key {secret_key} and prompt '{secret_prompt}' "
+                "and Authorization Bearer secret-token-xyz-12345"
+            ),
+            "status": "INVALID_ARGUMENT",
+            # Explicitly NO 'details' field
+        }
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=raw_error_payload)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ProviderTransportError, match="provider_http_error") as exc_info:
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": secret_prompt},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
+
+    err = exc_info.value
+    assert err.status_code == 400
+    assert err.error_status == "INVALID_ARGUMENT"
+    # Ensure error_reason comes from message and is sanitized
+    assert err.error_reason != "API_KEY_INVALID"
+    assert secret_key not in str(err.error_reason)
+    assert "[REDACTED_API_KEY]" in str(err.error_reason)
+    assert secret_prompt not in str(err.error_reason)
+    assert "[REDACTED_PROMPT]" in str(err.error_reason)
+    assert "secret-token-xyz-12345" not in str(err.error_reason)
+    assert "Bearer [REDACTED]" in str(err.error_reason)
+
+    # All metadata values must be free of secrets
+    for val in err.metadata.values():
+        assert secret_key not in str(val)
+        assert secret_prompt not in str(val)
+        assert "secret-token-xyz-12345" not in str(val)
+
+
+@pytest.mark.parametrize(
+    "hostile_code",
+    [
+        "AIzaSyDTESTINGSECRETKEY012345678901234",
+        "Bearer ya29.a0AfH6SMSECRET_BEARER_TOKEN",
+        "user_prompt_hypothesis_leak",
+        "LONG_CODE_" + ("X" * 1000),
+    ],
+)
+def test_google_ai_studio_client_sanitizes_string_error_code(hostile_code: str) -> None:
+    """Verifies string error.code values are sanitized and length-bounded."""
+    secret_prompt = "user_prompt_hypothesis_leak"
+    raw_error_payload = {
+        "error": {
+            "code": hostile_code,
+            "message": "Invalid argument specified",
+            "type": "invalid_request_error",
+        }
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=raw_error_payload)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ProviderTransportError, match="provider_http_error") as exc_info:
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": secret_prompt},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
+
+    err = exc_info.value
+    assert err.status_code == 400
+    assert len(str(err.error_code)) <= 64
+    assert "AIzaSy" not in str(err.error_code)
+    assert "SECRET_BEARER_TOKEN" not in str(err.error_code)
+    assert secret_prompt not in str(err.error_code)
+    assert json.dumps(err.metadata).find("AIzaSy") == -1
+
+
+def test_google_ai_studio_client_sanitizes_hostile_response_keys() -> None:
+    """Verifies hostile root JSON keys are sanitized and capped in response_keys."""
+    secret_key = "AIzaSyDTESTINGSECRETKEY012345678901234"
+    secret_prompt = "secret_hypothesis_prompt"
+    raw_error_payload = {
+        "error": {"code": 400, "message": "error occurred"},
+        secret_key: "val1",
+        "Authorization_Bearer_ya29.secret_bearer_token": "val2",
+        secret_prompt: "val3",
+        "?key=AIzaSySecretQueryParam": "val4",
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=raw_error_payload)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ProviderTransportError, match="provider_http_error") as exc_info:
+            GoogleAIStudioJsonClient(_config(), client=http_client).complete_json(
+                messages=({"role": "user", "content": secret_prompt},),
+                temperature=0.2,
+                max_output_tokens=100,
+            )
+
+    err = exc_info.value
+    meta_dump = json.dumps(err.metadata)
+    assert secret_key not in meta_dump
+    assert "secret_bearer_token" not in meta_dump
+    assert secret_prompt not in meta_dump
+    assert "AIzaSySecretQueryParam" not in meta_dump
+    assert isinstance(err.metadata["response_keys"], tuple)
+    assert len(err.metadata["response_keys"]) <= 32
+    for k in err.metadata["response_keys"]:
+        assert len(str(k)) <= 64

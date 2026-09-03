@@ -72,7 +72,9 @@ def write_creator_batch_trial_evidence(
         raise DomainViolation("Creator batch trial evidence hash mismatch")
     if path.exists():
         existing = read_creator_batch_trial_evidence(path)
-        if existing != evidence:
+        if existing != evidence and existing.model_dump(mode="json") != evidence.model_dump(
+            mode="json"
+        ):
             raise DomainViolation(f"Creator batch trial evidence path is immutable: {path}")
         return existing
     payload = json.dumps(evidence.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
@@ -83,7 +85,9 @@ def write_creator_batch_trial_evidence(
         os.link(temporary_path, path)
     except FileExistsError:
         existing = read_creator_batch_trial_evidence(path)
-        if existing != evidence:
+        if existing != evidence and existing.model_dump(mode="json") != evidence.model_dump(
+            mode="json"
+        ):
             raise DomainViolation(
                 f"Creator batch trial evidence path is immutable: {path}"
             ) from None

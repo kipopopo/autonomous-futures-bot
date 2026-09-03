@@ -116,3 +116,72 @@ def test_legacy_trial_evidence_without_schema_diagnostics_remains_readable(tmp_p
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert read_creator_batch_trial_evidence(path) == evidence
+
+
+def test_batch_trial_persistence_idempotent_with_sequence_provider_metadata(
+    tmp_path: Path,
+) -> None:
+    trial = CreatorBatchTrial(
+        research_run_id="run-provider-keys",
+        decision="rejected",
+        reason_codes=("provider_http_error",),
+        provider_metadata={
+            "status_code": 400,
+            "error_status": "INVALID_ARGUMENT",
+            "error_code": 400,
+            "error_reason": "API_KEY_INVALID",
+            "response_keys": ("error", "status"),
+        },
+    )
+    path = tmp_path / "provider_keys.json"
+    evidence = build_creator_batch_trial_evidence(trial, recorded_at=RECORDED_AT)
+
+    # 1. Initial write round-trips and preserves tuple type
+    persisted = write_creator_batch_trial_evidence(path, evidence)
+    assert persisted == evidence
+    assert isinstance(persisted.trial.provider_metadata["response_keys"], tuple)
+
+    # 2. Read back from disk preserves tuple type and equals original evidence
+    read_back = read_creator_batch_trial_evidence(path)
+    assert read_back == evidence
+    assert isinstance(read_back.trial.provider_metadata["response_keys"], tuple)
+
+    # 3. Idempotent re-write returns existing evidence without DomainViolation
+    assert write_creator_batch_trial_evidence(path, evidence) == evidence
+
+    # 4. Idempotent re-write with list-initialized equivalent trial succeeds
+    trial_with_list = CreatorBatchTrial(
+        research_run_id="run-provider-keys",
+        decision="rejected",
+        reason_codes=("provider_http_error",),
+        provider_metadata={
+            "status_code": 400,
+            "error_status": "INVALID_ARGUMENT",
+            "error_code": 400,
+            "error_reason": "API_KEY_INVALID",
+            "response_keys": ["error", "status"],
+        },
+    )
+    evidence_with_list = build_creator_batch_trial_evidence(
+        trial_with_list, recorded_at=RECORDED_AT
+    )
+    assert write_creator_batch_trial_evidence(path, evidence_with_list) == evidence
+
+    # 5. Conflicting write is strictly rejected with DomainViolation
+    conflicting = build_creator_batch_trial_evidence(
+        CreatorBatchTrial(
+            research_run_id="run-provider-keys",
+            decision="rejected",
+            reason_codes=("provider_http_error",),
+            provider_metadata={
+                "status_code": 400,
+                "error_status": "INVALID_ARGUMENT",
+                "error_code": 400,
+                "error_reason": "DIFFERENT_REASON",
+                "response_keys": ("error", "status"),
+            },
+        ),
+        recorded_at=RECORDED_AT,
+    )
+    with pytest.raises(DomainViolation, match="immutable"):
+        write_creator_batch_trial_evidence(path, conflicting)

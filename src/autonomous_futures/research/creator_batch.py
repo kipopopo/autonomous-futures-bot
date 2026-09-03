@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -15,6 +15,14 @@ from .creator_generator import CreatorGenerationRequest, CreatorGenerator
 from .creator_proposals import build_candidate_from_proposal
 
 
+def _canonicalize_metadata_value(value: object) -> object:
+    if isinstance(value, (list, tuple)):
+        return tuple(_canonicalize_metadata_value(item) for item in value)
+    if isinstance(value, Mapping):
+        return {key: _canonicalize_metadata_value(val) for key, val in sorted(value.items())}
+    return value
+
+
 class CreatorBatchTrial(DomainModel):
     research_run_id: str = Field(pattern=r"^run-[a-z0-9][a-z0-9-]{0,63}$")
     proposal_id: str | None = Field(default=None, pattern=r"^proposal-[a-z0-9][a-z0-9-]{0,63}$")
@@ -24,6 +32,13 @@ class CreatorBatchTrial(DomainModel):
     schema_diagnostics: tuple[str, ...] = ()
     provider_metadata: dict[str, object] = Field(default_factory=dict)
     candidate_artifact_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("provider_metadata", mode="before")
+    @classmethod
+    def provider_metadata_is_canonical(cls, value: object) -> dict[str, object]:
+        if not isinstance(value, Mapping):
+            return {}
+        return {key: _canonicalize_metadata_value(val) for key, val in sorted(value.items())}
 
     @field_validator("schema_diagnostics")
     @classmethod
