@@ -71,7 +71,7 @@ def _write_creator_fixture(tmp_path: Path) -> tuple[FastAPI, Path]:
         ((artifact, "candidates/cand-api-001.json"),),
         created_at=CREATED_AT,
     )
-    registry_path = tmp_path / "creator-candidate-registry.json"
+    registry_path = tmp_path / "candidate-registry.json"
     write_creator_candidate_registry(registry_path, registry)
     return (
         create_app(
@@ -149,7 +149,7 @@ def test_verified_creator_candidate_history_collects_every_registry(tmp_path: Pa
         registry = build_creator_candidate_registry(
             ((artifact, f"candidates/{candidate_id}.json"),), created_at=CREATED_AT
         )
-        write_creator_candidate_registry(run_root / "creator-candidate-registry.json", registry)
+        write_creator_candidate_registry(run_root / "candidate-registry.json", registry)
         artifacts.extend((candidate_id, canonical_creator_candidate_id(artifact.strategy)))
 
     assert collect_verified_creator_candidate_ids(history_root) == tuple(sorted(set(artifacts)))
@@ -188,7 +188,7 @@ def test_verified_creator_candidate_history_rejects_conflicting_identity(tmp_pat
         registry = build_creator_candidate_registry(
             ((artifact, "candidates/cand-history-conflict.json"),), created_at=CREATED_AT
         )
-        write_creator_candidate_registry(run_root / "creator-candidate-registry.json", registry)
+        write_creator_candidate_registry(run_root / "candidate-registry.json", registry)
 
     with pytest.raises(CreatorCandidateRegistryIntegrityError, match="multiple artifacts"):
         collect_verified_creator_candidate_ids(history_root)
@@ -213,7 +213,7 @@ def test_verified_creator_candidate_history_includes_canonical_strategy_identity
     registry = build_creator_candidate_registry(
         ((artifact, "candidates/cand-provider-history.json"),), created_at=CREATED_AT
     )
-    write_creator_candidate_registry(run_root / "creator-candidate-registry.json", registry)
+    write_creator_candidate_registry(run_root / "candidate-registry.json", registry)
 
     assert collect_verified_creator_candidate_ids(run_root) == tuple(
         sorted((artifact.candidate_id, canonical_creator_candidate_id(artifact.strategy)))

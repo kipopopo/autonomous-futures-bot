@@ -85,7 +85,7 @@ def collect_verified_creator_candidate_ids(history_root: Path) -> tuple[str, ...
     if not history_root.is_dir():
         raise CreatorCandidateRegistryNotFoundError(history_root)
 
-    registry_paths = tuple(sorted(history_root.rglob("creator-candidate-registry.json")))
+    registry_paths = tuple(sorted(history_root.rglob("candidate-registry.json")))
     if not registry_paths:
         raise CreatorCandidateRegistryNotFoundError(history_root)
 
