@@ -1,0 +1,30 @@
+[Unit]
+Description=Autonomous Futures Bot sandboxed paper trading daemon
+After=network-online.target
+Wants=network-online.target
+Documentation=file:///opt/autonomous-futures-bot/README.md
+
+[Service]
+Type=oneshot
+User=afbot
+Group=afbot
+WorkingDirectory=/opt/autonomous-futures-bot
+Environment=PYTHONPATH=/opt/autonomous-futures-bot/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/autonomous-futures-bot/.venv/bin/python scripts/preflight_kainode_paper.py --storage-dir /opt/autonomous-futures-bot/artifacts/paper --starting-equity 100.00 --bars 200 --smoke-test
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/autonomous-futures-bot/artifacts/paper/
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CPUQuota=500%
+MemoryMax=10G
+TimeoutStartSec=180
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
