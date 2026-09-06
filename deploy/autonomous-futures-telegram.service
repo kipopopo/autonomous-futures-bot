@@ -1,0 +1,32 @@
+[Unit]
+Description=Autonomous Futures Bot real-time Telegram telemetry and trade alerts sidecar
+After=network-online.target autonomous-futures-paper-live.service
+Wants=network-online.target
+Documentation=file:///opt/autonomous-futures-bot/README.md
+
+[Service]
+Type=simple
+User=afbot
+Group=afbot
+WorkingDirectory=/opt/autonomous-futures-bot
+Environment=PYTHONPATH=/opt/autonomous-futures-bot/src
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/autonomous-futures-bot/.env
+ExecStart=/opt/autonomous-futures-bot/.venv/bin/python scripts/run_telegram_notifier.py --storage-dir /opt/autonomous-futures-bot/artifacts/paper_live --poll-interval 3.0 --digest-interval 3600
+Restart=always
+RestartSec=10s
+TimeoutStopSec=15s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/autonomous-futures-bot/artifacts/paper_live/
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CPUQuota=100%
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
