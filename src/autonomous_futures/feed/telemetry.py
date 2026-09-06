@@ -146,7 +146,8 @@ class FeedTelemetryAccumulator:
 
     def start(self) -> None:
         with self._lock:
-            self._start_monotonic = time.monotonic()
+            if self._start_monotonic == 0.0:
+                self._start_monotonic = time.monotonic()
             self._end_monotonic = 0.0
 
     def stop(self) -> None:

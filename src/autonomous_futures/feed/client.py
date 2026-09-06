@@ -273,21 +273,58 @@ class BinancePublicFeedClient:
         self._running = True
         self._stop_event.clear()
 
+        start_time = time.monotonic()
         try:
-            async with websockets.connect(
-                endpoint,
-                ping_interval=None,
-                close_timeout=10.0,
-                max_size=2**20,
-            ) as ws:
-                logger.info("Connected to Binance public feed: %s", endpoint)
-                await self.consume_stream(
-                    ws,
-                    duration_seconds=duration_seconds,
-                    on_bar=on_bar,
-                    on_ticker=on_ticker,
-                    on_raw_message=on_raw_message,
-                )
+            while self._running and not self._stop_event.is_set():
+                if duration_seconds is not None:
+                    elapsed = time.monotonic() - start_time
+                    remaining = duration_seconds - elapsed
+                    if remaining <= 0:
+                        logger.info("Probe duration deadline reached (%.2fs)", duration_seconds)
+                        break
+                else:
+                    remaining = None
+
+                try:
+                    async with websockets.connect(
+                        endpoint,
+                        ping_interval=20.0,
+                        ping_timeout=10.0,
+                        close_timeout=10.0,
+                        max_size=2**20,
+                    ) as ws:
+                        logger.info("Connected to Binance public feed: %s", endpoint)
+                        await self.consume_stream(
+                            ws,
+                            duration_seconds=remaining,
+                            on_bar=on_bar,
+                            on_ticker=on_ticker,
+                            on_raw_message=on_raw_message,
+                        )
+                except websockets.exceptions.ConnectionClosed as exc:
+                    if self._stop_event.is_set():
+                        break
+                    if (
+                        duration_seconds is not None
+                        and (time.monotonic() - start_time) >= duration_seconds
+                    ):
+                        break
+                    logger.warning(
+                        "WebSocket connection dropped (%s, code=%s); reconnecting...",
+                        exc,
+                        getattr(exc, "code", None),
+                    )
+                    await asyncio.sleep(1.0)
+                except Exception as exc:
+                    if self._stop_event.is_set():
+                        break
+                    if (
+                        duration_seconds is not None
+                        and (time.monotonic() - start_time) >= duration_seconds
+                    ):
+                        break
+                    logger.warning("WebSocket error (%s); reconnecting in 1s...", exc)
+                    await asyncio.sleep(1.0)
         finally:
             await self.close()
 
