@@ -154,6 +154,18 @@ class FeedTelemetryAccumulator:
         with self._lock:
             self._end_monotonic = time.monotonic()
 
+    @property
+    def total_messages(self) -> int:
+        """Return total count of wire messages recorded across all streams."""
+        with self._lock:
+            return len(self._latencies_overall)
+
+    @property
+    def error_count(self) -> int:
+        """Return total decode error count."""
+        with self._lock:
+            return self._error_count
+
     def record_message(
         self,
         stream: str,

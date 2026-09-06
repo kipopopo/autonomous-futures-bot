@@ -1,0 +1,31 @@
+[Unit]
+Description=Autonomous Futures Bot continuous live paper trading daemon
+After=network-online.target
+Wants=network-online.target
+Documentation=file:///opt/autonomous-futures-bot/README.md
+
+[Service]
+Type=simple
+User=afbot
+Group=afbot
+WorkingDirectory=/opt/autonomous-futures-bot
+Environment=PYTHONPATH=/opt/autonomous-futures-bot/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/autonomous-futures-bot/.venv/bin/python scripts/run_phase_259_live_paper_daemon.py --storage-dir /opt/autonomous-futures-bot/artifacts/paper_live --starting-capital 100.00 --symbols BTCUSDT,ETHUSDT,SOLUSDT,DOGEUSDT
+Restart=always
+RestartSec=5s
+TimeoutStopSec=30s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/autonomous-futures-bot/artifacts/paper_live/
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CPUQuota=300%
+MemoryMax=4G
+
+[Install]
+WantedBy=multi-user.target

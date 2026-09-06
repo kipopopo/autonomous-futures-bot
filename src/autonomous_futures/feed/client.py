@@ -82,6 +82,7 @@ class BinancePublicFeedClient:
         self._running: bool = False
         self._stop_event: asyncio.Event = asyncio.Event()
         self._cb_param_counts: dict[Any, int] = {}
+        self.reconnect_count: int = 0
 
     def get_connect_headers(self) -> dict[str, str]:
         """Return HTTP headers for WebSocket handshake (strictly zero credentials)."""
@@ -314,6 +315,7 @@ class BinancePublicFeedClient:
                         exc,
                         getattr(exc, "code", None),
                     )
+                    self.reconnect_count += 1
                     await asyncio.sleep(1.0)
                 except Exception as exc:
                     if self._stop_event.is_set():
@@ -324,6 +326,7 @@ class BinancePublicFeedClient:
                     ):
                         break
                     logger.warning("WebSocket error (%s); reconnecting in 1s...", exc)
+                    self.reconnect_count += 1
                     await asyncio.sleep(1.0)
         finally:
             await self.close()
