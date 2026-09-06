@@ -258,7 +258,7 @@ class BinancePublicFeedClient:
                             await self._invoke_callback(on_ticker, ticker, recv_ns)
 
         finally:
-            self._running = False
+            self._ws = None
             if self.telemetry is not None:
                 self.telemetry.stop()
 
@@ -289,8 +289,7 @@ class BinancePublicFeedClient:
                 try:
                     async with websockets.connect(
                         endpoint,
-                        ping_interval=20.0,
-                        ping_timeout=10.0,
+                        ping_interval=None,
                         close_timeout=10.0,
                         max_size=2**20,
                     ) as ws:
