@@ -373,20 +373,31 @@ class LivePaperEngine:
                         logger.warning("Failed to load candidate for %s: %s", symbol, exc)
         return candidates
 
-    def seed_history(self, symbol: str, bars: Sequence[CanonicalBar] | pd.DataFrame) -> None:
+    def seed_history(
+        self,
+        symbol: str,
+        bars: Sequence[CanonicalBar] | Sequence[dict[str, Any]] | pd.DataFrame,
+    ) -> None:
         """Seed initial historical bars for warm-up and causal feature evaluation."""
         sym = symbol.upper()
         if sym not in self._bar_history:
             self._bar_history[sym] = []
 
+        records_to_add: list[dict[str, Any]] = []
         if isinstance(bars, pd.DataFrame):
-            for _, row in bars.iterrows():
+            df_bars = bars.copy()
+            if "timestamp" not in df_bars.columns:
+                if isinstance(df_bars.index, pd.DatetimeIndex):
+                    df_bars = df_bars.reset_index()
+                    if "timestamp" not in df_bars.columns and "index" in df_bars.columns:
+                        df_bars = df_bars.rename(columns={"index": "timestamp"})
+            for _, row in df_bars.iterrows():
                 ts = (
                     row["timestamp"]
                     if isinstance(row["timestamp"], datetime)
                     else pd.to_datetime(row["timestamp"], utc=True).to_pydatetime()
                 )
-                self._bar_history[sym].append(
+                records_to_add.append(
                     {
                         "timestamp": ts.astimezone(UTC).replace(microsecond=0),
                         "open": Decimal(str(row["open"])),
@@ -396,18 +407,39 @@ class LivePaperEngine:
                         "volume": Decimal(str(row.get("volume", "0"))),
                     }
                 )
-        else:
-            for bar in bars:
-                self._bar_history[sym].append(
-                    {
-                        "timestamp": bar.timestamp.astimezone(UTC).replace(microsecond=0),
-                        "open": bar.open,
-                        "high": bar.high,
-                        "low": bar.low,
-                        "close": bar.close,
-                        "volume": bar.volume,
-                    }
-                )
+        elif isinstance(bars, Sequence):
+            for item in bars:
+                if isinstance(item, dict):
+                    ts = item["timestamp"]
+                    if not isinstance(ts, datetime):
+                        ts = pd.to_datetime(ts, utc=True).to_pydatetime()
+                    records_to_add.append(
+                        {
+                            "timestamp": ts.astimezone(UTC).replace(microsecond=0),
+                            "open": Decimal(str(item["open"])),
+                            "high": Decimal(str(item["high"])),
+                            "low": Decimal(str(item["low"])),
+                            "close": Decimal(str(item["close"])),
+                            "volume": Decimal(str(item.get("volume", "0"))),
+                        }
+                    )
+                else:  # CanonicalBar
+                    records_to_add.append(
+                        {
+                            "timestamp": item.timestamp.astimezone(UTC).replace(microsecond=0),
+                            "open": item.open,
+                            "high": item.high,
+                            "low": item.low,
+                            "close": item.close,
+                            "volume": item.volume,
+                        }
+                    )
+
+        # Merge and deduplicate by timestamp in sorted order
+        existing_map = {rec["timestamp"]: rec for rec in self._bar_history[sym]}
+        for rec in records_to_add:
+            existing_map[rec["timestamp"]] = rec
+        self._bar_history[sym] = [existing_map[ts] for ts in sorted(existing_map.keys())]
 
         # Pre-warm monitor baseline ATR if sufficient history
         df = self.get_bar_dataframe(sym)
@@ -426,6 +458,8 @@ class LivePaperEngine:
             return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
         df = pd.DataFrame(records)
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+        df = df.drop_duplicates(subset=["timestamp"], keep="last")
+        df = df.sort_values("timestamp", kind="mergesort").reset_index(drop=True)
         for col in ("open", "high", "low", "close", "volume"):
             df[col] = pd.to_numeric(df[col], errors="coerce")
         return df
@@ -622,7 +656,35 @@ class LivePaperEngine:
             "close": bar.close,
             "volume": bar.volume,
         }
-        self._bar_history[sym].append(bar_record)
+        history = self._bar_history[sym]
+        incoming_ts = bar_record["timestamp"]
+        assert isinstance(incoming_ts, datetime)
+
+        # 1. Deduplication / Update in-place
+        for idx, rec in enumerate(history):
+            if rec["timestamp"] == incoming_ts:
+                history[idx] = bar_record
+                break
+        else:
+            # 2. Self-healing gap check: if history exists and incoming bar has a temporal gap
+            if history:
+                prev_ts = history[-1]["timestamp"]
+                assert isinstance(prev_ts, datetime)
+                expected_ts = prev_ts + timedelta(minutes=5)
+                if incoming_ts > expected_ts:
+                    logger.warning(
+                        "Timestamp gap detected for %s: expected %s, got %s. "
+                        "Pruning stale pre-gap history to restore pipeline continuity.",
+                        sym,
+                        expected_ts.isoformat(),
+                        incoming_ts.isoformat(),
+                    )
+                    history.clear()
+
+            # 3. Append new finalized bar and maintain monotonic order
+            history.append(bar_record)
+            if len(history) > 1 and history[-1]["timestamp"] < history[-2]["timestamp"]:
+                history.sort(key=lambda r: r["timestamp"])
 
         cand = self.candidates.get(sym)
         if cand is None:

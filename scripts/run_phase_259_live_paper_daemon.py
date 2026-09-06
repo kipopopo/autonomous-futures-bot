@@ -20,6 +20,7 @@ import os
 import signal
 import sys
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -34,6 +35,11 @@ import pandas as pd  # noqa: E402
 
 from autonomous_futures.feed.client import BinancePublicFeedClient  # noqa: E402
 from autonomous_futures.feed.monitor import CircuitBreakerFeedMonitor  # noqa: E402
+from autonomous_futures.feed.rest_client import (  # noqa: E402
+    DEFAULT_REST_URL,
+    BinancePublicRestClient,
+    fetch_warmup_bars_with_fallback,
+)
 from autonomous_futures.feed.telemetry import FeedTelemetryAccumulator  # noqa: E402
 from autonomous_futures.paper.circuit_breakers import (  # noqa: E402
     HardenedSharedMarginAccount,
@@ -89,6 +95,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Binance Futures WebSocket base URL (default: wss://fstream.binance.com)",
     )
     parser.add_argument(
+        "--rest-url",
+        type=str,
+        default=DEFAULT_REST_URL,
+        help="Binance Futures REST base URL (default: https://fapi.binance.com)",
+    )
+    parser.add_argument(
         "--checkpoint-interval",
         type=float,
         default=30.0,
@@ -105,6 +117,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=100,
         help="Number of historical 5m bars to seed for causal feature warmup (default: 100)",
+    )
+    parser.add_argument(
+        "--warmup-timeout",
+        type=float,
+        default=10.0,
+        help="Timeout in seconds for dynamic REST warmup fetch before falling back (default: 10.0)",
+    )
+    parser.add_argument(
+        "--offline-warmup",
+        action="store_true",
+        default=False,
+        help="Force offline fallback warmup without attempting public REST fetch",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        default=False,
+        help="Alias for --offline-warmup",
     )
     parser.add_argument(
         "--log-level",
@@ -225,7 +255,15 @@ def generate_deterministic_doge_warmup(
     start_ts: datetime | None = None,
 ) -> pd.DataFrame:
     """Generate deterministic 5m OHLC bars for DOGEUSDT warmup if Parquet missing."""
-    start = start_ts or (datetime.now(UTC) - timedelta(minutes=5 * bars_count))
+    if start_ts is not None:
+        start = start_ts
+    else:
+        now_dt = datetime.now(UTC)
+        now_ms = int(now_dt.timestamp() * 1000)
+        last_closed_open_s = ((now_ms // 300_000) - 1) * 300
+        start_s = last_closed_open_s - (bars_count - 1) * 300
+        start = datetime.fromtimestamp(start_s, tz=UTC)
+
     records: list[dict[str, Any]] = []
     base_price = 0.150
 
@@ -251,37 +289,138 @@ def generate_deterministic_doge_warmup(
     return pd.DataFrame(records)
 
 
-def seed_engine_history(
-    engine: LivePaperEngine,
-    history_dir: Path,
-    symbols: tuple[str, ...],
-    warmup_bars: int = 100,
-) -> None:
-    """Seed historical 5m bars for causal feature warmup."""
-    for symbol in symbols:
-        parquet_file = history_dir / f"{symbol}-5m.parquet"
-        if parquet_file.is_file():
-            try:
-                df = pd.read_parquet(parquet_file)
-                df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-                df_sorted = df.sort_values("timestamp").tail(warmup_bars)
-                engine.seed_history(symbol, df_sorted)
-                logger.info(
-                    "Seeded %d warmup bars for %s from %s",
-                    len(df_sorted),
-                    symbol,
-                    parquet_file.name,
-                )
-            except Exception as exc:
-                logger.warning("Failed to seed history from %s: %s", parquet_file, exc)
-        elif symbol == "DOGEUSDT":
-            doge_df = generate_deterministic_doge_warmup(bars_count=warmup_bars)
-            engine.seed_history(symbol, doge_df)
-            logger.info("Seeded %d deterministic warmup bars for DOGEUSDT", len(doge_df))
+def canonical_df_to_bar_records(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Transform canonical DataFrame into list of exact bar dictionaries for engine.seed_history."""
+    records: list[dict[str, Any]] = []
+    has_ts_col = "timestamp" in df.columns
+    for idx, row in df.iterrows():
+        ts_raw = row["timestamp"] if has_ts_col else idx
+        if isinstance(ts_raw, datetime):
+            ts = ts_raw
+        elif hasattr(ts_raw, "to_pydatetime"):
+            ts = ts_raw.to_pydatetime()
         else:
-            logger.info(
-                "No historical Parquet found for %s; streaming warmup will accumulate", symbol
+            ts = pd.to_datetime(ts_raw, utc=True).to_pydatetime()
+        ts_utc = ts.astimezone(UTC).replace(microsecond=0)
+        records.append(
+            {
+                "timestamp": ts_utc,
+                "open": Decimal(str(row["open"])),
+                "high": Decimal(str(row["high"])),
+                "low": Decimal(str(row["low"])),
+                "close": Decimal(str(row["close"])),
+                "volume": Decimal(str(row.get("volume", "0"))),
+            }
+        )
+    return records
+
+
+async def seed_historical_warmup_bars(
+    engine: LivePaperEngine,
+    symbols: Sequence[str],
+    warmup_bars: int = 100,
+    history_dir: Path | str = Path("research/immutable-data/5m/canonical"),
+    timeout_seconds: float = 10.0,
+    offline: bool = False,
+    rest_client: BinancePublicRestClient | None = None,
+    rest_url: str = DEFAULT_REST_URL,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    """Concurrently fetch and seed historical warmup bars for all symbols with bounded timeout."""
+    is_offline = offline or (os.environ.get("AF_OFFLINE_WARMUP") == "1")
+    shared_client = (
+        rest_client
+        if rest_client is not None
+        else (
+            None
+            if is_offline
+            else BinancePublicRestClient(base_url=rest_url, timeout=timeout_seconds)
+        )
+    )
+    owns_client = rest_client is None and shared_client is not None
+
+    seeded_counts: dict[str, int] = {}
+    try:
+
+        async def _fetch_single(sym: str, force_offline: bool = False) -> tuple[str, pd.DataFrame]:
+            eff_offline = is_offline or force_offline
+            df = await fetch_warmup_bars_with_fallback(
+                sym,
+                limit=warmup_bars,
+                only_closed=True,
+                history_dir=history_dir,
+                offline=eff_offline,
+                rest_client=None if eff_offline else shared_client,
+                now=now,
             )
+            return sym, df
+
+        coros = [_fetch_single(sym) for sym in symbols]
+
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*coros, return_exceptions=True),
+                timeout=timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Dynamic warmup timed out after %.1fs; falling back to offline for all symbols",
+                timeout_seconds,
+            )
+            fallback_coros = [_fetch_single(sym, force_offline=True) for sym in symbols]
+            results = await asyncio.gather(*fallback_coros, return_exceptions=True)
+
+        for item in results:
+            if isinstance(item, BaseException):
+                logger.error("Warmup fetch failed with exception: %s", item)
+                continue
+            sym, df = item
+            engine.seed_history(sym, df)
+            seeded_counts[sym] = len(df)
+
+            history = engine._bar_history.get(sym.upper(), [])
+            oldest_ts = history[0]["timestamp"].isoformat() if history else "NONE"
+            newest_ts = history[-1]["timestamp"].isoformat() if history else "NONE"
+            source = getattr(df, "attrs", {}).get("source", "UNKNOWN")
+
+            logger.info(
+                "Seeded %d warmup bars for %s [%s -> %s] (source: %s)",
+                len(df),
+                sym,
+                oldest_ts,
+                newest_ts,
+                source,
+            )
+    finally:
+        if owns_client and shared_client is not None:
+            await shared_client.aclose()
+
+    return seeded_counts
+
+
+async def seed_engine_history(
+    engine: LivePaperEngine,
+    history_dir: Path | str = Path("research/immutable-data/5m/canonical"),
+    symbols: Sequence[str] = DEFAULT_SYMBOLS,
+    warmup_bars: int = 100,
+    timeout_seconds: float = 10.0,
+    offline: bool = False,
+    rest_client: BinancePublicRestClient | None = None,
+    rest_url: str = DEFAULT_REST_URL,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    """Compatibility wrapper for dynamic historical warmup seeding."""
+    return await seed_historical_warmup_bars(
+        engine=engine,
+        symbols=symbols,
+        warmup_bars=warmup_bars,
+        history_dir=history_dir,
+        timeout_seconds=timeout_seconds,
+        offline=offline,
+        rest_client=rest_client,
+        rest_url=rest_url,
+        now=now,
+    )
 
 
 def setup_signal_handlers(stop_event: asyncio.Event) -> None:
@@ -418,12 +557,20 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
         telemetry=telemetry,
     )
 
-    # Seed causal feature history if available
-    seed_engine_history(
+    # Seed causal feature history via dynamic async warmup with fallback
+    is_offline = (
+        getattr(args, "offline_warmup", False)
+        or getattr(args, "offline", False)
+        or (os.environ.get("AF_OFFLINE_WARMUP") == "1")
+    )
+    await seed_historical_warmup_bars(
         engine=engine,
-        history_dir=args.history_dir,
         symbols=symbols,
         warmup_bars=args.warmup_bars,
+        history_dir=args.history_dir,
+        timeout_seconds=getattr(args, "warmup_timeout", 10.0),
+        offline=is_offline,
+        rest_url=getattr(args, "rest_url", DEFAULT_REST_URL),
     )
 
     # Setup termination event
