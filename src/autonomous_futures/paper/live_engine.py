@@ -39,7 +39,7 @@ from autonomous_futures.feed.telemetry import FeedTelemetryAccumulator
 from autonomous_futures.paper.circuit_breakers import (
     HardenedSharedMarginAccount,
 )
-from autonomous_futures.paper.ledger import PaperLedgerEntry
+from autonomous_futures.paper.ledger import PaperLedgerEntry, PaperRestartRecoveryError
 from autonomous_futures.paper.lifecycle import (
     mark_paper_position,
 )
@@ -67,6 +67,7 @@ from autonomous_futures.research.feature_signals import (
 )
 
 logger = logging.getLogger("autonomous_futures.paper.live_engine")
+
 
 # Authoritative Contract Defaults
 DEFAULT_SYMBOLS: Final[tuple[str, ...]] = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT")
@@ -299,14 +300,26 @@ class LivePaperEngine:
 
         # Core paper execution runtime
         self.runtime = PaperRuntime(self.sqlite_ledger)
+        self.active_trades: dict[str, ActivePaperTrade] = {}
+        self._persistence_failed = False
+
+        # Candidate strategies are needed to validate persisted immutable strategy content.
+        self.candidates: dict[str, CreatorCandidateArtifact] = (
+            dict(candidates) if candidates is not None else self._load_default_candidates()
+        )
+        self.qualified_symbols: tuple[str, ...] = tuple(self.candidates.keys())
 
         # Shared 100 USDT margin account
+        owns_account = account is None
         self.account = account or HardenedSharedMarginAccount(
             starting_capital=starting_capital,
             max_utilization=max_utilization,
             base_allocation_fraction=DEFAULT_BASE_ALLOCATION_FRACTION,
             min_reserve_buffer=min_reserve_buffer,
         )
+        if owns_account:
+            self._restore_account_cash_from_ledger()
+        self._restore_open_positions()
 
         # Real-time circuit breaker monitor
         if monitor is None:
@@ -331,12 +344,6 @@ class LivePaperEngine:
             telemetry=self.telemetry,
         )
 
-        # Candidate strategies
-        self.candidates: dict[str, CreatorCandidateArtifact] = (
-            dict(candidates) if candidates is not None else self._load_default_candidates()
-        )
-        self.qualified_symbols: tuple[str, ...] = tuple(self.candidates.keys())
-
         # Signal evaluator
         self.signal_evaluator = CausalFeatureSignalEvaluator()
 
@@ -345,7 +352,6 @@ class LivePaperEngine:
         self.latest_bars: dict[str, CanonicalBar] = {}
         self._bar_history: dict[str, list[dict[str, Any]]] = {s: [] for s in self.symbols}
         self._developing_bars: dict[str, dict[str, Any]] = {}
-        self.active_trades: dict[str, ActivePaperTrade] = {}
         self.trade_count: int = 0
         self.peak_portfolio_equity: Decimal = self.account.starting_capital
 
@@ -588,6 +594,7 @@ class LivePaperEngine:
             current_price = ticker.best_bid_price  # Long exit hits the bid
             # Trailing stop ratchet
             if current_price > trade.watermark:
+                self.sqlite_ledger.begin_position_update(trade.trade_id)
                 trade.watermark = current_price
                 trailing_stop = trade.watermark - trade.trailing_atr_multiplier * trade.current_atr
                 if trade.trailing_stop_price is None or trailing_stop > trade.trailing_stop_price:
@@ -609,6 +616,7 @@ class LivePaperEngine:
             current_price = ticker.best_ask_price  # Short exit lifts the ask
             # Trailing stop ratchet
             if current_price < trade.watermark:
+                self.sqlite_ledger.begin_position_update(trade.trade_id)
                 trade.watermark = current_price
                 trailing_stop = trade.watermark + trade.trailing_atr_multiplier * trade.current_atr
                 if trade.trailing_stop_price is None or trailing_stop < trade.trailing_stop_price:
@@ -632,6 +640,11 @@ class LivePaperEngine:
                 exit_reason=exit_reason,
                 event_time=ticker.event_time,
             )
+        else:
+            candidate = self.candidates.get(symbol)
+            if candidate is not None:
+                self._persist_position_state(trade, candidate, marker_started=True)
+                self.sqlite_ledger.clear_position_update(trade.trade_id)
 
     async def handle_bar(self, bar: CanonicalBar, recv_ns: int | None = None) -> None:
         """Ingest live CanonicalBar: form bars dynamically, evaluate signals on close."""
@@ -647,6 +660,8 @@ class LivePaperEngine:
 
     def _process_closed_bar(self, bar: CanonicalBar) -> None:
         """Handle finalized 5m candle bar without lookahead bias."""
+        if self._persistence_failed:
+            return
         sym = bar.symbol.upper()
         bar_record = {
             "timestamp": bar.timestamp.astimezone(UTC).replace(microsecond=0),
@@ -751,7 +766,7 @@ class LivePaperEngine:
         """Simulate top-of-book order execution under shared margin and dynamic leverage."""
         sym = symbol.upper()
         cand = self.candidates.get(sym)
-        if cand is None or sym in self.active_trades:
+        if self._persistence_failed or cand is None or sym in self.active_trades:
             return None
 
         # Circuit breaker safety guards
@@ -806,9 +821,9 @@ class LivePaperEngine:
 
         # Whole-second timestamp truncation (microsecond=0)
         occurred_at = event_time.astimezone(UTC).replace(microsecond=0)
-        self.trade_count += 1
+        trade_number = self.trade_count + 1
         ts_str = occurred_at.strftime("%Y%m%d%H%M%S")
-        trade_id = f"paper-{cand.candidate_id[:12]}-{sym.lower()}-{ts_str}-{self.trade_count:04d}"
+        trade_id = f"paper-{cand.candidate_id[:12]}-{sym.lower()}-{ts_str}-{trade_number:04d}"
 
         entry_req = PaperExecutionRequest(
             candidate_id=cand.candidate_id,
@@ -849,64 +864,78 @@ class LivePaperEngine:
             logger.warning("PaperRuntime.open failed for %s: %s", sym, res.reason_codes)
             return res
 
-        # Record trade opening in shared margin account
-        self.account.record_open(
-            trade_id=trade_id,
-            margin_allocated=base_margin,
-            leverage=leverage,
-            entry_fee=res.entry_fee,
-            equity=cur_eq,
-        )
+        self.sqlite_ledger.begin_position_update(trade_id, "open")
+        try:
+            # Record trade opening in shared margin account
+            self.account.record_open(
+                trade_id=trade_id,
+                margin_allocated=base_margin,
+                leverage=leverage,
+                entry_fee=res.entry_fee,
+                equity=cur_eq,
+            )
 
-        # Retrieve open entry from ledger
-        open_entry = next(
-            (e for e in self.runtime.ledger.load().open_positions() if e.trade_id == trade_id),
-            None,
-        )
-        if open_entry is None:
-            raise DomainViolation(f"Durable open entry missing for {trade_id}")
+            # Retrieve open entry from ledger
+            open_entry = next(
+                (e for e in self.runtime.ledger.load().open_positions() if e.trade_id == trade_id),
+                None,
+            )
+            if open_entry is None:
+                raise DomainViolation(f"Durable open entry missing for {trade_id}")
 
-        # Compute dynamic ATR protective stops
-        risk = cand.strategy.risk
-        stop_mult = risk.stop_atr_multiplier if risk is not None else Decimal("1.5")
-        tp_mult = risk.take_profit_atr_multiplier if risk is not None else Decimal("3.0")
-        trail_mult = risk.trailing_atr_multiplier if risk is not None else Decimal("1.0")
+            # Compute dynamic ATR protective stops
+            risk = cand.strategy.risk
+            stop_mult = risk.stop_atr_multiplier if risk is not None else Decimal("1.5")
+            tp_mult = risk.take_profit_atr_multiplier if risk is not None else Decimal("3.0")
+            trail_mult = risk.trailing_atr_multiplier if risk is not None else Decimal("1.0")
 
-        if side == "LONG":
-            raw_stop = res.fill_price - stop_mult * cur_atr
-            stop_price = max(Decimal("0.000001"), min(raw_stop, res.fill_price * Decimal("0.999")))
-            target_price = res.fill_price + tp_mult * cur_atr
-            watermark = res.fill_price
-        else:
-            raw_stop = res.fill_price + stop_mult * cur_atr
-            stop_price = max(res.fill_price * Decimal("1.001"), raw_stop)
-            raw_tp = res.fill_price - tp_mult * cur_atr
-            target_price = max(Decimal("0.000001"), min(raw_tp, res.fill_price * Decimal("0.999")))
-            watermark = res.fill_price
+            if side == "LONG":
+                raw_stop = res.fill_price - stop_mult * cur_atr
+                stop_price = max(
+                    Decimal("0.000001"), min(raw_stop, res.fill_price * Decimal("0.999"))
+                )
+                target_price = res.fill_price + tp_mult * cur_atr
+                watermark = res.fill_price
+            else:
+                raw_stop = res.fill_price + stop_mult * cur_atr
+                stop_price = max(res.fill_price * Decimal("1.001"), raw_stop)
+                raw_tp = res.fill_price - tp_mult * cur_atr
+                target_price = max(
+                    Decimal("0.000001"), min(raw_tp, res.fill_price * Decimal("0.999"))
+                )
+                watermark = res.fill_price
 
-        active_trade = ActivePaperTrade(
-            trade_id=trade_id,
-            candidate_id=cand.candidate_id,
-            candidate_artifact_hash=cand.artifact_hash,
-            symbol=sym,
-            side=side,
-            open_entry=open_entry,
-            quantity=quantity,
-            base_margin=base_margin,
-            leverage=leverage,
-            watermark=watermark,
-            peak_pnl=Decimal("0"),
-            stop_price=stop_price,
-            target_price=target_price,
-            trailing_atr_multiplier=trail_mult,
-            current_atr=cur_atr,
-            opened_at=occurred_at,
-            trailing_stop_price=stop_price,
-        )
-        self.active_trades[sym] = active_trade
+            active_trade = ActivePaperTrade(
+                trade_id=trade_id,
+                candidate_id=cand.candidate_id,
+                candidate_artifact_hash=cand.artifact_hash,
+                symbol=sym,
+                side=side,
+                open_entry=open_entry,
+                quantity=quantity,
+                base_margin=base_margin,
+                leverage=leverage,
+                watermark=watermark,
+                peak_pnl=Decimal("0"),
+                stop_price=stop_price,
+                target_price=target_price,
+                trailing_atr_multiplier=trail_mult,
+                current_atr=cur_atr,
+                opened_at=occurred_at,
+                trailing_stop_price=stop_price,
+            )
+            self._persist_position_state(active_trade, cand, marker_started=True)
+            self.active_trades[sym] = active_trade
 
-        # Record initial lifecycle mark
-        self._mark_active_position(active_trade, res.fill_price, occurred_at)
+            # Record initial lifecycle mark
+            self._mark_active_position(
+                active_trade, res.fill_price, occurred_at, marker_started=True
+            )
+            self.sqlite_ledger.clear_position_update(trade_id)
+            self.trade_count = trade_number
+        except Exception:
+            self._persistence_failed = True
+            raise
 
         logger.info(
             "Opened paper trade %s on %s: %s qty=%s fill=%s lev=%sx",
@@ -986,18 +1015,25 @@ class LivePaperEngine:
             logger.warning("PaperRuntime.close failed for %s: %s", trade.trade_id, res.reason_codes)
             return res
 
-        # Settle cash in margin account
-        self.account.record_close(
-            trade_id=trade.trade_id,
-            gross_pnl=res.gross_pnl,
-            exit_fee=res.exit_fee,
-        )
+        self.sqlite_ledger.begin_position_update(trade.trade_id, "close")
+        try:
+            # Settle cash in margin account
+            self.account.record_close(
+                trade_id=trade.trade_id,
+                gross_pnl=res.gross_pnl,
+                exit_fee=res.exit_fee,
+            )
 
-        # Mark final lifecycle
-        self._mark_active_position(trade, exit_mark, occurred_at)
+            # Mark final lifecycle
+            self._mark_active_position(trade, exit_mark, occurred_at, marker_started=True)
 
-        # Remove from active trades
-        del self.active_trades[sym]
+            # Remove from active trades
+            self.sqlite_ledger.delete_position_state(trade.trade_id)
+            del self.active_trades[sym]
+            self.sqlite_ledger.clear_position_update(trade.trade_id)
+        except Exception:
+            self._persistence_failed = True
+            raise
 
         # Update stats
         self.total_closed_trades += 1
@@ -1023,12 +1059,16 @@ class LivePaperEngine:
         trade: ActivePaperTrade,
         mark_price: Decimal,
         marked_at: datetime,
+        marker_started: bool = False,
     ) -> None:
         """Record lifecycle mark with whole-second precision into SqlitePaperLifecycle."""
         ts = marked_at.astimezone(UTC).replace(microsecond=0)
         if ts < trade.opened_at:
             ts = trade.opened_at
+        started_here = not marker_started
         try:
+            if started_here:
+                self.sqlite_ledger.begin_position_update(trade.trade_id)
             marked = mark_paper_position(
                 trade.open_entry,
                 mark_price=mark_price,
@@ -1039,8 +1079,14 @@ class LivePaperEngine:
             )
             trade.peak_pnl = marked.peak_pnl
             self.lifecycle_store.append(marked)
-        except Exception as exc:
-            logger.debug("Failed to record lifecycle mark for %s: %s", trade.trade_id, exc)
+            candidate = self.candidates.get(trade.symbol)
+            if candidate is not None:
+                self._persist_position_state(trade, candidate, marker_started=True)
+            if started_here:
+                self.sqlite_ledger.clear_position_update(trade.trade_id)
+        except Exception:
+            self._persistence_failed = True
+            raise
 
     def _record_observation(
         self, symbol: str, candidate: CreatorCandidateArtifact, observed_at: datetime
@@ -1065,6 +1111,123 @@ class LivePaperEngine:
             self.observation_store.append(obs)
         except Exception as exc:
             logger.debug("Failed to record observation for %s: %s", symbol, exc)
+
+    def _restore_account_cash_from_ledger(self) -> None:
+        """Restore persisted realized cash before the next paper session."""
+        ledger = self.runtime.ledger.load()
+        closed_net_pnl = sum(
+            (
+                entry.net_pnl
+                for entry in ledger.entries
+                if entry.event == "close" and entry.net_pnl is not None
+            ),
+            Decimal("0"),
+        )
+        open_entry_fees = sum(
+            (entry.entry_fee for entry in ledger.open_positions() if entry.entry_fee is not None),
+            Decimal("0"),
+        )
+        self.account.cash = self.account.starting_capital + closed_net_pnl - open_entry_fees
+
+    def _persist_position_state(
+        self,
+        trade: ActivePaperTrade,
+        candidate: CreatorCandidateArtifact,
+        marker_started: bool = False,
+    ) -> None:
+        started_here = not marker_started
+        try:
+            if started_here:
+                self.sqlite_ledger.begin_position_update(trade.trade_id)
+            self.sqlite_ledger.save_position_state(
+                {
+                    "state_version": 1,
+                    "trade_id": trade.trade_id,
+                    "candidate_id": trade.candidate_id,
+                    "candidate_artifact_hash": trade.candidate_artifact_hash,
+                    "symbol": trade.symbol,
+                    "side": trade.side,
+                    "quantity": trade.quantity,
+                    "base_margin": trade.base_margin,
+                    "leverage": trade.leverage,
+                    "watermark": trade.watermark,
+                    "peak_pnl": trade.peak_pnl,
+                    "stop_price": trade.stop_price,
+                    "target_price": trade.target_price,
+                    "trailing_atr_multiplier": trade.trailing_atr_multiplier,
+                    "current_atr": trade.current_atr,
+                    "opened_at": trade.opened_at.isoformat(),
+                    "trailing_stop_price": trade.trailing_stop_price,
+                    "strategy_json": json.dumps(
+                        candidate.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+                    ),
+                }
+            )
+            if started_here:
+                self.sqlite_ledger.clear_position_update(trade.trade_id)
+        except Exception:
+            self._persistence_failed = True
+            raise
+
+    def _restore_open_positions(self) -> None:
+        """Hydrate only exact, versioned state bound to authoritative open events."""
+        self.sqlite_ledger.require_no_position_update_intents()
+        open_entries = self.runtime.ledger.load().open_positions()
+        states = self.sqlite_ledger.require_recoverable_position_states(
+            {entry.trade_id for entry in open_entries},
+            {candidate.candidate_id: candidate for candidate in self.candidates.values()},
+        )
+        by_trade = {entry.trade_id: entry for entry in open_entries}
+        pending: list[tuple[ActivePaperTrade, CreatorCandidateArtifact]] = []
+        for state in states:
+            entry = by_trade[state["trade_id"]]
+            if (
+                state["symbol"],
+                state["side"],
+                state["candidate_id"],
+                state["candidate_artifact_hash"],
+                state["quantity"],
+            ) != (
+                entry.symbol,
+                entry.side,
+                entry.candidate_id,
+                entry.candidate_artifact_hash,
+                entry.quantity,
+            ):
+                raise PaperRestartRecoveryError(
+                    "position state does not match authoritative ledger"
+                )
+            candidate = self.candidates[state["symbol"]]
+            trade = ActivePaperTrade(
+                trade_id=entry.trade_id,
+                candidate_id=entry.candidate_id,
+                candidate_artifact_hash=entry.candidate_artifact_hash,
+                symbol=entry.symbol,
+                side=entry.side,
+                open_entry=entry,
+                quantity=state["quantity"],
+                base_margin=state["base_margin"],
+                leverage=state["leverage"],
+                watermark=state["watermark"],
+                peak_pnl=state["peak_pnl"],
+                stop_price=state["stop_price"],
+                target_price=state["target_price"],
+                trailing_atr_multiplier=state["trailing_atr_multiplier"],
+                current_atr=state["current_atr"],
+                opened_at=entry.occurred_at,
+                trailing_stop_price=state["trailing_stop_price"],
+            )
+            if (
+                candidate.strategy.universe.symbols
+                and trade.symbol not in candidate.strategy.universe.symbols
+            ):
+                raise PaperRestartRecoveryError(
+                    "restored symbol is outside persisted strategy universe"
+                )
+            pending.append((trade, candidate))
+        for trade, _candidate in pending:
+            self.account.restore_open(trade.trade_id, trade.base_margin, trade.leverage)
+            self.active_trades[trade.symbol] = trade
 
     def reconcile_balances(self) -> dict[str, Any]:
         """Verify exact Decimal cash balance reconciliation with zero drift."""

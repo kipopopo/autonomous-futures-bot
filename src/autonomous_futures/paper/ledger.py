@@ -15,6 +15,10 @@ class PaperLedgerError(ValueError):
     """Raised when injected paper history has an invalid lifecycle transition."""
 
 
+class PaperRestartRecoveryError(RuntimeError):
+    """Raised when durable paper exposure cannot be safely restored."""
+
+
 class PaperLedgerEntry(DomainModel):
     event: Literal["open", "close"]
     trade_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")

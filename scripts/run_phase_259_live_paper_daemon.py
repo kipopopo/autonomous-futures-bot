@@ -34,7 +34,6 @@ if str(_SRC_DIR) not in sys.path:
 import pandas as pd  # noqa: E402
 
 from autonomous_futures.feed.client import BinancePublicFeedClient  # noqa: E402
-from autonomous_futures.feed.monitor import CircuitBreakerFeedMonitor  # noqa: E402
 from autonomous_futures.feed.rest_client import (  # noqa: E402
     DEFAULT_REST_URL,
     BinancePublicRestClient,
@@ -519,14 +518,6 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
     # Verify zero-order safety invariants prior to execution
     verify_strict_safety_invariants(orders_submitted=0)
 
-    # Initialize shared margin account
-    account = HardenedSharedMarginAccount(
-        starting_capital=args.starting_capital,
-        max_utilization=Decimal("0.80"),
-        base_allocation_fraction=Decimal("0.20"),
-        min_reserve_buffer=Decimal("0.20"),
-    )
-
     # Initialize feed telemetry and client
     telemetry = FeedTelemetryAccumulator(symbols=symbols)
     feed_client = BinancePublicFeedClient(
@@ -536,15 +527,7 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
         telemetry=telemetry,
     )
 
-    # Initialize circuit breaker monitor
-    monitor = CircuitBreakerFeedMonitor(
-        account=account,
-        symbols=symbols,
-        max_queue_size=10_000,
-        evaluate_on_ticker=True,
-    )
-
-    # Initialize integrated paper engine
+    # Initialize integrated paper engine; it owns restart cash restoration and its monitor.
     engine = LivePaperEngine(
         symbols=symbols,
         starting_capital=args.starting_capital,
@@ -552,10 +535,10 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
         lifecycle_db=lifecycle_db,
         observations_db=observations_db,
         feed_client=feed_client,
-        monitor=monitor,
-        account=account,
         telemetry=telemetry,
     )
+    account = engine.account
+    monitor = engine.monitor
 
     # Seed causal feature history via dynamic async warmup with fallback
     is_offline = (

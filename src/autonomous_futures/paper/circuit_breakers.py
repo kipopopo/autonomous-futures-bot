@@ -472,6 +472,15 @@ class HardenedSharedMarginAccount:
             self.max_observed_utilization = current_util
         self.unencumbered_reserve_buffer(equity)
 
+    def restore_open(self, trade_id: str, margin_allocated: Decimal, leverage: Decimal) -> None:
+        """Restore a durable open without charging its already-recorded entry fee."""
+        if trade_id in self._locked_margin_by_trade:
+            raise DomainViolation(f"duplicate restored paper trade: {trade_id}")
+        if margin_allocated <= Decimal("0") or leverage <= Decimal("0"):
+            raise DomainViolation("restored paper margin and leverage must be positive")
+        self._locked_margin_by_trade[trade_id] = margin_allocated
+        self._trade_leverage[trade_id] = leverage
+
     def record_close(self, trade_id: str, gross_pnl: Decimal, exit_fee: Decimal) -> None:
         """Record trade closure: release locked margin and settle cash with exact Decimal math."""
         if trade_id in self._locked_margin_by_trade:
