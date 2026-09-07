@@ -260,7 +260,7 @@ def format_trade_opened_alert(event: dict[str, Any]) -> str:
     )
 
     return (
-        f"🟢 *TRADE OPENED* | {escape_markdown_v2(symbol)}\n"
+        f"🟢 *TRADE OPENED* \\| {escape_markdown_v2(symbol)}\n"
         f"─────────────────────────\n"
         f"• *Side*: {escape_markdown_v2(side)}\n"
         f"• *Fill Price*: ${escape_markdown_v2(fill_price)}\n"
@@ -302,7 +302,7 @@ def format_trade_closed_alert(event: dict[str, Any]) -> str:
         pnl_display += f" ({pnl_pct}%)"
 
     return (
-        f"🔴 *TRADE CLOSED* | {escape_markdown_v2(symbol)}\n"
+        f"🔴 *TRADE CLOSED* \\| {escape_markdown_v2(symbol)}\n"
         f"─────────────────────────\n"
         f"• *Side*: {escape_markdown_v2(side)}\n"
         f"• *Exit Reason*: `{escape_markdown_v2(exit_reason)}`\n"

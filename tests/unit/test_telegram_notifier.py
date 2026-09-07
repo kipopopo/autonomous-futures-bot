@@ -253,7 +253,7 @@ class TestAlertFormatters:
             "occurred_at": "2026-09-06 18:00:00 UTC",
         }
         msg = format_trade_opened_alert(event)
-        assert "🟢 *TRADE OPENED* | BTCUSDT" in msg
+        assert r"🟢 *TRADE OPENED* \| BTCUSDT" in msg
         assert r"$79722\.04" in msg
         assert r"0\.000125" in msg
         assert r"$20\.00 USDT" in msg
@@ -276,7 +276,7 @@ class TestAlertFormatters:
             "occurred_at": "2026-09-06 18:15:00 UTC",
         }
         msg = format_trade_closed_alert(event)
-        assert "🔴 *TRADE CLOSED* | ETHUSDT" in msg
+        assert r"🔴 *TRADE CLOSED* \| ETHUSDT" in msg
         assert r"`take\_profit\_hit`" in msg
         assert r"$2483\.84" in msg
         assert r"$2495\.20" in msg
