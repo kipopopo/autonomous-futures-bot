@@ -150,6 +150,9 @@ class TestCredentialResolution:
         monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
         monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
         monkeypatch.delenv("CREDENTIALS_DIRECTORY", raising=False)
+        monkeypatch.setattr(
+            "autonomous_futures.notify.telegram._load_env_file_safely", lambda _: {}
+        )
 
         cfg = resolve_telegram_credentials(storage_dir=Path("nonexistent_dir"))
         assert cfg.dry_run is True

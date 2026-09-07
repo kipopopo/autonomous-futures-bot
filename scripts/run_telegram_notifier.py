@@ -17,7 +17,7 @@ import signal
 import sqlite3
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,6 @@ from autonomous_futures.notify.telegram import (  # noqa: E402
     TelegramConfig,
     TelegramNotifierClient,
     escape_markdown_v2,
-    format_command_help,
     resolve_telegram_credentials,
 )
 from autonomous_futures.tui.telemetry import TelemetryReader  # noqa: E402
@@ -48,6 +47,7 @@ class CheckpointState:
         self.last_margin_alerted: bool = False
         self.last_digest_timestamp: float = 0.0
         self.last_update_id: int = 0
+        self.last_daily_report_date: str = ""
         self.load()
 
     def load(self) -> None:
@@ -62,6 +62,7 @@ class CheckpointState:
                 self.last_margin_alerted = bool(data.get("last_margin_alerted") or False)
                 self.last_digest_timestamp = float(data.get("last_digest_timestamp") or 0.0)
                 self.last_update_id = int(data.get("last_update_id") or 0)
+                self.last_daily_report_date = str(data.get("last_daily_report_date") or "")
         except (OSError, ValueError, TypeError) as exc:
             logger.warning("Could not read checkpoint file %s: %s", self.path, exc)
 
@@ -73,6 +74,7 @@ class CheckpointState:
             "last_margin_alerted": self.last_margin_alerted,
             "last_digest_timestamp": self.last_digest_timestamp,
             "last_update_id": self.last_update_id,
+            "last_daily_report_date": self.last_daily_report_date,
             "saved_at_utc": datetime.now(UTC).isoformat(),
         }
         tmp_path = self.path.with_suffix(".tmp")
@@ -94,12 +96,16 @@ class TelegramNotifierDaemon:
         checkpoint_path: Path | None = None,
         poll_interval: float = 3.0,
         digest_interval: float = 3600.0,
+        daily_report_utc_hour: int = 0,
+        daily_report_enabled: bool = True,
         client: TelegramNotifierClient | None = None,
     ) -> None:
         self.config = config
         self.storage_dir = Path(storage_dir)
         self.poll_interval = max(poll_interval, 0.5)
         self.digest_interval = max(digest_interval, 10.0)
+        self.daily_report_utc_hour = daily_report_utc_hour
+        self.daily_report_enabled = daily_report_enabled
 
         cp_path = checkpoint_path or (self.storage_dir / "telegram-checkpoint.json")
         self.checkpoint = CheckpointState(cp_path)
@@ -326,6 +332,53 @@ class TelegramNotifierDaemon:
             self.checkpoint.last_digest_timestamp = now
             self.checkpoint.save()
 
+    def poll_daily_performance_report(self) -> bool:
+        """Evaluate 00:00 UTC schedule and dispatch daily report once per calendar day."""
+        if not self.daily_report_enabled:
+            return False
+
+        now_utc = datetime.now(UTC)
+        if now_utc.hour != self.daily_report_utc_hour:
+            return False
+
+        # Evaluation date: yesterday's trading day when triggered at 00:xx UTC
+        report_date = (
+            now_utc.date()
+            if self.daily_report_utc_hour > 0
+            else (now_utc - timedelta(days=1)).date()
+        ).isoformat()
+
+        if self.checkpoint.last_daily_report_date == report_date:
+            return False
+
+        logger.info(
+            "Triggering scheduled daily performance report for %s at %s",
+            report_date,
+            now_utc.isoformat(),
+        )
+        try:
+            from autonomous_futures.analytics import (
+                format_daily_performance_report,
+                generate_and_persist_daily_report,
+            )
+
+            report_data = generate_and_persist_daily_report(
+                storage_dir=self.storage_dir,
+                report_date=report_date,
+            )
+            text = format_daily_performance_report(report_data)
+            self.client.send_message(text)
+            self.checkpoint.last_daily_report_date = report_date
+            self.checkpoint.save()
+            return True
+        except Exception as exc:
+            logger.error(
+                "Failed to generate or dispatch daily performance report: %s",
+                exc,
+                exc_info=True,
+            )
+            return False
+
     def handle_interactive_commands(self) -> int:
         """Poll Telegram getUpdates and respond to authorized commands."""
         offset = self.checkpoint.last_update_id + 1 if self.checkpoint.last_update_id else None
@@ -413,6 +466,27 @@ class TelegramNotifierDaemon:
                 )
             return msg
 
+        if cmd == "/analytics":
+            ledger_db = self.storage_dir / "paper-ledger.sqlite3"
+            conn = self._connect_readonly(ledger_db)
+            if conn is None or not self._table_exists(conn, "paper_ledger_events"):
+                return "ℹ️ *QUANTITATIVE ANALYTICS*\n• No closed trades recorded yet."
+            conn.close()
+            try:
+                from autonomous_futures.analytics import (
+                    format_analytics_command_reply,
+                    generate_daily_performance_report,
+                )
+
+                report = generate_daily_performance_report(
+                    storage_dir=self.storage_dir,
+                    days=7,
+                )
+                return format_analytics_command_reply(report.to_dict())
+            except Exception as exc:
+                logger.warning("Error generating analytics report: %s", exc)
+                return f"⚠️ Analytics temporarily unavailable: {escape_markdown_v2(str(exc))}"
+
         if cmd == "/pnl":
             ledger_db = self.storage_dir / "paper-ledger.sqlite3"
             conn = self._connect_readonly(ledger_db)
@@ -435,17 +509,57 @@ class TelegramNotifierDaemon:
                 net_pnl = float(row[2] or 0.0)
                 fees = float(row[3] or 0.0)
                 win_rate = (wins / total * 100.0) if total > 0 else 0.0
+
+                # Per-asset breakdown
+                cur_assets = conn.execute(
+                    """
+                    SELECT symbol,
+                           count(*),
+                           sum(CASE WHEN cast(net_pnl as real) > 0 THEN 1 ELSE 0 END),
+                           sum(cast(net_pnl as real)),
+                           sum(cast(entry_fee as real) + cast(exit_fee as real))
+                    FROM paper_ledger_events
+                    WHERE event = 'close'
+                    GROUP BY symbol
+                    ORDER BY sum(cast(net_pnl as real)) DESC
+                    """
+                )
+                asset_rows = cur_assets.fetchall()
+                asset_lines: list[str] = []
+                for a_row in asset_rows:
+                    sym = str(a_row[0])
+                    a_trades = int(a_row[1] or 0)
+                    a_wins = int(a_row[2] or 0)
+                    a_pnl = float(a_row[3] or 0.0)
+                    a_win_rate = (a_wins / a_trades * 100.0) if a_trades > 0 else 0.0
+                    a_sign = "\\+" if a_pnl >= 0 else "\\-"
+                    a_pnl_str = escape_markdown_v2(f"{abs(a_pnl):.4f}")
+                    sym_esc = escape_markdown_v2(sym)
+                    asset_lines.append(
+                        f"• *{sym_esc}*: {a_sign}${a_pnl_str} USDT "
+                        f"\\({escape_markdown_v2(str(a_trades))} trades, "
+                        f"{escape_markdown_v2(f'{a_win_rate:.1f}')}% win\\)"
+                    )
+
+                asset_section = ""
+                if asset_lines:
+                    asset_section = "\n\n*Per\\-Asset Realized PnL*:\n" + "\n".join(asset_lines)
+
+                pnl_sign = "\\+" if net_pnl >= 0 else "\\-"
+                pnl_abs = escape_markdown_v2(f"{abs(net_pnl):.4f}")
+
                 return (
                     f"📊 *PNL & PERFORMANCE SUMMARY*\n"
                     f"─────────────────────────\n"
                     f"• *Closed Trades*: {escape_markdown_v2(str(total))}\n"
                     f"• *Winning Trades*: {escape_markdown_v2(str(wins))}\n"
                     f"• *Win Rate*: {escape_markdown_v2(f'{win_rate:.1f}')}%\n"
-                    f"• *Net Realized PnL*: ${escape_markdown_v2(f'{net_pnl:+.4f}')} USDT\n"
+                    f"• *Net Realized PnL*: {pnl_sign}${pnl_abs} USDT\n"
                     f"• *Total Fees Paid*: ${escape_markdown_v2(f'{fees:.4f}')} USDT"
+                    f"{asset_section}"
                 )
             except sqlite3.Error as exc:
-                return f"⚠️ PnL summary temporarily unavailable: {exc}"
+                return f"⚠️ PnL summary temporarily unavailable: {escape_markdown_v2(str(exc))}"
             finally:
                 conn.close()
 
@@ -454,7 +568,18 @@ class TelegramNotifierDaemon:
             return f"🏓 *Pong\\!* Latency: <1ms \\| UTC: {escape_markdown_v2(now_iso)}"
 
         if cmd == "/help":
-            return format_command_help()
+            return (
+                "🤖 *Autonomous Futures Bot — Command Center*\n"
+                "─────────────────────────\n"
+                "Available Commands:\n"
+                "• `/status` — Live daemon health, cash, equity & margin\n"
+                "• `/positions` — Currently active paper positions\n"
+                "• `/pnl` — Realized PnL summary and per-asset breakdown\n"
+                "• `/analytics` — Institutional quantitative risk metrics & asset rankings\n"
+                "• `/ping` — Latency probe and health confirmation\n"
+                "• `/help` — Show this command reference\n"
+                "• `/kill` — Emergency shutdown notice (read-only)"
+            )
 
         if cmd == "/kill":
             return (
@@ -475,6 +600,7 @@ class TelegramNotifierDaemon:
         self.poll_new_ledger_events()
         self.poll_circuit_breaker_and_margin()
         self.poll_periodic_digest()
+        self.poll_daily_performance_report()
         self.handle_interactive_commands()
 
     def run(self) -> int:
@@ -564,6 +690,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--daily-report-utc-hour",
+        type=int,
+        default=int(os.environ.get("TELEGRAM_DAILY_REPORT_HOUR_UTC", "0")),
+        help="UTC hour (0-23) to trigger daily performance report dispatch",
+    )
+    parser.add_argument(
+        "--disable-daily-report",
+        action="store_true",
+        default=bool(os.environ.get("TELEGRAM_DISABLE_DAILY_REPORT", False)),
+        help="Disable automatic 00:00 UTC daily performance report dispatch",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -596,6 +734,8 @@ def main() -> int:
         checkpoint_path=args.checkpoint_file,
         poll_interval=args.poll_interval,
         digest_interval=args.digest_interval,
+        daily_report_utc_hour=args.daily_report_utc_hour,
+        daily_report_enabled=not args.disable_daily_report,
     )
 
     # Set up signal handlers for graceful shutdown

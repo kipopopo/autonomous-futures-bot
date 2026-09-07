@@ -793,6 +793,7 @@ class MockWsMessageSession:
 async def test_daemon_startup_with_slow_network_timeout_end_to_end(
     temp_storage_dir: Path,
     fixed_now_ms: int,
+    fixed_now: datetime,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Verify full daemon startup under slow network timeout cascades cleanly to shutdown."""
@@ -875,12 +876,23 @@ async def test_daemon_startup_with_slow_network_timeout_end_to_end(
         ]
     )
 
+    # Align fallback warmup to fixed_now reference time for seamless continuity with ws_bar
+    orig_seed = daemon_mod.seed_historical_warmup_bars
+
+    async def seed_with_fixed_now(*args: Any, **kwargs: Any) -> dict[str, int]:
+        kwargs.setdefault("now", fixed_now)
+        return await orig_seed(*args, **kwargs)
+
     caplog.clear()
     with (
         patch("websockets.connect", return_value=MockConnectContext()),
         patch(
             "scripts.run_phase_259_live_paper_daemon.BinancePublicRestClient",
             return_value=mock_rest_client,
+        ),
+        patch(
+            "scripts.run_phase_259_live_paper_daemon.seed_historical_warmup_bars",
+            side_effect=seed_with_fixed_now,
         ),
         patch("time.time", return_value=fixed_now_ms / 1000.0),
     ):
