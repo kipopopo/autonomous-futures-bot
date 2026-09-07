@@ -12,7 +12,8 @@ import logging
 import os
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -30,6 +31,61 @@ _MD_V2_RESERVED_PATTERN: re.Pattern[str] = re.compile(r"([_*\[\]()~`>#+\-=|{}.!\
 _BOT_TOKEN_REDACT_PATTERN: re.Pattern[str] = re.compile(
     r"(bot\d+:)[A-Za-z0-9_-]{20,}", re.IGNORECASE
 )
+_MYT = timezone(timedelta(hours=8), name="MYT")
+
+
+def _event_value(event: dict[str, Any], *names: str) -> Any:
+    """Return the first present value, including numeric zero."""
+    for name in names:
+        if name in event and event[name] is not None:
+            return event[name]
+    return None
+
+
+def _finite_decimal(value: Any) -> Decimal | None:
+    try:
+        result = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    return result if result.is_finite() else None
+
+
+def _decimal_text(value: Any, quantum: Decimal, *, trim: bool = False) -> str:
+    number = _finite_decimal(value)
+    if number is None:
+        return "N/A"
+    try:
+        result = number.quantize(quantum, rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        return "N/A"
+    text = format(result, "f")
+    return text.rstrip("0").rstrip(".") if trim and "." in text else text
+
+
+def _price_text(value: Any) -> str:
+    text = _decimal_text(value, Decimal("0.0001"))
+    if text == "N/A" or "." not in text:
+        return text + ".00" if text != "N/A" else text
+    whole, fraction = text.split(".", 1)
+    fraction = fraction.rstrip("0")
+    return f"{whole}.{fraction.ljust(2, '0')}"
+
+
+def _money_text(value: str, unit: str = " USDT") -> str:
+    return "Unavailable" if value == "N/A" else f"${value}{unit}"
+
+
+def _myt_text(value: Any) -> str:
+    if value is None:
+        return datetime.now(UTC).astimezone(_MYT).strftime("%Y-%m-%d %H:%M:%S MYT")
+    text = str(value).strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace(" UTC", "+00:00").replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(_MYT).strftime("%Y-%m-%d %H:%M:%S MYT")
+    except ValueError:
+        return text
 
 
 def mask_token(token: str | None) -> str:
@@ -233,42 +289,32 @@ def resolve_telegram_credentials(
 
 
 def format_trade_opened_alert(event: dict[str, Any]) -> str:
-    """Format a 🟢 Trade Opened alert using Telegram MarkdownV2 syntax."""
+    """Format a paper Trade Opened alert using Telegram MarkdownV2 syntax."""
     symbol = str(event.get("symbol", "UNKNOWN")).upper()
     side = str(event.get("side", "LONG")).upper()
-    fill_price = str(event.get("fill_price", "0.00"))
-    quantity = str(event.get("quantity", "0.00"))
-    margin = str(
-        event.get("allocated_margin")
-        or event.get("margin")
-        or event.get("margin_allocated")
-        or "N/A"
+    fill_price = _price_text(_event_value(event, "fill_price"))
+    quantity = _decimal_text(_event_value(event, "quantity"), Decimal("0.00000001"), trim=True)
+    margin = _decimal_text(
+        _event_value(event, "allocated_margin", "margin", "margin_allocated"), Decimal("0.01")
     )
-    leverage = str(event.get("leverage", "1.0"))
-    stop_loss = str(
-        event.get("stop_loss_price") or event.get("stop_loss") or event.get("sl") or "N/A"
-    )
-    take_profit = str(
-        event.get("take_profit_price") or event.get("take_profit") or event.get("tp") or "N/A"
-    )
-    conviction = str(
-        event.get("conviction_score") or event.get("conviction") or event.get("score") or "N/A"
+    leverage = _decimal_text(_event_value(event, "leverage"), Decimal("0.1"))
+    stop_loss = _price_text(_event_value(event, "stop_loss_price", "stop_loss", "sl"))
+    take_profit = _price_text(_event_value(event, "take_profit_price", "take_profit", "tp"))
+    conviction = _decimal_text(
+        _event_value(event, "conviction_score", "conviction", "score"), Decimal("0.01")
     )
     trade_id = str(event.get("trade_id", "N/A"))
-    occurred_at = str(
-        event.get("occurred_at") or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-    )
-
+    occurred_at = _myt_text(_event_value(event, "occurred_at"))
     return (
-        f"🟢 *TRADE OPENED* \\| {escape_markdown_v2(symbol)}\n"
+        f"🟢 *PAPER TRADE OPENED* \\| {escape_markdown_v2(symbol)}\n"
         f"─────────────────────────\n"
         f"• *Side*: {escape_markdown_v2(side)}\n"
-        f"• *Fill Price*: ${escape_markdown_v2(fill_price)}\n"
+        f"• *Fill Price*: {escape_markdown_v2(_money_text(fill_price, ''))}\n"
         f"• *Quantity*: {escape_markdown_v2(quantity)}\n"
-        f"• *Margin Allocated*: ${escape_markdown_v2(margin)} USDT\n"
+        f"• *Margin Allocated*: {escape_markdown_v2(_money_text(margin))}\n"
         f"• *Leverage*: {escape_markdown_v2(leverage)}x\n"
-        f"• *Dynamic ATR Stop*: ${escape_markdown_v2(stop_loss)}\n"
-        f"• *Take Profit*: ${escape_markdown_v2(take_profit)}\n"
+        f"• *Dynamic ATR Stop*: {escape_markdown_v2(_money_text(stop_loss, ''))}\n"
+        f"• *Take Profit*: {escape_markdown_v2(_money_text(take_profit, ''))}\n"
         f"• *Conviction*: {escape_markdown_v2(conviction)}\n"
         f"• *Trade ID*: `{escape_markdown_v2(trade_id)}`\n"
         f"• *Time*: {escape_markdown_v2(occurred_at)}"
@@ -276,42 +322,68 @@ def format_trade_opened_alert(event: dict[str, Any]) -> str:
 
 
 def format_trade_closed_alert(event: dict[str, Any]) -> str:
-    """Format a 🔴 Trade Closed alert using Telegram MarkdownV2 syntax."""
+    """Format a paper Trade Closed alert using Telegram MarkdownV2 syntax."""
     symbol = str(event.get("symbol", "UNKNOWN")).upper()
     side = str(event.get("side", "LONG")).upper()
-    exit_reason = str(event.get("exit_reason") or event.get("reason") or "strategy_exit")
-    entry_price = str(event.get("entry_price", "N/A"))
-    exit_price = str(event.get("exit_price") or event.get("fill_price", "0.00"))
-    net_pnl = str(event.get("net_pnl", "0.00"))
-    pnl_pct = str(event.get("net_pnl_pct") or event.get("pnl_pct", ""))
-    total_fees = str(
-        event.get("total_fees") or event.get("fees") or event.get("entry_fee") or "0.00"
+    exit_reason = str(_event_value(event, "exit_reason", "reason") or "Unavailable")
+    entry_price = _price_text(_event_value(event, "entry_price"))
+    exit_price = _price_text(_event_value(event, "exit_price", "fill_price"))
+    pnl_value = _finite_decimal(_event_value(event, "net_pnl"))
+    net_pnl = _decimal_text(
+        abs(Decimal(str(pnl_value))) if pnl_value is not None else None, Decimal("0.0001")
     )
-    cash = str(event.get("cumulative_cash") or event.get("cash") or "N/A")
-    equity = str(event.get("cumulative_equity") or event.get("equity") or "N/A")
+    pnl_pct_value = _finite_decimal(_event_value(event, "net_pnl_pct", "pnl_pct"))
+    pnl_pct = "" if pnl_pct_value is None else _decimal_text(pnl_pct_value, Decimal("0.01"))
+    if pnl_pct_value is not None and Decimal(str(pnl_pct_value)) >= 0:
+        pnl_pct = f"+{pnl_pct}"
+    total_fees = _decimal_text(_event_value(event, "total_fees", "fees"), Decimal("0.0001"))
+    if "total_fees" not in event and "fees" not in event:
+        known_fees = [
+            _finite_decimal(event[name])
+            for name in ("entry_fee", "exit_fee")
+            if name in event and event[name] is not None
+        ]
+        if len(known_fees) == 2 and all(fee is not None for fee in known_fees):
+            total_fees = _decimal_text(
+                sum((Decimal(str(fee)) for fee in known_fees), Decimal("0")), Decimal("0.0001")
+            )
+    cash = _decimal_text(_event_value(event, "cumulative_cash", "cash"), Decimal("0.01"))
+    equity = _decimal_text(_event_value(event, "cumulative_equity", "equity"), Decimal("0.01"))
     trade_id = str(event.get("trade_id", "N/A"))
-    occurred_at = str(
-        event.get("occurred_at") or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    occurred_at = _myt_text(_event_value(event, "occurred_at"))
+    try:
+        pnl_decimal = Decimal(str(pnl_value)) if pnl_value is not None else None
+    except InvalidOperation:
+        pnl_decimal = None
+    except ValueError:
+        pnl_decimal = None
+    icon = (
+        "🟢"
+        if pnl_decimal is not None and pnl_decimal > 0
+        else "🔴"
+        if pnl_decimal is not None and pnl_decimal < 0
+        else "⚪"
     )
-
-    # Format PnL presentation with sign
-    pnl_display = f"${net_pnl} USDT"
-    if not net_pnl.startswith("-") and not net_pnl.startswith("+"):
-        pnl_display = f"+${net_pnl} USDT"
+    pnl_display = (
+        f"-${net_pnl} USDT"
+        if pnl_decimal is not None and pnl_decimal < 0
+        else f"+${net_pnl} USDT"
+        if pnl_decimal is not None
+        else "Unavailable"
+    )
     if pnl_pct:
         pnl_display += f" ({pnl_pct}%)"
-
     return (
-        f"🔴 *TRADE CLOSED* \\| {escape_markdown_v2(symbol)}\n"
+        f"{icon} *PAPER TRADE CLOSED* \\| {escape_markdown_v2(symbol)}\n"
         f"─────────────────────────\n"
         f"• *Side*: {escape_markdown_v2(side)}\n"
-        f"• *Exit Reason*: `{escape_markdown_v2(exit_reason)}`\n"
-        f"• *Entry Price*: ${escape_markdown_v2(entry_price)}\n"
-        f"• *Exit Fill*: ${escape_markdown_v2(exit_price)}\n"
         f"• *Net Realized PnL*: {escape_markdown_v2(pnl_display)}\n"
-        f"• *Total Fees*: ${escape_markdown_v2(total_fees)} USDT\n"
-        f"• *Cash Balance*: ${escape_markdown_v2(cash)} USDT\n"
-        f"• *Portfolio Equity*: ${escape_markdown_v2(equity)} USDT\n"
+        f"• *Exit Reason*: `{escape_markdown_v2(exit_reason)}`\n"
+        f"• *Entry Price*: {escape_markdown_v2(_money_text(entry_price, ''))}\n"
+        f"• *Exit Fill*: {escape_markdown_v2(_money_text(exit_price, ''))}\n"
+        f"• *Total Fees*: {escape_markdown_v2(_money_text(total_fees))}\n"
+        f"• *Cash Balance*: {escape_markdown_v2(_money_text(cash))}\n"
+        f"• *Portfolio Equity*: {escape_markdown_v2(_money_text(equity))}\n"
         f"• *Trade ID*: `{escape_markdown_v2(trade_id)}`\n"
         f"• *Time*: {escape_markdown_v2(occurred_at)}"
     )
@@ -319,26 +391,25 @@ def format_trade_closed_alert(event: dict[str, Any]) -> str:
 
 def format_risk_alert(alert_type: str, details: dict[str, Any]) -> str:
     """Format a ⚠️ Risk Alert (Circuit Breaker or Margin Warning) in MarkdownV2."""
-    time_str = str(
-        details.get("occurred_at") or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-    )
+    time_str = _myt_text(_event_value(details, "occurred_at"))
     alert_lower = alert_type.lower()
 
     if "margin" in alert_lower or "utilization" in alert_lower:
         util_pct = str(details.get("margin_utilization_pct", "0.0"))
         buffer_pct = str(details.get("reserve_buffer_pct", "100.0"))
-        cash = str(details.get("current_cash") or details.get("cash") or "N/A")
-        equity = str(details.get("current_equity") or details.get("equity") or "N/A")
+        cash = _decimal_text(_event_value(details, "current_cash", "cash"), Decimal("0.01"))
+        equity = _decimal_text(_event_value(details, "current_equity", "equity"), Decimal("0.01"))
         warning_msg = str(details.get("message", "Margin utilization threshold exceeded."))
 
         return (
             f"⚠️ *PORTFOLIO RISK WARNING*\n"
             f"─────────────────────────\n"
             f"• *Event*: Margin Utilization Alert\n"
-            f"• *Current Utilization*: {escape_markdown_v2(util_pct)}% (Warning: 70%, Cap: 80%)\n"
-            f"• *Reserve Buffer*: {escape_markdown_v2(buffer_pct)}% (Floor: 20%)\n"
-            f"• *Current Cash*: ${escape_markdown_v2(cash)} USDT\n"
-            f"• *Net Equity*: ${escape_markdown_v2(equity)} USDT\n"
+            f"• *Current Utilization*: {escape_markdown_v2(util_pct)}% "
+            f"\\(Warning: 70%, Cap: 80%\\)\n"
+            f"• *Reserve Buffer*: {escape_markdown_v2(buffer_pct)}% \\(Floor: 20%\\)\n"
+            f"• *Current Cash*: {escape_markdown_v2(_money_text(cash))}\n"
+            f"• *Net Equity*: {escape_markdown_v2(_money_text(equity))}\n"
             f"• *Notice*: {escape_markdown_v2(warning_msg)}\n"
             f"• *Time*: {escape_markdown_v2(time_str)}"
         )
@@ -358,7 +429,7 @@ def format_risk_alert(alert_type: str, details: dict[str, Any]) -> str:
         f"• *Target*: {escape_markdown_v2(symbol)}\n"
         f"• *Breaker*: `{escape_markdown_v2(breaker_type)}`\n"
         f"• *Value / Threshold*: {escape_markdown_v2(metric_val)} "
-        f"(Threshold: {escape_markdown_v2(threshold)})\n"
+        f"\\(Threshold: {escape_markdown_v2(threshold)}\\)\n"
         f"• *Action Enforced*: {escape_markdown_v2(action)}\n"
         f"• *Time*: {escape_markdown_v2(time_str)}"
     )
@@ -377,38 +448,32 @@ def format_portfolio_digest(
     minutes = int((uptime_sec % 3600) // 60)
     uptime_str = f"{hours}h {minutes}m"
 
-    equity = str(
-        health.get("current_equity_usdt")
-        or health.get("current_equity")
-        or health.get("equity")
-        or "100.00"
+    equity = _decimal_text(
+        _event_value(health, "current_equity_usdt", "current_equity", "equity"), Decimal("0.01")
     )
-    cash = str(
-        health.get("current_cash_usdt")
-        or health.get("current_cash")
-        or health.get("cash")
-        or "100.00"
+    cash = _decimal_text(
+        _event_value(health, "current_cash_usdt", "current_cash", "cash"), Decimal("0.01")
     )
-    realized_pnl = str(health.get("realized_pnl", "0.00"))
+    realized_pnl = _decimal_text(_event_value(health, "realized_pnl"), Decimal("0.0001"))
     margin_util = str(health.get("margin_utilization_pct", "0.0"))
     reserve_buf = str(health.get("reserve_buffer_pct", "100.0"))
     throughput = str(health.get("feed_throughput_per_sec", "0.0"))
-    time_str = str(health.get("occurred_at") or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"))
+    time_str = _myt_text(_event_value(health, "occurred_at"))
 
     pos_list = positions or []
     pos_count = len(pos_list)
 
     msg = (
-        f"📊 *PORTFOLIO DIGEST*\n"
+        f"📊 *PAPER PORTFOLIO DIGEST*\n"
         f"─────────────────────────\n"
-        f"• *Daemon*: {escape_markdown_v2(daemon_status)} (PID {escape_markdown_v2(pid)})\n"
-        f"• *Uptime*: {escape_markdown_v2(uptime_str)}\n"
-        f"• *Net Equity*: ${escape_markdown_v2(equity)} USDT\n"
-        f"• *Cash Balance*: ${escape_markdown_v2(cash)} USDT\n"
-        f"• *Realized PnL*: ${escape_markdown_v2(realized_pnl)} USDT\n"
+        f"• *Net Equity*: {escape_markdown_v2(_money_text(equity))}\n"
+        f"• *Cash Balance*: {escape_markdown_v2(_money_text(cash))}\n"
+        f"• *Realized PnL*: {escape_markdown_v2(_money_text(realized_pnl))}\n"
         f"• *Margin Utilization*: {escape_markdown_v2(margin_util)}% "
-        f"(Reserve: {escape_markdown_v2(reserve_buf)}%)\n"
+        f"\\(Reserve: {escape_markdown_v2(reserve_buf)}%\\)\n"
         f"• *Active Positions*: {escape_markdown_v2(str(pos_count))}\n"
+        f"• *Daemon*: {escape_markdown_v2(daemon_status)} \\(PID {escape_markdown_v2(pid)}\\)\n"
+        f"• *Uptime*: {escape_markdown_v2(uptime_str)}\n"
         f"• *Throughput*: {escape_markdown_v2(throughput)} msgs/sec\n"
         f"• *Time*: {escape_markdown_v2(time_str)}"
     )
@@ -418,10 +483,14 @@ def format_portfolio_digest(
         for p in pos_list[:5]:
             sym = escape_markdown_v2(str(p.get("symbol", "UNKNOWN")))
             sd = escape_markdown_v2(str(p.get("side", "LONG")))
-            qty = escape_markdown_v2(str(p.get("quantity", "0.0")))
-            px = escape_markdown_v2(str(p.get("entry_price", "0.0")))
-            lev = escape_markdown_v2(str(p.get("leverage", "1.0")))
-            msg += f"• {sym}: {sd} {qty} @ ${px} ({lev}x)\n"
+            qty = escape_markdown_v2(
+                _decimal_text(_event_value(p, "quantity"), Decimal("0.00000001"), trim=True)
+            )
+            px = escape_markdown_v2(_price_text(_event_value(p, "entry_price")))
+            lev = escape_markdown_v2(
+                _decimal_text(_event_value(p, "leverage"), Decimal("0.1"), trim=True)
+            )
+            msg += f"• {sym}: {sd} {qty} @ ${px} \\({lev}x\\)\n"
 
     return msg
 
@@ -437,7 +506,7 @@ def format_command_help() -> str:
         "• `/pnl` — Realized PnL summary and trade statistics\n"
         "• `/ping` — Latency probe and health confirmation\n"
         "• `/help` — Show this command reference\n"
-        "• `/kill` — Emergency shutdown notice (read-only)"
+        "• `/kill` — Emergency shutdown notice \\(read\\-only\\)"
     )
 
 

@@ -179,11 +179,11 @@ class TelegramNotifierDaemon:
                 fill_price = str(row[6])
                 occurred_at = str(row[7])
                 approval_id = str(row[8] or "")
-                entry_fee = str(row[9] or "0.0")
-                exit_fee = str(row[10] or "0.0")
+                entry_fee = str(row[9]) if row[9] is not None else None
+                exit_fee = str(row[10]) if row[10] is not None else None
                 slippage_cost = str(row[11] or "0.0")
                 gross_pnl = str(row[12] or "0.0")
-                net_pnl = str(row[13] or "0.0")
+                net_pnl = str(row[13]) if row[13] is not None else None
 
                 payload: dict[str, Any] = {
                     "sequence": seq,
@@ -200,6 +200,15 @@ class TelegramNotifierDaemon:
                     "gross_pnl": gross_pnl,
                     "net_pnl": net_pnl,
                 }
+                if ev_type == "close":
+                    open_rows = conn.execute(
+                        "SELECT fill_price FROM paper_ledger_events "
+                        "WHERE trade_id = ? AND event = 'open' AND sequence < ? "
+                        "ORDER BY sequence DESC LIMIT 2",
+                        (trade_id, seq),
+                    ).fetchall()
+                    if len(open_rows) == 1:
+                        payload["entry_price"] = str(open_rows[0][0])
 
                 if ev_type == "open":
                     logger.info("Dispatching Trade Opened alert for %s (seq %d)", trade_id, seq)

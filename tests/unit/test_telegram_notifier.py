@@ -256,7 +256,7 @@ class TestAlertFormatters:
             "occurred_at": "2026-09-06 18:00:00 UTC",
         }
         msg = format_trade_opened_alert(event)
-        assert r"🟢 *TRADE OPENED* \| BTCUSDT" in msg
+        assert r"🟢 *PAPER TRADE OPENED* \| BTCUSDT" in msg
         assert r"$79722\.04" in msg
         assert r"0\.000125" in msg
         assert r"$20\.00 USDT" in msg
@@ -279,7 +279,7 @@ class TestAlertFormatters:
             "occurred_at": "2026-09-06 18:15:00 UTC",
         }
         msg = format_trade_closed_alert(event)
-        assert r"🔴 *TRADE CLOSED* \| ETHUSDT" in msg
+        assert r"🟢 *PAPER TRADE CLOSED* \| ETHUSDT" in msg
         assert r"`take\_profit\_hit`" in msg
         assert r"$2483\.84" in msg
         assert r"$2495\.20" in msg
@@ -340,12 +340,54 @@ class TestAlertFormatters:
             }
         ]
         msg = format_portfolio_digest(health, positions)
-        assert "📊 *PORTFOLIO DIGEST*" in msg
+        assert "📊 *PAPER PORTFOLIO DIGEST*" in msg
         assert "RUNNING" in msg
         assert "2h 0m" in msg
         assert r"$100\.25 USDT" in msg
         assert "Active Positions*: 1" in msg
         assert "BTCUSDT: LONG" in msg
+
+    def test_formatters_use_decimal_display_and_myt(self) -> None:
+        health = {
+            "daemon_status": "RUNNING",
+            "current_equity": "100.427400",
+            "current_cash": "100.431008",
+            "realized_pnl": "0.431008",
+            "occurred_at": "2026-09-07T05:04:59+00:00",
+        }
+        msg = format_portfolio_digest(health)
+        assert r"$100\.43 USDT" in msg
+        assert r"$0\.4310 USDT" in msg
+        assert r"2026\-09\-07 13:04:59 MYT" in msg
+        assert r"\(PID" in msg
+
+    def test_closed_formatter_preserves_zero_and_missing_values(self) -> None:
+        msg = format_trade_closed_alert(
+            {
+                "symbol": "BTCUSDT",
+                "side": "SHORT",
+                "exit_price": "79739.444700",
+                "net_pnl": "-0.016788951019008",
+                "total_fees": "0.004015366126128",
+                "occurred_at": "2026-09-07T05:04:59+00:00",
+            }
+        )
+        assert r"🔴 *PAPER TRADE CLOSED* \| BTCUSDT" in msg
+        assert r"$79739\.4447" in msg
+        assert r"\-$0\.0168 USDT" in msg
+        assert r"$0\.0040 USDT" in msg
+        assert "Entry Price*: Unavailable" in msg
+        assert "Cash Balance*: Unavailable" in msg
+        assert "Portfolio Equity*: Unavailable" in msg
+        assert r"2026\-09\-07 13:04:59 MYT" in msg
+
+    def test_risk_and_help_escape_literal_markdown_punctuation(self) -> None:
+        risk = format_risk_alert("margin_warning", {"message": "Margin (70%)"})
+        assert r"%\)" in risk
+        assert r"\(Warning:" in risk
+        assert r"\(Floor:" in risk
+        assert "Margin \\(70%\\)" in risk
+        assert "—" in format_command_help()
 
     def test_format_command_help(self) -> None:
         help_msg = format_command_help()
@@ -674,7 +716,8 @@ class TestSidecarEventProcessing:
         assert cp.last_sequence == 0
         assert cp.last_cb_status == "NORMAL"
 
-    def test_ledger_event_deduplication(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("checkpoint", [0, 1])
+    def test_ledger_event_deduplication(self, tmp_path: Path, checkpoint: int) -> None:
         setup_mock_storage(tmp_path)
         ledger_db = tmp_path / "paper-ledger.sqlite3"
 
@@ -711,16 +754,20 @@ class TestSidecarEventProcessing:
             client=client,
         )
 
-        # First poll: Should process 2 events
+        daemon.checkpoint.last_sequence = checkpoint
+        # Entry lookup must survive a previously delivered open event.
         dispatched = daemon.poll_new_ledger_events()
-        assert dispatched == 2
-        assert len(sent_messages) == 2
+        assert dispatched == 2 - checkpoint
+        assert len(sent_messages) == 2 - checkpoint
         assert daemon.checkpoint.last_sequence == 2
+        assert r"Entry Price*: $79000\.00" in sent_messages[-1]
+        assert "Net Realized PnL*: Unavailable" in sent_messages[-1]
+        assert "Total Fees*: Unavailable" in sent_messages[-1]
 
         # Second poll: No new events
         dispatched_second = daemon.poll_new_ledger_events()
         assert dispatched_second == 0
-        assert len(sent_messages) == 2
+        assert len(sent_messages) == 2 - checkpoint
 
     def test_circuit_breaker_transition_and_margin_hysteresis(self, tmp_path: Path) -> None:
         setup_mock_storage(tmp_path)
