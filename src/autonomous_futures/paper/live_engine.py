@@ -594,7 +594,7 @@ class LivePaperEngine:
             current_price = ticker.best_bid_price  # Long exit hits the bid
             # Trailing stop ratchet
             if current_price > trade.watermark:
-                self.sqlite_ledger.begin_position_update(trade.trade_id)
+                self._begin_position_update(trade.trade_id)
                 trade.watermark = current_price
                 trailing_stop = trade.watermark - trade.trailing_atr_multiplier * trade.current_atr
                 if trade.trailing_stop_price is None or trailing_stop > trade.trailing_stop_price:
@@ -616,7 +616,7 @@ class LivePaperEngine:
             current_price = ticker.best_ask_price  # Short exit lifts the ask
             # Trailing stop ratchet
             if current_price < trade.watermark:
-                self.sqlite_ledger.begin_position_update(trade.trade_id)
+                self._begin_position_update(trade.trade_id)
                 trade.watermark = current_price
                 trailing_stop = trade.watermark + trade.trailing_atr_multiplier * trade.current_atr
                 if trade.trailing_stop_price is None or trailing_stop < trade.trailing_stop_price:
@@ -864,7 +864,7 @@ class LivePaperEngine:
             logger.warning("PaperRuntime.open failed for %s: %s", sym, res.reason_codes)
             return res
 
-        self.sqlite_ledger.begin_position_update(trade_id, "open")
+        self._begin_position_update(trade_id, "open")
         try:
             # Record trade opening in shared margin account
             self.account.record_open(
@@ -1015,7 +1015,7 @@ class LivePaperEngine:
             logger.warning("PaperRuntime.close failed for %s: %s", trade.trade_id, res.reason_codes)
             return res
 
-        self.sqlite_ledger.begin_position_update(trade.trade_id, "close")
+        self._begin_position_update(trade.trade_id, "close")
         try:
             # Settle cash in margin account
             self.account.record_close(
@@ -1068,7 +1068,7 @@ class LivePaperEngine:
         started_here = not marker_started
         try:
             if started_here:
-                self.sqlite_ledger.begin_position_update(trade.trade_id)
+                self._begin_position_update(trade.trade_id)
             marked = mark_paper_position(
                 trade.open_entry,
                 mark_price=mark_price,
@@ -1129,6 +1129,14 @@ class LivePaperEngine:
         )
         self.account.cash = self.account.starting_capital + closed_net_pnl - open_entry_fees
 
+    def _begin_position_update(self, trade_id: str, intent: str = "mutable_state") -> None:
+        """Latch persistence failure before any protected state mutation."""
+        try:
+            self.sqlite_ledger.begin_position_update(trade_id, intent)
+        except Exception:
+            self._persistence_failed = True
+            raise
+
     def _persist_position_state(
         self,
         trade: ActivePaperTrade,
@@ -1138,7 +1146,7 @@ class LivePaperEngine:
         started_here = not marker_started
         try:
             if started_here:
-                self.sqlite_ledger.begin_position_update(trade.trade_id)
+                self._begin_position_update(trade.trade_id)
             self.sqlite_ledger.save_position_state(
                 {
                     "state_version": 1,

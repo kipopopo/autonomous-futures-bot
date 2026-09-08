@@ -245,6 +245,11 @@ def test_marker_write_failure_precedes_open_account_mutation(tmp_path, monkeypat
         engine.execute_open("BTCUSDT", 1, Decimal("0.75"), datetime(2026, 9, 7, tzinfo=UTC))
     assert engine.account.total_locked_margin() == Decimal("0")
     assert not engine.active_trades
+    assert engine._persistence_failed is True
+    monkeypatch.setattr(engine.sqlite_ledger, "begin_position_update", lambda *args: None)
+    assert (
+        engine.execute_open("BTCUSDT", 1, Decimal("0.75"), datetime(2026, 9, 7, tzinfo=UTC)) is None
+    )
 
 
 def test_committed_dirty_marker_blocks_restart_after_update_failure(tmp_path, monkeypatch):
