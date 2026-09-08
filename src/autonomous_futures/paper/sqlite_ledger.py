@@ -10,6 +10,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+from autonomous_futures.research.creator_artifacts import _artifact_content_hash
+
 from .ledger import PaperLedger, PaperLedgerEntry, PaperRestartRecoveryError
 
 _POSITION_STATE_KEYS = {
@@ -239,7 +241,11 @@ class SqlitePaperLedger:
             )
         for state in states:
             candidate = candidate_by_id.get(state["candidate_id"])
-            if candidate is None or candidate.artifact_hash != state["candidate_artifact_hash"]:
+            if (
+                candidate is None
+                or candidate.artifact_hash != state["candidate_artifact_hash"]
+                or _artifact_content_hash(candidate) != state["candidate_artifact_hash"]
+            ):
                 raise PaperRestartRecoveryError("stale or incompatible paper strategy state")
             if json.loads(state["strategy_json"]) != candidate.model_dump(mode="json"):
                 raise PaperRestartRecoveryError("persisted strategy content mismatch")

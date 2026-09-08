@@ -63,6 +63,7 @@ from autonomous_futures.paper.sqlite_lifecycle import SqlitePaperLifecycle
 from autonomous_futures.paper.sqlite_observation import SqlitePaperObservations
 from autonomous_futures.research.creator_artifacts import (
     CreatorCandidateArtifact,
+    _artifact_content_hash,
     read_creator_candidate_artifact,
 )
 from autonomous_futures.research.feature_signals import (
@@ -646,7 +647,9 @@ class LivePaperEngine:
                 event_time=ticker.event_time,
             )
         else:
-            candidate = self.candidates.get(symbol)
+            candidate = (
+                trade.candidate if trade.candidate is not None else self.candidates.get(symbol)
+            )
             if candidate is not None:
                 self._persist_position_state(trade, candidate, marker_started=True)
                 self.sqlite_ledger.clear_position_update(trade.trade_id)
@@ -729,14 +732,31 @@ class LivePaperEngine:
         if sym in self.active_trades:
             trade = self.active_trades[sym]
             exit_candidate = trade.candidate if trade.candidate is not None else cand
+            if exit_candidate.candidate_id != cand.candidate_id:
+                try:
+                    trade_evaluated_df = self.signal_evaluator.evaluate(exit_candidate, df)
+                    trade_row = trade_evaluated_df.iloc[-1]
+                    trade_signal = int(trade_row.get("signal", 0))
+                except Exception as exc:
+                    logger.warning(
+                        "Feature evaluation failed for trade candidate %s: %s",
+                        exit_candidate.candidate_id,
+                        exc,
+                    )
+                    trade_row = last_row
+                    trade_signal = 0
+            else:
+                trade_row = last_row
+                trade_signal = signal
+
             strategy_exit = evaluate_strategy_exit(
-                last_row,
+                trade_row,
                 side=trade.side,
                 long_exit_expr=exit_candidate.strategy.exit.long,
                 short_exit_expr=exit_candidate.strategy.exit.short,
             )
-            reversal_exit = (trade.side == "LONG" and signal == -1) or (
-                trade.side == "SHORT" and signal == 1
+            reversal_exit = (trade.side == "LONG" and trade_signal == -1) or (
+                trade.side == "SHORT" and trade_signal == 1
             )
             if strategy_exit or reversal_exit:
                 reason = "strategy_exit" if strategy_exit else "signal_reversal_exit"
@@ -1097,7 +1117,11 @@ class LivePaperEngine:
                 )
             trade.peak_pnl = marked.peak_pnl
             self.lifecycle_store.append(marked)
-            candidate = self.candidates.get(trade.symbol)
+            candidate = (
+                trade.candidate
+                if trade.candidate is not None
+                else self.candidates.get(trade.symbol)
+            )
             if candidate is not None:
                 self._persist_position_state(trade, candidate, marker_started=True)
             if started_here:
@@ -1199,9 +1223,43 @@ class LivePaperEngine:
         """Hydrate only exact, versioned state bound to authoritative open events."""
         self.sqlite_ledger.require_no_position_update_intents()
         open_entries = self.runtime.ledger.load().open_positions()
+        candidate_by_id: dict[str, CreatorCandidateArtifact] = {
+            candidate.candidate_id: candidate
+            for candidate in self.candidates.values()
+            if _artifact_content_hash(candidate) == candidate.artifact_hash
+        }
+        for state in self.sqlite_ledger.load_position_states():
+            cand_id = str(state["candidate_id"])
+            if cand_id not in candidate_by_id and state.get("strategy_json"):
+                try:
+                    reconstructed = CreatorCandidateArtifact.model_validate_json(
+                        state["strategy_json"]
+                    )
+                    if (
+                        reconstructed.artifact_hash == state["candidate_artifact_hash"]
+                        and _artifact_content_hash(reconstructed)
+                        == state["candidate_artifact_hash"]
+                    ):
+                        candidate_by_id[cand_id] = reconstructed
+                    else:
+                        logger.warning(
+                            "Candidate %s artifact hash mismatch during reconstruction: "
+                            "stored=%s, json=%s, content=%s",
+                            cand_id,
+                            state["candidate_artifact_hash"],
+                            reconstructed.artifact_hash,
+                            _artifact_content_hash(reconstructed),
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Could not reconstruct candidate %s from position state: %s",
+                        cand_id,
+                        exc,
+                    )
+
         states = self.sqlite_ledger.require_recoverable_position_states(
             {entry.trade_id for entry in open_entries},
-            {candidate.candidate_id: candidate for candidate in self.candidates.values()},
+            candidate_by_id,
         )
         by_trade = {entry.trade_id: entry for entry in open_entries}
         pending: list[tuple[ActivePaperTrade, CreatorCandidateArtifact]] = []
@@ -1223,7 +1281,9 @@ class LivePaperEngine:
                 raise PaperRestartRecoveryError(
                     "position state does not match authoritative ledger"
                 )
-            candidate = self.candidates[state["symbol"]]
+            candidate = (
+                candidate_by_id.get(state["candidate_id"]) or self.candidates[state["symbol"]]
+            )
             trade = ActivePaperTrade(
                 trade_id=entry.trade_id,
                 candidate_id=entry.candidate_id,

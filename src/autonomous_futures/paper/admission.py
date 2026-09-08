@@ -11,8 +11,14 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import Field, field_validator, model_validator
 
 from ..domain.contracts import DomainModel
-from ..research.creator_artifacts import CreatorCandidateArtifact
-from ..research.qualification_artifacts import CreatorCandidateQualificationArtifact
+from ..research.creator_artifacts import (
+    CreatorCandidateArtifact,
+    _artifact_content_hash,
+)
+from ..research.qualification_artifacts import (
+    CreatorCandidateQualificationArtifact,
+    _qualification_content_hash,
+)
 
 if TYPE_CHECKING:
     from .live_engine import ActivePaperTrade
@@ -92,10 +98,12 @@ class StrategyAdmissionDecider:
         now = evaluated_at or datetime.now(UTC)
         dec_id = decision_id or f"admission-{candidate.candidate_id[5:17]}-{int(now.timestamp())}"
 
-        # 1. Validate cryptographic binding and scope
+        # 1. Validate cryptographic binding, scope, and content hash integrity
         if (
             qualification.candidate_id != candidate.candidate_id
             or qualification.candidate_artifact_hash != candidate.artifact_hash
+            or _artifact_content_hash(candidate) != candidate.artifact_hash
+            or _qualification_content_hash(qualification) != qualification.qualification_hash
         ):
             return self._build_decision(
                 decision_id=dec_id,
