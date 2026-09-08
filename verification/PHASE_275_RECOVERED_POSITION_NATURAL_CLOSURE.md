@@ -34,3 +34,26 @@ ssh -i 'C:/Users/thaqi/.ssh/kainode_ed25519_openssh' -o BatchMode=yes \
 ```
 
 **Final status:** target remained open after the one permitted finite recheck. No further observation, restart, or live authority is authorized by this report.
+
+## Factual follow-up — natural close observed
+
+A later single bounded read-only observation used the same pinned SSH identity and fresh SQLite `mode=ro` / `PRAGMA query_only=1` transaction. No restart, forced trade, repair, scheduler, credential access, or VPS write was performed. Observation timestamp: `2026-09-08T05:17:31.773752+00:00`.
+
+- The target now has exactly two events and exactly one open/close lifecycle: open sequence `86` at `2026-09-08T04:49:59+00:00`; natural close sequence `90` at `2026-09-08T05:02:14+00:00`. It remains `DOGEUSDT SHORT`, quantity `552.332705`.
+- Close accounting is complete: fill `0.0897579480`, gross P&L `0.0353956890672200`, entry fee `0.01984465836126262400`, exit fee `0.01983050008563573600`, and net P&L `-0.00427946937967836000`. Decimal check: gross minus entry fee minus exit fee equals the recorded net P&L exactly.
+- Durable retirement is confirmed: target has no `paper_position_state` row and no `paper_position_update_intent` row. Portfolio ledger is `45` opens / `45` closes; duplicate open IDs and orphan closes are empty. Integrity check is `ok`.
+- Exact Decimal portfolio reconciliation: closed net P&L `-0.54627777918580720800`; all open entry fees `0`; expected cash `100.00 - 0.54627777918580720800 = 99.45372222081419279200`, exactly matching health `current_cash_usdt` and `current_equity_usdt`.
+- Health file reports `RUNNING`, `NORMAL`, active position count `0`, PID `693042`, feed reconnects `0`, `orders_submitted=0`, `execution_authority=false`, `live_trading_activation=false`, `zero_private_credentials=true`. Both paper and Telegram services report `active/running`, `NRestarts=0`, `ExecMainStatus=0`. The attempted conventional `127.0.0.1:8080/health` probe returned HTTP `000` connection refused; the service/file health evidence above remained available and internally reconciled.
+- Telegram checkpoint has `last_sequence=90`, matching the ledger latest sequence and the target close sequence. Its `saved_at_utc` was `2026-09-08T05:03:05.966088+00:00`, after the close; this verifies checkpoint progress, not Telegram delivery.
+
+### Follow-up parent readback
+
+```bash
+KH="$LOCALAPPDATA/Temp/afbot-phase275-known_hosts"
+ssh -i 'C:/Users/thaqi/.ssh/kainode_ed25519_openssh' -o BatchMode=yes \
+  -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$KH" \
+  -o HostKeyAlgorithms=ssh-ed25519 -o PubkeyAcceptedKeyTypes=ssh-ed25519 \
+  afbot@147.79.18.15 'python3 -c '\''import sqlite3; c=sqlite3.connect("file:/opt/autonomous-futures-bot/artifacts/paper_live/paper-ledger.sqlite3?mode=ro",uri=True); c.execute("PRAGMA query_only=ON"); print(c.execute("select sequence,event,occurred_at,entry_fee,exit_fee,gross_pnl,net_pnl from paper_ledger_events where trade_id=\"paper-cand-09891e9-dogeusdt-20260908044959-0004\" order by sequence").fetchall())'\'''
+```
+
+**Follow-up status:** target naturally closed at sequence `90`; durable state retired, dirty intent absent, exact portfolio cash reconciled, and notifier checkpoint reached sequence `90` (checkpoint progress only). No further observation or authority is authorized by this report.
