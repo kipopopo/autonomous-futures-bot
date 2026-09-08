@@ -23,6 +23,10 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 
 if TYPE_CHECKING:
     from autonomous_futures.feed.monitor import CircuitBreakerFeedMonitor
+    from autonomous_futures.paper.admission import StrategyAdmissionDecision
+    from autonomous_futures.research.qualification_artifacts import (
+        CreatorCandidateQualificationArtifact,
+    )
 
 import pandas as pd
 
@@ -110,6 +114,7 @@ class ActivePaperTrade:
     current_atr: Decimal
     opened_at: datetime
     trailing_stop_price: Decimal | None = None
+    candidate: CreatorCandidateArtifact | None = None
 
 
 def compute_signal_conviction(
@@ -723,11 +728,12 @@ class LivePaperEngine:
         # Check strategy exit for active position in this symbol
         if sym in self.active_trades:
             trade = self.active_trades[sym]
+            exit_candidate = trade.candidate if trade.candidate is not None else cand
             strategy_exit = evaluate_strategy_exit(
                 last_row,
                 side=trade.side,
-                long_exit_expr=cand.strategy.exit.long,
-                short_exit_expr=cand.strategy.exit.short,
+                long_exit_expr=exit_candidate.strategy.exit.long,
+                short_exit_expr=exit_candidate.strategy.exit.short,
             )
             reversal_exit = (trade.side == "LONG" and signal == -1) or (
                 trade.side == "SHORT" and signal == 1
@@ -923,6 +929,7 @@ class LivePaperEngine:
                 current_atr=cur_atr,
                 opened_at=occurred_at,
                 trailing_stop_price=stop_price,
+                candidate=cand,
             )
             self._persist_position_state(active_trade, cand, marker_started=True)
             self.active_trades[sym] = active_trade
@@ -1235,6 +1242,7 @@ class LivePaperEngine:
                 current_atr=state["current_atr"],
                 opened_at=entry.occurred_at,
                 trailing_stop_price=state["trailing_stop_price"],
+                candidate=candidate,
             )
             if (
                 candidate.strategy.universe.symbols
@@ -1499,3 +1507,46 @@ class LivePaperEngine:
             logger.info("Saved forward-testing summary to %s", output_path)
 
         return summary
+
+    def admit_candidate(
+        self,
+        candidate: CreatorCandidateArtifact,
+        qualification: CreatorCandidateQualificationArtifact,
+        *,
+        require_flat: bool = False,
+    ) -> StrategyAdmissionDecision:
+        """Evaluate and admit a newly qualified strategy candidate safely into paper runtime."""
+        from autonomous_futures.paper.admission import StrategyAdmissionDecider
+
+        decider = StrategyAdmissionDecider()
+        symbol = (
+            candidate.strategy.universe.symbols[0]
+            if candidate.strategy.universe.symbols
+            else self.symbols[0]
+        )
+        decision = decider.evaluate_admission(
+            candidate=candidate,
+            qualification=qualification,
+            symbol=symbol,
+            active_trades=self.active_trades,
+            require_flat=require_flat,
+            evaluated_at=datetime.now(UTC),
+        )
+        if decision.decision == "admitted":
+            self.candidates[symbol] = candidate
+            if symbol not in self.qualified_symbols:
+                self.qualified_symbols = (*self.qualified_symbols, symbol)
+            logger.info(
+                "Admitted strategy %s for symbol %s (active_trade_retained=%s)",
+                candidate.candidate_id,
+                symbol,
+                decision.active_trade_retained,
+            )
+        else:
+            logger.warning(
+                "Rejected strategy admission for %s: %s (%s)",
+                candidate.candidate_id,
+                decision.decision,
+                decision.reason_codes,
+            )
+        return decision
