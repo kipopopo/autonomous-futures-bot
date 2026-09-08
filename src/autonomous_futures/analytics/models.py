@@ -64,7 +64,7 @@ class TradeRecord:
     net_pnl: Decimal
     open_approval_id: str | None = None
     close_approval_id: str | None = None
-    exit_reason: str = "normal_close"
+    exit_reason: str = "unavailable"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert TradeRecord to dictionary representation."""
@@ -116,7 +116,7 @@ class TradeRecord:
             net_pnl=_parse_decimal(data.get("net_pnl", "0.00")),
             open_approval_id=data.get("open_approval_id"),
             close_approval_id=data.get("close_approval_id"),
-            exit_reason=str(data.get("exit_reason", "normal_close")),
+            exit_reason=str(data.get("exit_reason", "unavailable")),
         )
 
 

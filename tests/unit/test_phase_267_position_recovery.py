@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from autonomous_futures.analytics.ledger_reader import ReadOnlyLedgerReader
 from autonomous_futures.feed.models import TickerSnapshot
 from autonomous_futures.paper.circuit_breakers import HardenedSharedMarginAccount
 from autonomous_futures.paper.live_engine import LivePaperEngine, PaperRestartRecoveryError
@@ -100,6 +101,20 @@ def test_open_update_restart_protective_close_and_second_restart(tmp_path) -> No
     second.latest_tickers["BTCUSDT"] = first.latest_tickers["BTCUSDT"]
     closed = second.execute_close("BTCUSDT", "test", datetime(2026, 9, 7, 0, 0, 1, tzinfo=UTC))
     assert closed is not None and closed.status == "closed"
+
+    final_mark = second.lifecycle_store.latest(
+        candidate_id=candidate.candidate_id,
+        candidate_artifact_hash=candidate.artifact_hash,
+        trade_id=opened.trade_id,
+    )
+    assert final_mark is not None
+    assert final_mark.lifecycle_status == "closed"
+    assert final_mark.reason_codes == ("test",)
+
+    reader = ReadOnlyLedgerReader(tmp_path)
+    reader.ledger_db_path = paths[0]
+    reader.lifecycle_db_path = paths[1]
+    assert reader.read_closed_trades()[0].exit_reason == "test"
 
     third = LivePaperEngine(**kwargs)
     assert not third.active_trades

@@ -18,7 +18,7 @@ from .observation import PaperObservation, PaperObservationBinding
 class PaperLifecycleHealth(DomainModel):
     trade_id: str = Field(pattern=r"^[A-Za-z0-9._-]+$")
     symbol: str = Field(pattern=r"^[A-Z0-9]+$")
-    lifecycle_status: Literal["open", "exit_ready"]
+    lifecycle_status: Literal["open", "exit_ready", "closed"]
     mark_to_market_pnl: Decimal
     pnl_pct: Decimal
     holding_seconds: int = Field(ge=0, strict=True)

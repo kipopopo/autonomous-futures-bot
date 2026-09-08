@@ -571,7 +571,11 @@ class TestReadOnlyLedgerReader:
         assert t2.exit_price == Decimal("2950.00")
         assert t2.net_pnl == Decimal("2.3810")
         assert t2.holding_duration_seconds == 1800.0
-        assert t2.exit_reason == "normal_close"
+        assert t2.exit_reason == "unavailable"
+
+        payload = t2.to_dict()
+        payload.pop("exit_reason")
+        assert TradeRecord.from_dict(payload).exit_reason == "unavailable"
 
     def test_date_and_symbol_filtering(self, test_ledger_dir: Path) -> None:
         """Test temporal and symbol filtering."""

@@ -1025,7 +1025,9 @@ class LivePaperEngine:
             )
 
             # Mark final lifecycle
-            self._mark_active_position(trade, exit_mark, occurred_at, marker_started=True)
+            self._mark_active_position(
+                trade, exit_mark, occurred_at, marker_started=True, close_reason=exit_reason
+            )
 
             # Remove from active trades
             self.sqlite_ledger.delete_position_state(trade.trade_id)
@@ -1060,6 +1062,7 @@ class LivePaperEngine:
         mark_price: Decimal,
         marked_at: datetime,
         marker_started: bool = False,
+        close_reason: str | None = None,
     ) -> None:
         """Record lifecycle mark with whole-second precision into SqlitePaperLifecycle."""
         ts = marked_at.astimezone(UTC).replace(microsecond=0)
@@ -1077,6 +1080,14 @@ class LivePaperEngine:
                 stop_loss_price=trade.stop_price,
                 take_profit_price=trade.target_price,
             )
+            if close_reason is not None:
+                marked = type(marked).model_validate(
+                    {
+                        **marked.model_dump(),
+                        "lifecycle_status": "closed",
+                        "reason_codes": (close_reason,),
+                    }
+                )
             trade.peak_pnl = marked.peak_pnl
             self.lifecycle_store.append(marked)
             candidate = self.candidates.get(trade.symbol)

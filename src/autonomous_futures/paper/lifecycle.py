@@ -31,7 +31,7 @@ class PaperLifecycleTelemetry(DomainModel):
     take_profit_price: StrictPositiveDecimal | None = None
     stop_loss_hit: bool
     take_profit_hit: bool
-    lifecycle_status: Literal["open", "exit_ready"]
+    lifecycle_status: Literal["open", "exit_ready", "closed"]
     reason_codes: tuple[str, ...] = Field(min_length=1)
     paper_activation: Literal[False] = False
     execution_authority: Literal[False] = False

@@ -183,7 +183,7 @@ class ReadOnlyLedgerReader:
                     total_fees = entry_fee + exit_fee
 
                     trade_id = str(row[1])
-                    exit_reason = exit_reasons.get(trade_id, "normal_close")
+                    exit_reason = exit_reasons.get(trade_id, "unavailable")
 
                     record = TradeRecord(
                         close_sequence=int(row[0]),
