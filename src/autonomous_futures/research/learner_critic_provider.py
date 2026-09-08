@@ -76,4 +76,11 @@ class GoogleAIStudioCriticTransport:
         )
 
 
-__all__ = ["GoogleAIStudioCriticTransport", "build_learner_critic_messages"]
+GoogleAIStudioLearnerCriticTransport = GoogleAIStudioCriticTransport
+
+
+__all__ = [
+    "GoogleAIStudioCriticTransport",
+    "GoogleAIStudioLearnerCriticTransport",
+    "build_learner_critic_messages",
+]

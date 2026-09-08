@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from hashlib import sha256
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -19,6 +21,10 @@ from .creator_generator import CreatorGenerationRequest
 
 GOOGLE_AI_STUDIO_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 GoogleAIStudioModelId = Literal["gemma-4-26b-a4b-it", "gemma-4-31b-it"]
+
+
+class MissingCredentialsError(RuntimeError):
+    """Raised when Google AI Studio or Gemini credentials cannot be resolved."""
 
 
 class ProviderTransportError(RuntimeError):
@@ -448,12 +454,77 @@ class GoogleAIStudioProposalTransport:
         )
 
 
+def resolve_credential(
+    *,
+    env: Mapping[str, str] | None = None,
+    repo_env_path: Path | None = None,
+) -> str:
+    """Resolve Google AI Studio / Gemini API credential in strict priority order.
+
+    Priority:
+      1. GOOGLE_API_KEY from env (or os.environ)
+      2. GEMINI_API_KEY from env (or os.environ)
+      3. GOOGLE_AI_STUDIO_API_KEY from env (or os.environ)
+      4. GOOGLE_API_KEY from repository .env (repo_env_path)
+      5. GEMINI_API_KEY from repository .env (repo_env_path)
+      6. GOOGLE_AI_STUDIO_API_KEY from repository .env (repo_env_path)
+
+    Security Invariant:
+      MUST NOT search Path.home(), ~/.env, or ~/.gemini/oauth_creds.json
+      to prevent host credential leakage during testing or automated runs.
+
+    Raises:
+      MissingCredentialsError: If no credential is found in environment or .env.
+    """
+    priority_keys = ("GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_STUDIO_API_KEY")
+
+    # 1. Inspect environment variables
+    source_env = os.environ if env is None else env
+    for var_name in priority_keys:
+        val = source_env.get(var_name)
+        if val is not None and val.strip():
+            return val.strip()
+
+    # 2. Inspect local repository .env file
+    target_dotenv = repo_env_path if repo_env_path is not None else Path(".env")
+    if target_dotenv.is_file():
+        file_vars: dict[str, str] = {}
+        try:
+            content = target_dotenv.read_text(encoding="utf-8")
+        except OSError:
+            content = ""
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export ") :].strip()
+            if "=" in line:
+                key, raw_val = line.split("=", 1)
+                clean_key = key.strip()
+                clean_val = raw_val.strip().strip("\"'")
+                if clean_key and clean_val:
+                    file_vars[clean_key] = clean_val
+
+        for var_name in priority_keys:
+            val = file_vars.get(var_name)
+            if val is not None and val.strip():
+                return val.strip()
+
+    # 3. Fail-fast without path disclosure or home directory access
+    raise MissingCredentialsError(
+        "No Google AI Studio / Gemini credential found in environment or .env."
+    )
+
+
 __all__ = [
     "GOOGLE_AI_STUDIO_OPENAI_BASE_URL",
     "GoogleAIStudioJsonClient",
     "GoogleAIStudioModelId",
     "GoogleAIStudioProposalTransport",
     "GoogleAIStudioProviderConfig",
+    "MissingCredentialsError",
     "ProviderJsonPayload",
     "ProviderTransportError",
+    "resolve_credential",
 ]

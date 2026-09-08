@@ -13,6 +13,7 @@ Integrates:
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -95,6 +96,10 @@ class AutonomousCycleResult(DomainModel):
     data_source: Literal["cached_only"] = "cached_only"
     promotion_state: Literal["unpromoted"] = "unpromoted"
     execution_authority: Literal[False] = False
+    provider: str = Field(default="demo", pattern=r"^[a-z0-9_]+$")
+    model: str = Field(default="deterministic-heuristic", min_length=1)
+    call_status: str = Field(default="success", pattern=r"^(success|failed|skipped)$")
+    latency_ms: float = Field(default=0.0, ge=0.0)
     completed_at: datetime
     cycle_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -130,6 +135,10 @@ def execute_autonomous_cycle(
     paper_engine: LivePaperEngine | None = None,
     simulator: CachedSimulator | None = None,
     now: datetime | None = None,
+    provider: str = "demo",
+    model: str = "deterministic-heuristic",
+    call_status: str = "success",
+    latency_ms: float = 0.0,
 ) -> AutonomousCycleResult:
     """Execute one complete, bounded, auditable closed-loop autonomous cycle."""
     timestamp = now or datetime.now(UTC)
@@ -138,6 +147,13 @@ def execute_autonomous_cycle(
         if paper_engine and config.symbol in paper_engine.candidates
         else prior_feedback.candidate_id
     )
+
+    def _compute_latency(raw_ms: float) -> float:
+        if provider == "demo" and (now is not None or latency_ms == 0.0):
+            return 0.0
+        if latency_ms > 0.0:
+            return latency_ms
+        return round(raw_ms, 2)
 
     # 1. Intake verification: Ensure feedback matches bundle and registry scope
     if (
@@ -166,15 +182,25 @@ def execute_autonomous_cycle(
         attempt=1,
     )
 
+    t_critic_start = time.perf_counter()
     critic = LearnerCritic(critic_transport)
     critic_result = critic.review(critic_request)
+    critic_latency_ms = (time.perf_counter() - t_critic_start) * 1000.0
 
     if critic_result.decision != "accepted" or critic_result.critique is None:
         reasons = tuple(sorted(set(critic_result.reason_codes)))
+        is_provider_failure = any(
+            r.startswith("provider_") or r == "schema_rejected" for r in reasons
+        )
+        effective_call_status = "failed" if is_provider_failure else call_status
         return _build_cycle_result(
             cycle_id=config.cycle_id,
             symbol=config.symbol,
             cycle_status="failed",
+            provider=provider,
+            model=model,
+            call_status=effective_call_status,
+            latency_ms=_compute_latency(critic_latency_ms),
             prior_feedback_hash=feedback_hash,
             stop_reasons=reasons,
             active_candidate_id=active_cand_id,
@@ -202,6 +228,10 @@ def execute_autonomous_cycle(
             cycle_id=config.cycle_id,
             symbol=config.symbol,
             cycle_status="stopped",
+            provider=provider,
+            model=model,
+            call_status=call_status,
+            latency_ms=_compute_latency(critic_latency_ms),
             prior_feedback_hash=feedback_hash,
             critique_evidence_hash=critique_evidence.review_hash,
             stop_reasons=("critic_stopped_revision",),
@@ -225,15 +255,25 @@ def execute_autonomous_cycle(
         forbidden_candidate_ids=(prior_feedback.candidate_id,),
     )
 
+    t_creator_start = time.perf_counter()
     generator = CreatorGenerator(transport=creator_transport)
     generation_result = generator.generate(creator_request)
+    creator_latency_ms = (time.perf_counter() - t_creator_start) * 1000.0
 
     if generation_result.decision != "accepted" or generation_result.proposal is None:
         reasons = tuple(sorted(set(generation_result.reason_codes)))
+        is_provider_failure = any(
+            r.startswith("provider_") or r == "schema_rejected" for r in reasons
+        )
+        effective_call_status = "failed" if is_provider_failure else call_status
         return _build_cycle_result(
             cycle_id=config.cycle_id,
             symbol=config.symbol,
             cycle_status="failed",
+            provider=provider,
+            model=model,
+            call_status=effective_call_status,
+            latency_ms=_compute_latency(critic_latency_ms + creator_latency_ms),
             prior_feedback_hash=feedback_hash,
             critique_evidence_hash=critique_evidence.review_hash,
             stop_reasons=reasons,
@@ -329,6 +369,10 @@ def execute_autonomous_cycle(
         cycle_id=config.cycle_id,
         symbol=config.symbol,
         cycle_status=cycle_status,
+        provider=provider,
+        model=model,
+        call_status=call_status,
+        latency_ms=_compute_latency(critic_latency_ms + creator_latency_ms),
         prior_feedback_hash=feedback_hash,
         critique_evidence_hash=critique_evidence.review_hash,
         candidate_id=candidate.candidate_id,
@@ -350,6 +394,10 @@ def _build_cycle_result(
     cycle_status: CycleStatus,
     active_candidate_id: str,
     completed_at: datetime,
+    provider: str = "demo",
+    model: str = "deterministic-heuristic",
+    call_status: str = "success",
+    latency_ms: float = 0.0,
     prior_feedback_hash: str | None = None,
     critique_evidence_hash: str | None = None,
     candidate_id: str | None = None,
@@ -367,6 +415,10 @@ def _build_cycle_result(
             "cycle_id": cycle_id,
             "symbol": symbol,
             "cycle_status": cycle_status,
+            "provider": provider,
+            "model": model,
+            "call_status": call_status,
+            "latency_ms": latency_ms,
             "prior_feedback_hash": prior_feedback_hash,
             "critique_evidence_hash": critique_evidence_hash,
             "candidate_id": candidate_id,

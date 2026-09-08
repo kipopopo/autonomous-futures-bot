@@ -12,17 +12,23 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import re
 import sys
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 # Ensure src/ is on sys.path
-_SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ENV_PATH = _REPO_ROOT / ".env"
+_SRC_DIR = _REPO_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
@@ -56,9 +62,25 @@ from autonomous_futures.research.creator_generator import (  # noqa: E402
     CreatorGenerationRequest,
     ProposalTransport,
 )
+from autonomous_futures.research.creator_prompts import (  # noqa: E402
+    build_creator_proposal_messages,
+)
+from autonomous_futures.research.google_ai_studio_provider import (  # noqa: E402
+    GOOGLE_AI_STUDIO_OPENAI_BASE_URL,
+    GoogleAIStudioJsonClient,
+    GoogleAIStudioProposalTransport,
+    GoogleAIStudioProviderConfig,
+    MissingCredentialsError,
+    ProviderTransportError,
+    resolve_credential,
+)
 from autonomous_futures.research.learner_critic import (  # noqa: E402
     CriticTransport,
     LearnerCriticRequest,
+)
+from autonomous_futures.research.learner_critic_provider import (  # noqa: E402
+    GoogleAIStudioLearnerCriticTransport,
+    build_learner_critic_messages,
 )
 from autonomous_futures.research.qualification_artifacts import (  # noqa: E402
     WalkForwardQualificationPolicy,
@@ -72,6 +94,66 @@ _SECRET_PATTERN = re.compile(
 
 DEFAULT_BUNDLE_HASH = "19a55436cd764071c70f068faf1211fe72e70b1cb7803f06ef643b84687f3816"
 DEFAULT_REGISTRY_HASH = "583cd7d15cb0a3faf019cb9940f2739578ba9d88d1b62792cb1a9f0a2e8d72bb"
+_MISSING_CREDENTIALS_MSG = "No Google AI Studio / Gemini credential found in environment or .env."
+
+
+class ProviderFailureError(RuntimeError):
+    """Raised when an LLM provider call or schema validation fails."""
+
+
+FORBIDDEN_CREDENTIAL_FLAGS = (
+    "--api-key",
+    "--api_key",
+    "--key",
+    "-key",
+    "--apikey",
+    "--google-api-key",
+    "--google_api_key",
+    "--gemini-api-key",
+    "--gemini_api_key",
+    "--google-ai-studio-api-key",
+    "--token",
+    "--api-token",
+    "-k",
+)
+
+
+def _check_forbidden_credential_flags(argv: Sequence[str]) -> bool:
+    """Inspect raw argv for forbidden credential flags, preventing secret leakage."""
+    for arg in argv:
+        prefix = arg.lower().split("=")[0].strip()
+        if prefix in FORBIDDEN_CREDENTIAL_FLAGS:
+            return True
+    return False
+
+
+class BoundedTransportCallGovernor:
+    """Enforces non-bypassable ceiling: exactly 1 call allowed per transport."""
+
+    def __init__(
+        self,
+        transport: Callable[[Any], Mapping[str, object]],
+        *,
+        max_calls: int = 1,
+        name: str = "transport",
+    ) -> None:
+        self._transport = transport
+        self._max_calls = max_calls
+        self.call_count: int = 0
+        self.total_latency_ms: float = 0.0
+        self._name = name
+
+    def __call__(self, request: Any) -> Mapping[str, object]:
+        if self.call_count >= self._max_calls:
+            raise RuntimeError(
+                f"Budget ceiling breach: {self._name} exceeded limit of {self._max_calls}"
+            )
+        self.call_count += 1
+        start = time.perf_counter()
+        try:
+            return self._transport(request)
+        finally:
+            self.total_latency_ms += (time.perf_counter() - start) * 1000.0
 
 
 def _sanitize_error_text(text: str) -> str:
@@ -118,6 +200,18 @@ def _validate_hex64(val: str) -> str:
     if not re.match(r"^[0-9a-f]{64}$", val):
         raise argparse.ArgumentTypeError(f"Invalid 64-character lowercase hex hash: '{val}'")
     return val
+
+
+def _validate_temperature(val: str) -> float:
+    try:
+        t = float(val)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid float value: {val!r}") from None
+    if not math.isfinite(t) or t < 0.0 or t > 2.0:
+        raise argparse.ArgumentTypeError(
+            f"--temperature must be finite and within [0.0, 2.0], got {val}"
+        )
+    return t
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -293,6 +387,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional ISO 8601 timestamp for deterministic evaluation time",
     )
     parser.add_argument(
+        "--provider",
+        choices=["demo", "google_ai_studio"],
+        default="demo",
+        help="Strategy revision provider transport (default: demo)",
+    )
+    parser.add_argument(
+        "--model",
+        choices=["gemma-4-31b-it", "gemma-4-26b-a4b-it"],
+        default="gemma-4-31b-it",
+        help="Gemma model ID for Google AI Studio provider (default: gemma-4-31b-it)",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=_validate_temperature,
+        default=0.2,
+        help="Sampling temperature for provider completions (default: 0.2)",
+    )
+    parser.add_argument(
         "--demo",
         action="store_true",
         default=True,
@@ -400,6 +512,11 @@ def build_cycle_audit(
     result: AutonomousCycleResult,
     args: argparse.Namespace,
 ) -> dict[str, Any]:
+    provider = getattr(result, "provider", getattr(args, "provider", "demo"))
+    model = getattr(result, "model", getattr(args, "model", "deterministic-heuristic"))
+    call_status = getattr(result, "call_status", "success")
+    latency_ms = getattr(result, "latency_ms", 0.0)
+
     payload: dict[str, Any] = {
         "audit_version": 1,
         "cycle_id": result.cycle_id,
@@ -407,6 +524,12 @@ def build_cycle_audit(
         "cycle_status": result.cycle_status,
         "cycle_hash": result.cycle_hash,
         "completed_at": result.completed_at.isoformat(),
+        "telemetry": {
+            "provider": provider,
+            "model": model,
+            "call_status": call_status,
+            "latency_ms": latency_ms,
+        },
         "safety_invariants": {
             "data_source": result.data_source,
             "promotion_state": result.promotion_state,
@@ -430,7 +553,7 @@ def build_cycle_audit(
             "windows_count": args.windows_count,
             "bars_per_window": args.bars_per_window,
             "require_flat": args.require_flat,
-            "demo": getattr(args, "demo", True),
+            "demo": getattr(args, "provider", "demo") == "demo",
         },
         "audit_hash": "0" * 64,
     }
@@ -492,6 +615,12 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
     # 2. Handle zero-breach scenario cleanly
     if prior_feedback is None:
         logger.info("Candidate meets paper qualification criteria; zero breaches. Cycle skipped.")
+        provider = getattr(args, "provider", "demo")
+        model = (
+            getattr(args, "model", "gemma-4-31b-it")
+            if provider == "google_ai_studio"
+            else "deterministic-heuristic"
+        )
         audit_skipped: dict[str, Any] = {
             "audit_version": 1,
             "cycle_id": cycle_id,
@@ -499,6 +628,12 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "cycle_status": "skipped_no_breaches",
             "cycle_hash": "0" * 64,
             "completed_at": now.isoformat(),
+            "telemetry": {
+                "provider": provider,
+                "model": model,
+                "call_status": "skipped",
+                "latency_ms": 0.0,
+            },
             "safety_invariants": {
                 "data_source": "cached_only",
                 "promotion_state": "unpromoted",
@@ -522,7 +657,7 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
                 "windows_count": args.windows_count,
                 "bars_per_window": args.bars_per_window,
                 "require_flat": args.require_flat,
-                "demo": getattr(args, "demo", True),
+                "demo": getattr(args, "provider", "demo") == "demo",
             },
             "audit_hash": "0" * 64,
         }
@@ -603,20 +738,106 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             observations_db=obs_file,
         )
 
-    # 7. Transports Resolution (Demo / Deterministic Mock)
-    critic_transport = make_demo_critic_transport()
-    creator_transport = make_demo_creator_transport(symbol)
+    # 7. Transports Resolution
+    critic_transport: CriticTransport
+    creator_transport: ProposalTransport
+    http_client: httpx.Client | None = None
+    try:
+        if args.provider == "google_ai_studio":
+            api_key = resolve_credential(repo_env_path=_REPO_ENV_PATH)
+            provider_config = GoogleAIStudioProviderConfig(
+                base_url=GOOGLE_AI_STUDIO_OPENAI_BASE_URL,
+                api_key=api_key,
+                model_id=args.model,
+            )
+            del api_key  # Immediate key scrubbing
 
-    # 8. Pipeline Execution
-    result = execute_autonomous_cycle(
-        config=cycle_config,
-        windows=windows,
-        prior_feedback=prior_feedback,
-        critic_transport=critic_transport,
-        creator_transport=creator_transport,
-        paper_engine=paper_engine,
-        now=now,
-    )
+            http_client = httpx.Client(timeout=30.0)
+            json_client = GoogleAIStudioJsonClient(
+                config=provider_config,
+                client=http_client,
+            )
+
+            dummy_critic_req = LearnerCriticRequest(
+                research_run_id=f"run-critic-{cycle_id}",
+                candidate_id=prior_feedback.candidate_id,
+                candidate_artifact_hash=prior_feedback.candidate_artifact_hash,
+                feedback=prior_feedback,
+                input_evidence_refs=tuple(
+                    sorted(
+                        (
+                            f"feedback/{prior_feedback.qualification_hash}",
+                            f"policy/{prior_feedback.qualification_policy_id}",
+                        )
+                    )
+                ),
+                output_schema_id="learner-critic-v1",
+                attempt=1,
+            )
+            critic_sys, _ = build_learner_critic_messages(dummy_critic_req)
+
+            def _critic_builder(req: LearnerCriticRequest) -> str:
+                return str(build_learner_critic_messages(req)[1]["content"])
+
+            raw_critic_transport = GoogleAIStudioLearnerCriticTransport(
+                client=json_client,
+                system_prompt=str(critic_sys["content"]),
+                user_prompt_builder=_critic_builder,
+                temperature=args.temperature,
+                max_output_tokens=4096,
+            )
+
+            dummy_creator_req = CreatorGenerationRequest(
+                research_run_id=f"run-creator-{cycle_id}",
+                input_evidence_refs=(f"bundle/{bundle_hash}",),
+                output_schema_id="creator-proposal-v1",
+                attempt=1,
+                forbidden_candidate_ids=(prior_feedback.candidate_id,),
+            )
+            creator_sys, _ = build_creator_proposal_messages(
+                dummy_creator_req, bundle_hash=bundle_hash, symbol=symbol
+            )
+
+            def _creator_builder(req: CreatorGenerationRequest) -> str:
+                msgs = build_creator_proposal_messages(req, bundle_hash=bundle_hash, symbol=symbol)
+                return str(msgs[1]["content"])
+
+            raw_creator_transport = GoogleAIStudioProposalTransport(
+                client=json_client,
+                system_prompt=str(creator_sys["content"]),
+                user_prompt_builder=_creator_builder,
+                temperature=args.temperature,
+                max_output_tokens=2048,
+            )
+
+            critic_governor = BoundedTransportCallGovernor(
+                raw_critic_transport, max_calls=1, name="critic"
+            )
+            creator_governor = BoundedTransportCallGovernor(
+                raw_creator_transport, max_calls=1, name="creator"
+            )
+
+            critic_transport = critic_governor
+            creator_transport = creator_governor
+        else:
+            critic_transport = make_demo_critic_transport()
+            creator_transport = make_demo_creator_transport(symbol)
+
+        # 8. Pipeline Execution
+        result = execute_autonomous_cycle(
+            config=cycle_config,
+            windows=windows,
+            prior_feedback=prior_feedback,
+            critic_transport=critic_transport,
+            creator_transport=creator_transport,
+            paper_engine=paper_engine,
+            now=now,
+            provider=args.provider,
+            model=args.model if args.provider == "google_ai_studio" else "deterministic-heuristic",
+        )
+    finally:
+        if http_client is not None:
+            http_client.close()
 
     # 9. Result & Audit Persistence Guarded by Secret Scan
     result_json = result.model_dump_json(indent=2)
@@ -630,10 +851,35 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError("Secret pattern detected in cycle audit")
     (output_dir / "cycle-audit.json").write_text(audit_json + "\n", encoding="utf-8")
 
+    if result.cycle_status == "failed":
+        reasons = list(result.stop_reasons)
+        is_provider_failure = any(
+            r.startswith("provider_") or r == "schema_rejected" for r in reasons
+        )
+        if is_provider_failure:
+            raise ProviderFailureError(f"Provider call failed: {', '.join(reasons)}")
+
     return audit
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if _check_forbidden_credential_flags(raw_argv):
+        print(
+            json.dumps(
+                {
+                    "error_code": "forbidden_cli_argument",
+                    "message": (
+                        "Passing API keys or credentials via CLI flags is forbidden. "
+                        "Set GOOGLE_API_KEY, GEMINI_API_KEY, or GOOGLE_AI_STUDIO_API_KEY "
+                        "in your environment or repository .env file."
+                    ),
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 2
+
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
@@ -656,6 +902,28 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
         summary = run_autonomous_cycle(args)
+    except MissingCredentialsError as exc:
+        sanitized = _sanitize_error_text(str(exc))
+        del exc
+        print(
+            json.dumps(
+                {
+                    "error_code": "missing_credentials",
+                    "message": _MISSING_CREDENTIALS_MSG,
+                }
+            )
+        )
+        return 3
+    except ProviderFailureError as exc:
+        sanitized = _sanitize_error_text(str(exc))
+        del exc
+        print(json.dumps({"error_code": "provider_call_failed", "message": sanitized}))
+        return 3
+    except ProviderTransportError as exc:
+        sanitized = _sanitize_error_text(str(exc))
+        del exc
+        print(json.dumps({"error_code": "provider_transport_error", "message": sanitized}))
+        return 3
     except (ValueError, DataQualityError, DomainViolation, FileNotFoundError) as exc:
         sanitized = _sanitize_error_text(str(exc))
         del exc
@@ -664,6 +932,16 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         sanitized = _sanitize_error_text(str(exc))
         del exc
+        if "credential" in sanitized.lower() or "api_key" in sanitized.lower():
+            print(
+                json.dumps(
+                    {
+                        "error_code": "missing_credentials",
+                        "message": _MISSING_CREDENTIALS_MSG,
+                    }
+                )
+            )
+            return 3
         print(json.dumps({"error_code": "safety_violation", "message": sanitized}))
         return 3
     except Exception as exc:
@@ -682,6 +960,8 @@ if __name__ == "__main__":
 __all__ = [
     "DEFAULT_BUNDLE_HASH",
     "DEFAULT_REGISTRY_HASH",
+    "BoundedTransportCallGovernor",
+    "ProviderFailureError",
     "build_cycle_audit",
     "build_parser",
     "load_and_slice_windows",

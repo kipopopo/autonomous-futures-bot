@@ -29,32 +29,51 @@ The Autonomous Integration Pipeline closes the feedback loop between live/paper 
 | 9 | Safe Strategy Adoption & Candidate Admission | Admit newly qualified candidates to `LivePaperEngine.candidates[symbol]` via `StrategyAdmissionDecider` | M2 | ORIGINAL_REQUEST §R3 |
 | 10 | Open Trade Immutability Protection | Active trades remain bound to original candidate artifact across marks, exit evaluation, and close execution | M2 | ORIGINAL_REQUEST §R3 |
 | 11 | Controlled Infrastructure Enforcement | Operate strictly in `cached_only` mode with zero live exchange calls and zero unapproved LLM calls | M2 | ORIGINAL_REQUEST §R4 |
-| 12 | E2E Testing Suite (Tiers 1-4) | Systematic unit and integration test suite covering feature, boundary, pairwise, and application scenarios | M3 | Dual Track E2E |
-| 13 | Full Quality Gate Verification & Audit | Passing ruff, mypy, pytest 246+ tests, reproduce_exit_cost_audit.py, and forensic integrity audit | M4 | Acceptance Criteria |
+| 12 | E2E Testing Suite (Tiers 1-4) | Systematic unit and integration test suite covering feature, boundary, pairwise, and application scenarios | M2 | Dual Track E2E |
+| 13 | Full Quality Gate Verification & Audit | Passing ruff, mypy, pytest 246+ tests, reproduce_exit_cost_audit.py, and forensic integrity audit | M2 | Acceptance Criteria |
+| 14 | Google AI Studio Gemma Provider Transports | Real LLM transports `GoogleAIStudioProposalTransport` and `GoogleAIStudioLearnerCriticTransport` strictly restricted to `gemma-4-31b-it` and `gemma-4-26b-a4b-it` | M3 | ORIGINAL_REQUEST 2026-09-08 §R1 |
+| 15 | CLI Provider, Model & Temperature Options | Add `--provider {google_ai_studio,demo}` (default `demo`), `--model {gemma-4-31b-it,gemma-4-26b-a4b-it}` (default `gemma-4-31b-it`), and `--temperature`; reject API keys via CLI flags | M3 | ORIGINAL_REQUEST 2026-09-08 §R1, §R3 |
+| 16 | Zero Secret Leakage Credential Resolution | Safe `resolve_credential(env, repo_env_path)` from `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_AI_STUDIO_API_KEY` or repo `.env`; zero key logging/saving | M3 | ORIGINAL_REQUEST 2026-09-08 §R3 |
+| 17 | Hard Budget & Call Governance Invariants | Strict bounded execution: max 1 proposal and max 1 critic call (`max_attempts=1`, `max_retries=0`); fail-fast exit code 3 on API/schema failure | M3 | ORIGINAL_REQUEST 2026-09-08 §R2 |
+| 18 | Execution Telemetry & Determinism Preservation | Capture model, provider, call status, latency in ms in `cycle-audit.json` and `autonomous-cycle-result.json`; set `latency_ms=0.0` in demo mode with `--now` | M3 | ORIGINAL_REQUEST 2026-09-08 §R2 |
+| 19 | Programmatic Unit & Integration Test Suite | Rigorous tests in `tests/unit/test_google_ai_studio_cycle_integration.py` and `tests/integration/test_run_autonomous_cycle_cli.py` covering all provider paths and security invariants | M4 | ORIGINAL_REQUEST 2026-09-08 §R4 |
+| 20 | Full Quality Gate Verification & Regression Safety | 100% pass on ruff check (0 errors), ruff format (0 changes), mypy (0 issues), all 48+ existing and new tests passing | M5 | Acceptance Criteria |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Paper Ledger Feedback Extractor | Implement `src/autonomous_futures/paper/feedback_extractor.py` and unit tests in `tests/unit/test_paper_ledger_feedback_extractor.py` | none | DONE (23 unit tests pass, 31 stress tests pass, 16 adversarial tests pass, ruff/mypy clean, CLEAN audit) |
-| M2 | Autonomous Cycle CLI Runner & Immutability | Implement `scripts/run_autonomous_cycle.py`, verify/harden `LivePaperEngine` active trade immutability | M1 | DONE (CLI runner complete, cryptographic content hash verification across 4 paper modules, 14 immutability unit tests, 81 CLI stress assertions, 22 adversarial tamper assertions, CLEAN audit) |
-| M3 | Dual Track E2E Testing Suite | Build end-to-end integration tests in `tests/integration/test_run_autonomous_cycle_cli.py` across Tiers 1-4 | M1, M2 | PLANNED |
-| M4 | Final Quality Gate Verification & Audit | Run ruff, mypy, pytest (full suite), reproduce_exit_cost_audit.py, and adversarial integrity audit | M3 | PLANNED |
+| M1 | Paper Ledger Feedback Extractor | Implement `src/autonomous_futures/paper/feedback_extractor.py` and unit tests in `tests/unit/test_paper_ledger_feedback_extractor.py` | none | DONE |
+| M2 | Autonomous Cycle CLI Runner & Immutability | Implement `scripts/run_autonomous_cycle.py`, verify/harden `LivePaperEngine` active trade immutability | M1 | DONE |
+| M3 | Google AI Studio Gemma Provider Integration & Budget Governance | Implement `GoogleAIStudioLearnerCriticTransport` alias, safe `resolve_credential`, CLI options (`--provider`, `--model`, `--temperature`), budget ceilings (`max_attempts=1`, `max_retries=0`), exit code 3 on errors, and telemetry capture | M2 | DONE (12/12 stress tests pass, 13/13 security challenges pass, 5/5 CLI integration tests pass, ruff/mypy clean, CLEAN audit) |
+| M4 | Comprehensive Unit & Integration Test Suite | Implement `tests/unit/test_google_ai_studio_cycle_integration.py` and new integration tests in `tests/integration/test_run_autonomous_cycle_cli.py` covering flags, mocks, budget, and secret safety | M3 | DONE (34 unit passed in 3.1s, 16 integration passed in 15.3s, stream regex leak-interception verified, host .env isolated, CLEAN audit) |
+| M5 | Final Quality Gate Verification & Regression Safety | Run ruff check, ruff format check, mypy, pytest full suite (48+ existing tests + new tests), and forensic integrity audit | M4 | DONE (2,041 tests passed, 0 failures, ruff/mypy clean, reproduce_exit_cost_audit exact match, CLEAN audit) |
 
 ## Interface Contracts
 ### Feedback Extractor ↔ Autonomous Cycle Runner
 - Extractor API:
   `extract_paper_feedback(*, ledger_path: Path, lifecycle_path: Path | None = None, symbol: str | None = None, candidate_id: str | None = None, candidate_artifact: CreatorCandidateArtifact | None = None, candidate_artifact_path: Path | None = None, policy: PaperQualificationPolicy | None = None, bundle_hash: str | None = None, dataset_registry_hash: str | None = None) -> CreatorQualificationFailureFeedback | None`
 - Output: `CreatorQualificationFailureFeedback` or `None` if candidate is performing adequately without breach.
-- Serialization: `model_dump_json(indent=2)` producing valid JSON conforming to version 1 schema.
 
-### CLI Runner ↔ Autonomous Cycle Pipeline
-- CLI entrypoint: `scripts/run_autonomous_cycle.py` (executable with `__main__` and `main(argv=None) -> int`).
-- Ingestion: loads Parquet from `research/immutable-data/5m/canonical/{symbol}-5m.parquet` via `read_canonical_parquet`.
-- Pipeline invocation: `execute_autonomous_cycle(config=..., windows=..., prior_feedback=..., critic_transport=..., creator_transport=..., paper_engine=..., simulator=...)`.
-- Artifact output: writes `autonomous-cycle-result.json` and `cycle-audit.json` to `--output-dir`.
+### CLI Runner ↔ Google AI Studio Gemma Provider
+- Provider Transports:
+  - `GoogleAIStudioProposalTransport(client=..., model=..., temperature=...)` -> Callable[[CreatorGenerationRequest], Mapping[str, object]]
+  - `GoogleAIStudioLearnerCriticTransport = GoogleAIStudioCriticTransport(client=..., model=..., temperature=...)` -> Callable[[LearnerCriticRequest], Mapping[str, object]]
+- Permitted Models: strictly `Literal["gemma-4-31b-it", "gemma-4-26b-a4b-it"]`
+- Credential Resolution:
+  - `resolve_credential(env: Mapping[str, str] | None = None, repo_env_path: Path | None = None) -> str`
+  - Searches `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_AI_STUDIO_API_KEY`, then repo `.env`. Raises `RuntimeError` if missing.
+  - Exits with clean JSON `{"error_code": "missing_credentials", "message": "..."}` and exit code `3` without tracebacks or path leakage.
+- Budget & Governance:
+  - `max_attempts=1`, `max_retries=0`. Maximum 1 proposal call, maximum 1 critic call.
+  - Failures (HTTP 4xx/5xx, invalid JSON schema) exit with code `3` and structured error message.
+- Telemetry:
+  - `AutonomousCycleResult` and `cycle-audit.json` include `provider`, `model`, `call_status`, `latency_ms`.
+  - In demo mode with `--now`, `latency_ms = 0.0` for hash determinism.
 
 ## Code Layout
-- `src/autonomous_futures/paper/feedback_extractor.py`: Extractor implementation.
-- `scripts/run_autonomous_cycle.py`: Autonomous cycle CLI runner.
-- `tests/unit/test_paper_ledger_feedback_extractor.py`: Unit tests for feedback extractor.
-- `tests/integration/test_run_autonomous_cycle_cli.py`: Integration tests for CLI runner, idempotency, and active trade immutability.
+- `src/autonomous_futures/research/google_ai_studio_provider.py`: Google AI Studio proposal transport & `resolve_credential`.
+- `src/autonomous_futures/research/learner_critic_provider.py`: Google AI Studio learner critic transport & alias.
+- `src/autonomous_futures/pipeline/autonomous_cycle.py`: Pipeline execution & telemetry fields.
+- `scripts/run_autonomous_cycle.py`: CLI options, transport wiring, governance, telemetry, and exit code handling.
+- `tests/unit/test_google_ai_studio_cycle_integration.py`: Unit tests for provider cycle integration.
+- `tests/integration/test_run_autonomous_cycle_cli.py`: Integration tests for CLI runner with provider flags.
