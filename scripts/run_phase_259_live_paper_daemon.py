@@ -40,6 +40,10 @@ from autonomous_futures.feed.rest_client import (  # noqa: E402
     fetch_warmup_bars_with_fallback,
 )
 from autonomous_futures.feed.telemetry import FeedTelemetryAccumulator  # noqa: E402
+from autonomous_futures.paper.candidate_registry import (  # noqa: E402
+    DEFAULT_CANDIDATE_REGISTRY_PATH,
+    CandidateRegistryHotReloader,
+)
 from autonomous_futures.paper.circuit_breakers import (  # noqa: E402
     HardenedSharedMarginAccount,
 )
@@ -74,6 +78,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("artifacts/paper_live"),
         help="Directory to persist ledgers and checkpoints (default: artifacts/paper_live)",
+    )
+    parser.add_argument(
+        "--candidate-registry-path",
+        type=Path,
+        default=None,
+        help=(
+            "Path to candidate_registry.json manifest for hot-reloading "
+            "(default: <storage-dir>/candidate_registry.json)"
+        ),
     )
     parser.add_argument(
         "--starting-capital",
@@ -214,6 +227,8 @@ def emit_daemon_health_checkpoint(
     circuit_breaker_status: str,
     feed_messages_received: int,
     reconnect_count: int,
+    active_candidates: dict[str, str] | None = None,
+    last_registry_reload: dict[str, Any] | None = None,
 ) -> None:
     """Persist atomic JSON health checkpoint for systemd and operator inspection."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,6 +239,15 @@ def emit_daemon_health_checkpoint(
         "started_at_utc": started_at,
         "last_heartbeat_utc": datetime.now(UTC).isoformat(),
         "symbols_monitored": symbols,
+        "active_candidates": active_candidates if active_candidates is not None else {},
+        "last_registry_reload": last_registry_reload
+        if last_registry_reload is not None
+        else {
+            "reloaded_at": None,
+            "registry_hash": None,
+            "reload_status": "NONE",
+            "reload_count": 0,
+        },
         "starting_capital_usdt": str(starting_capital),
         "current_cash_usdt": str(current_cash),
         "current_equity_usdt": str(current_equity),
@@ -456,10 +480,23 @@ async def run_heartbeat_loop(
     stop_event: asyncio.Event,
     start_time: float,
     started_at_str: str,
+    hot_reloader: CandidateRegistryHotReloader | None = None,
 ) -> None:
     """Periodically write health checkpoint JSON while daemon is running."""
     while not stop_event.is_set():
         try:
+            if hot_reloader is not None:
+                hot_reloader.check_and_reload()
+                active_cands, last_reload = hot_reloader.get_telemetry()
+            else:
+                active_cands = {s: c.candidate_id for s, c in engine.candidates.items()}
+                last_reload = {
+                    "reloaded_at": None,
+                    "registry_hash": None,
+                    "reload_status": "NONE",
+                    "reload_count": 0,
+                }
+
             uptime = time.monotonic() - start_time
             current_eq = engine.current_equity()
             utilization = float(account.margin_utilization(current_eq)) * 100.0
@@ -494,6 +531,8 @@ async def run_heartbeat_loop(
                 circuit_breaker_status=cb_status,
                 feed_messages_received=telemetry.total_messages,
                 reconnect_count=feed_client.reconnect_count,
+                active_candidates=active_cands,
+                last_registry_reload=last_reload,
             )
         except Exception as exc:
             logger.warning("Error during heartbeat write: %s", exc)
@@ -566,6 +605,25 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
     start_time = time.monotonic()
     started_at_str = datetime.now(UTC).isoformat()
 
+    # Resolve manifest: CLI flag > storage_dir / candidate_registry.json > DEFAULT
+    if args.candidate_registry_path is not None:
+        registry_path = Path(args.candidate_registry_path)
+    elif (storage_dir / "candidate_registry.json").is_file():
+        registry_path = storage_dir / "candidate_registry.json"
+    elif DEFAULT_CANDIDATE_REGISTRY_PATH.is_file():
+        registry_path = DEFAULT_CANDIDATE_REGISTRY_PATH
+    else:
+        registry_path = storage_dir / "candidate_registry.json"
+
+    hot_reloader = CandidateRegistryHotReloader(
+        manifest_path=registry_path,
+        engine=engine,
+        base_dir=args.storage_dir.parent if args.storage_dir else None,
+    )
+    # Check registry on startup
+    hot_reloader.check_and_reload()
+    active_cands, last_reload = hot_reloader.get_telemetry()
+
     logger.info("Starting 24/7 live paper daemon on %s symbols", list(symbols))
     logger.info("Storage directory: %s", storage_dir)
     logger.info(
@@ -591,6 +649,8 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
         circuit_breaker_status="NORMAL",
         feed_messages_received=0,
         reconnect_count=0,
+        active_candidates=active_cands,
+        last_registry_reload=last_reload,
     )
 
     # Start periodic heartbeat task
@@ -606,6 +666,7 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
             stop_event=stop_event,
             start_time=start_time,
             started_at_str=started_at_str,
+            hot_reloader=hot_reloader,
         )
     )
 
@@ -654,6 +715,7 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
     # Final clean shutdown checkpoint
     uptime_final = time.monotonic() - start_time
     final_eq = engine.current_equity()
+    active_cands_final, last_reload_final = hot_reloader.get_telemetry()
     emit_daemon_health_checkpoint(
         output_path=health_file,
         status="SHUTDOWN_CLEAN",
@@ -670,6 +732,8 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
         circuit_breaker_status="NORMAL",
         feed_messages_received=telemetry.total_messages,
         reconnect_count=feed_client.reconnect_count,
+        active_candidates=active_cands_final,
+        last_registry_reload=last_reload_final,
     )
 
     # Verify zero-order safety invariants post execution

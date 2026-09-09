@@ -1,5 +1,20 @@
 """Autonomous Futures Paper Trading Subsystem."""
 
+from .candidate_registry import (
+    DEFAULT_CANDIDATE_REGISTRY_PATH,
+    CandidateManifestEntry,
+    CandidateRegistryHotReloader,
+    CandidateRegistryManifest,
+    build_candidate_registry_manifest,
+    compute_registry_hash,
+    publish_admitted_candidate,
+    publish_candidate_admission,
+    read_candidate_registry,
+    validate_manifest_candidate_artifacts,
+    verify_candidate_manifest_entry,
+    verify_candidate_registry_manifest,
+    write_candidate_registry,
+)
 from .circuit_breakers import (
     CircuitBreakerConfig,
     CircuitBreakerEvaluationResult,
@@ -34,8 +49,12 @@ from .sqlite_observation import SqlitePaperObservations
 
 __all__ = [
     "ActivePaperTrade",
+    "CandidateManifestEntry",
+    "CandidateRegistryHotReloader",
+    "CandidateRegistryManifest",
     "CircuitBreakerConfig",
     "CircuitBreakerEvaluationResult",
+    "DEFAULT_CANDIDATE_REGISTRY_PATH",
     "HardenedSharedMarginAccount",
     "LivePaperEngine",
     "PaperActionApproval",
@@ -56,13 +75,22 @@ __all__ = [
     "SqlitePaperLedger",
     "SqlitePaperLifecycle",
     "SqlitePaperObservations",
+    "build_candidate_registry_manifest",
     "calculate_adverse_gap_fill",
     "compute_feedback_qualification_hash",
+    "compute_registry_hash",
     "evaluate_paper_action_permission",
     "evaluate_paper_safety",
     "extract_paper_feedback",
     "mark_paper_position",
     "observe_paper_ledger",
     "paper_qualification_policy_content_hash",
+    "publish_admitted_candidate",
+    "publish_candidate_admission",
+    "read_candidate_registry",
     "simulate_paper_round_trip",
+    "validate_manifest_candidate_artifacts",
+    "verify_candidate_manifest_entry",
+    "verify_candidate_registry_manifest",
+    "write_candidate_registry",
 ]

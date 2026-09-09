@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import socket
 import sys
 from collections.abc import Mapping, Sequence
@@ -719,35 +720,22 @@ class LivePaperEngine:
             logger.debug("Warmup bars accumulating for %s: %d/%d", sym, len(df), min_bars)
             return
 
-        try:
-            evaluated_df = self.signal_evaluator.evaluate(cand, df)
-        except Exception as exc:
-            logger.warning("Feature evaluation failed for %s: %s", sym, exc)
-            return
-
-        last_row = evaluated_df.iloc[-1]
-        signal = int(last_row.get("signal", 0))
-
-        # Check strategy exit for active position in this symbol
+        # Check strategy exit for active position first (resilient against candidate errors)
         if sym in self.active_trades:
             trade = self.active_trades[sym]
             exit_candidate = trade.candidate if trade.candidate is not None else cand
-            if exit_candidate.candidate_id != cand.candidate_id:
-                try:
-                    trade_evaluated_df = self.signal_evaluator.evaluate(exit_candidate, df)
-                    trade_row = trade_evaluated_df.iloc[-1]
-                    trade_signal = int(trade_row.get("signal", 0))
-                except Exception as exc:
-                    logger.warning(
-                        "Feature evaluation failed for trade candidate %s: %s",
-                        exit_candidate.candidate_id,
-                        exc,
-                    )
-                    trade_row = last_row
-                    trade_signal = 0
-            else:
-                trade_row = last_row
-                trade_signal = signal
+            try:
+                trade_evaluated_df = self.signal_evaluator.evaluate(exit_candidate, df)
+                trade_row = trade_evaluated_df.iloc[-1]
+                trade_signal = int(trade_row.get("signal", 0))
+            except Exception as exc:
+                logger.warning(
+                    "Feature evaluation failed for trade candidate %s: %s",
+                    exit_candidate.candidate_id,
+                    exc,
+                )
+                trade_row = df.iloc[-1]
+                trade_signal = 0
 
             strategy_exit = evaluate_strategy_exit(
                 trade_row,
@@ -765,6 +753,16 @@ class LivePaperEngine:
                 # Mark lifecycle position on closed candle
                 self._mark_active_position(trade, bar.close, bar.close_time)
             return
+
+        # No active trade: evaluate candidate signal for entry
+        try:
+            evaluated_df = self.signal_evaluator.evaluate(cand, df)
+        except Exception as exc:
+            logger.warning("Feature evaluation failed for %s: %s", sym, exc)
+            return
+
+        last_row = evaluated_df.iloc[-1]
+        signal = int(last_row.get("signal", 0))
 
         # No active trade: evaluate new entry signal
         if signal != 0:
@@ -1571,27 +1569,75 @@ class LivePaperEngine:
     def admit_candidate(
         self,
         candidate: CreatorCandidateArtifact,
-        qualification: CreatorCandidateQualificationArtifact,
+        qualification: CreatorCandidateQualificationArtifact | None = None,
         *,
+        qualification_hash: str | None = None,
         require_flat: bool = False,
     ) -> StrategyAdmissionDecision:
         """Evaluate and admit a newly qualified strategy candidate safely into paper runtime."""
-        from autonomous_futures.paper.admission import StrategyAdmissionDecider
+        from autonomous_futures.paper.admission import (
+            StrategyAdmissionDecider,
+            StrategyAdmissionDecision,
+            strategy_admission_content_hash,
+        )
 
-        decider = StrategyAdmissionDecider()
         symbol = (
             candidate.strategy.universe.symbols[0]
             if candidate.strategy.universe.symbols
             else self.symbols[0]
         )
-        decision = decider.evaluate_admission(
-            candidate=candidate,
-            qualification=qualification,
-            symbol=symbol,
-            active_trades=self.active_trades,
-            require_flat=require_flat,
-            evaluated_at=datetime.now(UTC),
-        )
+        if qualification is not None:
+            decider = StrategyAdmissionDecider()
+            decision = decider.evaluate_admission(
+                candidate=candidate,
+                qualification=qualification,
+                symbol=symbol,
+                active_trades=self.active_trades,
+                require_flat=require_flat,
+                evaluated_at=datetime.now(UTC),
+            )
+        else:
+            now = datetime.now(UTC)
+            cand_slug = re.sub(r"[^a-z0-9-]", "-", candidate.candidate_id.lower()).strip("-")
+            dec_id = f"admission-{cand_slug[:24]}-{int(now.timestamp())}"
+            has_active = symbol in self.active_trades
+            if has_active and require_flat:
+                decision_outcome = "deferred_active_position"
+                reasons = ("active_position_open",)
+                active_retained = False
+            else:
+                decision_outcome = "admitted"
+                reasons = (
+                    ("candidate_qualified_active_trade_retained",)
+                    if has_active
+                    else ("candidate_qualified_for_admission",)
+                )
+                active_retained = has_active
+
+            q_hash = qualification_hash or ("0" * 64)
+            sorted_reasons = tuple(sorted(set(reasons)))
+            provisional = StrategyAdmissionDecision.model_validate(
+                {
+                    "decision_version": 1,
+                    "decision_id": dec_id,
+                    "candidate_id": candidate.candidate_id,
+                    "candidate_artifact_hash": candidate.artifact_hash,
+                    "qualification_hash": q_hash,
+                    "symbol": symbol,
+                    "decision": decision_outcome,
+                    "reason_codes": sorted_reasons,
+                    "active_trade_retained": active_retained,
+                    "data_source": "cached_only",
+                    "promotion_state": "unpromoted",
+                    "paper_activation": decision_outcome == "admitted",
+                    "execution_authority": False,
+                    "evaluated_at": now,
+                    "decision_hash": "0" * 64,
+                }
+            )
+            dec_hash = strategy_admission_content_hash(provisional)
+            decision = provisional.model_copy(update={"decision_hash": dec_hash})
+
         if decision.decision == "admitted":
             self.candidates[symbol] = candidate
             if symbol not in self.qualified_symbols:

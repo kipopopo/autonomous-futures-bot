@@ -646,3 +646,64 @@ def test_cli_provider_api_error_exit_code_3(
     result_data = json.loads(result_file.read_text(encoding="utf-8"))
     assert result_data["cycle_status"] == "failed"
     assert "provider_http_error" in result_data["stop_reasons"]
+
+
+def test_cli_candidate_registry_publication(tmp_path: Path) -> None:
+    """Verify that admitted candidates are automatically published to candidate_registry.json."""
+    cand = _build_candidate("cand-cli-reg-001", stop_atr="0.5")
+    cand_path = tmp_path / "cand-cli-reg-001.json"
+    write_creator_candidate_artifact(cand_path, cand)
+
+    ledger_db = tmp_path / "ledger.sqlite3"
+    _init_test_ledger(ledger_db, cand)
+
+    registry_path = tmp_path / "custom_registry.json"
+    output_dir = tmp_path / "cycle_output"
+    args = [
+        "--symbol",
+        "BTCUSDT",
+        "--ledger-db",
+        str(ledger_db),
+        "--parquet-path",
+        str(PARQUET_PATH),
+        "--output-dir",
+        str(output_dir),
+        "--candidate-path",
+        str(cand_path),
+        "--cycle-id",
+        "cycle-cli-reg-001",
+        "--windows-count",
+        "1",
+        "--min-windows",
+        "1",
+        "--min-profit-factor",
+        "0.10",
+        "--min-trades",
+        "10",
+        "--max-drawdown-pct",
+        "50.0",
+        "--min-average-return-pct",
+        "-10.0",
+        "--candidate-registry-path",
+        str(registry_path),
+    ]
+
+    ret = run_cli_main(args)
+    assert ret == 0
+
+    assert registry_path.is_file()
+    from autonomous_futures.paper.candidate_registry import read_candidate_registry
+
+    manifest = read_candidate_registry(registry_path, verify_hash=True)
+    assert manifest.registry_version == 1
+    assert "BTCUSDT" in manifest.symbols
+    btc_entry = manifest.symbols["BTCUSDT"]
+    assert btc_entry.candidate_id.startswith("cand-")
+    assert len(btc_entry.candidate_artifact_hash) == 64
+    assert len(btc_entry.qualification_hash) == 64
+
+    from autonomous_futures.paper.candidate_registry import (
+        verify_candidate_manifest_entry,
+    )
+
+    assert verify_candidate_manifest_entry(btc_entry) is True

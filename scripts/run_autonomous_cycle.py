@@ -37,6 +37,10 @@ from autonomous_futures.data.parquet import (  # noqa: E402
     read_canonical_parquet,
 )
 from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
+from autonomous_futures.paper.candidate_registry import (  # noqa: E402
+    DEFAULT_CANDIDATE_REGISTRY_PATH,
+    publish_candidate_admission,
+)
 from autonomous_futures.paper.feedback_extractor import (  # noqa: E402
     PaperQualificationPolicy,
     extract_paper_feedback,
@@ -357,6 +361,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory to write autonomous-cycle-result.json and cycle-audit.json",
     )
     parser.add_argument(
+        "--candidate-registry-path",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to candidate_registry.json manifest to update upon candidate admission "
+            "(default: <ledger-db-dir>/candidate_registry.json "
+            "or artifacts/paper_live/candidate_registry.json)"
+        ),
+    )
+    parser.add_argument(
         "--require-flat",
         action="store_true",
         default=False,
@@ -550,6 +564,11 @@ def build_cycle_audit(
         "configuration": {
             "ledger_db": str(args.ledger_db) if getattr(args, "ledger_db", None) else None,
             "parquet_path": str(args.parquet_path) if getattr(args, "parquet_path", None) else None,
+            "candidate_registry_path": (
+                str(args.candidate_registry_path)
+                if getattr(args, "candidate_registry_path", None)
+                else None
+            ),
             "windows_count": args.windows_count,
             "bars_per_window": args.bars_per_window,
             "require_flat": args.require_flat,
@@ -850,6 +869,66 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
     if _SECRET_PATTERN.search(audit_json):
         raise RuntimeError("Secret pattern detected in cycle audit")
     (output_dir / "cycle-audit.json").write_text(audit_json + "\n", encoding="utf-8")
+
+    # 10. Atomic Candidate Registry Publishing (upon candidate admission)
+    if result.cycle_status == "completed_admitted" or result.admission_decision == "admitted":
+        if (
+            result.candidate_id is None
+            or result.candidate_artifact_hash is None
+            or result.qualification_hash is None
+        ):
+            raise DomainViolation(
+                f"Admitted cycle result missing critical candidate lineage: {result.cycle_id}"
+            )
+
+        cand_artifact_path = output_dir / "candidates" / f"{result.candidate_id}.json"
+        if not cand_artifact_path.is_file():
+            raise FileNotFoundError(
+                f"Candidate artifact file missing at expected path: {cand_artifact_path}"
+            )
+
+        # Verify candidate artifact hash integrity before publishing
+        cand_artifact = read_creator_candidate_artifact(cand_artifact_path)
+        if cand_artifact.artifact_hash != result.candidate_artifact_hash:
+            raise DomainViolation(
+                f"Candidate artifact hash mismatch on disk: "
+                f"expected {result.candidate_artifact_hash}, "
+                f"got {cand_artifact.artifact_hash}"
+            )
+
+        if getattr(args, "candidate_registry_path", None):
+            registry_path = Path(args.candidate_registry_path)
+        elif getattr(args, "ledger_db", None):
+            ledger_p = Path(args.ledger_db)
+            ledger_dir = ledger_p if ledger_p.is_dir() else ledger_p.parent
+            registry_path = ledger_dir / "candidate_registry.json"
+        else:
+            registry_path = DEFAULT_CANDIDATE_REGISTRY_PATH
+
+        logger.info(
+            "Publishing admitted candidate %s for symbol %s to registry %s",
+            result.candidate_id,
+            result.symbol,
+            registry_path,
+        )
+        manifest = publish_candidate_admission(
+            manifest_path=registry_path,
+            symbol=result.symbol,
+            candidate_id=result.candidate_id,
+            candidate_artifact_hash=result.candidate_artifact_hash,
+            artifact_path=cand_artifact_path.as_posix(),
+            qualification_hash=result.qualification_hash,
+            admitted_at=result.completed_at.isoformat()
+            if hasattr(result.completed_at, "isoformat")
+            else str(result.completed_at),
+        )
+        logger.info(
+            "Candidate registry updated successfully: version=%d, hash=%s, symbols=%s at %s",
+            manifest.registry_version,
+            manifest.registry_hash,
+            list(manifest.symbols.keys()),
+            registry_path,
+        )
 
     if result.cycle_status == "failed":
         reasons = list(result.stop_reasons)
