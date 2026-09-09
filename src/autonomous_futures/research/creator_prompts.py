@@ -22,7 +22,8 @@ _SYSTEM_PROMPT = (
     "markdown, code fences, prose, URLs, secrets, tools, or orders. strategy_id must "
     "start with cand- but is an untrusted placeholder replaced by a local content hash; "
     "research_run_id must match the supplied run. "
-    "family must be one of regime_gated_breakout, range_mean_reversion, experimental; "
+    "family must be one of regime_gated_breakout, range_mean_reversion, "
+    "volatility_compression_breakout, experimental; "
     f"features must use only {', '.join(sorted(SUPPORTED_FEATURES))}; each feature needs "
     'a positive lookback and shift >= 1; universe must use timeframe="5m" and '
     'regime_context_timeframe="15m". proposal_id must start with proposal- and '

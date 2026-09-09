@@ -186,7 +186,12 @@ class CandidateSimulationRisk(DomainModel):
 class StrategySpec(DomainModel):
     dsl_version: Literal[1, 2]
     strategy_id: str = Field(min_length=1)
-    family: Literal["regime_gated_breakout", "range_mean_reversion", "experimental"]
+    family: Literal[
+        "regime_gated_breakout",
+        "range_mean_reversion",
+        "volatility_compression_breakout",
+        "experimental",
+    ]
     universe: StrategyUniverse
     features: tuple[FeatureRef, ...] = Field(min_length=1)
     entry: EntryExit

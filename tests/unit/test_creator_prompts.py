@@ -67,6 +67,7 @@ def test_creator_prompt_spells_out_strategy_value_constraints() -> None:
     assert "family must be one of" in system_prompt
     assert "regime_gated_breakout" in system_prompt
     assert "range_mean_reversion" in system_prompt
+    assert "volatility_compression_breakout" in system_prompt
     assert "experimental" in system_prompt
     assert "features must use only" in system_prompt
     assert "rsi" in system_prompt

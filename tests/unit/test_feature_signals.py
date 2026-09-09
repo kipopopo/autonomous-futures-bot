@@ -128,6 +128,26 @@ def test_bollinger_zscore_is_supported_and_uses_only_prior_bars() -> None:
     pd.testing.assert_frame_equal(source, _frame())
 
 
+def test_bollinger_width_is_supported_and_uses_only_prior_bars() -> None:
+    candidate = _candidate(
+        feature_names=("bollinger_width",),
+        long_expression="bollinger_width < 0.1",
+        short_expression="bollinger_width > 0.1",
+    )
+    source = _frame()
+    mutated = source.copy(deep=True)
+    mutated.loc[8, "close"] = Decimal("9999")
+    mutated.loc[8, "high"] = Decimal("10000")
+
+    original = CausalFeatureSignalEvaluator().evaluate(candidate, source)
+    changed = CausalFeatureSignalEvaluator().evaluate(candidate, mutated)
+
+    assert "bollinger_width" in original.columns
+    assert original.loc[8, "bollinger_width"] == changed.loc[8, "bollinger_width"]
+    assert original.loc[8, "signal"] == changed.loc[8, "signal"]
+    pd.testing.assert_frame_equal(source, _frame())
+
+
 def test_rsi_is_supported_and_uses_only_prior_bars() -> None:
     candidate = _candidate(
         feature_names=("rsi",),

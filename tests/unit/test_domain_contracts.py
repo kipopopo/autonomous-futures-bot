@@ -121,6 +121,15 @@ def test_strategy_spec_accepts_only_causal_bounded_dsl() -> None:
         parse_strategy_spec(executable_expression)
 
 
+def test_strategy_spec_accepts_volatility_compression_breakout_family() -> None:
+    payload = valid_strategy_payload()
+    payload["family"] = "volatility_compression_breakout"
+
+    spec = parse_strategy_spec(payload)
+
+    assert spec.family == "volatility_compression_breakout"
+
+
 def test_strategy_spec_cannot_grant_execution_authority() -> None:
     payload = valid_strategy_payload()
     payload["leverage"] = 10

@@ -62,6 +62,29 @@ exit on regime neutral/opposite. Same 12-window scope and fixed accounting:
 This family is closed for this exact hypothesis and data scope. No threshold
 was relaxed and no parameter search was performed.
 
+## Volatility-compression breakout family
+
+The next major slice added the smallest causal implementation required for a
+new family: `StrategySpec.family="volatility_compression_breakout"`, Creator
+prompt support, and a prior-bar-only `bollinger_width` feature defined as
+`4 * rolling_std / rolling_mean`, shifted by the declared feature shift. The
+feature and family identity were covered by RED→GREEN tests; the related
+focused suite passed **40 tests**, Ruff/format/mypy/lock/diff gates passed.
+
+The production VPS source was not replaced for this probe. A temporary source
+overlay ran the exact project venv against the same cached Parquet scope:
+
+| Symbol | Trades | Pooled net PnL | Pooled PF | Avg return | Worst DD | Fixed policy |
+|---|---:|---:|---:|---:|---:|---|
+| BTCUSDT | 73 | -1.289989 | 0.392991 | -0.107499 | 0.607749 | FAIL |
+| ETHUSDT | 70 | -0.989890 | 0.589301 | -0.082491 | 0.603972 | FAIL |
+| SOLUSDT | 65 | -1.701089 | 0.360415 | -0.141757 | 0.479169 | FAIL |
+
+The predeclared hypothesis used `bollinger_width <= 0.04`, z-score breakout
+at `±1.5`, and `adx >= 20`, with exits at z-score neutral or ADX below 15.
+It failed all three required symbols. No candidate was persisted, admitted,
+hot-reloaded, or sent to paper execution.
+
 ## Provider-cycle evidence
 
 Two explicitly bounded provider cycles preceded the offline family probe:
@@ -89,8 +112,9 @@ At final observation:
 
 ## Next boundary
 
-Do not run another Creator/Critic retry against the same rejected hypotheses.
-The next useful work is a new, explicitly defined family/data hypothesis with
-cross-symbol gates from the start, or a root-cause audit of the simulator/data
-semantics. Live account activation remains blocked until a portable qualified
-candidate, healthy paper state, and fresh live review/preflight exist.
+Do not run another Creator/Critic retry against these rejected hypotheses.
+The volatility-compression slice is also rejected on the current cached scope.
+The next useful work is a root-cause audit of simulator/data semantics or a
+new family design with cross-symbol gates from the start. Live account
+activation remains blocked until a portable qualified candidate, healthy paper
+state, and fresh live review/preflight exist.

@@ -17,6 +17,7 @@ SUPPORTED_FEATURES = frozenset(
         "donchian_high",
         "donchian_low",
         "bollinger_zscore",
+        "bollinger_width",
         "rsi",
         "adx",
         "regime_trend",
@@ -83,6 +84,10 @@ def _feature_series(
         mean = close.rolling(window=lookback, min_periods=lookback).mean()
         standard_deviation = close.rolling(window=lookback, min_periods=lookback).std(ddof=0)
         raw = (close - mean).div(standard_deviation.mask(standard_deviation == 0))
+    elif name == "bollinger_width":
+        mean = close.rolling(window=lookback, min_periods=lookback).mean()
+        standard_deviation = close.rolling(window=lookback, min_periods=lookback).std(ddof=0)
+        raw = (standard_deviation * 4).div(mean.mask(mean == 0))
     elif name == "rsi":
         delta = close.diff()
         gain = (
