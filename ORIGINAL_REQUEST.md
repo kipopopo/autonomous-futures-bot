@@ -287,3 +287,61 @@ Create a hardened production-grade systemd service definition template (`systemd
 - [ ] `uv run --locked mypy src scripts` reports 0 type issues.
 - [ ] Changes committed and pushed directly to `origin/main`.
 
+## 2026-09-09T05:50:02Z
+
+Requested team: Full multi-agent team (parallel researchers, architects, builders, and auditors)
+
+Execute Phase 5 of the Autonomous Futures Bot: Production Staging, Code Parity Synchronization, and Zero-Disruption Operational Verification on Kainode Linux VPS.
+
+Working directory: B:\
+Integrity mode: development
+
+## Requirements
+
+### R1. VPS Codebase Staging & Compilation Parity
+Synchronize the verified Phase 1–4 release source (commit `f80b5d4` on `origin/main`) to `/opt/autonomous-futures-bot` on Kainode VPS (`147.79.18.15`) via unprivileged SSH operator `afbot` using `C:/Users/thaqi/.ssh/kainode_ed25519_openssh`:
+- Deploy updated `src/autonomous_futures/` (Gemma 4 provider, candidate registry hot-reloader, admission decider).
+- Deploy updated `scripts/`: `run_autonomous_scheduler.py`, `run_autonomous_cycle.py`, `check_autonomous_pipeline_health.py`.
+- Deploy updated `deploy/` and `systemd/` service templates.
+- Compile Python sources remotely using `/opt/autonomous-futures-bot/.venv/bin/python -m compileall src scripts` to prove byte-compilation without syntax errors.
+
+### R2. Pre-Flight Ledger & Live Service Invariant Verification
+Verify production runtime safety before any execution:
+- Audit live paper service: `autonomous-futures-paper-live.service` must remain undisturbed (`active/running`, restart count unchanged).
+- Run read-only SQLite ledger checks (`mode=ro`, `PRAGMA query_only=ON`): confirm `PRAGMA integrity_check` is `ok`, verify open/close event count parity, and assert 0 dirty intents.
+- Run the new health diagnostic CLI on the VPS:
+  `/opt/autonomous-futures-bot/.venv/bin/python scripts/check_autonomous_pipeline_health.py --storage-dir /opt/autonomous-futures-bot/artifacts/paper_live --allow-missing-scheduler`
+  and confirm it reports HEALTHY for the paper daemon.
+
+### R3. Non-Disruptive Autonomous Cycle & Scheduler Dry-Run Smoke Test
+Execute an offline, isolated single-shot smoke test of the autonomous scheduler under unprivileged user `afbot`:
+- Create scheduler directory if not present: `/opt/autonomous-futures-bot/artifacts/paper_live/scheduler` (owned by `afbot:afbot`).
+- Execute a single evaluation pass:
+  `/opt/autonomous-futures-bot/.venv/bin/python scripts/run_autonomous_scheduler.py --symbol BTCUSDT --once --provider demo --ledger-db /opt/autonomous-futures-bot/artifacts/paper_live/paper-ledger.sqlite3 --parquet-path /opt/autonomous-futures-bot/research/immutable-data/5m/canonical/BTCUSDT-5m.parquet --candidate-registry-path /opt/autonomous-futures-bot/artifacts/paper_live/candidate_registry.json --output-dir /opt/autonomous-futures-bot/artifacts/paper_live/scheduler`
+- Assert `scheduler-health.json` is generated with valid schema and `scheduler.lock` is cleanly unlinked.
+- Re-run `check_autonomous_pipeline_health.py` and assert unified HEALTHY status across both paper daemon and scheduler.
+
+### R4. Formal Deployment Verification Artifact & Operational Runbook
+Generate a reproducible verification report (`verification/PHASE_277_AUTONOMOUS_PIPELINE_DEPLOYMENT.md`):
+- Record remote Git commit SHA, byte parity manifest hash, timestamps, and service PIDs.
+- Document exact systemd unit file installation instructions for operator handover.
+- Enforce strict safety invariants: ZERO restarts of `autonomous-futures-paper-live.service`, ZERO paid LLM API calls, ZERO live exchange orders, ZERO destructive database operations.
+
+## Acceptance Criteria
+
+### Remote Staging & Parity
+- [ ] Remote `/opt/autonomous-futures-bot` compiles cleanly with zero syntax/type errors under Python 3.14.7.
+- [ ] `check_autonomous_pipeline_health.py` and `run_autonomous_scheduler.py` are executable on the VPS.
+
+### Live Safety & Invariant Protection
+- [ ] `autonomous-futures-paper-live.service` PID remains unchanged throughout the operation (zero restarts).
+- [ ] SQLite ledger `PRAGMA integrity_check` returns `ok` and unmatched events remain 0.
+
+### Smoke Test Execution
+- [ ] Single evaluation pass (`--once --provider demo`) completes with exit code 0.
+- [ ] `scheduler-health.json` reflects successful cycle execution and lockfile is released.
+- [ ] `check_autonomous_pipeline_health.py` returns exit code 0 (HEALTHY).
+
+### Quality & Verification Evidence
+- [ ] `verification/PHASE_277_AUTONOMOUS_PIPELINE_DEPLOYMENT.md` committed and pushed to `origin/main`.
+- [ ] Local tests and static checks (`ruff`, `mypy`) pass cleanly.
