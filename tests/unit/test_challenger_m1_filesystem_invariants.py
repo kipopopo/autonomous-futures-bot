@@ -308,6 +308,7 @@ class TestWindowsAtomicReplacementAndTempCleanup:
         assert successful_reads > 0, "Expected successful reads"
         assert successful_writes > 0, "Expected successful writes"
 
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows NTFS file locking semantics")
     def test_windows_file_locking_exclusive_contention_and_cleanup(self, tmp_path: Path) -> None:
         """Empirically test Windows file locking: open handle blocks replace, temp cleaned up.
 
