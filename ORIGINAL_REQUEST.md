@@ -96,3 +96,131 @@ Implement rigorous programmatic tests covering all new provider paths:
 - [ ] `uv run --locked ruff format --check src tests scripts` passes cleanly.
 - [ ] `uv run --locked mypy src scripts` reports 0 type issues.
 - [ ] All 48+ existing unit and integration tests continue to pass.
+
+## 2026-09-09T01:08:18Z
+
+Requested team: Full multi-agent team (parallel researchers, architects, builders, and auditors)
+
+Implement dynamic, zero-downtime candidate hot-reloading for the 24/7 Live Paper Trading Daemon so newly admitted autonomous strategies published to the candidate registry manifest are seamlessly adopted without service restarts, WebSocket interruptions, or open-trade mutations.
+
+Working directory: B:\
+Integrity mode: development
+
+## Requirements
+
+### R1. Candidate Registry Manifest Specification & Publisher
+Define and implement a versioned, atomic candidate registry manifest (`candidate_registry.json`) in the paper trading storage directory (`artifacts/paper_live/`):
+- Contract includes: `registry_version`, `updated_at`, `symbols: {<symbol>: {candidate_id, candidate_artifact_hash, artifact_path, qualification_hash, admitted_at}}`, and a top-level deterministic `registry_hash`.
+- `scripts/run_autonomous_cycle.py` atomically updates this manifest (write to temporary file + atomic rename) whenever a candidate achieves `admitted` status.
+- Support reading and publishing with strict schema validation and cryptographic content hash verification.
+
+### R2. Zero-Downtime Hot-Reloading in Live Paper Daemon
+Enhance `scripts/run_phase_259_live_paper_daemon.py` and `LivePaperEngine` to periodically monitor `candidate_registry.json`:
+- Check for manifest updates in `run_heartbeat_loop` (and/or on 5m candle close) using file modification time (`mtime`) and SHA-256 hash checks without blocking the event loop.
+- Upon detecting an update, safely load and validate the new candidate artifacts using `_artifact_content_hash`.
+- Call `engine.admit_candidate(...)` to update `engine.candidates[symbol]` for subsequent entries without interrupting WebSocket feeds or resetting shared account margin.
+- **Open-Trade Immutability Invariant**: Any currently open trade (`ActivePaperTrade`) MUST retain its original strategy binding (`trade.candidate`); its exit rules, signal evaluations, and protective ATR levels must not be mutated by the newly hot-reloaded candidate.
+
+### R3. Observability & Health Telemetry
+Expose candidate registry state in runtime telemetry and diagnostics:
+- Update `paper-daemon-health.json` emitted by `run_heartbeat_loop` to include `active_candidates: {<symbol>: <candidate_id>}` and `last_registry_reload: {reloaded_at, registry_hash, reload_status}`.
+- Emit structured log messages on reload events and handle malformed or corrupted registry manifests fail-closed (log warning and retain current candidates without crashing the daemon).
+
+### R4. Comprehensive Verification & Adversarial Stress Tests
+Implement programmatic test suites:
+- Unit tests validating manifest schema serialization, atomic publishing, and hash verification.
+- Concurrency and lifecycle tests in `tests/integration/test_paper_candidate_hot_reload.py`:
+  1. Hot-reload during active position: verify active trade retains Candidate A exit behavior while subsequent trade adopts Candidate B.
+  2. Malformed/tampered manifest resistance: verify daemon rejects corrupt JSON or hash mismatches and preserves existing candidates safely.
+  3. Continuous daemon stability: verify zero disruption to WebSocket message processing and margin accounting during reload.
+- Ensure 100% pass across all pre-existing unit and integration test suites.
+
+## Acceptance Criteria
+
+### Registry Manifest & Publishing
+- [ ] `candidate_registry.json` schema is formally specified as a Pydantic model with deterministic SHA-256 `registry_hash`.
+- [ ] `scripts/run_autonomous_cycle.py` atomically updates `candidate_registry.json` upon candidate admission.
+
+### Daemon Hot-Reload & Immutability
+- [ ] `run_phase_259_live_paper_daemon.py` automatically detects and reloads updated candidates within the heartbeat interval without process restarts.
+- [ ] Any existing active position continues evaluating exits against its original candidate binding; zero strategy mutation on open trades.
+- [ ] Subsequent new entries opened after hot-reload execute using the newly admitted candidate.
+- [ ] Corrupted, partially written, or tampered manifest files are rejected fail-closed without crashing the daemon or altering running candidates.
+
+### Health Telemetry & Quality Gates
+- [ ] `paper-daemon-health.json` reflects the current active candidate ID per symbol and last reload timestamp.
+- [ ] `tests/integration/test_paper_candidate_hot_reload.py` passes 100%.
+- [ ] `uv run --locked ruff check src tests scripts` reports 0 errors.
+- [ ] `uv run --locked ruff format --check src tests scripts` passes cleanly.
+- [ ] `uv run --locked mypy src scripts` reports 0 type issues.
+- [ ] All 93+ existing unit and integration tests continue to pass.
+
+## 2026-09-09T03:03:22Z
+
+Requested team: Full multi-agent team (parallel researchers, architects, builders, and auditors)
+
+Build an autonomous scheduling and trigger daemon (`scripts/run_autonomous_scheduler.py`) that periodically evaluates paper trading ledger feedback, orchestrates the bounded autonomous cycle (`scripts/run_autonomous_cycle.py`), and hot-publishes qualified candidate strategies with non-overlapping process locks, failure backoff, and durable health observability.
+
+Working directory: B:\
+Integrity mode: development
+
+## Requirements
+
+### R1. Autonomous Scheduler CLI & Lifecycle Runner
+Implement an executable daemon/scheduler (`scripts/run_autonomous_scheduler.py`):
+- Run continuously or as a single-shot execution with options: `--interval-seconds` (default 3600), `--symbol`, `--ledger-db`, `--parquet-path`, `--provider {demo,google_ai_studio}`, `--model`, `--once` (run single evaluation pass and exit).
+- Support non-overlapping execution lock (PID lockfile / filesystem mutex) to prevent concurrent cycle executions from corrupting artifacts or SQLite ledgers.
+- Graceful shutdown on SIGINT / SIGTERM: wait for running cycle to complete or cleanly abort child execution without leaving orphaned processes or corrupt lockfiles.
+
+### R2. Dual Trigger Mechanism: Periodic Interval & Ledger Performance Breach
+Implement intelligent triggering logic to optimize compute and LLM calls:
+- **Interval Trigger**: Trigger an autonomous cycle when the scheduled interval elapses, provided fresh 5m market data is available.
+- **Feedback / Breach Trigger**: Monitor `paper-ledger.sqlite3` closed trades; trigger an evaluation cycle early when performance breaches the qualification policy or when a minimum number of new trades close under an underperforming candidate.
+- **Throttle / Cooldown Guard**: Enforce a minimum cooldown between consecutive cycles (e.g. `--min-cooldown-seconds 300`) to prevent rapid-fire loop executions during market volatility.
+
+### R3. Resilient Error Handling & Exponential Backoff
+Guarantee robust continuous unattended operation:
+- Handle child process failures (exit code 2 or 3), network timeouts, or missing market data gracefully without crashing the scheduler daemon.
+- Implement exponential backoff on consecutive cycle failures (e.g. 1m -> 2m -> 4m up to a maximum cap), resetting to standard interval on success.
+- Record failure diagnostics and error lineage in structured logs.
+
+### R4. Observability & Daemon Health Telemetry
+Expose scheduler health and execution telemetry:
+- Emit `scheduler-health.json` on each loop iteration and status change:
+  - `status`: `IDLE`, `RUNNING_CYCLE`, `BACKOFF`, `STOPPED`.
+  - `last_run_at`, `next_run_at`, `consecutive_failures`, `total_cycles_executed`, `admitted_candidates_count`.
+  - `last_cycle_result`: {`cycle_id`, `status`, `exit_code`, `candidate_id`, `admitted`}.
+- Provide diagnostic inspectability for operators and systemd service integration.
+
+### R5. Comprehensive Verification & Adversarial Testing
+Implement exhaustive programmatic tests:
+- Unit tests validating lock acquisition/release, PID file cleanup, trigger decision logic, and exponential backoff calculations.
+- Concurrency tests verifying that two scheduler instances refuse to execute simultaneously.
+- Integration tests in `tests/integration/test_autonomous_scheduler.py` simulating end-to-end scheduler execution:
+  1. Periodic timer trigger firing cycle and updating `candidate_registry.json`.
+  2. Ledger breach trigger firing ahead of schedule upon performance degradation.
+  3. Graceful termination on SIGINT/SIGTERM without state corruption.
+  4. Failure recovery and backoff behavior under simulated cycle errors.
+
+## Acceptance Criteria
+
+### Daemon CLI & Lock Invariants
+- [ ] `python scripts/run_autonomous_scheduler.py --help` exposes interval, symbol, provider, cooldown, and `--once` options.
+- [ ] Single-instance lock mechanism prevents multiple concurrent scheduler processes; second process exits cleanly with descriptive error.
+- [ ] SIGINT / SIGTERM triggers clean shutdown and unlinks the lockfile.
+
+### Trigger Logic & Backoff
+- [ ] Scheduler triggers cycles accurately upon interval expiration when new data is present.
+- [ ] Underperforming closed trades in SQLite ledger trigger early cycle execution when cooldown permits.
+- [ ] Consecutive failures back off exponentially without crashing the daemon process.
+
+### Telemetry & Health Invariants
+- [ ] `scheduler-health.json` is emitted and updated deterministically on every iteration.
+- [ ] Successfully admitted strategies update both `candidate_registry.json` and scheduler telemetry.
+
+### Verification & Quality Gates
+- [ ] `tests/integration/test_autonomous_scheduler.py` passes 100%.
+- [ ] `uv run --locked ruff check src tests scripts` reports 0 errors.
+- [ ] `uv run --locked ruff format --check src tests scripts` passes cleanly.
+- [ ] `uv run --locked mypy src scripts` reports 0 type issues.
+- [ ] All pre-existing unit and integration tests continue to pass.
