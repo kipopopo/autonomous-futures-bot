@@ -223,10 +223,10 @@ Re-auditing confirmed zero process or database disruption:
 The production scheduler daemon service is defined in template `/opt/autonomous-futures-bot/systemd/autonomous-futures-scheduler.service.template`:
 ```ini
 [Unit]
-Description=Autonomous Futures Strategy Optimization Scheduler Daemon
-After=network.target autonomous-futures-paper-live.service
-Wants=autonomous-futures-paper-live.service
-Documentation=https://github.com/kipopopo/autonomous-futures-bot
+Description=Autonomous Futures Bot periodic evaluation and strategy revision scheduler daemon
+Documentation=file:///opt/autonomous-futures-bot/README.md
+After=network-online.target autonomous-futures-paper-live.service
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -234,39 +234,54 @@ User=afbot
 Group=afbot
 WorkingDirectory=/opt/autonomous-futures-bot
 
-# Security & Sandbox Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-MemoryDenyWriteExecute=false
-LockPersonality=true
+# Standard runtime environment
+Environment="PYTHONPATH=/opt/autonomous-futures-bot/src"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/opt/autonomous-futures-bot/.venv/bin:/usr/local/bin:/usr/bin:/home/afbot/.cargo/bin:$PATH"
+EnvironmentFile=-/opt/autonomous-futures-bot/.env
 
-# Filesystem Access Boundaries
-ReadWritePaths=/opt/autonomous-futures-bot/artifacts /opt/autonomous-futures-bot/artifacts/paper_live /opt/autonomous-futures-bot/artifacts/paper_live/scheduler /opt/autonomous-futures-bot/artifacts/paper_live/candidate_registry.json
-
-# Process Invocation
+# Execution runner via virtual environment python
+# Command line flags configure standard 1h evaluation, 5m cooldown guard, and isolated paths
+# Default provider is offline 'demo' to prevent unauthorized API calls/burns.
+# OPERATOR GUIDANCE: To switch to Google AI Studio Gemma provider:
+# 1. Ensure GOOGLE_API_KEY is configured in /opt/autonomous-futures-bot/.env
+# 2. Replace '--provider demo' with '--provider google_ai_studio --model gemma-4-31b-it'
 ExecStart=/opt/autonomous-futures-bot/.venv/bin/python scripts/run_autonomous_scheduler.py \
     --symbol BTCUSDT \
     --interval-seconds 3600 \
     --min-cooldown-seconds 300 \
-    --provider google_ai_studio \
-    --model gemma-4-31b-it \
+    --output-dir /opt/autonomous-futures-bot/artifacts/paper_live/scheduler \
     --ledger-db /opt/autonomous-futures-bot/artifacts/paper_live/paper-ledger.sqlite3 \
-    --lifecycle-db /opt/autonomous-futures-bot/artifacts/paper_live/paper-lifecycle.sqlite3 \
     --parquet-path /opt/autonomous-futures-bot/research/immutable-data/5m/canonical/BTCUSDT-5m.parquet \
     --candidate-registry-path /opt/autonomous-futures-bot/artifacts/paper_live/candidate_registry.json \
-    --output-dir /opt/autonomous-futures-bot/artifacts/paper_live/scheduler
+    --provider demo \
+    --log-level INFO
 
+# Restart and lifecycle management
 Restart=always
 RestartSec=30
-TimeoutStopSec=30
-KillMode=mixed
+TimeoutStopSec=60s
+KillMode=control-group
+KillSignal=SIGTERM
+
+# Hardened Linux sandboxing directives
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/autonomous-futures-bot/artifacts
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+# Additional defense-in-depth hardening
+ProtectKernelModules=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryMax=4G
+CPUQuota=300%
 
 [Install]
 WantedBy=multi-user.target
@@ -366,10 +381,10 @@ uv run --locked pytest tests/integration/test_autonomous_pipeline_e2e.py
 ```
 - **Result**: `4 passed in 13.50s`
 - **Scenarios Verified**:
-  1. `test_end_to_end_autonomous_cycle_demo_closed_loop`: Seamless execution from ledger trade feedback extraction, walk-forward evaluation, candidate admission, and registry publication.
-  2. `test_candidate_registry_hot_reload_in_live_engine`: Hot-reloader dynamically detects updated candidate registry hash and binds new candidate definitions without restart.
-  3. `test_position_binding_preservation_across_candidate_reload`: Existing open positions retain their historical candidate parameters while subsequent positions execute the revised candidate strategy.
-  4. `test_systemd_template_compliance`: Validates systemd unit syntax, sandboxing directives, user/group configurations, and execution path boundaries.
+  1. `test_autonomous_closed_loop_breach_to_hot_reload_e2e`: Seamless progression from ledger trade feedback breach -> autonomous cycle qualification -> candidate admission -> hot-reload -> position execution.
+  2. `test_autonomous_closed_loop_interval_trigger_e2e`: Scheduled interval execution with fresh market data and hot-reload.
+  3. `test_e2e_open_trade_tick_atr_trailing_stop_immutability`: In-flight trade ATR trailing stop price ratcheting immutability across hot reload.
+  4. `test_e2e_tampered_manifest_fail_closed_resilience`: Fail-closed resilience against 5 adversarial manifest tampering vectors.
 
 ---
 

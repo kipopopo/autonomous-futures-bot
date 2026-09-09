@@ -34,14 +34,14 @@
 #     sudo chown -R afbot:afbot /opt/autonomous-futures-bot/artifacts/paper_live/scheduler
 #     sudo chmod 750 /opt/autonomous-futures-bot/artifacts/paper_live/scheduler
 #
-#   Verify market data and uv binary availability:
+#   Verify market data and virtualenv python availability:
 #     ls -lh /opt/autonomous-futures-bot/research/immutable-data/5m/canonical/BTCUSDT-5m.parquet
-#     command -v uv || which uv
+#     /opt/autonomous-futures-bot/.venv/bin/python --version
 #
 # Step 2: Single-Run Dry-Run Smoke Test (Zero Disruption)
 #   Execute a single evaluation pass under the unprivileged `afbot` account:
 #     sudo -u afbot bash -c "cd /opt/autonomous-futures-bot && \
-#       /usr/local/bin/uv run --locked python scripts/run_autonomous_scheduler.py \
+#       /opt/autonomous-futures-bot/.venv/bin/python scripts/run_autonomous_scheduler.py \
 #         --symbol BTCUSDT \
 #         --once \
 #         --output-dir /opt/autonomous-futures-bot/artifacts/paper_live/scheduler \
@@ -77,7 +77,7 @@
 #
 #   Run unified health diagnostics CLI:
 #     sudo -u afbot bash -c "cd /opt/autonomous-futures-bot && \
-#       /usr/local/bin/uv run --locked python scripts/check_autonomous_pipeline_health.py \
+#       /opt/autonomous-futures-bot/.venv/bin/python scripts/check_autonomous_pipeline_health.py \
 #         --storage-dir /opt/autonomous-futures-bot/artifacts/paper_live"
 #
 #   Confirm live paper daemon was completely undisturbed (PID and uptime intact):
@@ -113,12 +113,16 @@ WorkingDirectory=/opt/autonomous-futures-bot
 # Standard runtime environment
 Environment="PYTHONPATH=/opt/autonomous-futures-bot/src"
 Environment="PYTHONUNBUFFERED=1"
-Environment="PATH=/usr/local/bin:/usr/bin:/home/afbot/.cargo/bin:$PATH"
+Environment="PATH=/opt/autonomous-futures-bot/.venv/bin:/usr/local/bin:/usr/bin:/home/afbot/.cargo/bin:$PATH"
 EnvironmentFile=-/opt/autonomous-futures-bot/.env
 
-# Locked execution runner via uv
+# Execution runner via virtual environment python
 # Command line flags configure standard 1h evaluation, 5m cooldown guard, and isolated paths
-ExecStart=/usr/local/bin/uv run --locked python scripts/run_autonomous_scheduler.py \
+# Default provider is offline 'demo' to prevent unauthorized API calls/burns.
+# OPERATOR GUIDANCE: To switch to Google AI Studio Gemma provider:
+# 1. Ensure GOOGLE_API_KEY is configured in /opt/autonomous-futures-bot/.env
+# 2. Replace '--provider demo' with '--provider google_ai_studio --model gemma-4-31b-it'
+ExecStart=/opt/autonomous-futures-bot/.venv/bin/python scripts/run_autonomous_scheduler.py \
     --symbol BTCUSDT \
     --interval-seconds 3600 \
     --min-cooldown-seconds 300 \
