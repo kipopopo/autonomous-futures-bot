@@ -1,0 +1,159 @@
+# ==============================================================================
+# Autonomous Futures Bot — Production Systemd Service Template
+# ==============================================================================
+# Unit Name: autonomous-futures-scheduler.service
+# Target Host: Kainode Linux VPS (Ubuntu 24.04.4 LTS x86_64, systemd 255)
+# Target Path: /etc/systemd/system/autonomous-futures-scheduler.service
+# Service Operator: afbot (group: afbot, UID: 1001, GID: 1001)
+# Working Directory: /opt/autonomous-futures-bot
+#
+# OPERATIONAL RUNBOOK: ZERO-DISRUPTION DEPLOYMENT & MAINTENANCE
+# ------------------------------------------------------------------------------
+# In Phase 4 of the Autonomous Futures Bot, the autonomous scheduler daemon
+# (scripts/run_autonomous_scheduler.py) runs continuously alongside the 24/7 live
+# paper trading daemon (autonomous-futures-paper-live.service).
+#
+# CRITICAL OPERATIONAL INVARIANTS:
+# 1. DO NOT RESTART LIVE TRADING: The live paper daemon maintains active WebSocket
+#    streams and evaluates exits on open positions. NEVER run wildcard restart
+#    commands such as `systemctl restart autonomous-futures-*`.
+# 2. SANDBOXED STORAGE: Writes are strictly isolated to
+#    /opt/autonomous-futures-bot/artifacts. The codebase (src/), tests (tests/),
+#    and market data (research/immutable-data/) remain immutable and read-only.
+# 3. UNPRIVILEGED EXECUTION: The daemon MUST run as unprivileged user `afbot`.
+#    Root execution (UID 0) is explicitly rejected by codebase preflight checks.
+#
+# STEP-BY-STEP DEPLOYMENT PROCEDURE:
+# ----------------------------------
+# Step 1: Pre-Flight Verification & Directory Setup
+#   Verify the active status of the live paper daemon:
+#     sudo systemctl status autonomous-futures-paper-live.service --no-pager
+#
+#   Ensure the scheduler output directory exists with correct afbot ownership:
+#     sudo mkdir -p /opt/autonomous-futures-bot/artifacts/paper_live/scheduler
+#     sudo chown -R afbot:afbot /opt/autonomous-futures-bot/artifacts/paper_live/scheduler
+#     sudo chmod 750 /opt/autonomous-futures-bot/artifacts/paper_live/scheduler
+#
+#   Verify market data and uv binary availability:
+#     ls -lh /opt/autonomous-futures-bot/research/immutable-data/5m/canonical/BTCUSDT-5m.parquet
+#     command -v uv || which uv
+#
+# Step 2: Single-Run Dry-Run Smoke Test (Zero Disruption)
+#   Execute a single evaluation pass under the unprivileged `afbot` account:
+#     sudo -u afbot bash -c "cd /opt/autonomous-futures-bot && \
+#       /usr/local/bin/uv run --locked python scripts/run_autonomous_scheduler.py \
+#         --symbol BTCUSDT \
+#         --once \
+#         --output-dir /opt/autonomous-futures-bot/artifacts/paper_live/scheduler \
+#         --ledger-db /opt/autonomous-futures-bot/artifacts/paper_live/paper-ledger.sqlite3 \
+#         --parquet-path /opt/autonomous-futures-bot/research/immutable-data/5m/canonical/BTCUSDT-5m.parquet \
+#         --candidate-registry-path /opt/autonomous-futures-bot/artifacts/paper_live/candidate_registry.json \
+#         --provider demo"
+#
+#   Verify completion:
+#     cat /opt/autonomous-futures-bot/artifacts/paper_live/scheduler/scheduler-health.json
+#     test ! -f /opt/autonomous-futures-bot/artifacts/paper_live/scheduler/scheduler.lock && echo "Lock released"
+#     sudo systemctl status autonomous-futures-paper-live.service --no-pager
+#
+# Step 3: Install Service Unit File
+#   Copy template to systemd directory and set standard permissions:
+#     sudo cp /opt/autonomous-futures-bot/systemd/autonomous-futures-scheduler.service.template \
+#       /etc/systemd/system/autonomous-futures-scheduler.service
+#     sudo chown root:root /etc/systemd/system/autonomous-futures-scheduler.service
+#     sudo chmod 644 /etc/systemd/system/autonomous-futures-scheduler.service
+#
+# Step 4: Reload Systemd Daemon (Non-Disruptive)
+#   Tell systemd to read the new unit definition (does NOT interrupt running daemons):
+#     sudo systemctl daemon-reload
+#
+# Step 5: Enable and Start Autonomous Scheduler Service
+#   Enable for automated startup at boot and start immediately:
+#     sudo systemctl enable --now autonomous-futures-scheduler.service
+#
+# Step 6: Post-Deployment Verification & Telemetry Probing
+#   Verify active state and inspect service journal:
+#     sudo systemctl status autonomous-futures-scheduler.service --no-pager
+#     sudo journalctl -u autonomous-futures-scheduler.service -n 50 --no-pager
+#
+#   Run unified health diagnostics CLI:
+#     sudo -u afbot bash -c "cd /opt/autonomous-futures-bot && \
+#       /usr/local/bin/uv run --locked python scripts/check_autonomous_pipeline_health.py \
+#         --storage-dir /opt/autonomous-futures-bot/artifacts/paper_live"
+#
+#   Confirm live paper daemon was completely undisturbed (PID and uptime intact):
+#     sudo systemctl status autonomous-futures-paper-live.service --no-pager
+#
+# MAINTENANCE & ROLLBACK PROCEDURES:
+# ----------------------------------
+# Continuous Log Streaming:
+#   sudo journalctl -u autonomous-futures-scheduler.service -f
+#
+# Controlled Scheduler Restart (No Impact to Live Trading):
+#   sudo systemctl restart autonomous-futures-scheduler.service
+#
+# Immediate Decommission / Rollback:
+#   sudo systemctl stop autonomous-futures-scheduler.service
+#   sudo systemctl disable autonomous-futures-scheduler.service
+#   sudo rm -f /opt/autonomous-futures-bot/artifacts/paper_live/scheduler/scheduler.lock
+#   sudo systemctl status autonomous-futures-paper-live.service --no-pager
+# ==============================================================================
+
+[Unit]
+Description=Autonomous Futures Bot periodic evaluation and strategy revision scheduler daemon
+Documentation=file:///opt/autonomous-futures-bot/README.md
+After=network-online.target autonomous-futures-paper-live.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=afbot
+Group=afbot
+WorkingDirectory=/opt/autonomous-futures-bot
+
+# Standard runtime environment
+Environment="PYTHONPATH=/opt/autonomous-futures-bot/src"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/usr/local/bin:/usr/bin:/home/afbot/.cargo/bin:$PATH"
+EnvironmentFile=-/opt/autonomous-futures-bot/.env
+
+# Locked execution runner via uv
+# Command line flags configure standard 1h evaluation, 5m cooldown guard, and isolated paths
+ExecStart=/usr/local/bin/uv run --locked python scripts/run_autonomous_scheduler.py \
+    --symbol BTCUSDT \
+    --interval-seconds 3600 \
+    --min-cooldown-seconds 300 \
+    --output-dir /opt/autonomous-futures-bot/artifacts/paper_live/scheduler \
+    --ledger-db /opt/autonomous-futures-bot/artifacts/paper_live/paper-ledger.sqlite3 \
+    --parquet-path /opt/autonomous-futures-bot/research/immutable-data/5m/canonical/BTCUSDT-5m.parquet \
+    --candidate-registry-path /opt/autonomous-futures-bot/artifacts/paper_live/candidate_registry.json \
+    --provider demo \
+    --log-level INFO
+
+# Restart and lifecycle management
+Restart=always
+RestartSec=30
+TimeoutStopSec=60s
+KillMode=control-group
+KillSignal=SIGTERM
+
+# Hardened Linux sandboxing directives
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/autonomous-futures-bot/artifacts
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+# Additional defense-in-depth hardening
+ProtectKernelModules=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryMax=4G
+CPUQuota=300%
+
+[Install]
+WantedBy=multi-user.target

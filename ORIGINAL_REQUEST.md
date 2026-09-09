@@ -224,3 +224,66 @@ Implement exhaustive programmatic tests:
 - [ ] `uv run --locked ruff format --check src tests scripts` passes cleanly.
 - [ ] `uv run --locked mypy src scripts` reports 0 type issues.
 - [ ] All pre-existing unit and integration tests continue to pass.
+
+## 2026-09-09T04:57:45Z
+
+Requested team: Full multi-agent team (parallel researchers, architects, builders, and auditors)
+
+Deliver Phase 4 of the Autonomous Futures Bot: End-to-End Autonomous Closed-Loop Verification, Health Diagnostics CLI, and Production Systemd Service Specification.
+
+Working directory: B:\
+Integrity mode: development
+
+## Requirements
+
+### R1. End-to-End Autonomous Closed-Loop Integration Test Suite
+Implement an exhaustive integration test suite (`tests/integration/test_autonomous_pipeline_e2e.py`) validating the entire closed loop across running daemon components in an isolated temporary environment:
+- **Baseline Ingestion**: Bootstrap `LivePaperEngine` with baseline candidate strategies and mock market feeds.
+- **Trading & Feedback Accumulation**: Execute simulated trades recording entries and exits into `paper-ledger.sqlite3` and `paper-lifecycle.sqlite3`.
+- **Trigger Activation**: Trigger `run_autonomous_scheduler.py` via performance breach (stop-loss hits / negative expectancy) or interval timer.
+- **Cycle Execution**: Verify scheduler spawns `run_autonomous_cycle.py`, executes feedback review, trains revision parameters, qualifies candidate walk-forward OOS, and hot-publishes to `candidate_registry.json`.
+- **Zero-Downtime Hot-Reload**: Verify `CandidateRegistryHotReloader` in the running paper engine detects the updated registry, verifies cryptographic hashes, and updates `active_candidates`.
+- **Open-Trade Immutability Invariant**: Verify an existing open position continues evaluating exits against its original candidate binding without mutation, while new entries immediately adopt the newly admitted strategy.
+- **Telemetry Parity**: Verify `scheduler-health.json`, `paper-daemon-health.json`, and `cycle-audit.json` reflect consistent state.
+
+### R2. Unified Autonomous Pipeline Health Diagnostics CLI
+Build an executable diagnostic utility (`scripts/check_autonomous_pipeline_health.py`) for operators and monitoring probes:
+- Inspect runtime health files: `paper-daemon-health.json`, `scheduler-health.json`, and `candidate_registry.json`.
+- Verify heartbeat freshness (alert if heartbeats are older than `--stale-threshold-seconds`, default 120s).
+- Verify SQLite ledger integrity (`PRAGMA integrity_check`, query-only mode) and ensure no dirty recovery intents exist.
+- Support options: `--storage-dir`, `--json` (emit structured JSON output), `--quiet` (minimal summary), `--stale-threshold-seconds`.
+- Return clean exit codes: `0` (HEALTHY), `1` (DEGRADED / STALE), `2` (CRITICAL / UNHEALTHY).
+
+### R3. Hardened Production Systemd Service Template
+Create a hardened production-grade systemd service definition template (`systemd/autonomous-futures-scheduler.service.template`) for orchestrating the scheduler daemon on the Linux VPS alongside `autonomous-futures-paper-live.service`:
+- Configured with `WorkingDirectory=/opt/autonomous-futures-bot`, standard user/group, locked `uv run --locked` invocation, `Restart=always`, `RestartSec=30`, and standard environment variables.
+- Hardened systemd sandboxing: `NoNewPrivileges=true`, `ProtectSystem=strict`, `ProtectHome=read-only`, `ReadWritePaths=/opt/autonomous-futures-bot/artifacts`.
+- Include documentation in docstrings or comments detailing deployment steps without restarting existing live services.
+
+### R4. Fast Quality Gates & Zero Disruption Constraints
+- Local automated tests must execute rapidly (<60s) using isolated temporary directories and mock/cached transports.
+- DO NOT execute full repository 7-minute regression locally (full regression is verified automatically in GitHub Actions CI).
+- Strict safety invariants: ZERO live exchange connections, ZERO paid LLM API calls, ZERO mutations to production VPS processes.
+
+## Acceptance Criteria
+
+### E2E Integration Suite
+- [ ] `tests/integration/test_autonomous_pipeline_e2e.py` executes and passes 100% within 45s.
+- [ ] Validates seamless progression from ledger feedback breach → autonomous cycle → registry publish → daemon hot-reload → position execution.
+- [ ] Verifies open positions retain original candidate binding while subsequent positions execute the revised candidate.
+
+### Health Diagnostics CLI
+- [ ] `python scripts/check_autonomous_pipeline_health.py --help` displays all flags cleanly.
+- [ ] Correctly identifies HEALTHY, DEGRADED (stale heartbeat), and CRITICAL (missing files, corrupt db) states with corresponding exit codes (0, 1, 2).
+- [ ] Supports both formatted console summary and `--json` machine-readable output.
+
+### Systemd Service Specification
+- [ ] `systemd/autonomous-futures-scheduler.service.template` adheres to systemd best practices and Linux sandboxing.
+- [ ] Safe to install alongside existing `autonomous-futures-paper-live.service`.
+
+### Quality & Static Checks
+- [ ] `uv run --locked ruff check src tests scripts` reports 0 errors.
+- [ ] `uv run --locked ruff format --check src tests scripts` passes cleanly.
+- [ ] `uv run --locked mypy src scripts` reports 0 type issues.
+- [ ] Changes committed and pushed directly to `origin/main`.
+
