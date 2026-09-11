@@ -506,7 +506,7 @@ async def test_empirical_unhandled_task_exceptions_and_lifecycle_invariants(
             "--storage-dir",
             str(storage_dir),
             "--duration",
-            "1.8",
+            "5.0",
             "--checkpoint-interval",
             "0.08",
             "--starting-capital",

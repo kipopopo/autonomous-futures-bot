@@ -85,6 +85,12 @@ at `±1.5`, and `adx >= 20`, with exits at z-score neutral or ADX below 15.
 It failed all three required symbols. No candidate was persisted, admitted,
 hot-reloaded, or sent to paper execution.
 
+The existing Windows concurrency-churn regression had a timing-sensitive
+assertion: a 1.8-second daemon budget occasionally processed only 102–104 of
+120 queued frames while still shutting down cleanly. The test budget was
+raised to 5.0 seconds; the daemon and its semantics were unchanged. The exact
+regression passed after the correction.
+
 ## Provider-cycle evidence
 
 Two explicitly bounded provider cycles preceded the offline family probe:
