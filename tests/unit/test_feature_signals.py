@@ -153,6 +153,57 @@ def test_bollinger_width_is_supported_and_uses_only_prior_bars() -> None:
     pd.testing.assert_frame_equal(source, _frame())
 
 
+def test_donchian_breakout_is_causal_and_emits_fresh_breakout_entry() -> None:
+    closes = [
+        Decimal(value)
+        for value in (
+            "100",
+            "100",
+            "100",
+            "100",
+            "100",
+            "104",
+            "104",
+            "104",
+            "100",
+            "100",
+            "100",
+            "100",
+        )
+    ]
+    source = pd.DataFrame(
+        {
+            "timestamp": [START + timedelta(minutes=5 * index) for index in range(len(closes))],
+            "open": closes,
+            "high": [value + Decimal("1") for value in closes],
+            "low": [value - Decimal("1") for value in closes],
+            "close": closes,
+        }
+    )
+    candidate = _candidate(
+        feature_names=("donchian_breakout",),
+        long_expression="donchian_breakout > 0.5",
+        short_expression="donchian_breakout < -0.5",
+        exit_long_expression="donchian_breakout < 0.5",
+        exit_short_expression="donchian_breakout > -0.5",
+    )
+    mutated = source.copy(deep=True)
+    mutated.loc[6, "close"] = Decimal("9999")
+    mutated.loc[6, "high"] = Decimal("10000")
+
+    original = CausalFeatureSignalEvaluator().evaluate(candidate, source)
+    changed = CausalFeatureSignalEvaluator().evaluate(candidate, mutated)
+
+    assert original.loc[:3, "donchian_breakout"].isna().all()
+    assert original.loc[6, "donchian_breakout"] == 1
+    assert original.loc[6, "signal"] == 1
+    assert original.loc[9, "donchian_breakout"] == -1
+    assert original.loc[9, "signal"] == -1
+    assert original.loc[6, "donchian_breakout"] == changed.loc[6, "donchian_breakout"]
+    assert original.loc[6, "signal"] == changed.loc[6, "signal"]
+    pd.testing.assert_frame_equal(source, source.copy(deep=True))
+
+
 def test_relative_volume_is_causal_and_zero_baseline_stays_unknown() -> None:
     candidate = _candidate(
         feature_names=("relative_volume",),

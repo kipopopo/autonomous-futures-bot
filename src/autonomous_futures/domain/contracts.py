@@ -128,6 +128,7 @@ ALLOWED_FEATURES = frozenset(
         "realized_volatility",
         "donchian_high",
         "donchian_low",
+        "donchian_breakout",
         "ema_slope",
         "ema_distance",
         "adx",
@@ -189,6 +190,7 @@ class StrategySpec(DomainModel):
     family: Literal[
         "regime_gated_breakout",
         "range_mean_reversion",
+        "donchian_channel_breakout",
         "volatility_compression_breakout",
         "volume_confirmed_momentum",
         "experimental",

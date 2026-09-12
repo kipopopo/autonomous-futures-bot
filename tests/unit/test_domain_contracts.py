@@ -139,6 +139,25 @@ def test_strategy_spec_accepts_volume_confirmed_momentum_family() -> None:
     assert spec.family == "volume_confirmed_momentum"
 
 
+def test_strategy_spec_accepts_donchian_channel_breakout_family() -> None:
+    payload = valid_strategy_payload()
+    payload["family"] = "donchian_channel_breakout"
+    payload["features"] = [{"name": "donchian_breakout", "lookback": 20, "shift": 1}]
+    payload["entry"] = {
+        "long": "donchian_breakout > 0.5",
+        "short": "donchian_breakout < -0.5",
+    }
+    payload["exit"] = {
+        "long": "donchian_breakout < 0.5",
+        "short": "donchian_breakout > -0.5",
+    }
+
+    spec = parse_strategy_spec(payload)
+
+    assert spec.family == "donchian_channel_breakout"
+    assert spec.features[0].name == "donchian_breakout"
+
+
 def test_strategy_spec_cannot_grant_execution_authority() -> None:
     payload = valid_strategy_payload()
     payload["leverage"] = 10

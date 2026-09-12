@@ -69,6 +69,7 @@ def test_creator_prompt_spells_out_strategy_value_constraints() -> None:
     assert "range_mean_reversion" in system_prompt
     assert "volatility_compression_breakout" in system_prompt
     assert "volume_confirmed_momentum" in system_prompt
+    assert "donchian_channel_breakout" in system_prompt
     assert "experimental" in system_prompt
     assert "features must use only" in system_prompt
     assert "rsi" in system_prompt
@@ -148,6 +149,7 @@ def test_creator_prompt_uses_cached_evaluator_feature_capability() -> None:
 
     assert "features must use only" in system_prompt
     assert "relative_volume" in system_prompt
+    assert "donchian_breakout" in system_prompt
     assert "rsi" in system_prompt
 
 

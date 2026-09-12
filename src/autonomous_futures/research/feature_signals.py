@@ -16,6 +16,7 @@ SUPPORTED_FEATURES = frozenset(
         "ema_slope",
         "donchian_high",
         "donchian_low",
+        "donchian_breakout",
         "bollinger_zscore",
         "bollinger_width",
         "relative_volume",
@@ -91,6 +92,12 @@ def _feature_series(
         raw = high.rolling(window=lookback, min_periods=lookback).max()
     elif name == "donchian_low":
         raw = low.rolling(window=lookback, min_periods=lookback).min()
+    elif name == "donchian_breakout":
+        upper = high.rolling(window=lookback, min_periods=lookback).max().shift(1)
+        lower = low.rolling(window=lookback, min_periods=lookback).min().shift(1)
+        raw = (close.gt(upper).astype(float) - close.lt(lower).astype(float)).where(
+            upper.notna() & lower.notna()
+        )
     elif name == "bollinger_zscore":
         mean = close.rolling(window=lookback, min_periods=lookback).mean()
         standard_deviation = close.rolling(window=lookback, min_periods=lookback).std(ddof=0)
