@@ -4,8 +4,8 @@
 
 The predeclared `volume_confirmed_momentum` hypothesis is **REJECTED** on the
 cached multi-symbol scope. No provider call, candidate persistence, paper
-admission, registry publication, VPS deployment, testnet order, or live
-activation was performed.
+admission, registry publication, testnet order, or live activation was
+performed for the research run.
 
 ## Hypothesis
 
@@ -56,6 +56,24 @@ below `1.0`.
 - explicit family contract and Creator prompt regression: passed;
 - full locked suite: `2186 passed`;
 - no candidate was qualified or admitted from this hypothesis.
+
+## Code-only VPS stage
+
+After local verification, the six runtime source files needed for this feature
+and its semantic dependencies were staged to the VPS. Local and remote
+SHA-256 values matched. A read-only SQLite source backup was created and
+verified with `PRAGMA integrity_check=ok` before the copy.
+
+The active paper and scheduler processes were not restarted. Post-stage
+readback remained: paper `active/running`, `NRestarts=9`; scheduler
+`active/running`, `NRestarts=0`; ledger `161 opens / 160 closes`, dirty intents
+`0`; scheduler health `33 cycles / 0 admitted`, last
+`completed_unadmitted`; execution authority `false`, live activation `false`,
+and orders `0`. Remote AST parsing of all staged files passed.
+
+This is source staging only, not activation of the new code in the running
+processes. A controlled paper-service restart remains blocked by the current
+HALTED state, open paper position, and missing complete resume evidence.
 
 The family is closed for this exact hypothesis and data scope. Do not retry the
 same parameters or relax gates to manufacture a pass. Live readiness remains
