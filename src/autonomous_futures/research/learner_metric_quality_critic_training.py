@@ -236,6 +236,11 @@ def _verify_link(
         or link.training_evidence_id != training_evidence.evidence_id
         or link.training_evidence_hash != training_evidence.evidence_hash
         or link.output_artifact_hash != training_evidence.output_artifact_hash
+        or link.learner_id != request.learner_id
+        or link.candidate_id != request.candidate_id
+        or link.candidate_artifact_hash != request.candidate_artifact_hash
+        or link.bundle_hash != request.bundle_hash
+        or link.dataset_registry_hash != request.dataset_registry_hash
         or link.objective_id != "next_bar_direction"
     ):
         raise DomainViolation("Critic training evidence binding failed")
