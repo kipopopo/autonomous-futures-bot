@@ -153,6 +153,32 @@ def test_bollinger_width_is_supported_and_uses_only_prior_bars() -> None:
     pd.testing.assert_frame_equal(source, _frame())
 
 
+def test_relative_volume_is_causal_and_zero_baseline_stays_unknown() -> None:
+    candidate = _candidate(
+        feature_names=("relative_volume",),
+        long_expression="relative_volume > 1",
+        short_expression="relative_volume < 0",
+        exit_long_expression="relative_volume < 1",
+        exit_short_expression="relative_volume > 1",
+    )
+    source = _frame()
+    source["volume"] = [
+        Decimal(value)
+        for value in ("0", "0", "0", "10", "10", "20", "20", "20", "20", "20", "20", "20")
+    ]
+    mutated = source.copy(deep=True)
+    mutated.loc[5, "volume"] = Decimal("999999")
+
+    evaluator = CausalFeatureSignalEvaluator()
+    original = evaluator.evaluate(candidate, source)
+    changed = evaluator.evaluate(candidate, mutated)
+
+    assert pd.isna(original.loc[3, "relative_volume"])
+    assert original.loc[5, "relative_volume"] == changed.loc[5, "relative_volume"]
+    assert original.loc[5, "signal"] == changed.loc[5, "signal"]
+    pd.testing.assert_frame_equal(source, source.copy(deep=True))
+
+
 def test_rsi_is_supported_and_uses_only_prior_bars() -> None:
     candidate = _candidate(
         feature_names=("rsi",),

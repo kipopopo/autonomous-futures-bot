@@ -130,6 +130,15 @@ def test_strategy_spec_accepts_volatility_compression_breakout_family() -> None:
     assert spec.family == "volatility_compression_breakout"
 
 
+def test_strategy_spec_accepts_volume_confirmed_momentum_family() -> None:
+    payload = valid_strategy_payload()
+    payload["family"] = "volume_confirmed_momentum"
+
+    spec = parse_strategy_spec(payload)
+
+    assert spec.family == "volume_confirmed_momentum"
+
+
 def test_strategy_spec_cannot_grant_execution_authority() -> None:
     payload = valid_strategy_payload()
     payload["leverage"] = 10

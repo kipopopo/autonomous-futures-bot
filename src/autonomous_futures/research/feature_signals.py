@@ -18,6 +18,7 @@ SUPPORTED_FEATURES = frozenset(
         "donchian_low",
         "bollinger_zscore",
         "bollinger_width",
+        "relative_volume",
         "rsi",
         "adx",
         "regime_trend",
@@ -62,12 +63,22 @@ def _finite_positive_series(frame: pd.DataFrame, column: str) -> pd.Series:
     return values.astype(float)
 
 
+def _finite_non_negative_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    values = pd.to_numeric(frame[column], errors="coerce")
+    if values.isna().any() or not values.map(math.isfinite).all():
+        raise DataQualityError(f"volume column is not finite: {column}")
+    if (values < 0).any():
+        raise DataQualityError(f"volume column must be non-negative: {column}")
+    return values.astype(float)
+
+
 def _feature_series(
     name: str,
     *,
     close: pd.Series,
     high: pd.Series,
     low: pd.Series,
+    volume: pd.Series | None,
     lookback: int,
     shift: int,
 ) -> pd.Series:
@@ -88,6 +99,11 @@ def _feature_series(
         mean = close.rolling(window=lookback, min_periods=lookback).mean()
         standard_deviation = close.rolling(window=lookback, min_periods=lookback).std(ddof=0)
         raw = (standard_deviation * 4).div(mean.mask(mean == 0))
+    elif name == "relative_volume":
+        if volume is None:
+            raise DataQualityError("relative_volume requires volume")
+        average_volume = volume.rolling(window=lookback, min_periods=lookback).mean()
+        raw = volume.div(average_volume.mask(average_volume == 0))
     elif name == "rsi":
         delta = close.diff()
         gain = (
@@ -159,6 +175,11 @@ def materialize_causal_features(
         raise DataQualityError("candidate features must be unique")
     if unsupported := sorted(set(feature_names).difference(SUPPORTED_FEATURES)):
         raise DataQualityError("feature is not supported: " + ", ".join(unsupported))
+    volume = None
+    if "relative_volume" in feature_names:
+        if "volume" not in canonical.columns:
+            raise DataQualityError("feature evaluator is missing volume column")
+        volume = _finite_non_negative_series(canonical, "volume")
 
     result = canonical.copy(deep=True)
     for feature_ref in feature_refs:
@@ -167,6 +188,7 @@ def materialize_causal_features(
             close=close,
             high=high,
             low=low,
+            volume=volume,
             lookback=feature_ref.lookback,
             shift=feature_ref.shift,
         )

@@ -190,6 +190,7 @@ class StrategySpec(DomainModel):
         "regime_gated_breakout",
         "range_mean_reversion",
         "volatility_compression_breakout",
+        "volume_confirmed_momentum",
         "experimental",
     ]
     universe: StrategyUniverse
