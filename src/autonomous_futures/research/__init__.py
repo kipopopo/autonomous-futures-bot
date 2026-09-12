@@ -73,6 +73,15 @@ from .learner_metric_quality_critic import (
     parse_learner_metric_quality_critique,
     persist_learner_metric_quality_critic_evidence,
     read_learner_metric_quality_critic_evidence,
+    verify_learner_metric_quality_critic_binding,
+)
+from .learner_metric_quality_critic_training import (
+    LearnerMetricQualityCriticTrainingEvidence,
+    build_learner_metric_quality_critic_training_evidence,
+    execute_learner_metric_quality_critic_training_with_evidence,
+    learner_metric_quality_critic_training_evidence_content_hash,
+    read_learner_metric_quality_critic_training_evidence,
+    write_learner_metric_quality_critic_training_evidence,
 )
 from .learner_metric_quality_decision import (
     LearnerMetricQualityComparator,
@@ -127,6 +136,7 @@ from .learner_metric_review_input import (
     load_verified_learner_metric_review_input,
     review_persisted_learner_metric_evaluation,
 )
+from .learner_objectives import fit_next_bar_direction
 from .learner_qualification import (
     LearnerQualificationComparator,
     LearnerQualificationDecision,
@@ -302,6 +312,14 @@ __all__ = [
     "parse_learner_metric_quality_critique",
     "persist_learner_metric_quality_critic_evidence",
     "read_learner_metric_quality_critic_evidence",
+    "verify_learner_metric_quality_critic_binding",
+    "LearnerMetricQualityCriticTrainingEvidence",
+    "build_learner_metric_quality_critic_training_evidence",
+    "execute_learner_metric_quality_critic_training_with_evidence",
+    "learner_metric_quality_critic_training_evidence_content_hash",
+    "read_learner_metric_quality_critic_training_evidence",
+    "write_learner_metric_quality_critic_training_evidence",
+    "fit_next_bar_direction",
     "LearnerMetricQualityQualificationInput",
     "build_verified_learner_metric_quality_qualification_input",
     "learner_metric_quality_qualification_input_content_hash",

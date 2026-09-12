@@ -211,6 +211,55 @@ def parse_learner_metric_quality_critique(
     )
 
 
+def verify_learner_metric_quality_critic_binding(
+    *,
+    request: LearnerMetricQualityCriticRequest,
+    evidence: LearnerMetricQualityCritiqueEvidence,
+) -> None:
+    """Verify one Critic evidence artifact against its exact request."""
+    if learner_metric_quality_critic_content_hash(request) != request.request_hash:
+        raise DataQualityError("learner-quality Critic request hash mismatch")
+    if learner_metric_quality_critic_evidence_content_hash(evidence) != evidence.evidence_hash:
+        raise DataQualityError("learner-quality Critic evidence hash mismatch")
+    try:
+        critique = LearnerMetricQualityCritique(
+            review_id=evidence.review_id,
+            critic_run_id=evidence.critic_run_id,
+            decision_id=evidence.decision_id,
+            candidate_id=evidence.candidate_id,
+            decision=evidence.critique_decision,
+            failure_reason_codes=evidence.failure_reason_codes,
+            revision_actions=evidence.revision_actions,
+            review_hash=evidence.review_hash,
+        )
+    except ValidationError as exc:
+        raise DataQualityError("learner-quality Critic evidence review is invalid") from exc
+    if learner_metric_quality_critique_content_hash(critique) != critique.review_hash:
+        raise DataQualityError("learner-quality Critic review hash mismatch")
+    fields = (
+        "critic_run_id",
+        "decision_id",
+        "decision_hash",
+        "metric_evaluation_run_id",
+        "metric_evaluation_hash",
+        "learner_id",
+        "learner_artifact_hash",
+        "candidate_id",
+        "candidate_artifact_hash",
+        "bundle_hash",
+        "dataset_registry_hash",
+        "policy_id",
+        "policy_hash",
+        "failure_reason_codes",
+        "input_evidence_refs",
+    )
+    for field in fields:
+        request_value = getattr(request, field)
+        evidence_value = getattr(evidence, field)
+        if request_value != evidence_value:
+            raise DataQualityError("learner-quality Critic evidence binding is invalid")
+
+
 def learner_metric_quality_critic_schema_diagnostics(
     payload: Mapping[str, object],
 ) -> tuple[str, ...]:
@@ -525,4 +574,5 @@ __all__ = [
     "parse_learner_metric_quality_critique",
     "persist_learner_metric_quality_critic_evidence",
     "read_learner_metric_quality_critic_evidence",
+    "verify_learner_metric_quality_critic_binding",
 ]
