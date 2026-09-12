@@ -2,9 +2,9 @@
 
 ## Status
 
-**IMPLEMENTED AND LOCALLY VERIFIED.** A first controlled restart exposed a
-shutdown-ordering gap; the sidecar correction is now verified locally and is
-pending the final remote restart.
+**DEPLOYED AND VERIFIED.** A first controlled restart exposed a
+shutdown-ordering gap; the sidecar correction was then deployed and verified
+through a second controlled paper-service restart.
 
 ## Finding
 
@@ -43,6 +43,7 @@ that old shutdown path.
 - Mypy: **PASS**.
 - `uv lock --check`: **PASS**.
 - `git diff --check`: **PASS**.
+- Remote runtime source SHA-256 matched the committed daemon source: **PASS**.
 
 ## Pre-restart read-only evidence
 
@@ -56,14 +57,21 @@ After that first restart, the process changed PID and the ledger/position
 remained intact, but the health checkpoint incorrectly reported `NORMAL`.
 This was the observed shutdown-ordering failure; no order was submitted.
 
+After sidecar seeding and the second controlled restart, readback passed:
+
+- paper service active/running with a changed PID;
+- health and sidecar breaker state both `THROTTLED`;
+- one `BTCUSDT` `SHORT` position preserved with matching side/quantity/entry;
+- SQLite `query_only=1`, `integrity_check=ok`, 161 opens, 160 closes, one
+  active position state;
+- zero submitted orders, `execution_authority=false`, and live activation
+  disabled.
+
 No resume request, position mutation, scheduler restart, testnet action, or
 live order was performed during this fix.
 
 ## Operational boundary
 
-The next permitted action is sidecar seeding from the captured pre-restart
-`THROTTLED` evidence, code-only source update, and one controlled
-**paper-service-only** restart. The restart must be read back for PID, health
-checkpoint, position continuity, breaker-state continuity, ledger integrity,
-and zero-order/live-disabled invariants. The autonomous scheduler remains
-untouched.
+The paper-service-only restart is complete and verified. The autonomous
+scheduler was not restarted, no resume request was issued, and the paper
+breaker remains `THROTTLED`; no testnet/live action was performed.
