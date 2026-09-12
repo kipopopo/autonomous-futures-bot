@@ -56,9 +56,13 @@ evidence. The family is closed; do not retry these parameters or relax gates.
 - Local full pytest was intentionally stopped at approximately `65%` after the
   user confirmed GitHub Actions is the post-push full quality gate; it is not
   reported as a local pass.
+- GitHub Actions `quality` workflow for commit `fefb7a6` completed **success**:
+  locked pytest, Ruff check, Ruff format check, mypy, and compileall passed on
+  Python `3.14.7`.
 - The temporary cached probe was deleted after execution.
 - The probe made no provider, exchange, paper-ledger, registry, testnet, or live
   mutation.
 
-The next full quality result belongs to the GitHub Action for the pushed commit.
-This negative result is research evidence only, not qualification or promotion.
+The full repository quality gate is now verified by GitHub Actions for the
+pushed commit. This negative result is research evidence only, not
+qualification or promotion.
