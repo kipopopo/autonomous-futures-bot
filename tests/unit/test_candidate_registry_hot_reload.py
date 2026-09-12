@@ -214,6 +214,23 @@ def test_hot_reload_success_updates_engine_candidates(tmp_path: Path) -> None:
     assert last_reload["reload_count"] == 1
 
 
+def test_empty_registry_clears_stale_entry_candidates_without_closing_trade(
+    tmp_path: Path,
+) -> None:
+    cand_a = _build_test_candidate("cand-btc-001")
+    engine = _setup_engine(tmp_path, cand_a)
+    assert engine.execute_open("BTCUSDT", 1, Decimal("100"), NOW) is not None
+
+    manifest_path = tmp_path / "candidate_registry.json"
+    write_candidate_registry(manifest_path, build_candidate_registry_manifest(updated_at=NOW))
+    reloader = CandidateRegistryHotReloader(manifest_path, engine)
+
+    assert reloader.check_and_reload()
+    assert engine.candidates == {}
+    assert engine.qualified_symbols == ()
+    assert engine.active_trades["BTCUSDT"].candidate_id == cand_a.candidate_id
+
+
 def test_open_trade_immutability_during_hot_reload(tmp_path: Path) -> None:
     """Verify active trade retains Candidate A rules and stops while Candidate B is admitted."""
     cand_a = _build_test_candidate(

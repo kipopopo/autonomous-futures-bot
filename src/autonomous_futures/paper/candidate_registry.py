@@ -459,6 +459,7 @@ class CandidateRegistryHotReloader:
             return False
 
         candidates_to_admit: list[tuple[CreatorCandidateArtifact, str]] = []
+        loaded_candidates: dict[str, CreatorCandidateArtifact] = {}
         for symbol, entry in manifest.symbols.items():
             current = getattr(self.engine, "candidates", {}).get(symbol)
             if (
@@ -466,6 +467,7 @@ class CandidateRegistryHotReloader:
                 and getattr(current, "candidate_id", None) == entry.candidate_id
                 and getattr(current, "artifact_hash", None) == entry.candidate_artifact_hash
             ):
+                loaded_candidates[symbol] = current
                 continue
 
             try:
@@ -522,6 +524,7 @@ class CandidateRegistryHotReloader:
                 self.last_size = stat_res.st_size
                 return False
 
+            loaded_candidates[symbol] = cand
             candidates_to_admit.append((cand, entry.qualification_hash))
 
         for cand, q_hash in candidates_to_admit:
@@ -530,6 +533,9 @@ class CandidateRegistryHotReloader:
                 qualification_hash=q_hash,
                 require_flat=False,
             )
+
+        self.engine.candidates = loaded_candidates
+        self.engine.qualified_symbols = tuple(loaded_candidates)
 
         self.last_reloaded_at = datetime.now(UTC).isoformat()
         self.last_registry_hash = manifest.registry_hash
