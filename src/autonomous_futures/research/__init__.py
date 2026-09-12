@@ -136,7 +136,7 @@ from .learner_metric_review_input import (
     load_verified_learner_metric_review_input,
     review_persisted_learner_metric_evaluation,
 )
-from .learner_objectives import fit_next_bar_direction
+from .learner_objectives import fit_next_bar_direction, next_bar_direction_signals
 from .learner_qualification import (
     LearnerQualificationComparator,
     LearnerQualificationDecision,
@@ -320,6 +320,7 @@ __all__ = [
     "read_learner_metric_quality_critic_training_evidence",
     "write_learner_metric_quality_critic_training_evidence",
     "fit_next_bar_direction",
+    "next_bar_direction_signals",
     "LearnerMetricQualityQualificationInput",
     "build_verified_learner_metric_quality_qualification_input",
     "learner_metric_quality_qualification_input_content_hash",

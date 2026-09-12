@@ -36,7 +36,10 @@ from autonomous_futures.research.learner_metric_quality_critic_training import (
 from autonomous_futures.research.learner_metric_quality_decision import (
     LearnerMetricQualityGateResult,
 )
-from autonomous_futures.research.learner_objectives import fit_next_bar_direction
+from autonomous_futures.research.learner_objectives import (
+    fit_next_bar_direction,
+    next_bar_direction_signals,
+)
 from autonomous_futures.research.learner_runs import prepare_learner_run
 from autonomous_futures.research.learner_training_evidence import read_learner_training_evidence
 
@@ -86,6 +89,21 @@ def test_next_bar_direction_training_rejects_missing_or_unusable_labels() -> Non
     frame["returns"] = None
     with pytest.raises(DataQualityError, match="observations"):
         fit_next_bar_direction({"BTCUSDT": frame})
+
+
+def test_next_bar_direction_signals_validate_model_and_ignore_future_close() -> None:
+    frame = _objective_frame()
+    model = fit_next_bar_direction({"BTCUSDT": frame}).model_bytes
+    changed = frame.copy(deep=True)
+    changed.loc[2, "close"] = Decimal("1000000")
+
+    original_signals = next_bar_direction_signals(model, frame)
+    changed_signals = next_bar_direction_signals(model, changed)
+
+    assert original_signals.tolist() == changed_signals.tolist()
+    assert set(original_signals.tolist()).issubset({-1, 0, 1})
+    with pytest.raises(DataQualityError, match="model"):
+        next_bar_direction_signals(b"{}", frame)
 
 
 def _candidate():
