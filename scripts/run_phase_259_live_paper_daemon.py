@@ -73,10 +73,12 @@ def restore_persisted_circuit_breaker_state(
     health_file: Path, account: HardenedSharedMarginAccount
 ) -> str:
     """Restore the last breaker state and fail closed on invalid evidence."""
-    if not health_file.is_file():
+    state_file = health_file.with_name("paper-circuit-breaker-state.json")
+    checkpoint_file = state_file if state_file.is_file() else health_file
+    if not checkpoint_file.is_file():
         return account.current_state
     try:
-        payload = json.loads(health_file.read_text(encoding="utf-8"))
+        payload = json.loads(checkpoint_file.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise TypeError("checkpoint payload must be an object")
         persisted_state = payload.get("circuit_breaker_status")
@@ -305,6 +307,13 @@ def emit_daemon_health_checkpoint(
         },
     }
     tmp_path = output_path.with_suffix(".tmp")
+    state_path = output_path.with_name("paper-circuit-breaker-state.json")
+    state_tmp_path = state_path.with_suffix(".tmp")
+    state_tmp_path.write_text(
+        json.dumps({"circuit_breaker_status": circuit_breaker_status}, sort_keys=True),
+        encoding="utf-8",
+    )
+    state_tmp_path.replace(state_path)
     tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     tmp_path.replace(output_path)
 
