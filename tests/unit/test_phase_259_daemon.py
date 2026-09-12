@@ -113,3 +113,42 @@ def test_emit_daemon_health_checkpoint(tmp_path: Path) -> None:
     assert data["feed_messages_received"] == 1500
     assert data["zero_order_safety_invariants"]["orders_submitted"] == 0
     assert data["zero_order_safety_invariants"]["execution_authority"] is False
+
+
+@pytest.mark.parametrize("persisted_state", ["NORMAL", "THROTTLED", "HALTED", "EMERGENCY_FLAT"])
+def test_restore_persisted_circuit_breaker_state_preserves_state(
+    tmp_path: Path, persisted_state: str
+) -> None:
+    health_file = tmp_path / "paper-daemon-health.json"
+    health_file.write_text(
+        json.dumps({"circuit_breaker_status": persisted_state}), encoding="utf-8"
+    )
+    account = daemon_mod.HardenedSharedMarginAccount()
+
+    daemon_mod.restore_persisted_circuit_breaker_state(health_file, account)
+
+    assert account.current_state == persisted_state
+
+
+def test_restore_persisted_circuit_breaker_state_fails_closed_on_unknown_checkpoint(
+    tmp_path: Path,
+) -> None:
+    health_file = tmp_path / "paper-daemon-health.json"
+    health_file.write_text(json.dumps({"circuit_breaker_status": "UNKNOWN"}), encoding="utf-8")
+    account = daemon_mod.HardenedSharedMarginAccount()
+
+    daemon_mod.restore_persisted_circuit_breaker_state(health_file, account)
+
+    assert account.current_state == "HALTED"
+
+
+def test_restore_persisted_circuit_breaker_state_fails_closed_on_malformed_shape(
+    tmp_path: Path,
+) -> None:
+    health_file = tmp_path / "paper-daemon-health.json"
+    health_file.write_text("[]", encoding="utf-8")
+    account = daemon_mod.HardenedSharedMarginAccount()
+
+    daemon_mod.restore_persisted_circuit_breaker_state(health_file, account)
+
+    assert account.current_state == "HALTED"

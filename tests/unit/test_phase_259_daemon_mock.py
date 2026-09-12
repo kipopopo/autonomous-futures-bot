@@ -106,6 +106,10 @@ async def test_live_paper_daemon_mock_run(tmp_path: Path) -> None:
     ]
 
     mock_ws = MockWebSocketSession(mock_messages)
+    (storage_dir / "paper-daemon-health.json").parent.mkdir(parents=True, exist_ok=True)
+    (storage_dir / "paper-daemon-health.json").write_text(
+        json.dumps({"circuit_breaker_status": "HALTED"}), encoding="utf-8"
+    )
 
     class MockConnectContext:
         async def __aenter__(self) -> MockWebSocketSession:
@@ -145,6 +149,7 @@ async def test_live_paper_daemon_mock_run(tmp_path: Path) -> None:
     assert health["daemon_status"] == "SHUTDOWN_CLEAN"
     assert health["starting_capital_usdt"] == "100.00"
     assert health["current_cash_usdt"] == "100.00"
+    assert health["circuit_breaker_status"] == "HALTED"
     assert health["feed_messages_received"] == 3
     assert health["zero_order_safety_invariants"]["orders_submitted"] == 0
 

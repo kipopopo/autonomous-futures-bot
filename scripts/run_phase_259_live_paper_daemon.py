@@ -24,7 +24,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 # Ensure src/ is importable
 _SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -54,6 +54,42 @@ from autonomous_futures.paper.live_engine import (  # noqa: E402
 )
 
 logger = logging.getLogger("run_phase_259_live_paper_daemon")
+
+CircuitBreakerHealthStatus = Literal["NORMAL", "THROTTLED", "HALTED"]
+_CIRCUIT_BREAKER_STATES = ("NORMAL", "THROTTLED", "HALTED", "EMERGENCY_FLAT")
+
+
+def _health_circuit_breaker_status(
+    account: HardenedSharedMarginAccount,
+) -> CircuitBreakerHealthStatus:
+    if account.current_state in ("HALTED", "EMERGENCY_FLAT"):
+        return "HALTED"
+    if account.current_state == "THROTTLED":
+        return "THROTTLED"
+    return "NORMAL"
+
+
+def restore_persisted_circuit_breaker_state(
+    health_file: Path, account: HardenedSharedMarginAccount
+) -> str:
+    """Restore the last breaker state and fail closed on invalid evidence."""
+    if not health_file.is_file():
+        return account.current_state
+    try:
+        payload = json.loads(health_file.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise TypeError("checkpoint payload must be an object")
+        persisted_state = payload.get("circuit_breaker_status")
+    except OSError, TypeError, json.JSONDecodeError:
+        logger.warning("Circuit-breaker checkpoint is unreadable; keeping entries halted")
+        account.current_state = "HALTED"
+        return account.current_state
+    if persisted_state not in _CIRCUIT_BREAKER_STATES:
+        logger.warning("Circuit-breaker checkpoint is unknown; keeping entries halted")
+        account.current_state = "HALTED"
+        return account.current_state
+    account.current_state = cast(Any, persisted_state)
+    return account.current_state
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -501,11 +537,7 @@ async def run_heartbeat_loop(
             current_eq = engine.current_equity()
             utilization = float(account.margin_utilization(current_eq)) * 100.0
             reserve = float(account.unencumbered_reserve_buffer(current_eq)) * 100.0
-            cb_status = (
-                "HALTED"
-                if account.current_state in ("HALTED", "EMERGENCY_FLAT")
-                else ("THROTTLED" if account.current_state == "THROTTLED" else "NORMAL")
-            )
+            cb_status = _health_circuit_breaker_status(account)
             positions = {
                 sym: {
                     "side": pos.side,
@@ -577,6 +609,7 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
         telemetry=telemetry,
     )
     account = engine.account
+    restore_persisted_circuit_breaker_state(health_file, account)
     monitor = engine.monitor
 
     # Seed causal feature history via dynamic async warmup with fallback
@@ -646,7 +679,7 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
         reserve_buffer_pct=100.0,
         active_positions={},
         total_trades=0,
-        circuit_breaker_status="NORMAL",
+        circuit_breaker_status=_health_circuit_breaker_status(account),
         feed_messages_received=0,
         reconnect_count=0,
         active_candidates=active_cands,
@@ -729,7 +762,7 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
         reserve_buffer_pct=float(account.unencumbered_reserve_buffer(final_eq)) * 100.0,
         active_positions={},
         total_trades=engine.total_closed_trades,
-        circuit_breaker_status="NORMAL",
+        circuit_breaker_status=_health_circuit_breaker_status(account),
         feed_messages_received=telemetry.total_messages,
         reconnect_count=feed_client.reconnect_count,
         active_candidates=active_cands_final,
