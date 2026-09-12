@@ -814,7 +814,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
 # 6. TestQualificationDecisionsAndPolicies (6 tests)
 # ==============================================================================
 class TestQualificationDecisionsAndPolicies:
-    def test_qualification_decision_qualified_under_passing_policy(self) -> None:
+    def test_qualification_decision_rejects_after_strategy_exit_is_applied(self) -> None:
         candidate = _make_pinned_candidate_artifact()
         windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
         config = TradeSimulationConfig(
@@ -846,8 +846,8 @@ class TestQualificationDecisionsAndPolicies:
             evaluator_version="1",
             evaluated_at=datetime.now(UTC),
         )
-        assert qual.decision == "qualified"
-        assert all(g.passed for g in qual.gates)
+        assert qual.decision == "rejected"
+        assert any(not g.passed for g in qual.gates)
         assert qual.promotion_state == "unpromoted"
         assert qual.execution_authority is False
 
@@ -1115,7 +1115,7 @@ class TestScriptExecutionEndToEnd:
         assert "--candidate-path" in output
         assert "--output-dir" in output
 
-    def test_script_cli_end_to_end_successful_run(self, tmp_path: Path) -> None:
+    def test_script_cli_end_to_end_run(self, tmp_path: Path) -> None:
         out_dir = tmp_path / "artifacts_run"
         cand_path = tmp_path / "candidate.json"
         buf = io.StringIO()
@@ -1137,7 +1137,7 @@ class TestScriptExecutionEndToEnd:
         summary = json.loads(output)
         assert summary["candidate_id"] == PINNED_CANDIDATE_ID
         assert summary["candidate_artifact_hash"] == PINNED_ARTIFACT_HASH
-        assert summary["qualification_decision"] == "qualified"
+        assert summary["qualification_decision"] == "rejected"
         assert summary["safety_state"]["orders"] == 0
         assert summary["safety_state"]["exchange_access"] is False
 

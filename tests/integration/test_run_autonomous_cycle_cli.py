@@ -458,7 +458,7 @@ def test_cli_end_to_end_google_ai_studio_mocked(
                     },
                     "features": [{"name": "returns", "lookback": 3, "shift": 1}],
                     "entry": {"long": "returns > 0.001", "short": "returns < -0.001"},
-                    "exit": {"long": "returns < 0.0", "short": "returns > 0.0"},
+                    "exit": {"long": "returns < -0.001", "short": "returns > 0.001"},
                     "vetoes": ["testing_only_no_promotion"],
                     "risk": {
                         "position_fraction": 0.10,

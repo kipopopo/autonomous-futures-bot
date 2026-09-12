@@ -138,6 +138,7 @@ def test_materializer_does_not_use_current_candle_for_feature_value(tmp_path: Pa
 
     mutated_primary = _primary()
     mutated_primary.loc[4, "close"] = Decimal("999999")
+    mutated_primary.loc[4, "high"] = Decimal("1000000")
     mutated = materializer.materialize(
         primary=mutated_primary, context=_context(), symbol="BTCUSDT", input_id="input-window-001"
     )

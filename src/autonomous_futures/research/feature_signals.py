@@ -118,11 +118,11 @@ def _feature_series(
         ).mean().div(atr)
         directional_sum = (plus_di + minus_di).replace(0, float("nan"))
         dx = 100 * (plus_di - minus_di).abs().div(directional_sum)
-        raw = dx.ewm(alpha=1 / lookback, adjust=False, min_periods=lookback).mean().fillna(0)
+        raw = dx.ewm(alpha=1 / lookback, adjust=False, min_periods=lookback).mean()
     else:
         ema = close.ewm(span=lookback, adjust=False, min_periods=lookback).mean()
         slope = ema.diff()
-        raw = slope.gt(0).astype(float) - slope.lt(0).astype(float)
+        raw = (slope.gt(0).astype(float) - slope.lt(0).astype(float)).where(slope.notna())
     return raw.shift(shift)
 
 
@@ -183,7 +183,10 @@ class CausalFeatureSignalEvaluator:
 
         long_clauses, long_connectors = _parse_expression(candidate.strategy.entry.long)
         short_clauses, short_connectors = _parse_expression(candidate.strategy.entry.short)
-        expression_features = tuple(sorted({clause[0] for clause in long_clauses + short_clauses}))
+        long_exit_clauses, long_exit_connectors = _parse_expression(candidate.strategy.exit.long)
+        short_exit_clauses, short_exit_connectors = _parse_expression(candidate.strategy.exit.short)
+        all_clauses = long_clauses + short_clauses + long_exit_clauses + short_exit_clauses
+        expression_features = tuple(sorted({clause[0] for clause in all_clauses}))
         undeclared = sorted(set(expression_features).difference(feature_names))
         if undeclared:
             raise DataQualityError("signal feature is not declared: " + ", ".join(undeclared))
@@ -195,6 +198,12 @@ class CausalFeatureSignalEvaluator:
 
         long_condition = self._condition_series(result, long_clauses, long_connectors)
         short_condition = self._condition_series(result, short_clauses, short_connectors)
+        long_exit_condition = self._condition_series(
+            result, long_exit_clauses, long_exit_connectors
+        )
+        short_exit_condition = self._condition_series(
+            result, short_exit_clauses, short_exit_connectors
+        )
         if (long_condition & short_condition).any():
             raise DataQualityError("a candle cannot have both long and short conditions")
         long_entry = long_condition & ~long_condition.shift(1, fill_value=False)
@@ -207,6 +216,8 @@ class CausalFeatureSignalEvaluator:
         result["long_entry"] = long_entry
         result["short_entry"] = short_entry
         result["signal"] = signal
+        result["long_exit_condition"] = long_exit_condition
+        result["short_exit_condition"] = short_exit_condition
         return result
 
     @staticmethod

@@ -77,6 +77,24 @@ def test_canonicalizer_rejects_naive_duplicate_and_gap_timestamps() -> None:
         canonicalize_bars(gap, interval=timedelta(minutes=5))
 
 
+def test_canonicalizer_rejects_invalid_ohlc_geometry_when_present() -> None:
+    invalid = pd.DataFrame(
+        {
+            "timestamp": [
+                pd.Timestamp("2026-08-06T00:00:00+00:00"),
+                pd.Timestamp("2026-08-06T00:05:00+00:00"),
+            ],
+            "open": [Decimal("100"), Decimal("101")],
+            "high": [Decimal("99"), Decimal("102")],
+            "low": [Decimal("100"), Decimal("100")],
+            "close": [Decimal("101"), Decimal("102")],
+        }
+    )
+
+    with pytest.raises(DataQualityError, match="geometry"):
+        canonicalize_bars(invalid, interval=timedelta(minutes=5))
+
+
 def test_manifest_hash_is_stable_and_changes_when_artifact_changes(tmp_path) -> None:
     artifact = tmp_path / "BTCUSDT-5m.parquet"
     frame = bars(

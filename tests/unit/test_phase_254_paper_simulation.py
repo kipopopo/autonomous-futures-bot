@@ -730,6 +730,7 @@ class TestTier2BoundaryAndEdgeCases:
 
         # Mutate future bars (bars 40 to 59)
         for i in range(40, 60):
+            bars_modified.loc[i, "open"] = Decimal("0.999")
             bars_modified.loc[i, "close"] = Decimal("0.999")
             bars_modified.loc[i, "high"] = Decimal("1.000")
             bars_modified.loc[i, "low"] = Decimal("0.998")

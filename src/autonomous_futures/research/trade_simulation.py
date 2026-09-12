@@ -163,12 +163,23 @@ def _decimal(value: object, *, field: str) -> Decimal:
     return converted
 
 
+def _binary_decimal(value: object, *, field: str) -> Decimal:
+    if str(value) == "True":
+        return Decimal("1")
+    if str(value) == "False":
+        return Decimal("0")
+    converted = _decimal(value, field=field)
+    if converted not in (Decimal("0"), Decimal("1")):
+        raise DataQualityError(f"simulation condition must be 0 or 1: {field}")
+    return converted
+
+
 def _atr_values(
-    rows: list[tuple[datetime, Decimal, Decimal, Decimal, Decimal, Decimal]],
+    rows: list[tuple[datetime, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]],
     lookback: int,
 ) -> list[Decimal | None]:
     true_ranges: list[Decimal] = []
-    for index, (_, _, high, low, close, _) in enumerate(rows):
+    for index, (_, _, high, low, close, _, _, _) in enumerate(rows):
         previous_close = rows[index - 1][4] if index else close
         true_ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
     atr_values: list[Decimal | None] = []
@@ -306,7 +317,9 @@ def simulate_cached_signals(
         raise DataQualityError("simulation frame is missing columns: " + ", ".join(missing))
     canonical = canonicalize_bars(frame, interval=timedelta(minutes=5))
     rows = canonical.to_dict(orient="records")
-    parsed_rows: list[tuple[datetime, Decimal, Decimal, Decimal, Decimal, Decimal]] = []
+    parsed_rows: list[
+        tuple[datetime, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]
+    ] = []
     for row in rows:
         timestamp = pd.Timestamp(row["timestamp"]).to_pydatetime()
         raw_open = _decimal(row["open"], field="open")
@@ -318,7 +331,28 @@ def simulate_cached_signals(
         signal_decimal = _decimal(row["signal"], field="signal")
         if signal_decimal not in (Decimal("-1"), Decimal("0"), Decimal("1")):
             raise DataQualityError("simulation signal must be -1, 0, or 1")
-        parsed_rows.append((timestamp, raw_open, raw_high, raw_low, raw_close, signal_decimal))
+        long_exit_decimal = (
+            _binary_decimal(row["long_exit_condition"], field="long_exit_condition")
+            if "long_exit_condition" in row
+            else Decimal("0")
+        )
+        short_exit_decimal = (
+            _binary_decimal(row["short_exit_condition"], field="short_exit_condition")
+            if "short_exit_condition" in row
+            else Decimal("0")
+        )
+        parsed_rows.append(
+            (
+                timestamp,
+                raw_open,
+                raw_high,
+                raw_low,
+                raw_close,
+                signal_decimal,
+                long_exit_decimal,
+                short_exit_decimal,
+            )
+        )
 
     protections_enabled = (
         config.stop_atr_multiplier > 0
@@ -335,9 +369,16 @@ def simulate_cached_signals(
     position: _OpenPosition | None = None
     trades: list[SimulatedTrade] = []
     equity_points: list[EquityPoint] = []
-    for index, (timestamp, raw_open, raw_high, raw_low, raw_close, signal_decimal) in enumerate(
-        parsed_rows
-    ):
+    for index, (
+        timestamp,
+        raw_open,
+        raw_high,
+        raw_low,
+        raw_close,
+        signal_decimal,
+        long_exit_decimal,
+        short_exit_decimal,
+    ) in enumerate(parsed_rows):
         signal = int(signal_decimal)
         closed_this_bar = False
         if position is not None:
@@ -352,25 +393,36 @@ def simulate_cached_signals(
             protective = _protective_trigger(position, high=raw_high, low=raw_low)
             if protective is not None:
                 reason, trigger_price = protective
+                raw_exit_price = trigger_price
+                exit_price_override = trigger_price if reason == "take_profit" else None
+                if reason != "take_profit":
+                    raw_exit_price = (
+                        min(raw_open, trigger_price)
+                        if position.side == "LONG"
+                        else max(raw_open, trigger_price)
+                    )
                 trade, cash_delta = _close_position(
                     position,
                     symbol=symbol,
-                    raw_exit_price=trigger_price,
+                    raw_exit_price=raw_exit_price,
                     exit_timestamp=timestamp,
                     reason=reason,
                     taker_fee_rate=config.taker_fee_rate,
                     slippage_rate=config.slippage_rate,
-                    exit_price_override=trigger_price,
+                    exit_price_override=exit_price_override,
                 )
                 trades.append(trade)
                 cash += cash_delta
                 position = None
                 closed_this_bar = True
         if position is not None:
+            strategy_exit = (position.side == "LONG" and long_exit_decimal == 1) or (
+                position.side == "SHORT" and short_exit_decimal == 1
+            )
             opposite = (position.side == "LONG" and signal == -1) or (
                 position.side == "SHORT" and signal == 1
             )
-            if opposite:
+            if strategy_exit or opposite:
                 trade, cash_delta = _close_position(
                     position,
                     symbol=symbol,
@@ -448,15 +500,23 @@ def simulate_cached_signals(
                 protective = _protective_trigger(position, high=raw_high, low=raw_low)
                 if protective is not None:
                     reason, trigger_price = protective
+                    raw_exit_price = trigger_price
+                    exit_price_override = trigger_price if reason == "take_profit" else None
+                    if reason != "take_profit":
+                        raw_exit_price = (
+                            min(raw_open, trigger_price)
+                            if position.side == "LONG"
+                            else max(raw_open, trigger_price)
+                        )
                     trade, cash_delta = _close_position(
                         position,
                         symbol=symbol,
-                        raw_exit_price=trigger_price,
+                        raw_exit_price=raw_exit_price,
                         exit_timestamp=timestamp,
                         reason=reason,
                         taker_fee_rate=config.taker_fee_rate,
                         slippage_rate=config.slippage_rate,
-                        exit_price_override=trigger_price,
+                        exit_price_override=exit_price_override,
                     )
                     trades.append(trade)
                     cash += cash_delta
@@ -474,7 +534,7 @@ def simulate_cached_signals(
             EquityPoint(timestamp=timestamp, equity=_mark_equity(cash, position, raw_close))
         )
 
-    final_timestamp, _, _, _, final_close, _ = parsed_rows[-1]
+    final_timestamp, _, _, _, final_close, _, _, _ = parsed_rows[-1]
     if position is not None:
         final_close_timestamp = final_timestamp + timedelta(minutes=5) - timedelta(milliseconds=1)
         trade, cash_delta = _close_position(

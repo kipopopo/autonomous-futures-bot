@@ -28,6 +28,8 @@ def _candidate(
     feature_names: tuple[str, ...] = ("returns",),
     long_expression: str = "returns > 0",
     short_expression: str = "returns < 0",
+    exit_long_expression: str | None = None,
+    exit_short_expression: str | None = None,
 ):
     strategy = StrategySpec(
         dsl_version=1,
@@ -38,7 +40,10 @@ def _candidate(
         ),
         features=tuple(FeatureRef(name=name, lookback=3, shift=1) for name in feature_names),
         entry=EntryExit(long=long_expression, short=short_expression),
-        exit=EntryExit(long="returns < 0", short="returns > 0"),
+        exit=EntryExit(
+            long=exit_long_expression or f"{feature_names[0]} < 0",
+            short=exit_short_expression or f"{feature_names[0]} > 0",
+        ),
         vetoes=("regime_trend == 0",),
     )
     return build_creator_candidate_artifact(
@@ -93,7 +98,7 @@ def test_supported_features_are_prior_bar_only_and_input_is_unchanged() -> None:
     mutated = source.copy(deep=True)
     mutated.loc[8, "close"] = Decimal("9999")
     mutated.loc[8, "high"] = Decimal("10000")
-    mutated.loc[8, "low"] = Decimal("9998")
+    mutated.loc[8, "low"] = Decimal("100")
 
     evaluator = CausalFeatureSignalEvaluator()
     result = evaluator.evaluate(candidate, source)
@@ -179,7 +184,7 @@ def test_adx_is_supported_and_uses_only_prior_bars() -> None:
     mutated = source.copy(deep=True)
     mutated.loc[8, "close"] = Decimal("9999")
     mutated.loc[8, "high"] = Decimal("10000")
-    mutated.loc[8, "low"] = Decimal("9998")
+    mutated.loc[8, "low"] = Decimal("100")
 
     original = CausalFeatureSignalEvaluator().evaluate(candidate, source)
     changed = CausalFeatureSignalEvaluator().evaluate(candidate, mutated)
@@ -189,6 +194,47 @@ def test_adx_is_supported_and_uses_only_prior_bars() -> None:
     assert original.loc[8, "signal"] == changed.loc[8, "signal"]
     assert original["adx"].dropna().ge(0).all()
     pd.testing.assert_frame_equal(source, _frame())
+
+
+def test_adx_warmup_remains_unknown_instead_of_emitting_low_strength_entry() -> None:
+    candidate = _candidate(
+        feature_names=("adx",),
+        long_expression="adx < 20",
+        short_expression="adx > 80",
+        exit_long_expression="adx > 80",
+        exit_short_expression="adx < 20",
+    )
+
+    result = CausalFeatureSignalEvaluator().evaluate(candidate, _frame())
+
+    assert result.loc[:4, "adx"].isna().all()
+    assert not result.loc[:4, "signal"].astype(bool).any()
+
+
+def test_candidate_window_simulation_honors_declared_strategy_exit() -> None:
+    candidate = _candidate(
+        long_expression="returns > 0.005",
+        short_expression="returns < -999",
+        exit_long_expression="returns <= 0",
+        exit_short_expression="returns >= 0",
+    )
+
+    result = simulate_candidate_window(
+        candidate,
+        _frame(),
+        symbol="BTCUSDT",
+        config=TradeSimulationConfig(
+            starting_equity=Decimal("100"),
+            position_fraction=Decimal("1"),
+            taker_fee_rate=Decimal("0"),
+            slippage_rate=Decimal("0"),
+        ),
+    )
+
+    assert len(result.trades) == 2
+    assert result.trades[0].entry_timestamp == START + timedelta(minutes=15)
+    assert result.trades[0].exit_timestamp == START + timedelta(minutes=30)
+    assert result.trades[0].exit_reason == "signal_exit"
 
 
 def test_signal_entries_are_fresh_states_not_repeated_or_neutral_reversals() -> None:

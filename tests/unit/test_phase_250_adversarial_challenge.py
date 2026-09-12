@@ -459,8 +459,8 @@ class TestAdversarialCandleDataCorruption:
             taker_fee_rate=Decimal("0.0004"),
             slippage_rate=Decimal("0.0002"),
         )
-        res = simulate_candidate_window(candidate, bars, symbol="DOGEUSDT", config=config)
-        assert res.final_equity.is_finite()
+        with pytest.raises(DataQualityError, match="geometry"):
+            simulate_candidate_window(candidate, bars, symbol="DOGEUSDT", config=config)
 
     def test_nan_and_inf_prices_trigger_data_quality_error(self) -> None:
         candidate = _make_candidate()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
@@ -62,6 +63,25 @@ def canonicalize_bars(
     )
     if canonical[timestamp_column].duplicated().any():
         raise DataQualityError("duplicate timestamps are not allowed")
+
+    ohlc_columns = ("open", "high", "low", "close")
+    if set(ohlc_columns).issubset(canonical.columns):
+        numeric = {
+            column: pd.to_numeric(canonical[column], errors="coerce") for column in ohlc_columns
+        }
+        for column, values in numeric.items():
+            if values.isna().any() or not values.map(math.isfinite).all():
+                raise DataQualityError(f"OHLC column is not finite: {column}")
+            if (values <= 0).any():
+                raise DataQualityError(f"OHLC column must be positive: {column}")
+        high = numeric["high"]
+        low = numeric["low"]
+        open_price = numeric["open"]
+        close = numeric["close"]
+        if (high < low).any() or (high < pd.concat([open_price, close], axis=1).max(axis=1)).any():
+            raise DataQualityError("OHLC candle geometry is invalid: high must bound open/close")
+        if (low > pd.concat([open_price, close], axis=1).min(axis=1)).any():
+            raise DataQualityError("OHLC candle geometry is invalid: low must bound open/close")
 
     canonical = canonical.sort_values(timestamp_column, kind="mergesort").reset_index(drop=True)
     timestamps = tuple(canonical[timestamp_column].dt.to_pydatetime())

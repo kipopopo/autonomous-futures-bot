@@ -132,6 +132,7 @@ def test_slippage_is_direction_aware_and_recorded_separately_from_fees() -> None
         opens=("100", "100", "100"),
         closes=("100", "100", "110"),
     )
+    frame.loc[2, "high"] = Decimal("111")
 
     result = simulate_cached_signals(
         frame,
@@ -225,6 +226,36 @@ def test_protective_stop_wins_when_stop_and_target_cross_same_candle() -> None:
     assert result.trades[0].exit_reason == "stop_loss"
     assert result.trades[0].exit_price == Decimal("98")
     assert result.final_equity == Decimal("98")
+
+
+def test_stop_loss_honors_adverse_opening_gap_and_slippage() -> None:
+    frame = pd.DataFrame(
+        {
+            "timestamp": [START + timedelta(minutes=5 * index) for index in range(6)],
+            "open": [Decimal(value) for value in ("100", "100", "100", "100", "100", "90")],
+            "high": [Decimal(value) for value in ("101", "101", "101", "101", "101", "91")],
+            "low": [Decimal(value) for value in ("99", "99", "99", "99", "99", "89")],
+            "close": [Decimal(value) for value in ("100", "100", "100", "100", "100", "90")],
+            "signal": (0, 0, 0, 0, 1, 0),
+        }
+    )
+    config = TradeSimulationConfig(
+        starting_equity=Decimal("100"),
+        position_fraction=Decimal("1"),
+        taker_fee_rate=Decimal("0"),
+        slippage_rate=Decimal("0.01"),
+        atr_lookback=3,
+        stop_atr_multiplier=Decimal("2"),
+    )
+
+    result = simulate_cached_signals(frame, symbol="BTCUSDT", config=config)
+
+    assert len(result.trades) == 1
+    assert result.trades[0].exit_reason == "stop_loss"
+    assert result.trades[0].exit_price == Decimal("89.10")
+    assert result.trades[0].gross_pnl == Decimal("-11.90")
+    assert result.trades[0].slippage_cost == Decimal("1.90")
+    assert result.final_equity == Decimal("88.10")
 
 
 def test_short_take_profit_uses_inverse_atr_geometry() -> None:
