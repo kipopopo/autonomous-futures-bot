@@ -201,6 +201,8 @@ def test_metric_adapter_runs_explicit_cached_simulation_and_calculates_metrics(
 
     assert run.windows[0].window_id == "window-01"
     assert isinstance(run.windows[0], LearnerMetricWindowEvaluation)
+    assert run.windows[0].time_start == window.spec.time_start
+    assert run.windows[0].time_end == window.spec.time_end
     assert run.windows[0].rows_evaluated == 6
     assert run.windows[0].metrics.trade_count == 1
     expected_pnl = Decimal("100") / Decimal("101")

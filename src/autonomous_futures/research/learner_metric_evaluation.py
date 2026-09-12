@@ -30,14 +30,29 @@ class LearnerMetricWindowEvaluation(DomainModel):
     learner_id: str = Field(pattern=r"^learner-[a-z0-9][a-z0-9-]{0,63}$")
     candidate_id: str = Field(pattern=r"^cand-[a-z0-9][a-z0-9-]{0,63}$")
     symbol: str = Field(pattern=r"^[A-Z0-9]+$")
+    time_start: datetime
+    time_end: datetime
     rows_evaluated: int = Field(ge=1, strict=True)
     metrics: TradePerformanceMetrics
+
+    @field_validator("time_start", "time_end")
+    @classmethod
+    def timestamps_are_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("learner metric window timestamps must be timezone-aware UTC")
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> LearnerMetricWindowEvaluation:
+        if self.time_start >= self.time_end:
+            raise ValueError("learner metric window time_start must be before time_end")
+        return self
 
 
 class LearnerMetricEvaluationRun(DomainModel):
     """Deterministic cached-only learner performance evidence; not qualification."""
 
-    evaluation_version: Literal[1] = 1
+    evaluation_version: Literal[2] = 2
     learner_id: str = Field(pattern=r"^learner-[a-z0-9][a-z0-9-]{0,63}$")
     learner_artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     candidate_id: str = Field(pattern=r"^cand-[a-z0-9][a-z0-9-]{0,63}$")
@@ -171,6 +186,8 @@ class CachedOnlyLearnerMetricAdapter:
                     learner_id=self.learner.learner_id,
                     candidate_id=self.learner.candidate_id,
                     symbol=spec.symbol,
+                    time_start=spec.time_start,
+                    time_end=spec.time_end,
                     rows_evaluated=len(isolated_window.frame),
                     metrics=metrics,
                 )
