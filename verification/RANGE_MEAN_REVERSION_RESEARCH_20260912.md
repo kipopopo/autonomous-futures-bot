@@ -49,9 +49,10 @@ Fixed policy required, independently for every symbol:
 - worst drawdown at most `15%`;
 - at least `5` trades.
 
-All three symbols failed net PnL, profit factor, average return, and drawdown
-conditions. The hypothesis is closed; do not retry the same parameters or
-relax gates.
+All three symbols failed net PnL, profit factor, and average return conditions.
+The drawdown cap and minimum-trade condition passed, but that does not offset
+the negative-return evidence. The hypothesis is closed; do not retry the same
+parameters or relax gates.
 
 ## Safety and delivery
 
