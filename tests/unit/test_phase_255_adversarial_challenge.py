@@ -650,7 +650,7 @@ class TestAdversarialStateTransitionMonotonicity:
         assert account.current_state == "EMERGENCY_FLAT"
 
     def test_adv_unauthorized_resume_evidence_strictly_rejected(self) -> None:
-        """Verify request_resume raises DomainViolation unless all 5 evidence checks pass."""
+        """Verify direct evidence cannot bypass the audited resume apply boundary."""
         account = HardenedSharedMarginAccount(starting_capital=Decimal("100.00"))
         account.current_state = "HALTED"
 
@@ -690,7 +690,7 @@ class TestAdversarialStateTransitionMonotonicity:
         with pytest.raises(DomainViolation):
             account.request_resume(evidence_no_reconciled)
 
-        # Case 5: Valid evidence with all 5 attributes True
+        # Case 5: Complete-looking legacy evidence still lacks an audited request.
         valid_evidence = SimpleNamespace(
             operator_approved=True,
             reconciled=True,
@@ -698,8 +698,9 @@ class TestAdversarialStateTransitionMonotonicity:
             data_fresh=True,
             risk_healthy=True,
         )
-        account.request_resume(valid_evidence)
-        assert account.current_state == "NORMAL"
+        with pytest.raises(DomainViolation, match="automatic resume is forbidden"):
+            account.request_resume(valid_evidence)
+        assert account.current_state == "HALTED"
 
 
 # ===========================================================================

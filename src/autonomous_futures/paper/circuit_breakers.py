@@ -13,11 +13,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from autonomous_futures.domain.errors import DomainViolation
+
+if TYPE_CHECKING:
+    from .resume_control import PaperResumeApplyReceipt
 
 
 class Phase255DomainModel(BaseModel):
@@ -598,18 +601,27 @@ class HardenedSharedMarginAccount:
 
         return events
 
-    def request_resume(self, evidence: Any) -> None:
-        """Attempt to resume NORMAL state. Automatic resume is strictly forbidden."""
-        if not (
-            hasattr(evidence, "operator_approved")
-            and evidence.operator_approved is True
-            and getattr(evidence, "reconciled", False) is True
-            and getattr(evidence, "incident_resolved", False) is True
-            and getattr(evidence, "data_fresh", False) is True
-            and getattr(evidence, "risk_healthy", False) is True
-        ):
+    def request_resume(
+        self,
+        request: object,
+        *,
+        authorization: object | None = None,
+        current_preflight: object | None = None,
+        applied_at: datetime | None = None,
+    ) -> PaperResumeApplyReceipt:
+        """Apply only a separately authorized, integrity-bound paper resume request."""
+        if authorization is None or current_preflight is None or applied_at is None:
             raise DomainViolation(
-                "automatic resume is forbidden: operator approval and complete evidence required"
+                "automatic resume is forbidden: audited resume request, "
+                "separate authorization, fresh preflight, and applied_at required"
             )
 
-        self.current_state = "NORMAL"
+        from .resume_control import apply_paper_resume_request
+
+        return apply_paper_resume_request(
+            self,
+            request,
+            authorization,
+            current_preflight=current_preflight,
+            applied_at=applied_at,
+        )

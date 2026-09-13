@@ -36,7 +36,10 @@ from .live_engine import ActivePaperTrade, LivePaperEngine
 from .observation import PaperObservation, observe_paper_ledger
 from .resume_control import (
     PaperRecoveryPreflight,
+    PaperResumeApplyAuthorization,
+    PaperResumeApplyReceipt,
     PaperResumeRequest,
+    apply_paper_resume_request,
     build_paper_resume_request,
     capture_paper_recovery_preflight,
     paper_resume_request_content_hash,
@@ -77,6 +80,8 @@ __all__ = [
     "PaperRecoveryPreflight",
     "PaperQualificationPolicy",
     "PaperRoundTripResult",
+    "PaperResumeApplyAuthorization",
+    "PaperResumeApplyReceipt",
     "PaperResumeRequest",
     "PaperRuntime",
     "PaperRuntimeResult",
@@ -86,6 +91,7 @@ __all__ = [
     "SqlitePaperLedger",
     "SqlitePaperLifecycle",
     "SqlitePaperObservations",
+    "apply_paper_resume_request",
     "build_candidate_registry_manifest",
     "calculate_adverse_gap_fill",
     "compute_feedback_qualification_hash",

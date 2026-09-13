@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -14,8 +15,13 @@ from autonomous_futures.paper.candidate_registry import (
     build_candidate_registry_manifest,
     write_candidate_registry,
 )
+from autonomous_futures.paper.circuit_breakers import HardenedSharedMarginAccount
 from autonomous_futures.paper.resume_control import (
     PaperRecoveryPreflight,
+    PaperResumeApplyAuthorization,
+    PaperResumeApplyReceipt,
+    PaperResumeRequest,
+    apply_paper_resume_request,
     build_paper_resume_request,
     capture_paper_recovery_preflight,
     read_paper_resume_request,
@@ -75,6 +81,198 @@ def _request(**overrides: object):
     }
     values.update(overrides)
     return build_paper_resume_request(**values)
+
+
+def _apply_authorization(
+    request: PaperResumeRequest, **overrides: object
+) -> PaperResumeApplyAuthorization:
+    values: dict[str, object] = {
+        "authorization_id": "paper-resume-apply-20260913-0630",
+        "request_id": request.request_id,
+        "request_hash": request.request_hash,
+        "authorized_at": START + timedelta(seconds=10),
+    }
+    values.update(overrides)
+    return PaperResumeApplyAuthorization(**values)
+
+
+def test_legacy_resume_input_cannot_change_halted_state() -> None:
+    account = HardenedSharedMarginAccount(starting_capital=Decimal("100.00"))
+    account.current_state = "HALTED"
+
+    with pytest.raises(DomainViolation, match="audited resume"):
+        account.request_resume(_evidence())
+
+    assert account.current_state == "HALTED"
+    assert account.state_history == []
+
+
+def test_audited_resume_apply_returns_receipt_and_records_transition() -> None:
+    account = HardenedSharedMarginAccount(starting_capital=Decimal("100.00"))
+    account.current_state = "HALTED"
+    request = _request()
+    authorization = _apply_authorization(request)
+    applied_at = START + timedelta(seconds=30)
+
+    receipt = account.request_resume(
+        request,
+        authorization=authorization,
+        current_preflight=request.preflight,
+        applied_at=applied_at,
+    )
+
+    assert isinstance(receipt, PaperResumeApplyReceipt)
+    assert receipt.status == "applied"
+    assert receipt.request_id == request.request_id
+    assert receipt.request_hash == request.request_hash
+    assert receipt.authorization_id == authorization.authorization_id
+    assert receipt.applied_at == applied_at
+    assert receipt.from_state == "HALTED"
+    assert receipt.to_state == "NORMAL"
+    assert receipt.paper_activation is False
+    assert receipt.execution_authority is False
+    assert account.current_state == "NORMAL"
+    assert account.state_history == [
+        (
+            applied_at,
+            "HALTED->NORMAL",
+            f"operator_resume:{request.request_id}:{request.request_hash}",
+        )
+    ]
+
+
+def test_resume_apply_accepts_newer_matching_preflight_snapshot() -> None:
+    account = HardenedSharedMarginAccount(starting_capital=Decimal("100.00"))
+    account.current_state = "HALTED"
+    request = _request(
+        created_at=START + timedelta(seconds=30),
+        expires_at=START + timedelta(minutes=10),
+    )
+    authorization = _apply_authorization(
+        request,
+        authorized_at=START + timedelta(seconds=35),
+    )
+    current_preflight = _preflight(observed_at=START + timedelta(seconds=40))
+
+    receipt = apply_paper_resume_request(
+        account,
+        request,
+        authorization,
+        current_preflight=current_preflight,
+        applied_at=START + timedelta(seconds=60),
+    )
+
+    assert receipt.status == "applied"
+    assert account.current_state == "NORMAL"
+
+
+def test_resume_apply_rejects_request_hash_tampering_without_mutation() -> None:
+    account = HardenedSharedMarginAccount(starting_capital=Decimal("100.00"))
+    account.current_state = "HALTED"
+    request = _request()
+    tampered = request.model_copy(update={"request_hash": "b" * 64})
+    authorization = _apply_authorization(request)
+
+    with pytest.raises(DomainViolation, match="hash"):
+        apply_paper_resume_request(
+            account,
+            tampered,
+            authorization,
+            current_preflight=request.preflight,
+            applied_at=START + timedelta(seconds=30),
+        )
+
+    assert account.current_state == "HALTED"
+    assert account.state_history == []
+
+
+def test_resume_apply_rejects_current_preflight_mismatch_without_mutation() -> None:
+    account = HardenedSharedMarginAccount(starting_capital=Decimal("100.00"))
+    account.current_state = "HALTED"
+    request = _request()
+    authorization = _apply_authorization(request)
+    current_preflight = _preflight(scheduler_status="RUNNING")
+
+    with pytest.raises(DomainViolation, match="preflight"):
+        apply_paper_resume_request(
+            account,
+            request,
+            authorization,
+            current_preflight=current_preflight,
+            applied_at=START + timedelta(seconds=30),
+        )
+
+    assert account.current_state == "HALTED"
+    assert account.state_history == []
+
+
+def test_resume_apply_rejects_expired_or_stale_request_without_mutation() -> None:
+    for applied_at, expected_error in (
+        (START + timedelta(minutes=10), "expired"),
+        (START + timedelta(minutes=3), "preflight_stale"),
+    ):
+        account = HardenedSharedMarginAccount(starting_capital=Decimal("100.00"))
+        account.current_state = "HALTED"
+        request = _request()
+
+        with pytest.raises(DomainViolation, match=expected_error):
+            apply_paper_resume_request(
+                account,
+                request,
+                _apply_authorization(request),
+                current_preflight=request.preflight,
+                applied_at=applied_at,
+            )
+
+        assert account.current_state == "HALTED"
+        assert account.state_history == []
+
+
+def test_resume_apply_rejects_non_halted_account_without_mutation() -> None:
+    account = HardenedSharedMarginAccount(starting_capital=Decimal("100.00"))
+    request = _request()
+
+    with pytest.raises(DomainViolation, match="HALTED"):
+        apply_paper_resume_request(
+            account,
+            request,
+            _apply_authorization(request),
+            current_preflight=request.preflight,
+            applied_at=START + timedelta(seconds=30),
+        )
+
+    assert account.current_state == "NORMAL"
+    assert account.state_history == []
+
+
+def test_resume_apply_rejects_request_replay_without_second_transition() -> None:
+    account = HardenedSharedMarginAccount(starting_capital=Decimal("100.00"))
+    account.current_state = "HALTED"
+    request = _request()
+    authorization = _apply_authorization(request)
+    current_preflight = request.preflight
+    applied_at = START + timedelta(seconds=30)
+
+    apply_paper_resume_request(
+        account,
+        request,
+        authorization,
+        current_preflight=current_preflight,
+        applied_at=applied_at,
+    )
+    account.current_state = "HALTED"
+
+    with pytest.raises(DomainViolation, match="already applied"):
+        apply_paper_resume_request(
+            account,
+            request,
+            authorization,
+            current_preflight=current_preflight,
+            applied_at=applied_at + timedelta(seconds=30),
+        )
+
+    assert account.current_state == "HALTED"
+    assert len(account.state_history) == 1
 
 
 def test_prepare_resume_request_is_explicit_and_non_authoritative(tmp_path: Path) -> None:

@@ -416,7 +416,7 @@ class TestTier1FeatureCoverage:
         with pytest.raises(DomainViolation, match="automatic resume is forbidden"):
             account.request_resume(SimpleNamespace(operator_approved=False))
 
-        # Complete evidence restores NORMAL
+        # Complete-looking legacy evidence cannot bypass the audited apply boundary.
         valid_evidence = SimpleNamespace(
             operator_approved=True,
             reconciled=True,
@@ -424,8 +424,9 @@ class TestTier1FeatureCoverage:
             data_fresh=True,
             risk_healthy=True,
         )
-        account.request_resume(valid_evidence)
-        assert account.current_state == "NORMAL"
+        with pytest.raises(DomainViolation, match="automatic resume is forbidden"):
+            account.request_resume(valid_evidence)
+        assert account.current_state == "EMERGENCY_FLAT"
 
     def test_f9_emergency_liquidation_trigger_and_orderly_closeout(self, tmp_path: Path) -> None:
         """Verify emergency liquidation liquidates positions orderly, releasing margin safely."""

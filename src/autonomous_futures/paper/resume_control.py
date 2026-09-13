@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
@@ -106,6 +106,53 @@ class PaperResumeRequest(DomainModel):
         return self
 
 
+class PaperResumeApplyAuthorization(DomainModel):
+    """Separate, explicitly bound authorization for applying one resume request."""
+
+    authorization_id: str = Field(pattern=r"^paper-resume-apply-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    request_id: str = Field(pattern=r"^paper-resume-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    authorized_at: datetime
+    operator_approved: Literal[True] = True
+    control_scope: Literal["paper_resume_apply"] = "paper_resume_apply"
+
+    @field_validator("authorized_at")
+    @classmethod
+    def authorized_at_is_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("authorized_at must be timezone-aware UTC")
+        return value.astimezone(UTC)
+
+
+class PaperResumeApplyReceipt(DomainModel):
+    """In-memory audit receipt returned only after one explicit apply transition."""
+
+    receipt_version: Literal[1] = 1
+    authorization_id: str = Field(pattern=r"^paper-resume-apply-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    request_id: str = Field(pattern=r"^paper-resume-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    applied_at: datetime
+    from_state: Literal["HALTED"] = "HALTED"
+    to_state: Literal["NORMAL"] = "NORMAL"
+    status: Literal["applied"] = "applied"
+    paper_activation: Literal[False] = False
+    execution_authority: Literal[False] = False
+    testnet_activation: Literal[False] = False
+    live_activation: Literal[False] = False
+
+    @field_validator("applied_at")
+    @classmethod
+    def applied_at_is_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("applied_at must be timezone-aware UTC")
+        return value.astimezone(UTC)
+
+
+class _ResumeAccount(Protocol):
+    current_state: BreakerState
+    state_history: list[tuple[datetime, str, str]]
+
+
 def _preflight_blockers(preflight: PaperRecoveryPreflight) -> tuple[str, ...]:
     blockers: list[str] = []
     if preflight.breaker_sidecar_state != "HALTED":
@@ -150,6 +197,90 @@ def paper_resume_request_content_hash(request: PaperResumeRequest) -> str:
     payload = request.model_dump(mode="json", exclude={"request_hash"})
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return sha256(canonical).hexdigest()
+
+
+def _validated_utc_datetime(value: object, *, label: str) -> datetime:
+    if not isinstance(value, datetime):
+        raise DomainViolation(f"{label} must be timezone-aware UTC")
+    if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+        raise DomainViolation(f"{label} must be timezone-aware UTC")
+    return value.astimezone(UTC)
+
+
+def apply_paper_resume_request(
+    account: _ResumeAccount,
+    request: object,
+    authorization: object,
+    *,
+    current_preflight: object,
+    applied_at: datetime,
+) -> PaperResumeApplyReceipt:
+    """Apply one explicitly authorized, fresh request to a halted paper account."""
+    if not isinstance(request, PaperResumeRequest):
+        raise DomainViolation("audited resume request required")
+    if not isinstance(authorization, PaperResumeApplyAuthorization):
+        raise DomainViolation("separate resume apply authorization required")
+    if not isinstance(current_preflight, PaperRecoveryPreflight):
+        raise DomainViolation("fresh resume preflight required")
+
+    try:
+        verified_request = PaperResumeRequest.model_validate(request.model_dump())
+        verified_authorization = PaperResumeApplyAuthorization.model_validate(
+            authorization.model_dump()
+        )
+        verified_preflight = PaperRecoveryPreflight.model_validate(current_preflight.model_dump())
+    except ValidationError as exc:
+        raise DomainViolation("invalid audited resume input") from exc
+
+    if paper_resume_request_content_hash(verified_request) != verified_request.request_hash:
+        raise DomainViolation("resume request hash mismatch")
+    if verified_authorization.request_id != verified_request.request_id:
+        raise DomainViolation("resume authorization request mismatch")
+    if verified_authorization.request_hash != verified_request.request_hash:
+        raise DomainViolation("resume authorization hash mismatch")
+    if verified_authorization.authorized_at < verified_request.created_at:
+        raise DomainViolation("resume authorization predates request")
+
+    applied_at_utc = _validated_utc_datetime(applied_at, label="applied_at")
+    if applied_at_utc < verified_request.created_at:
+        raise DomainViolation("resume request is not active")
+    if applied_at_utc >= verified_request.expires_at:
+        raise DomainViolation("resume request expired")
+    if verified_authorization.authorized_at > applied_at_utc:
+        raise DomainViolation("resume authorization is not active")
+    current_state = verified_preflight.model_dump(mode="json", exclude={"observed_at"})
+    requested_state = verified_request.preflight.model_dump(mode="json", exclude={"observed_at"})
+    if current_state != requested_state:
+        raise DomainViolation("resume preflight mismatch")
+    if verified_preflight.observed_at < verified_request.preflight.observed_at:
+        raise DomainViolation("current resume preflight predates request")
+
+    if not verified_request.evidence.can_resume:
+        raise DomainViolation("resume evidence incomplete")
+    blockers = _preflight_blockers(verified_preflight)
+    if blockers:
+        raise DomainViolation("resume preflight blocked: " + ", ".join(blockers))
+    preflight_age = applied_at_utc - verified_preflight.observed_at
+    if preflight_age < timedelta(0):
+        raise DomainViolation("resume preflight timestamp is in the future")
+    if preflight_age > MAX_PREFLIGHT_AGE:
+        raise DomainViolation("resume preflight_stale")
+
+    if account.current_state != "HALTED":
+        raise DomainViolation("resume apply requires HALTED account state")
+    audit_reason = f"operator_resume:{verified_request.request_id}:{verified_request.request_hash}"
+    if any(reason == audit_reason for _, _, reason in account.state_history):
+        raise DomainViolation("resume request already applied")
+
+    receipt = PaperResumeApplyReceipt(
+        authorization_id=verified_authorization.authorization_id,
+        request_id=verified_request.request_id,
+        request_hash=verified_request.request_hash,
+        applied_at=applied_at_utc,
+    )
+    account.state_history.append((applied_at_utc, "HALTED->NORMAL", audit_reason))
+    account.current_state = "NORMAL"
+    return receipt
 
 
 def _read_json_object(path: Path, *, label: str) -> Mapping[str, object]:
