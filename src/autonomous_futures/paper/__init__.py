@@ -34,7 +34,6 @@ from .ledger import PaperLedger, PaperLedgerEntry, PaperLedgerError
 from .lifecycle import PaperLifecycleTelemetry, mark_paper_position
 from .live_engine import ActivePaperTrade, LivePaperEngine
 from .observation import PaperObservation, observe_paper_ledger
-from .runtime import PaperRuntime, PaperRuntimeResult
 from .resume_control import (
     PaperRecoveryPreflight,
     PaperResumeRequest,
@@ -44,6 +43,7 @@ from .resume_control import (
     read_paper_resume_request,
     write_paper_resume_request,
 )
+from .runtime import PaperRuntime, PaperRuntimeResult
 from .safety import (
     PaperActionApproval,
     PaperActionPermission,
