@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from ..domain.contracts import DomainModel
+from .autonomy_contracts import ResearchPlan
 from .creator_proposals import (
     CreatorProposal,
     creator_proposal_schema_diagnostics,
@@ -24,6 +25,7 @@ class CreatorGenerationRequest(DomainModel):
     output_schema_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
     attempt: int = Field(ge=1, strict=True)
     forbidden_candidate_ids: tuple[str, ...] = ()
+    research_plan: ResearchPlan | None = None
 
     @field_validator("input_evidence_refs")
     @classmethod
@@ -40,6 +42,17 @@ class CreatorGenerationRequest(DomainModel):
         if values != tuple(sorted(set(values))):
             raise ValueError("forbidden candidate IDs must be sorted and unique")
         return values
+
+    @model_validator(mode="after")
+    def research_plan_binding_is_valid(self) -> CreatorGenerationRequest:
+        if self.research_plan is not None:
+            if self.research_plan.research_run_id != self.research_run_id:
+                raise ValueError("research plan run binding is invalid")
+            if not set(self.research_plan.forbidden_candidate_ids).issubset(
+                self.forbidden_candidate_ids
+            ):
+                raise ValueError("research plan forbidden candidates are not preserved")
+        return self
 
 
 class CreatorGenerationResult(DomainModel):

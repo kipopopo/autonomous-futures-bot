@@ -27,6 +27,7 @@ from pydantic import Field, field_validator
 from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
 from ..paper.admission import AdmissionOutcome, StrategyAdmissionDecider
+from ..research.autonomy_contracts import ResearchPlan
 from ..research.cached_evaluation import CachedEvaluationWindow
 from ..research.cached_oos_walk_forward import CachedSimulator, evaluate_cached_oos_walk_forward
 from ..research.candidate_window_simulation import simulate_candidate_window
@@ -71,9 +72,17 @@ class AutonomousCycleConfig(DomainModel):
     artifact_root: Path
     max_attempts: int = Field(default=1, ge=1, le=5)
     require_flat: bool = False
+    forbidden_candidate_ids: tuple[str, ...] = ()
     data_source: Literal["cached_only"] = "cached_only"
     promotion_state: Literal["unpromoted"] = "unpromoted"
     execution_authority: Literal[False] = False
+
+    @field_validator("forbidden_candidate_ids")
+    @classmethod
+    def forbidden_candidate_ids_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if values != tuple(sorted(set(values))):
+            raise ValueError("forbidden candidate IDs must be sorted and unique")
+        return values
 
 
 class AutonomousCycleResult(DomainModel):
@@ -135,6 +144,7 @@ def execute_autonomous_cycle(
     paper_engine: LivePaperEngine | None = None,
     simulator: CachedSimulator | None = None,
     now: datetime | None = None,
+    research_plan: ResearchPlan | None = None,
     provider: str = "demo",
     model: str = "deterministic-heuristic",
     call_status: str = "success",
@@ -161,6 +171,20 @@ def execute_autonomous_cycle(
         or prior_feedback.dataset_registry_hash != config.dataset_registry_hash
     ):
         raise DataQualityError("prior failure feedback does not match cycle bundle scope")
+
+    if research_plan is not None:
+        expected_forbidden = tuple(
+            sorted(set(config.forbidden_candidate_ids) | {prior_feedback.candidate_id})
+        )
+        if (
+            research_plan.cycle_id != config.cycle_id
+            or research_plan.research_run_id != f"run-creator-{config.cycle_id}"
+            or research_plan.symbol != config.symbol
+            or research_plan.bundle_hash != config.bundle_hash
+            or research_plan.dataset_registry_hash != config.dataset_registry_hash
+            or research_plan.forbidden_candidate_ids != expected_forbidden
+        ):
+            raise DataQualityError("research plan does not match cycle scope")
 
     feedback_hash = prior_feedback.qualification_hash
 
@@ -240,19 +264,21 @@ def execute_autonomous_cycle(
         )
 
     # 3. Step 3: Strategy Creation / Revision (Guided by Critic Actions)
+    creator_evidence_refs = [
+        f"critique/{critique_evidence.review_hash}",
+        f"feedback/{prior_feedback.qualification_hash}",
+    ]
+    if research_plan is not None:
+        creator_evidence_refs.append(f"plan/{research_plan.plan_hash}")
     creator_request = CreatorGenerationRequest(
         research_run_id=f"run-creator-{config.cycle_id}",
-        input_evidence_refs=tuple(
-            sorted(
-                (
-                    f"critique/{critique_evidence.review_hash}",
-                    f"feedback/{prior_feedback.qualification_hash}",
-                )
-            )
-        ),
+        input_evidence_refs=tuple(sorted(creator_evidence_refs)),
         output_schema_id="creator-proposal-v1",
         attempt=1,
-        forbidden_candidate_ids=(prior_feedback.candidate_id,),
+        forbidden_candidate_ids=tuple(
+            sorted(set(config.forbidden_candidate_ids) | {prior_feedback.candidate_id})
+        ),
+        research_plan=research_plan,
     )
 
     t_creator_start = time.perf_counter()

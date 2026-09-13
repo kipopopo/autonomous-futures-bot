@@ -1,5 +1,30 @@
 """Paper-safe research-plane contracts."""
 
+from .autonomy_contracts import (
+    FailureLearner,
+    FailureLearningArtifact,
+    FailureLearningRequest,
+    FailureLearningResult,
+    FailureMemoryEntry,
+    ResearchPlan,
+    ResearchPlanRequest,
+    ResearchPlanResult,
+    build_failure_memory_entry,
+    failure_learning_content_hash,
+    failure_memory_content_hash,
+    read_failure_learning_artifact,
+    read_failure_memory_entry,
+    read_research_plan,
+    research_plan_content_hash,
+    research_plan_thesis_hash,
+    write_failure_learning_artifact,
+    write_failure_memory_entry,
+    write_research_plan,
+)
+from .autonomy_prompts import (
+    build_failure_learning_messages,
+    build_research_plan_messages,
+)
 from .cached_evaluation import (
     CachedEvaluationRun,
     CachedEvaluationWindow,
@@ -222,6 +247,27 @@ from .walk_forward import (
 )
 
 __all__ = [
+    "FailureLearner",
+    "FailureLearningArtifact",
+    "FailureLearningRequest",
+    "FailureLearningResult",
+    "FailureMemoryEntry",
+    "ResearchPlan",
+    "ResearchPlanRequest",
+    "ResearchPlanResult",
+    "build_failure_memory_entry",
+    "failure_learning_content_hash",
+    "failure_memory_content_hash",
+    "read_failure_learning_artifact",
+    "read_failure_memory_entry",
+    "read_research_plan",
+    "research_plan_content_hash",
+    "research_plan_thesis_hash",
+    "write_failure_learning_artifact",
+    "write_failure_memory_entry",
+    "write_research_plan",
+    "build_failure_learning_messages",
+    "build_research_plan_messages",
     "CandidateState",
     "CreatorCandidateArtifact",
     "CreatorCandidateRegistry",

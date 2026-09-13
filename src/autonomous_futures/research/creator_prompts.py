@@ -59,6 +59,23 @@ def build_creator_proposal_messages(
         f"input_evidence_refs={','.join(request.input_evidence_refs)}. "
         "Create one falsifiable strategy hypothesis for this exact evidence scope."
     )
+    if request.research_plan is not None:
+        plan_payload = json.dumps(
+            {
+                "plan_hash": request.research_plan.plan_hash,
+                "hypothesis": request.research_plan.hypothesis,
+                "expected_regime": request.research_plan.expected_regime,
+                "strategy_family": request.research_plan.strategy_family,
+                "novelty_dimensions": request.research_plan.novelty_dimensions,
+                "falsification_criteria": request.research_plan.falsification_criteria,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        user_prompt += (
+            f" Approved research_plan={plan_payload}. Implement this plan materially; "
+            "do not relax qualification gates or reuse a forbidden candidate."
+        )
     return (
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
