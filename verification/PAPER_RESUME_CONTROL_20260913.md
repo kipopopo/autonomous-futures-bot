@@ -207,8 +207,9 @@ resume-evidence files:            none found
 
 The five non-secret operator confirmations were received through the UI:
 reconciled, incident resolved, data fresh, risk healthy, and explicit approval
-to resume. No request artifact was created from those confirmations during this
-implementation phase, and no runtime apply was attempted.
+to resume. A preparation-only request was later created in an ephemeral `/tmp`
+path, typed-read back with its canonical hash, and removed. No persistent
+request artifact remains and no runtime apply was attempted.
 
 ## Deployment boundary
 
@@ -237,9 +238,16 @@ The subsequent apply-boundary update was delivered from source commit
 resume-control module, circuit-breaker bridge, package exports, and focused
 regression test. A compatibility stage made from the target source plus this
 overlay passed 24 relevant tests, targeted Ruff/format/mypy, and compile. The
-target after installation passed 22 focused tests, targeted Ruff/format/mypy,
+The target after installation passed 22 focused tests, targeted Ruff/format/mypy,
 in-memory compilation, and CLI help. Data-dependent Phase-255 artifacts were
 intentionally not transferred and were not used as remote acceptance evidence.
+
+With the deployed code, the preparation CLI was also exercised against current
+VPS storage using the five operator confirmations. It returned
+`ready_for_operator_apply`; typed readback verified the request hash, fresh
+HALTED preflight, 166/166 ledger parity, zero positions/candidates, and all
+authority flags false. The ephemeral evidence and request files were then
+removed; no production artifact was applied.
 
 The remote full-tree mypy check exposed four pre-existing platform-specific
 errors in unrelated Windows-only/OS-specific files; those were not changed in
@@ -259,7 +267,7 @@ mutation was performed. Operator application remains a separate action.
 
 ```text
 control implementation:          verified and code-only deployed
-request preparation:              available on disk; not invoked
+request preparation:              current-storage verified; no artifact retained
 request application:              implemented and verified; not invoked
 paper service:                    active process; breaker HALTED
 execution authority:              false
@@ -309,7 +317,8 @@ remote paper state:                    HALTED, unchanged
 
 The final GitHub workflow passed tests, Ruff lint, Ruff formatting, strict
 mypy, and Python compilation. The apply-boundary overlay was installed without
-restarting the service; no prepared request or apply call was invoked.
+restarting the service; the ephemeral prepared request was read back and
+removed, while no apply call was invoked.
 
 Recommended runtime for the next bounded phase: `gpt-5.6-luna-900k` via
 `openai-codex`, Medium effort.
