@@ -25,6 +25,12 @@ from .autonomy_prompts import (
     build_failure_learning_messages,
     build_research_plan_messages,
 )
+from .autonomy_provider import (
+    AuditedGoogleAIStudioFailureLearningTransport,
+    AuditedGoogleAIStudioResearchPlanTransport,
+    GoogleAIStudioFailureLearningTransport,
+    GoogleAIStudioResearchPlanTransport,
+)
 from .cached_evaluation import (
     CachedEvaluationRun,
     CachedEvaluationWindow,
@@ -268,6 +274,10 @@ __all__ = [
     "write_research_plan",
     "build_failure_learning_messages",
     "build_research_plan_messages",
+    "AuditedGoogleAIStudioFailureLearningTransport",
+    "AuditedGoogleAIStudioResearchPlanTransport",
+    "GoogleAIStudioFailureLearningTransport",
+    "GoogleAIStudioResearchPlanTransport",
     "CandidateState",
     "CreatorCandidateArtifact",
     "CreatorCandidateRegistry",

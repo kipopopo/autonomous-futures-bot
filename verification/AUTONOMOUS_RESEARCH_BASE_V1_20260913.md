@@ -29,6 +29,7 @@ Implemented contracts and behavior:
 - Creator prompt binding — includes plan hypothesis, expected regime, family, novelty dimensions, falsification criteria, and plan hash.
 - Canonical learner/planner prompts — authority-denying, evidence-only prompts; raw provider output is not retained.
 - Direct Google AI Studio learner/planner transports — compose the canonical prompts with the existing JSON client and preserve only allowlisted metadata; no retry/fallback policy is added.
+- Policy-bound learner/planner transports — bind each call to the pinned research role/model policy and emit only hash-bound, non-authoritative `ModelCallAudit` records through an injected sink; credentials and raw provider content remain outside the audit.
 - Write-once, hash-verified persistence and final-result idempotency/resume behavior.
 
 ## Safety invariants
@@ -55,15 +56,18 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 - `src/autonomous_futures/research/autonomy_prompts.py`
 - `src/autonomous_futures/research/creator_generator.py`
 - `src/autonomous_futures/research/creator_prompts.py`
+- `src/autonomous_futures/research/autonomy_provider.py`
 - `src/autonomous_futures/research/__init__.py`
 - `src/autonomous_futures/pipeline/autonomous_base.py`
 - `src/autonomous_futures/pipeline/autonomous_cycle.py`
 - `src/autonomous_futures/pipeline/__init__.py`
 - `tests/unit/test_autonomous_research_base.py`
+- `tests/unit/test_autonomy_provider.py`
+- `tests/unit/test_autonomy_provider_audit.py`
 
 ## Verification
 
-- Base/Creator/Critic/cycle/provider focused suite after the final adapter correction: **38 passed in 2.40s**.
+- Base/Creator/Critic/cycle/provider/audit focused suite after the policy-binding correction: **42 passed in 1.65s**.
 - Targeted Ruff: **pass**.
 - Targeted Ruff format: **pass**.
 - Targeted mypy: **pass**.
@@ -73,7 +77,7 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 ## Honest limitations / next boundary
 
 - The failure learner is an explicit typed failure-analysis seam; this slice does not silently invent a new ML trainer or claim model-quality improvement.
-- Real provider smoke was not executed by this offline boundary. The adapters use the canonical prompts, existing client, safe metadata, and caller-owned model configuration; credential resolution and authenticated network verification remain a separate gate.
+- Real provider smoke was not executed by this offline boundary. The adapters use the canonical prompts, existing client, pinned role/model policy, safe metadata, and injected audit sink; credential resolution and authenticated network verification remain a separate gate.
 - Existing learner model training/evaluation artifacts remain separate and require an explicit objective, causal inputs, trainer, and their own evidence boundary.
 - Current paper runtime remains `HALTED`; this work does not create resume authority or change the deployed runtime.
 - Qualification, paper admission, testnet, and live promotion remain separate decisions.
