@@ -1182,8 +1182,8 @@ class TestTelegramNotifierIntegration:
             );
             """
         )
-        t_open = "2026-09-06T12:00:00+00:00"
-        t_close = "2026-09-06T12:15:00+00:00"
+        t_open = (datetime.now(UTC) - timedelta(minutes=15)).isoformat()
+        t_close = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
         conn.execute(
             """
             INSERT INTO paper_ledger_events VALUES
