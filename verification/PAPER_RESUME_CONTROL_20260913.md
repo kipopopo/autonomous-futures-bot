@@ -232,6 +232,15 @@ passed 14 focused tests, targeted Ruff/format, targeted mypy, and compile.
 The installed target overlay then passed the same 14 tests, targeted Ruff,
 format, targeted mypy, in-memory compilation, and CLI help.
 
+The subsequent apply-boundary update was delivered from source commit
+`ecaea534f69a9d92ed127617670467333b0aa9e5` as a minimal overlay of the
+resume-control module, circuit-breaker bridge, package exports, and focused
+regression test. A compatibility stage made from the target source plus this
+overlay passed 24 relevant tests, targeted Ruff/format/mypy, and compile. The
+target after installation passed 22 focused tests, targeted Ruff/format/mypy,
+in-memory compilation, and CLI help. Data-dependent Phase-255 artifacts were
+intentionally not transferred and were not used as remote acceptance evidence.
+
 The remote full-tree mypy check exposed four pre-existing platform-specific
 errors in unrelated Windows-only/OS-specific files; those were not changed in
 this slice. Local full-tree CI remained green. The VPS has Python 3.14.7 and
@@ -251,7 +260,7 @@ mutation was performed. Operator application remains a separate action.
 ```text
 control implementation:          verified and code-only deployed
 request preparation:              available on disk; not invoked
-request application:              not implemented/invoked
+request application:              implemented and verified; not invoked
 paper service:                    active process; breaker HALTED
 execution authority:              false
 testnet/live activation:          false
@@ -282,23 +291,25 @@ paper exports. The one-line ordering fix was delivered separately in
 Final post-fix delivery evidence:
 
 ```text
-fresh post-commit full locked pytest:  2,226 passed in 1002.13s
-fresh changed-path pytest:             14 passed in 1.03s
+fresh post-commit full locked pytest:  2,234 passed in 812.93s
+affected resume/runtime pytest:        128 passed in 45.36s
+target compatibility smoke:           24 passed in 2.38s
+target post-install smoke:             22 passed in 2.05s
 Ruff check/format:                     passed
 mypy:                                  passed
 uv lock --check:                       passed
 py_compile:                            passed
 git diff/show --check:                 passed
-GitHub quality run 34746676867:        success (source commit)
-GitHub quality run 34747472730:        success (source commit 96baf2d)
-source code deployed:                  96baf2d7dee0973c3c09d8441a80cef6d1d0b369
+GitHub quality run 34750614324:        success (deployment report commit)
+GitHub quality run 34754262891:        success (apply source commit)
+source code deployed:                  ecaea534f69a9d92ed127617670467333b0aa9e5
 worktree:                              clean
 remote paper state:                    HALTED, unchanged
 ```
 
 The final GitHub workflow passed tests, Ruff lint, Ruff formatting, strict
-mypy, and Python compilation. The remote overlay was installed without
-restarting the service; the prepared request path was not invoked or applied.
+mypy, and Python compilation. The apply-boundary overlay was installed without
+restarting the service; no prepared request or apply call was invoked.
 
 Recommended runtime for the next bounded phase: `gpt-5.6-luna-900k` via
 `openai-codex`, Medium effort.
