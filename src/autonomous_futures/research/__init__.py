@@ -30,6 +30,7 @@ from .autonomy_provider import (
     AuditedGoogleAIStudioResearchPlanTransport,
     GoogleAIStudioFailureLearningTransport,
     GoogleAIStudioResearchPlanTransport,
+    build_google_ai_studio_autonomous_base,
 )
 from .cached_evaluation import (
     CachedEvaluationRun,
@@ -278,6 +279,7 @@ __all__ = [
     "AuditedGoogleAIStudioResearchPlanTransport",
     "GoogleAIStudioFailureLearningTransport",
     "GoogleAIStudioResearchPlanTransport",
+    "build_google_ai_studio_autonomous_base",
     "CandidateState",
     "CreatorCandidateArtifact",
     "CreatorCandidateRegistry",

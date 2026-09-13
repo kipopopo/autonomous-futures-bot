@@ -30,6 +30,7 @@ Implemented contracts and behavior:
 - Canonical learner/planner prompts — authority-denying, evidence-only prompts; raw provider output is not retained.
 - Direct Google AI Studio learner/planner transports — compose the canonical prompts with the existing JSON client and preserve only allowlisted metadata; no retry/fallback policy is added.
 - Policy-bound learner/planner transports — bind each call to the pinned research role/model policy and emit only hash-bound, non-authoritative `ModelCallAudit` records through an injected sink; credentials and raw provider content remain outside the audit.
+- Typed provider factory — wires separate role-specific clients into `AutonomousResearchBase`; construction validates policy/model bindings and cannot bypass the audit sink or invoke HTTP.
 - Write-once, hash-verified persistence and final-result idempotency/resume behavior.
 
 ## Safety invariants
@@ -64,10 +65,11 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 - `tests/unit/test_autonomous_research_base.py`
 - `tests/unit/test_autonomy_provider.py`
 - `tests/unit/test_autonomy_provider_audit.py`
+- `tests/unit/test_autonomy_provider_wiring.py`
 
 ## Verification
 
-- Base/Creator/Critic/cycle/provider/audit focused suite after the policy-binding correction: **42 passed in 1.65s**.
+- Base/Creator/Critic/cycle/provider/audit/wiring focused suite after the factory correction: **44 passed in 9.88s**.
 - Targeted Ruff: **pass**.
 - Targeted Ruff format: **pass**.
 - Targeted mypy: **pass**.

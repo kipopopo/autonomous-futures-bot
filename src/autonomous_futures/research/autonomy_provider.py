@@ -7,12 +7,20 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
+from typing import TYPE_CHECKING
 
 from ..research_lab.model_audit import ModelCallAudit, ModelCallOutcome
-from ..research_lab.model_policy import LLMRolePolicy, ResearchModelPolicy, ResearchRole
+from ..research_lab.model_policy import (
+    LLMRolePolicy,
+    ResearchModelPolicy,
+    ResearchRole,
+    research_model_policy_content_hash,
+)
 from .autonomy_contracts import (
+    FailureLearner,
     FailureLearningRequest,
     FailureLearningTransport,
+    ResearchPlanner,
     ResearchPlanRequest,
     ResearchPlanTransport,
 )
@@ -22,6 +30,13 @@ from .google_ai_studio_provider import (
     ProviderJsonPayload,
     ProviderTransportError,
 )
+
+if TYPE_CHECKING:
+    from ..pipeline.autonomous_base import (
+        AutonomousBaseConfig,
+        AutonomousResearchBase,
+        BaseCycleRunner,
+    )
 
 AuditSink = Callable[[ModelCallAudit], object]
 
@@ -90,6 +105,8 @@ def _emit_audit(
 def _validate_client_binding(
     *, client: GoogleAIStudioJsonClient, policy: ResearchModelPolicy, role: ResearchRole
 ) -> None:
+    if research_model_policy_content_hash(policy) != policy.policy_hash:
+        raise ValueError("research model policy hash mismatch")
     role_policy = _role_policy(policy, role)
     if role_policy.provider != "google_ai_studio":
         raise ValueError("autonomy transport requires google_ai_studio policy binding")
@@ -241,10 +258,43 @@ class AuditedGoogleAIStudioResearchPlanTransport:
         return payload
 
 
+def build_google_ai_studio_autonomous_base(
+    *,
+    config: AutonomousBaseConfig,
+    learner_client: GoogleAIStudioJsonClient,
+    planner_client: GoogleAIStudioJsonClient,
+    policy: ResearchModelPolicy,
+    audit_sink: AuditSink,
+    cycle_runner: BaseCycleRunner,
+) -> AutonomousResearchBase:
+    """Wire policy-bound provider roles into the offline base without calling HTTP."""
+    from ..pipeline.autonomous_base import AutonomousResearchBase
+
+    return AutonomousResearchBase(
+        config=config,
+        learner=FailureLearner(
+            AuditedGoogleAIStudioFailureLearningTransport(
+                client=learner_client,
+                policy=policy,
+                audit_sink=audit_sink,
+            )
+        ),
+        planner=ResearchPlanner(
+            AuditedGoogleAIStudioResearchPlanTransport(
+                client=planner_client,
+                policy=policy,
+                audit_sink=audit_sink,
+            )
+        ),
+        cycle_runner=cycle_runner,
+    )
+
+
 __all__ = [
     "AuditSink",
     "AuditedGoogleAIStudioFailureLearningTransport",
     "AuditedGoogleAIStudioResearchPlanTransport",
+    "build_google_ai_studio_autonomous_base",
     "FailureLearningTransport",
     "GoogleAIStudioFailureLearningTransport",
     "GoogleAIStudioResearchPlanTransport",
