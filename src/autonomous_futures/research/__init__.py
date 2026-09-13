@@ -221,6 +221,13 @@ from .persisted_qualification import (
     qualify_persisted_candidate,
     run_persisted_qualification_batch,
 )
+from .provider_smoke import (
+    ProviderSmokePreparation,
+    build_provider_smoke_preparation,
+    provider_smoke_preparation_content_hash,
+    read_provider_smoke_preparation,
+    write_provider_smoke_preparation,
+)
 from .qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
     QualificationComparator,
@@ -280,6 +287,11 @@ __all__ = [
     "GoogleAIStudioFailureLearningTransport",
     "GoogleAIStudioResearchPlanTransport",
     "build_google_ai_studio_autonomous_base",
+    "ProviderSmokePreparation",
+    "build_provider_smoke_preparation",
+    "provider_smoke_preparation_content_hash",
+    "read_provider_smoke_preparation",
+    "write_provider_smoke_preparation",
     "CandidateState",
     "CreatorCandidateArtifact",
     "CreatorCandidateRegistry",

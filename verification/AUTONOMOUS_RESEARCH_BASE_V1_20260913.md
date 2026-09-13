@@ -31,6 +31,7 @@ Implemented contracts and behavior:
 - Direct Google AI Studio learner/planner transports — compose the canonical prompts with the existing JSON client and preserve only allowlisted metadata; no retry/fallback policy is added.
 - Policy-bound learner/planner transports — bind each call to the pinned research role/model policy and emit only hash-bound, non-authoritative `ModelCallAudit` records through an injected sink; credentials and raw provider content remain outside the audit.
 - Typed provider factory — wires separate role-specific clients into `AutonomousResearchBase`; construction validates policy/model bindings and cannot bypass the audit sink or invoke HTTP.
+- Prepare-only provider smoke contract/CLI — creates a single-request, role-bound artifact with `network_call_allowed=false`; it accepts only a sanitized policy file and has no credential resolver or HTTP path.
 - Write-once, hash-verified persistence and final-result idempotency/resume behavior.
 
 ## Safety invariants
@@ -58,6 +59,7 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 - `src/autonomous_futures/research/creator_generator.py`
 - `src/autonomous_futures/research/creator_prompts.py`
 - `src/autonomous_futures/research/autonomy_provider.py`
+- `src/autonomous_futures/research/provider_smoke.py`
 - `src/autonomous_futures/research/__init__.py`
 - `src/autonomous_futures/pipeline/autonomous_base.py`
 - `src/autonomous_futures/pipeline/autonomous_cycle.py`
@@ -66,10 +68,12 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 - `tests/unit/test_autonomy_provider.py`
 - `tests/unit/test_autonomy_provider_audit.py`
 - `tests/unit/test_autonomy_provider_wiring.py`
+- `tests/unit/test_provider_smoke.py`
+- `scripts/prepare_autonomy_provider_smoke.py`
 
 ## Verification
 
-- Base/Creator/Critic/cycle/provider/audit/wiring focused suite after the factory correction: **44 passed in 9.88s**.
+- Base/Creator/Critic/cycle/provider/audit/wiring/smoke-preparation focused suite after the prepare-only correction: **51 passed in 1.71s**.
 - Targeted Ruff: **pass**.
 - Targeted Ruff format: **pass**.
 - Targeted mypy: **pass**.
@@ -80,6 +84,7 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 
 - The failure learner is an explicit typed failure-analysis seam; this slice does not silently invent a new ML trainer or claim model-quality improvement.
 - Real provider smoke was not executed by this offline boundary. The adapters use the canonical prompts, existing client, pinned role/model policy, safe metadata, and injected audit sink; credential resolution and authenticated network verification remain a separate gate.
+- The smoke-preparation artifact is deliberately non-authorizing (`network_call_allowed=false`); it cannot be used as proof of provider availability or entitlement.
 - Existing learner model training/evaluation artifacts remain separate and require an explicit objective, causal inputs, trainer, and their own evidence boundary.
 - Current paper runtime remains `HALTED`; this work does not create resume authority or change the deployed runtime.
 - Qualification, paper admission, testnet, and live promotion remain separate decisions.
