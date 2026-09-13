@@ -20,6 +20,7 @@ SUPPORTED_FEATURES = frozenset(
         "bollinger_zscore",
         "bollinger_width",
         "relative_volume",
+        "vwap_reclaim",
         "rsi",
         "adx",
         "regime_trend",
@@ -112,6 +113,20 @@ def _feature_series(
             raise DataQualityError("relative_volume requires volume")
         average_volume = volume.rolling(window=lookback, min_periods=lookback).mean()
         raw = volume.div(average_volume.mask(average_volume == 0))
+    elif name == "vwap_reclaim":
+        if volume is None:
+            raise DataQualityError("vwap_reclaim requires volume")
+        typical_price = (high + low + close) / 3
+        rolling_volume = volume.rolling(window=lookback, min_periods=lookback).sum()
+        rolling_value = (
+            (typical_price * volume).rolling(window=lookback, min_periods=lookback).sum()
+        )
+        vwap = rolling_value.div(rolling_volume.mask(rolling_volume == 0))
+        bullish_reclaim = (low < vwap) & (close > vwap)
+        bearish_reclaim = (high > vwap) & (close < vwap)
+        raw = (bullish_reclaim.astype(float) - bearish_reclaim.astype(float)).where(
+            vwap.notna(),
+        )
     elif name == "rsi":
         delta = close.diff()
         gain = (
@@ -193,7 +208,7 @@ def materialize_causal_features(
     if unsupported := sorted(set(feature_names).difference(SUPPORTED_FEATURES)):
         raise DataQualityError("feature is not supported: " + ", ".join(unsupported))
     volume = None
-    if "relative_volume" in feature_names:
+    if {"relative_volume", "vwap_reclaim"}.intersection(feature_names):
         if "volume" not in canonical.columns:
             raise DataQualityError("feature evaluator is missing volume column")
         volume = _finite_non_negative_series(canonical, "volume")

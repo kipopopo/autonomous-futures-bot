@@ -435,3 +435,74 @@ def test_failed_breakout_reentry_uses_prior_range_and_next_open() -> None:
     assert changed.loc[4, "failed_breakout_reentry"] == 0
     assert changed.loc[4, "signal"] == 0
     pd.testing.assert_frame_equal(source, source.copy(deep=True))
+
+
+def test_vwap_reclaim_is_causal_and_emits_next_open_reversal_events() -> None:
+    values = [
+        ("100", "101", "99", "100"),
+        ("100", "101", "99", "100"),
+        ("100", "101", "99", "100"),
+        ("100", "102", "98", "101"),
+        ("101", "102", "100", "101"),
+        ("100", "103", "99", "100"),
+        ("100", "101", "99", "100"),
+    ]
+    source = pd.DataFrame(
+        {
+            "timestamp": [START + timedelta(minutes=5 * index) for index in range(len(values))],
+            "open": [Decimal(open_) for open_, _, _, _ in values],
+            "high": [Decimal(high) for _, high, _, _ in values],
+            "low": [Decimal(low) for _, _, low, _ in values],
+            "close": [Decimal(close) for _, _, _, close in values],
+            "volume": [Decimal("100") for _ in values],
+        }
+    )
+    candidate = _candidate(
+        feature_names=("vwap_reclaim",),
+        long_expression="vwap_reclaim > 0",
+        short_expression="vwap_reclaim < 0",
+        exit_long_expression="vwap_reclaim < 0",
+        exit_short_expression="vwap_reclaim > 0",
+    )
+
+    mutated = source.copy(deep=True)
+    mutated.loc[3, ["open", "high", "low", "close"]] = [
+        Decimal("100"),
+        Decimal("100"),
+        Decimal("100"),
+        Decimal("100"),
+    ]
+
+    evaluator = CausalFeatureSignalEvaluator()
+    original = evaluator.evaluate(candidate, source)
+    changed = evaluator.evaluate(candidate, mutated)
+
+    assert pd.isna(original.loc[2, "vwap_reclaim"])
+    assert original.loc[3, "vwap_reclaim"] == 0
+    assert original.loc[4, "vwap_reclaim"] == 1
+    assert original.loc[4, "signal"] == 1
+    assert original.loc[6, "vwap_reclaim"] == -1
+    assert original.loc[6, "signal"] == -1
+    assert pd.isna(changed.loc[2, "vwap_reclaim"])
+    assert original.loc[3, "signal"] == changed.loc[3, "signal"]
+    assert changed.loc[4, "vwap_reclaim"] == 0
+    assert changed.loc[4, "signal"] == 0
+    pd.testing.assert_frame_equal(source, source.copy(deep=True))
+
+
+def test_vwap_reclaim_requires_volume_and_keeps_zero_vwap_unknown() -> None:
+    candidate = _candidate(
+        feature_names=("vwap_reclaim",),
+        long_expression="vwap_reclaim > 0",
+        short_expression="vwap_reclaim < 0",
+    )
+
+    with pytest.raises(DataQualityError, match="missing volume column"):
+        CausalFeatureSignalEvaluator().evaluate(candidate, _frame())
+
+    source = _frame()
+    source["volume"] = Decimal("0")
+    result = CausalFeatureSignalEvaluator().evaluate(candidate, source)
+
+    assert result["vwap_reclaim"].isna().all()
+    assert not result["signal"].astype(bool).any()

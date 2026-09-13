@@ -137,6 +137,7 @@ ALLOWED_FEATURES = frozenset(
         "rsi",
         "volume",
         "relative_volume",
+        "vwap_reclaim",
         "funding_rate",
         "spread_proxy",
         "regime_trend",
