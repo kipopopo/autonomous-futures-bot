@@ -212,19 +212,47 @@ implementation phase, and no runtime apply was attempted.
 
 ## Deployment boundary
 
-The new control code is **not deployed to the remote runtime** in this phase.
-The running paper service remains on its existing source and remains `HALTED`.
-No deployment, daemon reload, restart, sidecar write, or resume command was
-performed. This is intentional: implementation and validation of a safe control
-surface are complete, while operator application remains a separate action.
+The new control code was deployed as a **minimal code-only overlay** after
+separate operator approval for `atomic code-only install; no restart/resume/order`.
+Only these five paths were installed; unrelated target drift was preserved:
+
+```text
+src/autonomous_futures/paper/resume_control.py
+src/autonomous_futures/paper/__init__.py
+scripts/prepare_paper_resume.py
+tests/unit/test_paper_resume_control.py
+tests/unit/test_prepare_paper_resume_cli.py
+```
+
+The full code-only archive used for isolated staging contained 492 files,
+5,046,940 bytes, and manifest `0c3baef5791acbb1b46448e5c7f2cd2e4cfea92898851ca86dc956e58362d4d2`.
+The staged archive and remote staging tree matched exactly. A compatibility
+stage built from the pre-existing target source plus this five-file overlay
+passed 14 focused tests, targeted Ruff/format, targeted mypy, and compile.
+The installed target overlay then passed the same 14 tests, targeted Ruff,
+format, targeted mypy, in-memory compilation, and CLI help.
+
+The remote full-tree mypy check exposed four pre-existing platform-specific
+errors in unrelated Windows-only/OS-specific files; those were not changed in
+this slice. Local full-tree CI remained green. The VPS has Python 3.14.7 and
+the existing project venv, but no `uv` executable on PATH; no dependency
+resolution or package installation was performed.
+
+Rollback copies of the prior paper package export and online `Connection.backup()`
+copies of the three paper SQLite databases were created with `integrity_check=ok`
+and retained. No database file was replaced.
+
+The running paper process was not reloaded. No daemon reload, restart, sidecar
+write, resume command, force-close, order, candidate admission, or breaker
+mutation was performed. Operator application remains a separate action.
 
 ## Resulting state
 
 ```text
-control implementation:          verified
-request preparation:              available
+control implementation:          verified and code-only deployed
+request preparation:              available on disk; not invoked
 request application:              not implemented/invoked
-paper service:                    HALTED
+paper service:                    active process; breaker HALTED
 execution authority:              false
 testnet/live activation:          false
 orders from this phase:           0
@@ -245,7 +273,7 @@ Base repository before this slice:
 HEAD = origin/main = a57718f8e83d02d10abbad1751c08aede8699fb7
 ```
 
-The implementation, tests, and this report were staged together in
+The implementation, tests, and initial report were staged together in
 `383af694e2fbd3c5619008b83fd6d0e7dc9650c2`. Its first GitHub quality run
 completed the test step but failed Ruff on an import-order error in the public
 paper exports. The one-line ordering fix was delivered separately in
@@ -261,15 +289,16 @@ mypy:                                  passed
 uv lock --check:                       passed
 py_compile:                            passed
 git diff/show --check:                 passed
-GitHub quality run 34746676867:        success
-final source HEAD/origin/main:         820367d2ed90d94a3e9c4592f48101d233a91eb3
+GitHub quality run 34746676867:        success (source commit)
+GitHub quality run 34747472730:        success (source commit 96baf2d)
+source code deployed:                  96baf2d7dee0973c3c09d8441a80cef6d1d0b369
 worktree:                              clean
 remote paper state:                    HALTED, unchanged
 ```
 
 The final GitHub workflow passed tests, Ruff lint, Ruff formatting, strict
-mypy, and Python compilation. The remote service was not deployed or restarted;
-the prepared request path was not applied.
+mypy, and Python compilation. The remote overlay was installed without
+restarting the service; the prepared request path was not invoked or applied.
 
 Recommended runtime for the next bounded phase: `gpt-5.6-luna-900k` via
 `openai-codex`, Medium effort.
