@@ -245,10 +245,31 @@ Base repository before this slice:
 HEAD = origin/main = a57718f8e83d02d10abbad1751c08aede8699fb7
 ```
 
-The implementation, tests, and this report must be staged together. After the
-commit, a fresh post-commit suite, GitHub quality workflow, exact SHA readback,
-and remote safety readback are required before this phase is considered
-complete.
+The implementation, tests, and this report were staged together in
+`383af694e2fbd3c5619008b83fd6d0e7dc9650c2`. Its first GitHub quality run
+completed the test step but failed Ruff on an import-order error in the public
+paper exports. The one-line ordering fix was delivered separately in
+`820367d2ed90d94a3e9c4592f48101d233a91eb3`; no runtime behavior changed.
+
+Final post-fix delivery evidence:
+
+```text
+fresh post-commit full locked pytest:  2,226 passed in 1002.13s
+fresh changed-path pytest:             14 passed in 1.03s
+Ruff check/format:                     passed
+mypy:                                  passed
+uv lock --check:                       passed
+py_compile:                            passed
+git diff/show --check:                 passed
+GitHub quality run 34746676867:        success
+final source HEAD/origin/main:         820367d2ed90d94a3e9c4592f48101d233a91eb3
+worktree:                              clean
+remote paper state:                    HALTED, unchanged
+```
+
+The final GitHub workflow passed tests, Ruff lint, Ruff formatting, strict
+mypy, and Python compilation. The remote service was not deployed or restarted;
+the prepared request path was not applied.
 
 Recommended runtime for the next bounded phase: `gpt-5.6-luna-900k` via
 `openai-codex`, Medium effort.
