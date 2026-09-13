@@ -590,6 +590,7 @@ class FailureLearner:
             )
         if not isinstance(payload, Mapping):
             return FailureLearningResult(decision="rejected", reason_codes=("schema_rejected",))
+        provider_metadata = _safe_provider_metadata(getattr(payload, "metadata", None))
         try:
             artifact = parse_failure_learning(payload, request)
         except DataQualityError:
@@ -597,12 +598,13 @@ class FailureLearner:
                 decision="rejected",
                 reason_codes=("schema_rejected",),
                 schema_diagnostics=("learning_payload_invalid",),
-                provider_metadata=_safe_provider_metadata(getattr(payload, "metadata", None)),
+                provider_metadata=provider_metadata,
             )
         return FailureLearningResult(
             decision="accepted",
             artifact=artifact,
             reason_codes=("schema_valid",),
+            provider_metadata=provider_metadata,
         )
 
 
@@ -623,6 +625,7 @@ class ResearchPlanner:
             )
         if not isinstance(payload, Mapping):
             return ResearchPlanResult(decision="rejected", reason_codes=("schema_rejected",))
+        provider_metadata = _safe_provider_metadata(getattr(payload, "metadata", None))
         try:
             plan = parse_research_plan(payload, request)
         except DataQualityError:
@@ -630,17 +633,34 @@ class ResearchPlanner:
                 decision="rejected",
                 reason_codes=("schema_rejected",),
                 schema_diagnostics=("research_plan_payload_invalid",),
-                provider_metadata=_safe_provider_metadata(getattr(payload, "metadata", None)),
+                provider_metadata=provider_metadata,
             )
         if plan.novelty_dimensions and not (
             set(plan.novelty_dimensions) & set(request.learning.recommended_novelty_dimensions)
         ):
-            return ResearchPlanResult(decision="rejected", reason_codes=("learning_not_consumed",))
+            return ResearchPlanResult(
+                decision="rejected",
+                reason_codes=("learning_not_consumed",),
+                provider_metadata=provider_metadata,
+            )
         if plan.plan_hash in request.prior_plan_hashes:
-            return ResearchPlanResult(decision="rejected", reason_codes=("plan_replayed",))
+            return ResearchPlanResult(
+                decision="rejected",
+                reason_codes=("plan_replayed",),
+                provider_metadata=provider_metadata,
+            )
         if plan.thesis_hash in request.prior_thesis_hashes:
-            return ResearchPlanResult(decision="rejected", reason_codes=("thesis_replayed",))
-        return ResearchPlanResult(decision="accepted", plan=plan, reason_codes=("plan_valid",))
+            return ResearchPlanResult(
+                decision="rejected",
+                reason_codes=("thesis_replayed",),
+                provider_metadata=provider_metadata,
+            )
+        return ResearchPlanResult(
+            decision="accepted",
+            plan=plan,
+            reason_codes=("plan_valid",),
+            provider_metadata=provider_metadata,
+        )
 
 
 def _write_once(path: Path, payload: str) -> None:

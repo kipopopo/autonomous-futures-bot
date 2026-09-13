@@ -28,6 +28,7 @@ Implemented contracts and behavior:
 - Existing-cycle adapter — invokes the existing deterministic cycle with `paper_engine=None` and forwards the approved plan to Creator.
 - Creator prompt binding — includes plan hypothesis, expected regime, family, novelty dimensions, falsification criteria, and plan hash.
 - Canonical learner/planner prompts — authority-denying, evidence-only prompts; raw provider output is not retained.
+- Direct Google AI Studio learner/planner transports — compose the canonical prompts with the existing JSON client and preserve only allowlisted metadata; no retry/fallback policy is added.
 - Write-once, hash-verified persistence and final-result idempotency/resume behavior.
 
 ## Safety invariants
@@ -62,7 +63,7 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 
 ## Verification
 
-- Base/Creator/Critic/cycle focused suite after the final orphan-resume correction: **36 passed in 2.34s**.
+- Base/Creator/Critic/cycle/provider focused suite after the final adapter correction: **38 passed in 2.40s**.
 - Targeted Ruff: **pass**.
 - Targeted Ruff format: **pass**.
 - Targeted mypy: **pass**.
@@ -72,7 +73,7 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 ## Honest limitations / next boundary
 
 - The failure learner is an explicit typed failure-analysis seam; this slice does not silently invent a new ML trainer or claim model-quality improvement.
-- Real provider adapters for failure learning/planning are not enabled by this offline boundary. They must use the canonical prompts, pinned model policy, safe metadata, finite budgets, and separate provider verification.
+- Real provider smoke was not executed by this offline boundary. The adapters use the canonical prompts, existing client, safe metadata, and caller-owned model configuration; credential resolution and authenticated network verification remain a separate gate.
 - Existing learner model training/evaluation artifacts remain separate and require an explicit objective, causal inputs, trainer, and their own evidence boundary.
 - Current paper runtime remains `HALTED`; this work does not create resume authority or change the deployed runtime.
 - Qualification, paper admission, testnet, and live promotion remain separate decisions.
