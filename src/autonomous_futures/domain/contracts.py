@@ -140,6 +140,7 @@ ALLOWED_FEATURES = frozenset(
         "funding_rate",
         "spread_proxy",
         "regime_trend",
+        "failed_breakout_reentry",
     }
 )
 

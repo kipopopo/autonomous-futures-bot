@@ -23,6 +23,7 @@ SUPPORTED_FEATURES = frozenset(
         "rsi",
         "adx",
         "regime_trend",
+        "failed_breakout_reentry",
     }
 )
 _REQUIRED_OHLC = ("open", "high", "low", "close")
@@ -142,6 +143,15 @@ def _feature_series(
         directional_sum = (plus_di + minus_di).replace(0, float("nan"))
         dx = 100 * (plus_di - minus_di).abs().div(directional_sum)
         raw = dx.ewm(alpha=1 / lookback, adjust=False, min_periods=lookback).mean()
+    elif name == "failed_breakout_reentry":
+        upper = high.rolling(window=lookback, min_periods=lookback).max().shift(1)
+        lower = low.rolling(window=lookback, min_periods=lookback).min().shift(1)
+        inside_range = close.gt(lower) & close.lt(upper)
+        failed_long = (low < lower) & (high <= upper) & inside_range
+        failed_short = (high > upper) & (low >= lower) & inside_range
+        raw = (failed_long.astype(float) - failed_short.astype(float)).where(
+            upper.notna() & lower.notna(),
+        )
     else:
         ema = close.ewm(span=lookback, adjust=False, min_periods=lookback).mean()
         slope = ema.diff()

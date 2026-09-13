@@ -389,3 +389,49 @@ def test_duplicate_features_and_conflicting_conditions_are_rejected() -> None:
     )
     with pytest.raises(DataQualityError, match="both long and short"):
         CausalFeatureSignalEvaluator().evaluate(conflicting_candidate, _frame())
+
+
+def test_failed_breakout_reentry_uses_prior_range_and_next_open() -> None:
+    values = [
+        ("100", "102", "98"),
+        ("100", "102", "98"),
+        ("100", "102", "98"),
+        ("100", "101", "97"),
+        ("100", "101", "99"),
+        ("100", "103", "99"),
+        ("100", "101", "99"),
+    ]
+    source = pd.DataFrame(
+        {
+            "timestamp": [START + timedelta(minutes=5 * index) for index in range(len(values))],
+            "open": [Decimal(open_) for open_, _, _ in values],
+            "high": [Decimal(high) for _, high, _ in values],
+            "low": [Decimal(low) for _, _, low in values],
+            "close": [Decimal("100") for _ in values],
+        }
+    )
+    candidate = _candidate(
+        feature_names=("failed_breakout_reentry",),
+        long_expression="failed_breakout_reentry > 0",
+        short_expression="failed_breakout_reentry < 0",
+        exit_long_expression="failed_breakout_reentry < 0",
+        exit_short_expression="failed_breakout_reentry > 0",
+    )
+
+    mutated = source.copy(deep=True)
+    mutated.loc[3, "low"] = Decimal("99")
+
+    evaluator = CausalFeatureSignalEvaluator()
+    original = evaluator.evaluate(candidate, source)
+    changed = evaluator.evaluate(candidate, mutated)
+
+    assert pd.isna(original.loc[3, "failed_breakout_reentry"])
+    assert original.loc[4, "failed_breakout_reentry"] == 1
+    assert original.loc[4, "signal"] == 1
+    assert original.loc[6, "failed_breakout_reentry"] == -1
+    assert original.loc[6, "signal"] == -1
+    assert pd.isna(changed.loc[3, "failed_breakout_reentry"])
+    assert original.loc[3, "signal"] == changed.loc[3, "signal"]
+    assert changed.loc[4, "failed_breakout_reentry"] == 0
+    assert changed.loc[4, "signal"] == 0
+    pd.testing.assert_frame_equal(source, source.copy(deep=True))
