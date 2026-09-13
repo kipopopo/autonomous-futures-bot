@@ -35,6 +35,15 @@ from .lifecycle import PaperLifecycleTelemetry, mark_paper_position
 from .live_engine import ActivePaperTrade, LivePaperEngine
 from .observation import PaperObservation, observe_paper_ledger
 from .runtime import PaperRuntime, PaperRuntimeResult
+from .resume_control import (
+    PaperRecoveryPreflight,
+    PaperResumeRequest,
+    build_paper_resume_request,
+    capture_paper_recovery_preflight,
+    paper_resume_request_content_hash,
+    read_paper_resume_request,
+    write_paper_resume_request,
+)
 from .safety import (
     PaperActionApproval,
     PaperActionPermission,
@@ -65,8 +74,10 @@ __all__ = [
     "PaperLedgerError",
     "PaperLifecycleTelemetry",
     "PaperObservation",
+    "PaperRecoveryPreflight",
     "PaperQualificationPolicy",
     "PaperRoundTripResult",
+    "PaperResumeRequest",
     "PaperRuntime",
     "PaperRuntimeResult",
     "PaperSafetyDecision",
@@ -85,12 +96,17 @@ __all__ = [
     "mark_paper_position",
     "observe_paper_ledger",
     "paper_qualification_policy_content_hash",
+    "paper_resume_request_content_hash",
     "publish_admitted_candidate",
     "publish_candidate_admission",
     "read_candidate_registry",
+    "read_paper_resume_request",
     "simulate_paper_round_trip",
     "validate_manifest_candidate_artifacts",
     "verify_candidate_manifest_entry",
     "verify_candidate_registry_manifest",
     "write_candidate_registry",
+    "write_paper_resume_request",
+    "build_paper_resume_request",
+    "capture_paper_recovery_preflight",
 ]
