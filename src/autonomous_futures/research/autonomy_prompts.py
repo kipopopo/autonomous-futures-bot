@@ -14,7 +14,15 @@ from .autonomy_contracts import (
 _FAILURE_LEARNER_SYSTEM = (
     "Return exactly one JSON object with keys decision, failure_patterns, "
     "learned_constraints, and recommended_novelty_dimensions. decision must be "
-    "accepted or stop. Analyze only the supplied typed failure memory. Preserve "
+    "accepted or stop. failure_patterns, learned_constraints, and "
+    "recommended_novelty_dimensions must each be JSON arrays of unique strings. "
+    "recommended_novelty_dimensions values must be one of entry_logic, exit_logic, "
+    "feature_set, regime_filter, risk_design, or strategy_family. Do not return "
+    'objects inside any array. A valid shape is {"decision":"accepted", '
+    '"failure_patterns":["oos_profit_factor_below_threshold"], '
+    '"learned_constraints":["preserve_all_qualification_gates"], '
+    '"recommended_novelty_dimensions":["entry_logic"]}. Analyze only the '
+    "supplied typed failure memory. Preserve "
     "all qualification gates and never recommend changing thresholds, selecting "
     "a new holdout, promoting a candidate, changing risk authority, or placing "
     "an order. If no materially different falsifiable direction remains, return "

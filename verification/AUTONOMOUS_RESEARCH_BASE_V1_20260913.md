@@ -75,12 +75,12 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 
 ## Verification
 
-- Base/Creator/Critic/cycle/provider/audit/wiring/smoke-preparation/schema-diagnostics focused suite after the redaction correction: **53 passed in 1.61s**.
+- Base/Creator/Critic/cycle/provider/audit/wiring/smoke-preparation/schema-diagnostics/prompt focused suite after the remediation: **54 passed in 1.49s**.
 - Targeted Ruff: **pass**.
 - Targeted Ruff format: **pass**.
 - Targeted mypy: **pass**.
 - Full locked pytest after the final orphan-resume correction: **2,247 passed in 886.62s**.
-- No additional provider call beyond the single authorized smoke, exchange access, paper activation, candidate admission, restart, order, testnet action, or live action was performed.
+- No provider calls beyond the two separately authorized single-request smokes, exchange access, paper activation, candidate admission, restart, order, testnet action, or live action were performed.
 
 ## Authenticated smoke gate
 
@@ -111,13 +111,45 @@ raw credential persisted: false
 The audit envelope was written to a temporary path, read back with the shared
 hash-verifying reader, and removed with the disposable runner. No credential
 was requested in chat, printed, logged, or substituted from another provider.
-No second request, retry, fallback, learner-artifact persistence, planner call,
-research cycle, or execution path was started after the schema rejection.
+No retry, fallback, learner-artifact persistence, planner call, research cycle,
+or execution path was started after the schema rejection.
+
+## Schema diagnostic follow-up
+
+A separate explicit authorization was received for one diagnostic
+`failure_analyst` request. It used the same verified VWAP evidence and the
+remediated safe-diagnostic intake; exactly one request reached the provider.
+
+```text
+research run:            run-provider-schema-diagnostic-001
+provider requests:       1
+provider HTTP status:    200
+transport outcome:       succeeded
+learner decision:        rejected / schema_rejected
+response content length: 1313
+response content hash:   41a4b608ab35a1c44f1aa0048da806522449bb4f3eef605ec8cd89e759c642aa
+safe schema diagnostics: failure_patterns.0:string_type
+                          failure_patterns:too_short
+                          learned_constraints.0:string_type
+                          learned_constraints:too_short
+                          recommended_novelty_dimensions.0:literal_error
+                          recommended_novelty_dimensions.1:literal_error
+                          recommended_novelty_dimensions.2:literal_error
+                          recommended_novelty_dimensions:too_short
+audit hash:              abfc544864fafbc2e87a27c4d5e642a1a750e806a4a93a3434c6723b3c1ee873
+audit envelope hash:     d874a060d64d8dbb79558ec034a6bd09793d361614a1863dea32ec90a40e9cce
+raw provider output:     not persisted
+```
+
+The diagnostic result identifies a provider response-shape mismatch: the
+learner arrays were not accepted as the required string arrays and the novelty
+values were outside the typed enum. The canonical prompt now states those
+requirements explicitly. No schema relaxation or third request was performed.
 
 ## Honest limitations / next boundary
 
 - The failure learner is an explicit typed failure-analysis seam; this slice does not silently invent a new ML trainer or claim model-quality improvement.
-- The one real provider smoke reached the provider successfully but failed at the typed learner-schema boundary. Safe field/type diagnostics are now available for future injected responses, while the actual raw response remains intentionally unrecovered; no blind retry or schema relaxation is authorized.
+- The two real provider smokes reached the provider successfully but failed at the typed learner-schema boundary. The second run captured safe field/type diagnostics, while both raw responses remain intentionally unrecovered; no blind retry or schema relaxation is authorized.
 - The smoke-preparation artifact is deliberately non-authorizing (`network_call_allowed=false`); it cannot be used as proof of provider availability or entitlement.
 - Existing learner model training/evaluation artifacts remain separate and require an explicit objective, causal inputs, trainer, and their own evidence boundary.
 - Current paper runtime remains `HALTED`; this work does not create resume authority or change the deployed runtime.
