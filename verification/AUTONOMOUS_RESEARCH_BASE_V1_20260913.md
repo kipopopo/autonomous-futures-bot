@@ -32,6 +32,7 @@ Implemented contracts and behavior:
 - Policy-bound learner/planner transports — bind each call to the pinned research role/model policy and emit only hash-bound, non-authoritative `ModelCallAudit` records through an injected sink; credentials and raw provider content remain outside the audit.
 - Typed provider factory — wires separate role-specific clients into `AutonomousResearchBase`; construction validates policy/model bindings and cannot bypass the audit sink or invoke HTTP.
 - Prepare-only provider smoke contract/CLI — creates a single-request, role-bound artifact with `network_call_allowed=false`; it accepts only a sanitized policy file and has no credential resolver or HTTP path.
+- Safe schema diagnostics — learner/planner intake now reports only allowlisted field paths and typed validation codes; unknown provider fields and values are omitted.
 - Write-once, hash-verified persistence and final-result idempotency/resume behavior.
 
 ## Safety invariants
@@ -69,11 +70,12 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 - `tests/unit/test_autonomy_provider_audit.py`
 - `tests/unit/test_autonomy_provider_wiring.py`
 - `tests/unit/test_provider_smoke.py`
+- `tests/unit/test_autonomy_schema_diagnostics.py`
 - `scripts/prepare_autonomy_provider_smoke.py`
 
 ## Verification
 
-- Base/Creator/Critic/cycle/provider/audit/wiring/smoke-preparation focused suite after the prepare-only correction: **51 passed in 1.71s**.
+- Base/Creator/Critic/cycle/provider/audit/wiring/smoke-preparation/schema-diagnostics focused suite after the redaction correction: **53 passed in 1.61s**.
 - Targeted Ruff: **pass**.
 - Targeted Ruff format: **pass**.
 - Targeted mypy: **pass**.
@@ -115,7 +117,7 @@ research cycle, or execution path was started after the schema rejection.
 ## Honest limitations / next boundary
 
 - The failure learner is an explicit typed failure-analysis seam; this slice does not silently invent a new ML trainer or claim model-quality improvement.
-- The one real provider smoke reached the provider successfully but failed at the typed learner-schema boundary. The adapters use the canonical prompts, existing client, pinned role/model policy, safe metadata, and injected audit sink; no blind retry or schema relaxation is authorized.
+- The one real provider smoke reached the provider successfully but failed at the typed learner-schema boundary. Safe field/type diagnostics are now available for future injected responses, while the actual raw response remains intentionally unrecovered; no blind retry or schema relaxation is authorized.
 - The smoke-preparation artifact is deliberately non-authorizing (`network_call_allowed=false`); it cannot be used as proof of provider availability or entitlement.
 - Existing learner model training/evaluation artifacts remain separate and require an explicit objective, causal inputs, trainer, and their own evidence boundary.
 - Current paper runtime remains `HALTED`; this work does not create resume authority or change the deployed runtime.

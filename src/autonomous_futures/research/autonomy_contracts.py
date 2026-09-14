@@ -448,6 +448,42 @@ def failure_learning_content_hash(artifact: FailureLearningArtifact) -> str:
     return sha256(canonical).hexdigest()
 
 
+class _SchemaContractError(DataQualityError):
+    """Internal schema failure with redacted, typed diagnostics only."""
+
+    diagnostics: tuple[str, ...]
+
+    def __init__(self, diagnostics: tuple[str, ...]) -> None:
+        self.diagnostics = diagnostics
+        super().__init__("schema contract rejected")
+
+
+def _safe_schema_diagnostics(
+    error: ValidationError, *, allowed_fields: frozenset[str]
+) -> tuple[str, ...]:
+    diagnostics: set[str] = set()
+    for detail in error.errors():
+        location = detail.get("loc", ())
+        if not isinstance(location, tuple):
+            continue
+        if location and (not isinstance(location[0], str) or location[0] not in allowed_fields):
+            continue
+        path_parts = []
+        for part in location:
+            if isinstance(part, str) and part in allowed_fields:
+                path_parts.append(part)
+            elif isinstance(part, int) and 0 <= part <= 1024:
+                path_parts.append(str(part))
+            else:
+                path_parts.append("unknown")
+        path = ".".join(path_parts) or "__root__"
+        error_type = detail.get("type")
+        if not isinstance(error_type, str) or not error_type:
+            error_type = "validation_error"
+        diagnostics.add(f"{path}:{error_type[:64]}")
+    return tuple(sorted(diagnostics)) or ("__root__:validation_error",)
+
+
 def parse_failure_learning(
     payload: Mapping[str, object], request: FailureLearningRequest
 ) -> FailureLearningArtifact:
@@ -469,8 +505,22 @@ def parse_failure_learning(
     }
     try:
         validated = FailureLearningArtifact.model_validate(data)
-    except (ValidationError, TypeError) as exc:
-        raise DataQualityError("invalid failure learning artifact") from exc
+    except ValidationError as exc:
+        raise _SchemaContractError(
+            _safe_schema_diagnostics(
+                exc,
+                allowed_fields=frozenset(
+                    {
+                        "decision",
+                        "failure_patterns",
+                        "learned_constraints",
+                        "recommended_novelty_dimensions",
+                    }
+                ),
+            )
+        ) from None
+    except TypeError:
+        raise _SchemaContractError(("__root__:type_error",)) from None
     learning_hash = failure_learning_content_hash(validated)
     return FailureLearningArtifact.model_validate(
         {
@@ -526,8 +576,23 @@ def parse_research_plan(
     }
     try:
         validated = ResearchPlan.model_validate(data)
-    except (ValidationError, TypeError) as exc:
-        raise DataQualityError("invalid research plan") from exc
+    except ValidationError as exc:
+        raise _SchemaContractError(
+            _safe_schema_diagnostics(
+                exc,
+                allowed_fields=frozenset(
+                    {
+                        "expected_regime",
+                        "falsification_criteria",
+                        "hypothesis",
+                        "novelty_dimensions",
+                        "strategy_family",
+                    }
+                ),
+            )
+        ) from None
+    except TypeError:
+        raise _SchemaContractError(("__root__:type_error",)) from None
     thesis_hash = research_plan_thesis_hash(validated)
     bound = ResearchPlan.model_validate(
         {
@@ -593,6 +658,13 @@ class FailureLearner:
         provider_metadata = _safe_provider_metadata(getattr(payload, "metadata", None))
         try:
             artifact = parse_failure_learning(payload, request)
+        except _SchemaContractError as exc:
+            return FailureLearningResult(
+                decision="rejected",
+                reason_codes=("schema_rejected",),
+                schema_diagnostics=exc.diagnostics,
+                provider_metadata=provider_metadata,
+            )
         except DataQualityError:
             return FailureLearningResult(
                 decision="rejected",
@@ -628,6 +700,13 @@ class ResearchPlanner:
         provider_metadata = _safe_provider_metadata(getattr(payload, "metadata", None))
         try:
             plan = parse_research_plan(payload, request)
+        except _SchemaContractError as exc:
+            return ResearchPlanResult(
+                decision="rejected",
+                reason_codes=("schema_rejected",),
+                schema_diagnostics=exc.diagnostics,
+                provider_metadata=provider_metadata,
+            )
         except DataQualityError:
             return ResearchPlanResult(
                 decision="rejected",
