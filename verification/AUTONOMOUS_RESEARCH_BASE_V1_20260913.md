@@ -78,31 +78,44 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 - Targeted Ruff format: **pass**.
 - Targeted mypy: **pass**.
 - Full locked pytest after the final orphan-resume correction: **2,247 passed in 886.62s**.
-- No provider call, exchange/network access, paper activation, candidate admission, restart, order, testnet action, or live action was performed.
+- No additional provider call beyond the single authorized smoke, exchange access, paper activation, candidate admission, restart, order, testnet action, or live action was performed.
 
 ## Authenticated smoke gate
 
 An explicit authorization was received for exactly one bounded `failure_analyst`
 request. The request was built from the verified rejected VWAP evidence and the
-prepare-only safety contract was checked before credential resolution.
+prepare-only safety contract was checked before credential resolution. The
+supported credential resolved without exposing its value, and exactly one
+Google AI Studio request was sent with the pinned `gemma-4-31b-it` model.
 
 ```text
 credential source:       supported environment/repository resolver only
-resolver result:         missing supported credential
-provider requests:       0
-network call:            false
-raw provider output:     none
+resolver result:         resolved (value not retained or displayed)
+provider requests:       1
+network call:            true, exactly one authorized request
+provider HTTP status:    200
+transport outcome:       succeeded
+learner decision:        rejected / schema_rejected
+schema diagnostic:       learning_payload_invalid
+response content length: 1408
+response content hash:   e8278b18d748d7860b6210d1ec617b53d9ade7fa420d462f2aa63de067f17eba
+finish reason:           stop
+audit hash:              4d624f13b190d5bc294dca0881cd8270361d64cee0e45c4f5c28f09219f355d2
+audit envelope hash:     eae02d37ef2f0ae74cdb20e39b83125a30a769b309939a79eb1d1bf456716d90
+raw provider output:     not persisted
 raw credential persisted: false
 ```
 
-The disposable runner was removed after the blocked pre-network result. No
-credential was requested in chat, printed, logged, or substituted from another
-provider.
+The audit envelope was written to a temporary path, read back with the shared
+hash-verifying reader, and removed with the disposable runner. No credential
+was requested in chat, printed, logged, or substituted from another provider.
+No second request, retry, fallback, learner-artifact persistence, planner call,
+research cycle, or execution path was started after the schema rejection.
 
 ## Honest limitations / next boundary
 
 - The failure learner is an explicit typed failure-analysis seam; this slice does not silently invent a new ML trainer or claim model-quality improvement.
-- Real provider smoke remains blocked at the credential gate. The adapters use the canonical prompts, existing client, pinned role/model policy, safe metadata, and injected audit sink; authenticated network verification remains a separate gate.
+- The one real provider smoke reached the provider successfully but failed at the typed learner-schema boundary. The adapters use the canonical prompts, existing client, pinned role/model policy, safe metadata, and injected audit sink; no blind retry or schema relaxation is authorized.
 - The smoke-preparation artifact is deliberately non-authorizing (`network_call_allowed=false`); it cannot be used as proof of provider availability or entitlement.
 - Existing learner model training/evaluation artifacts remain separate and require an explicit objective, causal inputs, trainer, and their own evidence boundary.
 - Current paper runtime remains `HALTED`; this work does not create resume authority or change the deployed runtime.
