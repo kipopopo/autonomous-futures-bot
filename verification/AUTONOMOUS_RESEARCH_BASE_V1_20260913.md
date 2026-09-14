@@ -80,10 +80,29 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 - Full locked pytest after the final orphan-resume correction: **2,247 passed in 886.62s**.
 - No provider call, exchange/network access, paper activation, candidate admission, restart, order, testnet action, or live action was performed.
 
+## Authenticated smoke gate
+
+An explicit authorization was received for exactly one bounded `failure_analyst`
+request. The request was built from the verified rejected VWAP evidence and the
+prepare-only safety contract was checked before credential resolution.
+
+```text
+credential source:       supported environment/repository resolver only
+resolver result:         missing supported credential
+provider requests:       0
+network call:            false
+raw provider output:     none
+raw credential persisted: false
+```
+
+The disposable runner was removed after the blocked pre-network result. No
+credential was requested in chat, printed, logged, or substituted from another
+provider.
+
 ## Honest limitations / next boundary
 
 - The failure learner is an explicit typed failure-analysis seam; this slice does not silently invent a new ML trainer or claim model-quality improvement.
-- Real provider smoke was not executed by this offline boundary. The adapters use the canonical prompts, existing client, pinned role/model policy, safe metadata, and injected audit sink; credential resolution and authenticated network verification remain a separate gate.
+- Real provider smoke remains blocked at the credential gate. The adapters use the canonical prompts, existing client, pinned role/model policy, safe metadata, and injected audit sink; authenticated network verification remains a separate gate.
 - The smoke-preparation artifact is deliberately non-authorizing (`network_call_allowed=false`); it cannot be used as proof of provider availability or entitlement.
 - Existing learner model training/evaluation artifacts remain separate and require an explicit objective, causal inputs, trainer, and their own evidence boundary.
 - Current paper runtime remains `HALTED`; this work does not create resume authority or change the deployed runtime.
