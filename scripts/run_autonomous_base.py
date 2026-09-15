@@ -30,7 +30,10 @@ _SRC_DIR = _REPO_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
-from autonomous_futures.data.parquet import DataQualityError  # noqa: E402
+from autonomous_futures.data.parquet import (  # noqa: E402
+    DataQualityError,
+    read_canonical_parquet,
+)
 from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.pipeline.autonomous_base import (  # noqa: E402
     AutonomousBaseConfig,
@@ -40,8 +43,10 @@ from autonomous_futures.pipeline.autonomous_base import (  # noqa: E402
 from autonomous_futures.research.autonomy_contracts import (  # noqa: E402
     FailureLearner,
     FailureLearningRequest,
+    FailureLearningTransport,
     ResearchPlanner,
     ResearchPlanRequest,
+    ResearchPlanTransport,
 )
 from autonomous_futures.research.cached_evaluation import (  # noqa: E402
     CachedEvaluationWindow,
@@ -157,49 +162,147 @@ def _offline_planner_transport(request: ResearchPlanRequest) -> Mapping[str, Any
 
 
 class DeterministicOfflineCritic:
-    """Deterministic critic transport."""
+    """Deterministic critic transport matching LearnerCritique schema."""
 
     def __call__(self, request: LearnerCriticRequest) -> Mapping[str, object]:
+        cid = request.candidate_id.lower().replace("_", "-")
+        review_id = f"review-{cid}"[:64]
         return {
-            "decision": "approved",
-            "critique": "Proposal matches failure feedback guidance.",
-            "strengths": ["Adapts lookback to market regime"],
-            "weaknesses": ["Requires out-of-sample confirmation"],
+            "review_id": review_id,
+            "research_run_id": request.research_run_id,
+            "candidate_id": request.candidate_id,
+            "decision": "revise",
+            "failure_reason_codes": sorted(set(request.feedback.failure_reason_codes)),
+            "revision_actions": sorted(["adjust_stop_multiplier", "adjust_take_profit_multiplier"]),
         }
 
 
 class DeterministicOfflineCreator:
-    """Deterministic creator proposal transport."""
+    """Deterministic creator proposal transport matching CreatorProposal schema."""
 
     def __call__(self, request: CreatorGenerationRequest) -> Mapping[str, object]:
         plan = request.research_plan
         symbol = plan.symbol if plan is not None else "BTCUSDT"
         cycle_ref = request.research_run_id
+        candidate_suffix = (
+            "002"
+            if request.forbidden_candidate_ids
+            and f"cand-{symbol.lower()}-revised-001" in request.forbidden_candidate_ids
+            else "001"
+        )
+        cand_id = f"cand-{symbol.lower()}-revised-{candidate_suffix}"[:64]
+        strategy_family = (
+            plan.strategy_family
+            if plan is not None
+            and plan.strategy_family
+            in (
+                "regime_gated_breakout",
+                "range_mean_reversion",
+                "donchian_channel_breakout",
+                "volatility_compression_breakout",
+                "volume_confirmed_momentum",
+                "experimental",
+            )
+            else "experimental"
+        )
+        hypothesis = (
+            plan.hypothesis
+            if plan is not None
+            else f"Adjusting ATR multipliers to capture momentum on 5m {symbol} bars"
+        )
+        expected_regime = plan.expected_regime if plan is not None else "trending"
+
+        if strategy_family == "volatility_compression_breakout":
+            features: list[dict[str, object]] = [
+                {"name": "donchian_breakout", "lookback": 20, "shift": 1},
+                {"name": "bollinger_width", "lookback": 20, "shift": 1},
+            ]
+            entry: dict[str, str] = {
+                "long": "donchian_breakout > 0.0 and bollinger_width < 0.05",
+                "short": "donchian_breakout < 0.0 and bollinger_width < 0.05",
+            }
+            exit: dict[str, str] = {
+                "long": "donchian_breakout < 0.0",
+                "short": "donchian_breakout > 0.0",
+            }
+        else:
+            features = [{"name": "returns", "lookback": 3, "shift": 1}]
+            entry = {"long": "returns > 0.001", "short": "returns < -0.001"}
+            exit = {"long": "returns < -0.001", "short": "returns > 0.001"}
+
         strategy_payload: dict[str, object] = {
-            "dsl_version": 1,
-            "strategy_id": f"cand-{cycle_ref}",
-            "family": "momentum_breakout",
+            "dsl_version": 2,
+            "strategy_id": cand_id,
+            "family": strategy_family,
             "universe": {
                 "symbols": [symbol],
                 "timeframe": "5m",
                 "regime_context_timeframe": "15m",
             },
-            "features": [{"name": "rsi", "lookback": 14, "shift": 1}],
-            "entry": {"long": "rsi <= 30", "short": "rsi >= 70"},
-            "exit": {"long": "rsi >= 50", "short": "rsi <= 50"},
+            "features": features,
+            "entry": entry,
+            "exit": exit,
             "vetoes": ["testing_only_no_promotion"],
+            "risk": {
+                "position_fraction": Decimal("0.10"),
+                "stop_atr_multiplier": Decimal("2.0"),
+                "take_profit_atr_multiplier": Decimal("3.0"),
+                "trailing_atr_multiplier": Decimal("1.0"),
+            },
         }
         return {
-            "candidate_id": f"cand-{cycle_ref}",
-            "rationale": f"Candidate generated for run {cycle_ref}",
+            "proposal_id": f"proposal-{symbol.lower()}-{cycle_ref}"[:64],
+            "research_run_id": request.research_run_id,
+            "hypothesis": hypothesis,
+            "expected_regime": expected_regime,
+            "novelty_reason": "Deterministic revision guided by plan and critic review",
             "strategy": strategy_payload,
         }
+
+
+def load_and_slice_windows(
+    parquet_path: Path,
+    *,
+    symbol: str,
+    bundle_hash: str,
+    dataset_registry_hash: str,
+    windows_count: int,
+    bars_per_window: int,
+) -> tuple[CachedEvaluationWindow, ...]:
+    if not parquet_path.is_file():
+        raise FileNotFoundError(f"Canonical Parquet file not found: {parquet_path}")
+    df = read_canonical_parquet(parquet_path, interval=timedelta(minutes=5))
+    total_bars = windows_count * bars_per_window
+    if len(df) < total_bars:
+        raise DataQualityError(
+            f"Insufficient bars in {parquet_path}: requested {total_bars} "
+            f"({windows_count}x{bars_per_window}), found {len(df)}"
+        )
+    selected = df.iloc[-total_bars:].copy().reset_index(drop=True)
+    windows: list[CachedEvaluationWindow] = []
+    for i in range(windows_count):
+        start_idx = i * bars_per_window
+        end_idx = (i + 1) * bars_per_window
+        sub = selected.iloc[start_idx:end_idx].copy().reset_index(drop=True)
+        time_start = sub["timestamp"].iloc[0].to_pydatetime()
+        time_end = sub["timestamp"].iloc[-1].to_pydatetime() + timedelta(minutes=5)
+        spec = CachedEvaluationWindowSpec(
+            window_id=f"window-{symbol.lower()}-{i + 1:03d}",
+            symbol=symbol,
+            bundle_hash=bundle_hash,
+            dataset_registry_hash=dataset_registry_hash,
+            time_start=time_start,
+            time_end=time_end,
+        )
+        windows.append(CachedEvaluationWindow(spec=spec, frame=sub))
+    return tuple(windows)
 
 
 def _make_default_windows(
     symbol: str,
     bundle_hash: str,
     dataset_registry_hash: str,
+    bars_count: int = 50,
 ) -> tuple[CachedEvaluationWindow, ...]:
     """Create default evaluation windows with canonical 5m bars for offline base execution."""
     start = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
@@ -209,19 +312,64 @@ def _make_default_windows(
         bundle_hash=bundle_hash,
         dataset_registry_hash=dataset_registry_hash,
         time_start=start,
-        time_end=start + timedelta(minutes=15),
+        time_end=start + timedelta(minutes=5 * bars_count),
     )
+    closes = [Decimal("100") + Decimal(str(i * 0.1)) for i in range(bars_count)]
     frame = pd.DataFrame(
         {
-            "timestamp": [start + timedelta(minutes=5 * i) for i in range(3)],
-            "open": [Decimal("100"), Decimal("101"), Decimal("102")],
-            "high": [Decimal("101"), Decimal("102"), Decimal("103")],
-            "low": [Decimal("99"), Decimal("100"), Decimal("101")],
-            "close": [Decimal("100.5"), Decimal("101.5"), Decimal("102.5")],
+            "timestamp": [start + timedelta(minutes=5 * i) for i in range(bars_count)],
+            "open": closes,
+            "high": [c + Decimal("0.5") for c in closes],
+            "low": [c - Decimal("0.5") for c in closes],
+            "close": closes,
         }
     )
     window = CachedEvaluationWindow(spec=spec, frame=frame)
     return (window,)
+
+
+def make_offline_learner_transport(learning_file: Path | None = None) -> FailureLearningTransport:
+    durable_payload: dict[str, Any] | None = None
+    if learning_file is not None and learning_file.is_file():
+        raw = json.loads(learning_file.read_text(encoding="utf-8"))
+        durable_payload = {
+            "failure_patterns": sorted(
+                raw.get("failure_patterns", ["oos_profit_factor_below_threshold"])
+            ),
+            "learned_constraints": sorted(
+                raw.get("learned_constraints", ["preserve_all_qualification_gates"])
+            ),
+            "recommended_novelty_dimensions": sorted(
+                raw.get("recommended_novelty_dimensions", ["entry_logic", "feature_set"])
+            ),
+        }
+
+    def transport(request: FailureLearningRequest) -> Mapping[str, Any]:
+        if durable_payload is not None and request.cycle_index == 1:
+            return durable_payload
+        return _offline_learner_transport(request)
+
+    return transport
+
+
+def make_offline_planner_transport(plan_file: Path | None = None) -> ResearchPlanTransport:
+    durable_payload: dict[str, Any] | None = None
+    if plan_file is not None and plan_file.is_file():
+        raw = json.loads(plan_file.read_text(encoding="utf-8"))
+        durable_payload = {
+            "hypothesis": raw["hypothesis"],
+            "expected_regime": raw["expected_regime"],
+            "strategy_family": raw["strategy_family"],
+            "novelty_dimensions": sorted(raw["novelty_dimensions"]),
+            "falsification_criteria": sorted(raw["falsification_criteria"]),
+        }
+
+    def transport(request: ResearchPlanRequest) -> Mapping[str, Any]:
+        if durable_payload is not None and request.cycle_index == 1:
+            return durable_payload
+        return _offline_planner_transport(request)
+
+    return transport
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -270,6 +418,78 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Preflight environment, inputs, and configuration without running cycles",
     )
+    parser.add_argument(
+        "--parquet-path",
+        type=Path,
+        default=None,
+        help="Optional path to canonical 5m Parquet data file",
+    )
+    parser.add_argument(
+        "--windows-count",
+        type=int,
+        default=None,
+        help="Number of evaluation windows",
+    )
+    parser.add_argument(
+        "--bars-per-window",
+        type=int,
+        default=None,
+        help="Number of 5m bars per evaluation window",
+    )
+    parser.add_argument(
+        "--learning-file",
+        type=Path,
+        default=None,
+        help="Optional path to durable FailureLearningArtifact JSON to seed cycle 1",
+    )
+    parser.add_argument(
+        "--plan-file",
+        type=Path,
+        default=None,
+        help="Optional path to durable ResearchPlan JSON to seed cycle 1",
+    )
+    parser.add_argument(
+        "--use-synthetic-windows",
+        action="store_true",
+        default=False,
+        help="Force synthetic windows even if canonical parquet is available",
+    )
+    parser.add_argument(
+        "--min-profit-factor",
+        type=Decimal,
+        default=Decimal("1.10"),
+        help="Qualification minimum profit factor (default: 1.10)",
+    )
+    parser.add_argument(
+        "--max-drawdown-pct",
+        type=Decimal,
+        default=Decimal("0.15"),
+        help="Qualification maximum drawdown percentage (default: 0.15)",
+    )
+    parser.add_argument(
+        "--min-average-return-pct",
+        type=Decimal,
+        default=Decimal("0.0"),
+        help="Qualification minimum average return percentage (default: 0.0)",
+    )
+    parser.add_argument(
+        "--min-trades",
+        type=int,
+        default=1,
+        help="Qualification minimum trades (default: 1)",
+    )
+    parser.add_argument(
+        "--min-windows",
+        type=int,
+        default=1,
+        help="Qualification minimum windows (default: 1)",
+    )
+    parser.add_argument(
+        "--policy-id",
+        type=str,
+        default="policy-offline-wf-001",
+        help="Walk-forward qualification policy identifier",
+    )
     return parser
 
 
@@ -290,7 +510,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:
         return int(exc.code) if isinstance(exc.code, int) else 1
 
-    base_run_id = args.base_run_id or f"base-{uuid4().hex[:16]}"
+    base_run_id = args.base_run_id
+    if base_run_id is None and args.artifact_root is not None:
+        existing_res = args.artifact_root / "base-result.json"
+        if existing_res.is_file():
+            try:
+                res_data = json.loads(existing_res.read_text(encoding="utf-8"))
+                loaded_id = res_data.get("base_run_id")
+                if isinstance(loaded_id, str) and loaded_id.startswith("base-"):
+                    base_run_id = loaded_id
+            except Exception:
+                pass
+    if base_run_id is None:
+        base_run_id = f"base-{uuid4().hex[:16]}"
     artifact_root = args.artifact_root or Path("artifacts") / "autonomous_base" / base_run_id
 
     # Safe credential preflight (no secrets exposed or printed)
@@ -360,18 +592,40 @@ def main(argv: Sequence[str] | None = None) -> int:
     artifact_root.mkdir(parents=True, exist_ok=True)
 
     # Assemble offline deterministic runners
-    windows = _make_default_windows(
-        symbol=config.symbol,
-        bundle_hash=config.bundle_hash,
-        dataset_registry_hash=config.dataset_registry_hash,
-    )
+    parquet_path = args.parquet_path
+    if parquet_path is None and not args.use_synthetic_windows:
+        default_parquet = Path(f"research/immutable-data/5m/canonical/{config.symbol}-5m.parquet")
+        if default_parquet.is_file():
+            parquet_path = default_parquet
+
+    windows: tuple[CachedEvaluationWindow, ...]
+    if parquet_path is not None and parquet_path.is_file() and not args.use_synthetic_windows:
+        w_count = args.windows_count if args.windows_count is not None else 3
+        b_count = args.bars_per_window if args.bars_per_window is not None else 288
+        windows = load_and_slice_windows(
+            parquet_path,
+            symbol=config.symbol,
+            bundle_hash=config.bundle_hash,
+            dataset_registry_hash=config.dataset_registry_hash,
+            windows_count=w_count,
+            bars_per_window=b_count,
+        )
+    else:
+        bars_count = args.bars_per_window if args.bars_per_window is not None else 50
+        windows = _make_default_windows(
+            symbol=config.symbol,
+            bundle_hash=config.bundle_hash,
+            dataset_registry_hash=config.dataset_registry_hash,
+            bars_count=bars_count,
+        )
+
     qualification_policy = WalkForwardQualificationPolicy(
-        policy_id="policy-offline-wf-001",
-        minimum_windows=1,
-        minimum_trades=1,
-        minimum_profit_factor=Decimal("1.1"),
-        maximum_drawdown_pct=Decimal("0.15"),
-        minimum_average_return_pct=Decimal("0.0"),
+        policy_id=args.policy_id,
+        minimum_windows=args.min_windows,
+        minimum_trades=args.min_trades,
+        minimum_profit_factor=args.min_profit_factor,
+        maximum_drawdown_pct=args.max_drawdown_pct,
+        minimum_average_return_pct=args.min_average_return_pct,
     )
     cycle_runner = make_autonomous_cycle_runner(
         windows=windows,
@@ -383,8 +637,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     base = AutonomousResearchBase(
         config=config,
-        learner=FailureLearner(_offline_learner_transport),
-        planner=ResearchPlanner(_offline_planner_transport),
+        learner=FailureLearner(make_offline_learner_transport(args.learning_file)),
+        planner=ResearchPlanner(make_offline_planner_transport(args.plan_file)),
         cycle_runner=cycle_runner,
     )
 

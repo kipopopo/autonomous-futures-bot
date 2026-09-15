@@ -635,3 +635,116 @@ def test_tampered_failure_memory_entry_rejects(tmp_path: Path) -> None:
 
     with pytest.raises(DomainViolation, match="tampered or corrupted failure memory checkpoint"):
         base.run(initial_feedback=seed_fb, now=NOW)
+
+
+def test_cli_runner_with_durable_artifacts_and_parquet(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify CLI main executes deterministic cycle with durable artifacts and parquet."""
+    feedback_file = REPO_ROOT / "data" / "research" / "seed_feedback.json"
+    learning_file = (
+        REPO_ROOT
+        / "data"
+        / "research"
+        / "durable-evidence"
+        / "learning"
+        / "learn-deb5b2325a25cd9efcdbddd6eb58aee76c70dcb796e7d2b79dcd7a0fe9a867c1.json"
+    )
+    plan_file = (
+        REPO_ROOT
+        / "data"
+        / "research"
+        / "durable-evidence"
+        / "plans"
+        / "plan-a54d0e5d83e6b1a5dd6996455fd880f5806670352e66755994e8c5970825fb37.json"
+    )
+    parquet_file = (
+        REPO_ROOT / "research" / "immutable-data" / "5m" / "canonical" / "BTCUSDT-5m.parquet"
+    )
+    if not (
+        feedback_file.is_file()
+        and learning_file.is_file()
+        and plan_file.is_file()
+        and parquet_file.is_file()
+    ):
+        pytest.skip("Required durable research fixtures not found")
+
+    artifact_root = tmp_path / "base_run"
+    exit_code = cli_main(
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--feedback-file",
+            str(feedback_file),
+            "--learning-file",
+            str(learning_file),
+            "--plan-file",
+            str(plan_file),
+            "--parquet-path",
+            str(parquet_file),
+            "--windows-count",
+            "1",
+            "--bars-per-window",
+            "50",
+            "--max-cycles",
+            "2",
+            "--artifact-root",
+            str(artifact_root),
+        ]
+    )
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["status"] == "completed"
+    assert report["terminal_reason"] == "qualified_unadmitted"
+    assert report["cycles_executed"] == 1
+    assert (artifact_root / "base-result.json").is_file()
+    assert (artifact_root / "failure-memory").is_dir()
+    assert len(list((artifact_root / "failure-memory").glob("failure-*.json"))) == 1
+
+    # Idempotent re-run returns existing result immediately
+    exit_code_resume = cli_main(
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--feedback-file",
+            str(feedback_file),
+            "--artifact-root",
+            str(artifact_root),
+        ]
+    )
+    assert exit_code_resume == 0
+    _ = capsys.readouterr()
+
+    # Also verify real multi-window rejection path producing chained failure memories
+    artifact_root_rej = tmp_path / "base_run_rejection"
+    exit_code_rej = cli_main(
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--feedback-file",
+            str(feedback_file),
+            "--learning-file",
+            str(learning_file),
+            "--plan-file",
+            str(plan_file),
+            "--parquet-path",
+            str(parquet_file),
+            "--windows-count",
+            "3",
+            "--bars-per-window",
+            "288",
+            "--max-cycles",
+            "2",
+            "--artifact-root",
+            str(artifact_root_rej),
+        ]
+    )
+    assert exit_code_rej == 0
+    captured_rej = capsys.readouterr()
+    report_rej = json.loads(captured_rej.out)
+    assert report_rej["status"] == "stopped"
+    assert report_rej["terminal_reason"] == "max_cycles_reached"
+    assert report_rej["cycles_executed"] == 2
+    assert (artifact_root_rej / "base-result.json").is_file()
+    assert len(list((artifact_root_rej / "failure-memory").glob("failure-*.json"))) == 3

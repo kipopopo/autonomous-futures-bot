@@ -51,6 +51,7 @@ from ..research.qualification_artifacts import (
 from .autonomous_cycle import (
     AutonomousCycleConfig,
     AutonomousCycleResult,
+    autonomous_cycle_content_hash,
     execute_autonomous_cycle,
 )
 
@@ -929,6 +930,21 @@ def make_autonomous_cycle_runner(
             provider="demo",
             model="deterministic-heuristic",
         )
+        if result.admission_decision == "admitted" or result.cycle_status == "completed_admitted":
+            recomputed = result.model_copy(
+                update={
+                    "admission_decision": "blocked_invalid_binding",
+                    "cycle_status": "completed_unadmitted",
+                    "stop_reasons": tuple(
+                        sorted(
+                            set(result.stop_reasons) | {"offline_base_paper_admission_prohibited"}
+                        )
+                    ),
+                }
+            )
+            result = recomputed.model_copy(
+                update={"cycle_hash": autonomous_cycle_content_hash(recomputed)}
+            )
         next_feedback: CreatorQualificationFailureFeedback | None = None
         if result.qualification_decision == "rejected":
             if result.qualification_hash is None:
