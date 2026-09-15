@@ -35,9 +35,11 @@ from scripts.run_phase_264_stress_simulation import (  # noqa: E402
     DEFAULT_MIN_RESERVE_BUFFER,
     DEFAULT_PHASE264_OUTPUT_DIR,
     TRACK_DEFINITIONS,
+    Phase264SharedMarginAccount,
     apply_track_shocks,
     main,
     run_phase_264_simulation,
+    run_single_phase_264_track,
 )
 
 
@@ -454,3 +456,124 @@ class TestPhase264AdversarialEdgeCases:
         assert (df_mod_1h["high"] >= df_mod_1h["low"]).all()
         assert (df_mod_1h["high"] >= df_mod_1h["open"]).all()
         assert (df_mod_1h["high"] >= df_mod_1h["close"]).all()
+
+    def test_run_phase_264_simulation_rejects_extra_manifest_candidates(
+        self, tmp_path: Path
+    ) -> None:
+        orig = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        d = orig.model_dump(mode="json")
+        d_extra = json.loads(json.dumps(d))
+        d_extra["symbols"]["DOGEUSDT"] = {
+            "admitted_at": "2026-09-15T16:10:54.132807+00:00",
+            "artifact_path": "artifacts/paper_live/candidates/cand-dogeusdt-rogue.json",
+            "candidate_artifact_hash": "0" * 64,
+            "candidate_id": "cand-dogeusdt-rogue",
+            "qualification_hash": "1" * 64,
+        }
+        m_extra = CandidateRegistryManifest.model_validate(d_extra)
+        d_extra["registry_hash"] = compute_registry_hash(m_extra)
+        p_extra = tmp_path / "reg_extra.json"
+        p_extra.write_text(json.dumps(d_extra), encoding="utf-8")
+
+        with pytest.raises(DomainViolation, match="requires exactly active candidates"):
+            run_phase_264_simulation(
+                output_dir=tmp_path / "out_extra", registry_path=p_extra, days=1
+            )
+
+    def test_run_phase_264_simulation_rejects_timezone_naive_start_time(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(DomainViolation, match="timezone-aware UTC"):
+            run_phase_264_simulation(
+                output_dir=tmp_path / "out_naive",
+                start_time=datetime(2026, 7, 30, 0, 0),  # naive datetime
+                days=1,
+            )
+
+    def test_run_phase_264_simulation_rejects_unknown_track(self, tmp_path: Path) -> None:
+        with pytest.raises(DomainViolation, match="Unknown track specified"):
+            run_phase_264_simulation(
+                output_dir=tmp_path / "out_unknown_track",
+                selected_track="non_existent_track_999",
+                days=1,
+            )
+
+    def test_track_filter_accepts_directory_style_name(self, tmp_path: Path) -> None:
+        res = run_phase_264_simulation(
+            output_dir=tmp_path / "out_dir_track",
+            selected_track="track_0_baseline",
+            days=1,
+        )
+        assert res.all_tracks_survived is True
+        assert len(res.track_results) == 1
+        assert "baseline" in res.track_results
+
+    def test_run_single_phase_264_track_enforces_1h_shocked_presence(self, tmp_path: Path) -> None:
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
+        candidates = validate_manifest_candidate_artifacts(manifest)
+        q_hashes = {sym: entry.qualification_hash for sym, entry in manifest.symbols.items()}
+
+        t0 = datetime(2026, 7, 30, 0, 0, tzinfo=UTC)
+        frames_15m = {
+            sym: pd.DataFrame(
+                {
+                    "timestamp": [t0 + timedelta(minutes=15 * i) for i in range(96)],
+                    "open": [Decimal("100.00")] * 96,
+                    "high": [Decimal("105.00")] * 96,
+                    "low": [Decimal("95.00")] * 96,
+                    "close": [Decimal("101.00")] * 96,
+                    "volume": [Decimal("50.0")] * 96,
+                }
+            )
+            for sym in candidates
+        }
+        # Pass empty raw_frames_1h so 1h candidate (SOLUSDT) has no 1h frame
+        with pytest.raises(DataQualityError, match="Missing shocked 1h frame"):
+            run_single_phase_264_track(
+                track_spec=TRACK_DEFINITIONS[0],
+                output_dir=tmp_path / "track_no_1h",
+                candidates=candidates,
+                qualification_hashes=q_hashes,
+                raw_frames_15m=frames_15m,
+                raw_frames_1h={},
+                total_bars_15m=96,
+                start_time=t0,
+                days=1,
+            )
+
+    def test_run_phase_264_simulation_short_horizon_reports_accurate_maturity(
+        self, tmp_path: Path
+    ) -> None:
+        res = run_phase_264_simulation(
+            output_dir=tmp_path / "out_short_health",
+            days=2,
+            selected_track="0",
+        )
+        t0 = res.track_results["baseline"]
+        for _sym, hr in t0.health_reports.items():
+            # Horizon is accurately evaluated for 2 days; no slot missing errors
+            assert "paper_observation_slot_missing" not in hr.reason_codes
+            assert hr.as_of == datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+
+    def test_allocate_order_rejects_non_positive_mark_price(self) -> None:
+        account = Phase264SharedMarginAccount(starting_capital=Decimal("100.00"))
+        # Zero mark price
+        assert (
+            account.allocate_order(
+                symbol="BTCUSDT",
+                confidence=Decimal("0.80"),
+                mark_price=Decimal("0.00"),
+                current_equity=Decimal("100.00"),
+            )
+            is None
+        )
+        # Negative mark price
+        assert (
+            account.allocate_order(
+                symbol="BTCUSDT",
+                confidence=Decimal("0.80"),
+                mark_price=Decimal("-500.00"),
+                current_equity=Decimal("100.00"),
+            )
+            is None
+        )

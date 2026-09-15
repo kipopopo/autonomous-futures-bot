@@ -234,6 +234,9 @@ class Phase264SharedMarginAccount(HardenedSharedMarginAccount):
         if current_equity <= Decimal("0"):
             return None
 
+        if mark_price <= Decimal("0"):
+            return None
+
         avail = self.available_margin(current_equity)
         if avail <= Decimal("0"):
             return None
@@ -322,6 +325,7 @@ TRACK_DEFINITIONS: list[dict[str, Any]] = [
         "slippage_bps": Decimal("20.0"),
         "fee_rate": Decimal("0.0008"),
         "slippage_multiplier": 10,
+        "spread_multiplier": 20,
     },
     {
         "id": 4,
@@ -373,6 +377,7 @@ def apply_track_shocks(
     slip_mult = track_spec.get("slippage_multiplier", 1)
     nominal_whipsaw = track_spec.get("whipsaw_bars", 12)
     osc = track_spec.get("oscillation_pct", Decimal("0.06"))
+    spread_mult = track_spec.get("spread_multiplier", track_spec.get("slippage_multiplier", 20))
 
     start_idx = nominal_start
     n_bars = nominal_whipsaw
@@ -407,7 +412,7 @@ def apply_track_shocks(
             )
         elif shock_type == "spread_blowout":
             mod = SyntheticMarketShockInjector.inject_spread_blowout(
-                mod, multiplier=Decimal("20"), interval=timedelta(minutes=15)
+                mod, multiplier=Decimal(str(spread_mult)), interval=timedelta(minutes=15)
             )
         elif shock_type == "volatility_whipsaw":
             mod = SyntheticMarketShockInjector.inject_whipsaws(
@@ -456,7 +461,7 @@ def apply_track_shocks(
             )
         elif shock_type == "spread_blowout":
             mod = SyntheticMarketShockInjector.inject_spread_blowout(
-                mod, multiplier=Decimal("20"), interval=timedelta(hours=1)
+                mod, multiplier=Decimal(str(spread_mult)), interval=timedelta(hours=1)
             )
         elif shock_type == "volatility_whipsaw":
             mod = SyntheticMarketShockInjector.inject_whipsaws(
@@ -623,8 +628,13 @@ def run_single_phase_264_track(
     raw_frames_1h: dict[str, pd.DataFrame],
     total_bars_15m: int = DEFAULT_TOTAL_BARS_15M,
     starting_equity: Decimal = DEFAULT_STARTING_EQUITY,
+    start_time: datetime = DEFAULT_START_TIME,
+    days: int = DEFAULT_DAYS,
 ) -> Phase264TrackResult:
     """Executes a single comparative stress simulation track across all 3 candidates."""
+    if total_bars_15m <= 0:
+        raise DomainViolation(f"total_bars_15m must be positive, got {total_bars_15m}")
+
     track_id = track_spec["id"]
     track_name = track_spec["name"]
     slippage_bps = track_spec["slippage_bps"]
@@ -660,11 +670,17 @@ def run_single_phase_264_track(
     atr_series_15m: dict[str, list[Decimal | None]] = {}
 
     for sym, cand in candidates.items():
+        if sym not in shocked_15m or len(shocked_15m[sym]) < total_bars_15m:
+            raise DataQualityError(
+                f"15m frame for {sym} missing or has fewer than {total_bars_15m} bars"
+            )
         atr_series_15m[sym] = compute_atr_series(shocked_15m[sym], lookback=14)
         tf = cand.strategy.universe.timeframe
         if tf == "15m":
             evaluated_signals[sym] = evaluator.evaluate(cand, shocked_15m[sym])
         elif tf == "1h":
+            if sym not in shocked_1h:
+                raise DataQualityError(f"Missing shocked 1h frame for 1h candidate {sym}")
             evaluated_signals[sym] = evaluator.evaluate(cand, shocked_1h[sym])
         else:
             evaluated_signals[sym] = evaluator.evaluate(cand, shocked_15m[sym])
@@ -965,8 +981,8 @@ def run_single_phase_264_track(
                     }
                 )
 
-        # Sort entry requests by conviction descending
-        candidate_entry_requests.sort(key=lambda req: -req["conviction"])
+        # Sort entry requests by conviction descending with deterministic symbol tie-breaking
+        candidate_entry_requests.sort(key=lambda req: (-req["conviction"], req["symbol"]))
 
         for req in candidate_entry_requests:
             sym = req["symbol"]
@@ -1159,14 +1175,14 @@ def run_single_phase_264_track(
     losing_trades = sum(1 for e in closed_entries if (e.net_pnl or Decimal("0")) < 0)
     win_rate = (winning_trades / len(closed_entries)) if closed_entries else 0.0
 
-    as_of = DEFAULT_START_TIME + timedelta(days=DEFAULT_DAYS)
+    as_of = start_time + timedelta(days=days)
     health_reports, cohort_report = generate_phase_264_reports(
         harness.ledger_store,
         harness.lifecycle_store,
         harness.observation_store,
         candidates,
         as_of=as_of,
-        days=DEFAULT_DAYS,
+        days=days,
     )
 
     peak_eq = harness.margin_account.peak_portfolio_equity
@@ -1271,6 +1287,8 @@ def run_phase_264_simulation(
         raise DomainViolation(f"Phase 264 requires days >= 1, got {days}")
     if starting_equity <= Decimal("0"):
         raise DomainViolation(f"Phase 264 requires starting_equity > 0, got {starting_equity}")
+    if start_time.tzinfo is None or start_time.utcoffset() != timedelta(0):
+        raise DomainViolation(f"Phase 264 requires timezone-aware UTC start_time, got {start_time}")
 
     # 1. Validate Candidate Registry Manifest v2
     manifest = read_candidate_registry(registry_path, verify_hash=True)
@@ -1291,6 +1309,11 @@ def run_phase_264_simulation(
                 f"Phase 264 requires active {sym} candidate {expected_id}, "
                 f"got {entry.candidate_id if entry else 'missing'}"
             )
+    if set(manifest.symbols.keys()) != set(expected_candidates.keys()):
+        raise DomainViolation(
+            f"Phase 264 requires exactly active candidates {set(expected_candidates.keys())}, "
+            f"got {set(manifest.symbols.keys())}"
+        )
 
     candidates = validate_manifest_candidate_artifacts(manifest)
     qualification_hashes = {
@@ -1341,10 +1364,12 @@ def run_phase_264_simulation(
         tracks_to_run = [
             t
             for t in TRACK_DEFINITIONS
-            if t["name"] == selected_track or str(t["id"]) == selected_track
+            if t["name"] == selected_track
+            or str(t["id"]) == selected_track
+            or f"track_{t['id']}_{t['name']}" == selected_track
         ]
         if not tracks_to_run:
-            raise ValueError(f"Unknown track specified: {selected_track}")
+            raise DomainViolation(f"Unknown track specified: {selected_track}")
 
     track_results: dict[str, Phase264TrackResult] = {}
     survival_matrix: list[dict[str, Any]] = []
@@ -1363,6 +1388,8 @@ def run_phase_264_simulation(
             raw_frames_1h=raw_frames_1h,
             total_bars_15m=total_bars_15m,
             starting_equity=starting_equity,
+            start_time=start_time,
+            days=days,
         )
         track_results[t_name] = res
 
