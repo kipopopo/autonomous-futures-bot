@@ -64,12 +64,17 @@ class MarketShockSpec(BaseModel):
 def _infer_interval(df: pd.DataFrame, default: timedelta = timedelta(minutes=5)) -> timedelta:
     if len(df) >= 2 and "timestamp" in df.columns:
         try:
-            t0 = pd.Timestamp(df.iloc[0]["timestamp"])
-            t1 = pd.Timestamp(df.iloc[1]["timestamp"])
-            diff = t1 - t0
-            py_diff: timedelta = diff.to_pytimedelta()
-            if py_diff > timedelta(0):
-                return py_diff
+            ts_series = pd.to_datetime(df["timestamp"], utc=True, errors="coerce").dropna()
+            if len(ts_series) >= 2:
+                sorted_ts = ts_series.sort_values()
+                diffs = sorted_ts.diff().dropna()
+                positive_diffs = diffs[diffs > pd.Timedelta(0)]
+                if not positive_diffs.empty:
+                    modes = positive_diffs.mode()
+                    target_td = modes.iloc[0] if not modes.empty else positive_diffs.median()
+                    py_diff: timedelta = target_td.to_pytimedelta()
+                    if py_diff > timedelta(0):
+                        return py_diff
         except Exception:
             pass
     return default

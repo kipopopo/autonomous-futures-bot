@@ -368,14 +368,31 @@ def apply_track_shocks(
     shocked_15m: dict[str, pd.DataFrame] = {}
     shocked_1h: dict[str, pd.DataFrame] = {}
 
-    start_idx = track_spec.get("shock_bar_index", 450)
+    nominal_start = track_spec.get("shock_bar_index", 450)
     drop_pct = abs(track_spec.get("price_shock_pct", Decimal("0.20")))
     slip_mult = track_spec.get("slippage_multiplier", 1)
-    n_bars = track_spec.get("whipsaw_bars", 12)
+    nominal_whipsaw = track_spec.get("whipsaw_bars", 12)
     osc = track_spec.get("oscillation_pct", Decimal("0.06"))
+
+    start_idx = nominal_start
+    n_bars = nominal_whipsaw
 
     for sym, df in raw_frames_15m.items():
         mod = df.copy()
+        n_15m = len(mod)
+        if n_15m >= 672:
+            start_idx = nominal_start
+            n_bars = nominal_whipsaw
+        else:
+            ratio = nominal_start / 672
+            scaled_idx = int(ratio * n_15m)
+            if n_15m > nominal_whipsaw + 1:
+                start_idx = min(scaled_idx, n_15m - nominal_whipsaw - 1)
+                n_bars = nominal_whipsaw
+            else:
+                start_idx = max(0, min(scaled_idx, n_15m - 2)) if n_15m >= 2 else 0
+                n_bars = max(1, n_15m - start_idx - 1) if n_15m > start_idx + 1 else 1
+
         if shock_type == "flash_crash":
             mod = SyntheticMarketShockInjector.inject_flash_crash(
                 mod,
@@ -410,7 +427,14 @@ def apply_track_shocks(
 
     for sym, df in raw_frames_1h.items():
         mod = df.copy()
-        start_idx_1h = min(start_idx // 4, len(mod) - 1)
+        n_1h = len(mod)
+        if n_1h >= 168:
+            start_idx_1h = nominal_start // 4
+            whip_1h = max(1, nominal_whipsaw // 4)
+        else:
+            start_idx_1h = min(start_idx // 4, max(0, n_1h - 2)) if n_1h >= 2 else 0
+            whip_1h = max(1, min(nominal_whipsaw // 4, max(1, n_1h - start_idx_1h - 1)))
+
         if shock_type == "flash_crash":
             mod = SyntheticMarketShockInjector.inject_flash_crash(
                 mod,
@@ -428,7 +452,6 @@ def apply_track_shocks(
                 mod, multiplier=Decimal("20"), interval=timedelta(hours=1)
             )
         elif shock_type == "volatility_whipsaw":
-            whip_1h = max(1, min(n_bars // 4, len(mod) - start_idx_1h))
             mod = SyntheticMarketShockInjector.inject_whipsaws(
                 mod,
                 start_idx=start_idx_1h,
@@ -707,7 +730,7 @@ def run_single_phase_264_track(
             trade_info["peak_pnl"] = marked.peak_pnl
             harness.lifecycle_store.append(marked)
 
-            terminal_cutoff = total_bars_15m - 12
+            terminal_cutoff = max(0, total_bars_15m - 12)
             exit_triggered = False
             raw_exit_price = bar_close
 
@@ -821,6 +844,7 @@ def run_single_phase_264_track(
         portfolio_equity = harness.margin_account.current_equity(unrealized_pnl_total)
         if portfolio_equity > harness.margin_account.peak_portfolio_equity:
             harness.margin_account.peak_portfolio_equity = portfolio_equity
+        harness.margin_account.unencumbered_reserve_buffer(portfolio_equity)
 
         max_vol_ratio = Decimal("1.0")
         for sym in candidates:
@@ -901,7 +925,7 @@ def run_single_phase_264_track(
             harness.margin_account.cash = starting_equity + realized_pnl_sync
 
         # Phase C: Evaluate Entry Signals with Priority Arbitration & Hardened Sizing
-        terminal_cutoff = total_bars_15m - 12
+        terminal_cutoff = max(0, total_bars_15m - 12)
         candidate_entry_requests: list[dict[str, Any]] = []
 
         if not is_terminal and idx < terminal_cutoff:
@@ -1368,6 +1392,7 @@ def run_phase_264_simulation(
             src_health.write_text(
                 json.dumps(h_rep.model_dump(mode="json"), indent=2, sort_keys=True),
                 encoding="utf-8",
+                newline="\n",
             )
         dest_health = output_dir / f"paper-health-report-{sym}.json"
         shutil.copy2(src_health, dest_health)
@@ -1378,6 +1403,7 @@ def run_phase_264_simulation(
         src_cohort.write_text(
             json.dumps(c_rep.model_dump(mode="json"), indent=2, sort_keys=True),
             encoding="utf-8",
+            newline="\n",
         )
     dest_cohort = output_dir / "paper-cohort-readiness-report.json"
     shutil.copy2(src_cohort, dest_cohort)
@@ -1533,11 +1559,11 @@ def run_phase_264_simulation(
     # Write preliminary JSON files
     stress_json = json.dumps(stress_summary_data, indent=2, sort_keys=True)
     _assert_zero_secrets(stress_json, str(stress_summary_path))
-    stress_summary_path.write_text(stress_json, encoding="utf-8")
+    stress_summary_path.write_text(stress_json, encoding="utf-8", newline="\n")
 
     paper_json = json.dumps(paper_summary_payload, indent=2, sort_keys=True)
     _assert_zero_secrets(paper_json, str(paper_summary_path))
-    paper_summary_path.write_text(paper_json, encoding="utf-8")
+    paper_summary_path.write_text(paper_json, encoding="utf-8", newline="\n")
 
     # Compute artifact cryptographic hashes
     artifact_hashes: dict[str, str] = {
@@ -1562,14 +1588,14 @@ def run_phase_264_simulation(
     stress_summary_data["artifact_hashes"] = artifact_hashes
     final_stress_json = json.dumps(stress_summary_data, indent=2, sort_keys=True)
     _assert_zero_secrets(final_stress_json, str(stress_summary_path))
-    stress_summary_path.write_text(final_stress_json, encoding="utf-8")
+    stress_summary_path.write_text(final_stress_json, encoding="utf-8", newline="\n")
 
     artifact_hashes["stress-track-summary.json"] = compute_file_sha256(stress_summary_path)
 
     paper_summary_payload["artifact_hashes"] = artifact_hashes
     final_paper_json = json.dumps(paper_summary_payload, indent=2, sort_keys=True)
     _assert_zero_secrets(final_paper_json, str(paper_summary_path))
-    paper_summary_path.write_text(final_paper_json, encoding="utf-8")
+    paper_summary_path.write_text(final_paper_json, encoding="utf-8", newline="\n")
 
     artifact_hashes["paper-summary.json"] = compute_file_sha256(paper_summary_path)
 

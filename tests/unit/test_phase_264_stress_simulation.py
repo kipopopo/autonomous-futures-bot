@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -21,6 +23,9 @@ from autonomous_futures.paper.candidate_registry import (  # noqa: E402
 )
 from autonomous_futures.paper.circuit_breakers import (  # noqa: E402
     calculate_adverse_gap_fill,
+)
+from autonomous_futures.paper.stress_vectors import (  # noqa: E402
+    _infer_interval,
 )
 from scripts.run_phase_264_stress_simulation import (  # noqa: E402
     DEFAULT_MAX_MARGIN_UTILIZATION,
@@ -159,6 +164,65 @@ class TestPhase264SimulationTracks:
         assert t2.final_cash > Decimal("0")
         assert t2.cash_drift < Decimal("1e-15")
         assert t2.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
+
+    def test_run_phase_264_short_slice_flash_crash(self, tmp_path: Path) -> None:
+        out_flash = tmp_path / "flash_crash_test"
+        res_flash = run_phase_264_simulation(
+            output_dir=out_flash,
+            days=2,
+            starting_equity=Decimal("100.00"),
+            selected_track="1",
+        )
+        assert res_flash.all_tracks_survived is True
+        t1 = res_flash.track_results["flash_crash"]
+        assert t1.final_cash > Decimal("0")
+        assert t1.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
+        assert t1.scenario_result.min_observed_equity_buffer >= DEFAULT_MIN_RESERVE_BUFFER
+        assert t1.cash_drift < Decimal("1e-15")
+
+    def test_run_phase_264_short_slice_composite_and_whipsaw(self, tmp_path: Path) -> None:
+        out_comp = tmp_path / "composite_test"
+        res_comp = run_phase_264_simulation(
+            output_dir=out_comp,
+            days=2,
+            starting_equity=Decimal("100.00"),
+            selected_track="5",
+        )
+        assert res_comp.all_tracks_survived is True
+        t5 = res_comp.track_results["composite_crisis"]
+        assert t5.final_cash > Decimal("0")
+        assert t5.cash_drift < Decimal("1e-15")
+        assert t5.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
+
+    def test_infer_interval_robustness_with_gaps_and_unsorted(self) -> None:
+        t0 = datetime(2026, 7, 30, 0, 0, tzinfo=UTC)
+        # Regular 15m
+        df15 = pd.DataFrame({"timestamp": [t0 + timedelta(minutes=15 * i) for i in range(10)]})
+        assert _infer_interval(df15) == timedelta(minutes=15)
+
+        # Irregular gap at start (maintenance downtime), rest 15m
+        df_gap = pd.DataFrame(
+            {
+                "timestamp": [
+                    t0,
+                    t0 + timedelta(hours=3),
+                    t0 + timedelta(hours=3, minutes=15),
+                    t0 + timedelta(hours=3, minutes=30),
+                    t0 + timedelta(hours=3, minutes=45),
+                ]
+            }
+        )
+        assert _infer_interval(df_gap) == timedelta(minutes=15)
+
+        # Unsorted sequence
+        df_unsorted = pd.DataFrame(
+            {"timestamp": [t0 + timedelta(minutes=45), t0, t0 + timedelta(minutes=15)]}
+        )
+        assert _infer_interval(df_unsorted) == timedelta(minutes=15)
+
+        # Single row fallback to default
+        df_single = pd.DataFrame({"timestamp": [t0]})
+        assert _infer_interval(df_single, default=timedelta(minutes=5)) == timedelta(minutes=5)
 
     def test_phase_264_cli_execution(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
