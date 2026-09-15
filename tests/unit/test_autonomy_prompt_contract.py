@@ -14,6 +14,7 @@ def test_failure_learning_prompt_declares_strict_array_and_enum_contract() -> No
     content = system["content"]
 
     assert "JSON arrays of unique strings" in content
+    assert "sorted lexicographically and unique" in content
     assert "recommended_novelty_dimensions" in content
     assert "entry_logic" in content
     assert "strategy_family" in content

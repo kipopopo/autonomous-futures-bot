@@ -33,6 +33,7 @@ Implemented contracts and behavior:
 - Typed provider factory — wires separate role-specific clients into `AutonomousResearchBase`; construction validates policy/model bindings and cannot bypass the audit sink or invoke HTTP.
 - Prepare-only provider smoke contract/CLI — creates a single-request, role-bound artifact with `network_call_allowed=false`; it accepts only a sanitized policy file and has no credential resolver or HTTP path.
 - Safe schema diagnostics — learner/planner intake now reports only allowlisted field paths and typed validation codes; unknown provider fields and values are omitted.
+- Learner prompt contract — explicitly requires all response arrays to contain unique strings sorted lexicographically, with novelty values restricted to the typed enum.
 - Write-once, hash-verified persistence and final-result idempotency/resume behavior.
 
 ## Safety invariants
@@ -80,7 +81,7 @@ The Base API has no paper engine, order router, breaker control, risk mutation, 
 - Targeted Ruff format: **pass**.
 - Targeted mypy: **pass**.
 - Full locked pytest after the final orphan-resume correction: **2,247 passed in 886.62s**.
-- No provider calls beyond the three separately authorized single-request smokes, exchange access, paper activation, candidate admission, restart, order, testnet action, or live action were performed.
+- No provider calls beyond the four separately authorized single-request smokes, exchange access, paper activation, candidate admission, restart, order, testnet action, or live action were performed.
 
 ## Authenticated smoke gate
 
@@ -173,10 +174,37 @@ The temporary typed artifact and audit envelope were independently read back
 and removed. No planner call, deterministic research cycle, scheduler,
 candidate admission, paper activation, or execution path was started.
 
+## Learner artifact capture follow-up
+
+A fourth separate explicit authorization was received to capture the learner
+artifact after the successful schema revalidation. It used the same evidence
+scope and reached the provider exactly once, but the response again failed the
+strict learner contract before an artifact could be persisted.
+
+```text
+research run:            run-provider-learner-capture-001
+provider requests:       1
+provider HTTP status:    200
+transport outcome:       succeeded
+learner decision:        rejected / schema_rejected
+safe schema diagnostic:  recommended_novelty_dimensions:value_error
+response content length: 408
+response content hash:   5cbfbbc1feae6b8a77aaae6f9e4c4aae91650b879a10ae9a36b287a106af8b1f
+finish reason:           stop
+typed artifact readback: false
+audit hash:              2d6148337c4bcf5961496a51f7fc071389d65e00c6d260ada0d9108baf9406f9
+audit envelope hash:     1ba88e61faed6ebf61b16c87aca04c861692db229e3b0700241d677838145109
+raw provider output:     not persisted
+```
+
+The `value_error` is consistent with a strict canonical-list violation, not a
+reason to widen the schema. The prompt now explicitly requires lexicographic
+ordering; no fifth request was performed to validate that change.
+
 ## Honest limitations / next boundary
 
 - The failure learner is an explicit typed failure-analysis seam; this slice does not silently invent a new ML trainer or claim model-quality improvement.
-- The first two real provider smokes reached the provider successfully but failed at the typed learner-schema boundary. The separately authorized revalidation passed once with the remediated prompt and temporary typed-artifact readback. All raw responses remain intentionally unrecovered; no blind retry or schema relaxation is authorized.
+- The first two real provider smokes reached the provider successfully but failed at the typed learner-schema boundary. The separately authorized revalidation passed once with the remediated prompt and temporary typed-artifact readback; the later artifact-capture request failed again on strict list canonicality before persistence. All raw responses remain intentionally unrecovered; no blind retry or schema relaxation is authorized.
 - The smoke-preparation artifact is deliberately non-authorizing (`network_call_allowed=false`); it cannot be used as proof of provider availability or entitlement.
 - Existing learner model training/evaluation artifacts remain separate and require an explicit objective, causal inputs, trainer, and their own evidence boundary.
 - Current paper runtime remains `HALTED`; this work does not create resume authority or change the deployed runtime.

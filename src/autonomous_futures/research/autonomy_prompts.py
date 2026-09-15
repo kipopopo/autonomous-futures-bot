@@ -15,7 +15,8 @@ _FAILURE_LEARNER_SYSTEM = (
     "Return exactly one JSON object with keys decision, failure_patterns, "
     "learned_constraints, and recommended_novelty_dimensions. decision must be "
     "accepted or stop. failure_patterns, learned_constraints, and "
-    "recommended_novelty_dimensions must each be JSON arrays of unique strings. "
+    "recommended_novelty_dimensions must each be JSON arrays of unique strings, "
+    "sorted lexicographically and unique. "
     "recommended_novelty_dimensions values must be one of entry_logic, exit_logic, "
     "feature_set, regime_filter, risk_design, or strategy_family. Do not return "
     'objects inside any array. A valid shape is {"decision":"accepted", '
