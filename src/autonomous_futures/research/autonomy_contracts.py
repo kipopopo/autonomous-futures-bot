@@ -778,7 +778,10 @@ def write_failure_memory_entry(path: Path, entry: FailureMemoryEntry) -> Failure
         return existing
     payload = json.dumps(entry.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
     _write_once(path, payload)
-    return read_failure_memory_entry(path)
+    readback = read_failure_memory_entry(path)
+    if readback != entry:
+        raise DomainViolation(f"failure memory path is immutable: {path}")
+    return readback
 
 
 def read_failure_learning_artifact(path: Path) -> FailureLearningArtifact:
@@ -805,7 +808,10 @@ def write_failure_learning_artifact(
         return existing
     payload = json.dumps(artifact.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
     _write_once(path, payload)
-    return read_failure_learning_artifact(path)
+    readback = read_failure_learning_artifact(path)
+    if readback != artifact:
+        raise DomainViolation(f"failure learning path is immutable: {path}")
+    return readback
 
 
 def read_research_plan(path: Path) -> ResearchPlan:
@@ -830,7 +836,10 @@ def write_research_plan(path: Path, plan: ResearchPlan) -> ResearchPlan:
         return existing
     payload = json.dumps(plan.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
     _write_once(path, payload)
-    return read_research_plan(path)
+    readback = read_research_plan(path)
+    if readback != plan:
+        raise DomainViolation(f"research plan path is immutable: {path}")
+    return readback
 
 
 __all__ = [

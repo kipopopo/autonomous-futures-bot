@@ -76,6 +76,17 @@ FORBIDDEN_CREDENTIAL_FLAGS = (
     "--token",
     "--api-token",
     "-k",
+    "--secret",
+    "--secret-key",
+    "--secret_key",
+    "--password",
+    "--bearer",
+    "--auth-token",
+    "--auth_token",
+    "--binance-api-key",
+    "--binance_api_key",
+    "--binance-api-secret",
+    "--binance_api_secret",
 )
 
 DEFAULT_BUNDLE_HASH = "19a55436cd764071c70f068faf1211fe72e70b1cb7803f06ef643b84687f3816"

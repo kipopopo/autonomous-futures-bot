@@ -53,6 +53,17 @@ FORBIDDEN_CREDENTIAL_FLAGS = (
     "--token",
     "--api-token",
     "-k",
+    "--secret",
+    "--secret-key",
+    "--secret_key",
+    "--password",
+    "--bearer",
+    "--auth-token",
+    "--auth_token",
+    "--binance-api-key",
+    "--binance_api_key",
+    "--binance-api-secret",
+    "--binance_api_secret",
 )
 
 
@@ -137,7 +148,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = build_parser()
     try:
-        args = parser.parse_args(argv)
+        args = parser.parse_args(raw_argv)
     except SystemExit as exc:
         return 2 if exc.code != 0 else 0
 

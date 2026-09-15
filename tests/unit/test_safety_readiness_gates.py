@@ -199,3 +199,13 @@ def test_system_completion_matrix_integrity() -> None:
         for test_file in entry.canonical_tests:
             full_path = repo_root / test_file
             assert full_path.is_file(), f"Canonical test file {test_file} does not exist!"
+
+
+def test_unrecognized_target_fails_closed() -> None:
+    """Verify any unrecognized or unhandled execution target is strictly BLOCKED (fail-closed)."""
+    # Test completely invalid target value
+    res = evaluate_safety_gate("unrecognized_future_target")
+    assert res.status == ExecutionGateStatus.BLOCKED
+    assert res.is_allowed is False
+    assert res.fail_closed is True
+    assert "unrecognized_target_fail_closed_blocked" in res.reason_codes

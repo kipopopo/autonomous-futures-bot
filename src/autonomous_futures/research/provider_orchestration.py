@@ -210,62 +210,72 @@ def _check_existing_checkpoints(
     existing_plan: ResearchPlan | None = None
     existing_envelope: ResearchRunAuditEnvelope | None = None
 
-    if config.role == "failure_analyst":
-        learning_dir = config.evidence_root / "learning"
-        if learning_dir.exists():
-            for path in learning_dir.glob("learn-*.json"):
-                try:
-                    artifact = read_failure_learning_artifact(path)
-                except Exception as exc:
+    learning_dir = config.evidence_root / "learning"
+    if learning_dir.exists():
+        for path in learning_dir.glob("learn-*.json"):
+            try:
+                artifact = read_failure_learning_artifact(path)
+            except Exception as exc:
+                raise DomainViolation(
+                    f"tampered or corrupted failure learning checkpoint: {path}"
+                ) from exc
+            if path.name != f"{artifact.learning_id}.json":
+                raise DomainViolation(
+                    f"tampered checkpoint filename mismatch: "
+                    f"{path.name} != {artifact.learning_id}.json"
+                )
+            if artifact.research_run_id == config.research_run_id:
+                if config.role != "failure_analyst":
                     raise DomainViolation(
-                        f"tampered or corrupted failure learning checkpoint: {path}"
-                    ) from exc
-                if path.name != f"{artifact.learning_id}.json":
-                    raise DomainViolation(
-                        f"tampered checkpoint filename mismatch: "
-                        f"{path.name} != {artifact.learning_id}.json"
+                        "tampered checkpoint: cross-role artifact conflict: "
+                        f"failure learning artifact found for role '{config.role}' "
+                        f"on research run {config.research_run_id}"
                     )
-                if artifact.research_run_id == config.research_run_id:
-                    if existing_learning is not None:
-                        raise DomainViolation(
-                            "duplicate failure learning checkpoint for research run: "
-                            f"{config.research_run_id}"
-                        )
-                    if (
-                        artifact.base_run_id != config.base_run_id
-                        or artifact.symbol != config.symbol
-                        or artifact.cycle_index != config.cycle_index
-                    ):
-                        raise DomainViolation("existing failure learning checkpoint scope mismatch")
-                    existing_learning = artifact
+                if existing_learning is not None:
+                    raise DomainViolation(
+                        "duplicate failure learning checkpoint for research run: "
+                        f"{config.research_run_id}"
+                    )
+                if (
+                    artifact.base_run_id != config.base_run_id
+                    or artifact.symbol != config.symbol
+                    or artifact.cycle_index != config.cycle_index
+                ):
+                    raise DomainViolation("existing failure learning checkpoint scope mismatch")
+                existing_learning = artifact
 
-    elif config.role == "hypothesis_generator":
-        plans_dir = config.evidence_root / "plans"
-        if plans_dir.exists():
-            for path in plans_dir.glob("plan-*.json"):
-                try:
-                    plan = read_research_plan(path)
-                except Exception as exc:
+    plans_dir = config.evidence_root / "plans"
+    if plans_dir.exists():
+        for path in plans_dir.glob("plan-*.json"):
+            try:
+                plan = read_research_plan(path)
+            except Exception as exc:
+                raise DomainViolation(
+                    f"tampered or corrupted research plan checkpoint: {path}"
+                ) from exc
+            if path.name != f"{plan.plan_id}.json":
+                raise DomainViolation(
+                    f"tampered checkpoint filename mismatch: {path.name} != {plan.plan_id}.json"
+                )
+            if plan.research_run_id == config.research_run_id:
+                if config.role != "hypothesis_generator":
                     raise DomainViolation(
-                        f"tampered or corrupted research plan checkpoint: {path}"
-                    ) from exc
-                if path.name != f"{plan.plan_id}.json":
-                    raise DomainViolation(
-                        f"tampered checkpoint filename mismatch: {path.name} != {plan.plan_id}.json"
+                        "tampered checkpoint: cross-role artifact conflict: "
+                        f"research plan artifact found for role '{config.role}' "
+                        f"on research run {config.research_run_id}"
                     )
-                if plan.research_run_id == config.research_run_id:
-                    if existing_plan is not None:
-                        raise DomainViolation(
-                            "duplicate research plan checkpoint for research run: "
-                            f"{config.research_run_id}"
-                        )
-                    if (
-                        plan.base_run_id != config.base_run_id
-                        or plan.symbol != config.symbol
-                        or plan.cycle_index != config.cycle_index
-                    ):
-                        raise DomainViolation("existing research plan checkpoint scope mismatch")
-                    existing_plan = plan
+                if existing_plan is not None:
+                    raise DomainViolation(
+                        "duplicate research plan checkpoint for research run: "
+                        f"{config.research_run_id}"
+                    )
+                if (
+                    plan.base_run_id != config.base_run_id
+                    or plan.symbol != config.symbol
+                    or plan.cycle_index != config.cycle_index
+                ):
+                    raise DomainViolation("existing research plan checkpoint scope mismatch")
+                existing_plan = plan
 
     audits_dir = config.evidence_root / "audits"
     if audits_dir.exists():
@@ -408,51 +418,7 @@ def execute_provider_orchestration(
             completed_at=current_time,
         )
 
-    # 3. Budget exhaustion check prior to any network call
-    if config.request_budget <= 0:
-        # Emits audit with budget_rejected
-        dummy_system = {"content": "budget_exhausted"}
-        input_refs = tuple(f"failure/{entry.memory_hash}" for entry in failure_memory)
-        audit = _build_audit(
-            config=config,
-            system_message=dummy_system,
-            input_evidence_refs=input_refs,
-            output_schema_id=(
-                "failure-learning-v1" if config.role == "failure_analyst" else "research-plan-v1"
-            ),
-            outcome="budget_rejected",
-            output_hash=None,
-            error_code="request_budget_exhausted",
-            observed_at=current_time,
-        )
-        envelope = build_research_run_audit_envelope(
-            research_run_id=config.research_run_id,
-            policy=config.policy,
-            audits=(audit,),
-            prepared_at=current_time,
-        )
-        audits_dir = config.evidence_root / "audits"
-        audits_dir.mkdir(parents=True, exist_ok=True)
-        persisted_envelope = write_research_run_audit_envelope(
-            audits_dir / f"envelope-{envelope.envelope_hash}.json", envelope
-        )
-        return ProviderOrchestrationResult(
-            research_run_id=config.research_run_id,
-            base_run_id=config.base_run_id,
-            role=config.role,
-            symbol=config.symbol,
-            status="budget_exhausted",
-            decision="rejected",
-            audit_envelope=persisted_envelope,
-            readback_verified=True,
-            reused_existing=False,
-            reason_codes=("budget_rejected",),
-            schema_diagnostics=(),
-            requests_consumed=0,
-            completed_at=current_time,
-        )
-
-    # 4. Role-specific request preparation and validation
+    # 3. Role-specific request preparation and causal input validation
     learning_req: FailureLearningRequest | None = None
     plan_req: ResearchPlanRequest | None = None
     system_msg: Mapping[str, str]
@@ -513,6 +479,49 @@ def execute_provider_orchestration(
         )
         system_msg, _ = build_research_plan_messages(plan_req)
 
+    # 4. Budget exhaustion check prior to any network call
+    if config.request_budget <= 0:
+        audit = _build_audit(
+            config=config,
+            system_message=system_msg,
+            input_evidence_refs=input_evidence_refs,
+            output_schema_id=output_schema_id,
+            outcome="budget_rejected",
+            output_hash=None,
+            error_code="request_budget_exhausted",
+            observed_at=current_time,
+        )
+        envelope = build_research_run_audit_envelope(
+            research_run_id=config.research_run_id,
+            policy=config.policy,
+            audits=(audit,),
+            prepared_at=current_time,
+        )
+        audits_dir = config.evidence_root / "audits"
+        audits_dir.mkdir(parents=True, exist_ok=True)
+        envelope_path = audits_dir / f"envelope-{envelope.envelope_hash}.json"
+        persisted_envelope = write_research_run_audit_envelope(envelope_path, envelope)
+        readback_envelope = read_research_run_audit_envelope(envelope_path)
+        if readback_envelope != envelope:
+            raise DomainViolation(
+                f"storage failure: audit envelope readback mismatch at {envelope_path}"
+            )
+        return ProviderOrchestrationResult(
+            research_run_id=config.research_run_id,
+            base_run_id=config.base_run_id,
+            role=config.role,
+            symbol=config.symbol,
+            status="budget_exhausted",
+            decision="rejected",
+            audit_envelope=persisted_envelope,
+            readback_verified=True,
+            reused_existing=False,
+            reason_codes=("budget_rejected",),
+            schema_diagnostics=(),
+            requests_consumed=0,
+            completed_at=current_time,
+        )
+
     # 5. Non-authorizing preflight / dry-run check (if execute is False)
     if not config.execute:
         return ProviderOrchestrationResult(
@@ -555,9 +564,13 @@ def execute_provider_orchestration(
             )
             audits_dir = config.evidence_root / "audits"
             audits_dir.mkdir(parents=True, exist_ok=True)
-            persisted_envelope = write_research_run_audit_envelope(
-                audits_dir / f"envelope-{envelope.envelope_hash}.json", envelope
-            )
+            envelope_path = audits_dir / f"envelope-{envelope.envelope_hash}.json"
+            persisted_envelope = write_research_run_audit_envelope(envelope_path, envelope)
+            readback_envelope = read_research_run_audit_envelope(envelope_path)
+            if readback_envelope != envelope:
+                raise DomainViolation(
+                    f"storage failure: audit envelope readback mismatch at {envelope_path}"
+                ) from None
             return ProviderOrchestrationResult(
                 research_run_id=config.research_run_id,
                 base_run_id=config.base_run_id,

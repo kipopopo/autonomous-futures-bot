@@ -83,6 +83,17 @@ FORBIDDEN_CREDENTIAL_FLAGS = (
     "--token",
     "--api-token",
     "-k",
+    "--secret",
+    "--secret-key",
+    "--secret_key",
+    "--password",
+    "--bearer",
+    "--auth-token",
+    "--auth_token",
+    "--binance-api-key",
+    "--binance_api_key",
+    "--binance-api-secret",
+    "--binance_api_secret",
 )
 
 

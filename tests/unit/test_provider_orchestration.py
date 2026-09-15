@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from autonomous_futures.data.parquet import DataQualityError
 from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.research.autonomy_contracts import (
     FailureLearningArtifact,
@@ -18,6 +19,7 @@ from autonomous_futures.research.autonomy_contracts import (
     build_failure_memory_entry,
     read_failure_learning_artifact,
     read_research_plan,
+    write_failure_memory_entry,
 )
 from autonomous_futures.research.creator_failure_feedback import (
     CreatorQualificationFailureFeedback,
@@ -802,3 +804,189 @@ def test_storage_failure_during_artifact_or_audit_write(
             },
             now=NOW,
         )
+
+
+def test_budget_exhaustion_hypothesis_generator_requires_learning_artifact(tmp_path: Path) -> None:
+    """Verify budget exhaustion on hypothesis_generator validates causal inputs first."""
+    config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-budget-hypo-001",
+        base_run_id="base-orch-001",
+        role="hypothesis_generator",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=0,
+        cycle_id="cycle-btcusdt-001",
+        execute=True,
+    )
+    with pytest.raises(
+        DataQualityError, match="hypothesis_generator role requires learning_artifact"
+    ):
+        execute_provider_orchestration(
+            config=config,
+            failure_memory=(_memory(),),
+            learning_artifact=None,
+            now=NOW,
+        )
+
+
+def test_budget_exhaustion_hypothesis_generator_binds_complete_evidence(tmp_path: Path) -> None:
+    """Verify hypothesis_generator budget exhaustion binds complete causal evidence refs."""
+    # First generate a real learning artifact
+    learner_config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-learner-for-budget-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+    )
+    learner_result = execute_provider_orchestration(
+        config=learner_config,
+        failure_memory=(_memory(),),
+        transport=lambda _r: {
+            "failure_patterns": ["oos_profit_factor_below_threshold"],
+            "learned_constraints": ["preserve_all_qualification_gates"],
+            "recommended_novelty_dimensions": ["entry_logic"],
+        },
+        now=NOW,
+    )
+    assert learner_result.learning_artifact is not None
+
+    planner_config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-planner-budget-001",
+        base_run_id="base-orch-001",
+        role="hypothesis_generator",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=0,  # exhausted
+        cycle_id="cycle-btcusdt-001",
+        execute=True,
+    )
+    result = execute_provider_orchestration(
+        config=planner_config,
+        failure_memory=(_memory(),),
+        learning_artifact=learner_result.learning_artifact,
+        now=NOW,
+    )
+
+    assert result.status == "budget_exhausted"
+    assert result.decision == "rejected"
+    assert result.readback_verified is True
+    assert result.audit_envelope is not None
+    audit = result.audit_envelope.audits[0]
+    assert audit.outcome == "budget_rejected"
+    assert audit.output_schema_id == "research-plan-v1"
+    # Bound causal inputs must include the learning artifact hash
+    assert f"learning/{learner_result.learning_artifact.learning_hash}" in audit.input_evidence_refs
+
+
+def test_cross_role_checkpoint_collision_rejects(tmp_path: Path) -> None:
+    """Verify existing artifact for research_run_id belonging to a different role rejects."""
+    evidence_root = tmp_path / "evidence"
+    # Create a learning artifact for run-orch-cross-001
+    learner_config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-cross-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=evidence_root,
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+    )
+    res = execute_provider_orchestration(
+        config=learner_config,
+        failure_memory=(_memory(),),
+        transport=lambda _r: {
+            "failure_patterns": ["oos_profit_factor_below_threshold"],
+            "learned_constraints": ["preserve_all_qualification_gates"],
+            "recommended_novelty_dimensions": ["entry_logic"],
+        },
+        now=NOW,
+    )
+    # Remove audit envelope to simulate artifact existing without envelope
+    for envelope_file in (evidence_root / "audits").glob("envelope-*.json"):
+        envelope_file.unlink()
+
+    # Now attempt to run hypothesis_generator with the SAME research_run_id
+    planner_config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-cross-001",
+        base_run_id="base-orch-001",
+        role="hypothesis_generator",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=evidence_root,
+        policy=_policy(),
+        request_budget=1,
+        cycle_id="cycle-btcusdt-001",
+        execute=True,
+    )
+    with pytest.raises(DomainViolation, match="cross-role artifact conflict"):
+        execute_provider_orchestration(
+            config=planner_config,
+            failure_memory=(_memory(),),
+            learning_artifact=res.learning_artifact,
+            now=NOW,
+        )
+
+
+def test_autonomy_contracts_write_readback_mismatch_rejects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify write_* functions in autonomy_contracts fail-closed on readback mismatch."""
+    import autonomous_futures.research.autonomy_contracts as ac_mod
+
+    entry = _memory()
+    entry_path = tmp_path / "failure-test.json"
+
+    def corrupted_read_memory(path: Path) -> FailureMemoryEntry:
+        real_entry = FailureMemoryEntry.model_validate_json(path.read_text(encoding="utf-8"))
+        return real_entry.model_copy(update={"source_id": "CORRUPTED_ID"})
+
+    monkeypatch.setattr(ac_mod, "read_failure_memory_entry", corrupted_read_memory)
+    with pytest.raises(DomainViolation, match="failure memory path is immutable"):
+        write_failure_memory_entry(entry_path, entry)
+
+
+def test_cli_runner_rejects_extended_forbidden_flags(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify run_autonomy_provider rejects --secret, --bearer, --binance-api-key, etc."""
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(_policy().model_dump_json(), encoding="utf-8")
+
+    for flag in ("--secret", "--bearer", "--binance-api-key", "--password", "--secret-key"):
+        exit_code = cli_main(
+            [
+                flag,
+                "secret_val",
+                "--policy-file",
+                str(policy_path),
+                "--role",
+                "failure_analyst",
+                "--research-run-id",
+                "run-orch-cli-001",
+                "--symbol",
+                "BTCUSDT",
+                "--evidence-root",
+                str(tmp_path / "evidence"),
+                "--failure-memory-file",
+                str(tmp_path / "mem.json"),
+            ]
+        )
+        assert exit_code == 2
+        captured = capsys.readouterr()
+        assert "forbidden_cli_argument" in captured.err

@@ -45,7 +45,7 @@ class ExecutionTarget(StrEnum):
 class SafetyGateResult(DomainModel):
     """Result of evaluating a safety readiness gate."""
 
-    target: ExecutionTarget
+    target: ExecutionTarget | str
     status: ExecutionGateStatus
     is_allowed: bool
     fail_closed: bool = True
@@ -61,7 +61,7 @@ class SafetyGateResult(DomainModel):
 
 
 def evaluate_safety_gate(
-    target: ExecutionTarget,
+    target: ExecutionTarget | str,
     *,
     explicit_preflight_passed: bool = False,
     operator_signed_approval: bool = False,
@@ -181,12 +181,23 @@ def evaluate_safety_gate(
         )
 
     # 6. OFFLINE_SIMULATION / PAPER_OBSERVATION
+    if target in (ExecutionTarget.OFFLINE_SIMULATION, ExecutionTarget.PAPER_OBSERVATION):
+        return SafetyGateResult(
+            target=target,
+            status=ExecutionGateStatus.OFFLINE_VERIFIED,
+            is_allowed=True,
+            fail_closed=True,
+            reason_codes=("offline_deterministic_execution_allowed",),
+            evaluated_at=now,
+        )
+
+    # Any unknown or unhandled target is strictly BLOCKED (fail-closed)
     return SafetyGateResult(
         target=target,
-        status=ExecutionGateStatus.OFFLINE_VERIFIED,
-        is_allowed=True,
+        status=ExecutionGateStatus.BLOCKED,
+        is_allowed=False,
         fail_closed=True,
-        reason_codes=("offline_deterministic_execution_allowed",),
+        reason_codes=("unrecognized_target_fail_closed_blocked",),
         evaluated_at=now,
     )
 

@@ -454,10 +454,11 @@ def test_cli_runner_preflight_and_dry_run(capsys: pytest.CaptureFixture[str]) ->
 
 def test_cli_runner_rejects_forbidden_credential_flags(capsys: pytest.CaptureFixture[str]) -> None:
     """Verify CLI main rejects credentials supplied via CLI flags."""
-    exit_code = cli_main(["--api-key", "secret123", "--dry-run"])
-    assert exit_code == 3
-    captured = capsys.readouterr()
-    assert "CRITICAL: Credentials must NOT be supplied via CLI flags" in captured.err
+    for flag in ("--api-key", "--secret", "--bearer", "--binance-api-key", "--secret-key"):
+        exit_code = cli_main([flag, "secret123", "--dry-run"])
+        assert exit_code == 3
+        captured = capsys.readouterr()
+        assert "CRITICAL: Credentials must NOT be supplied via CLI flags" in captured.err
 
 
 def test_restart_with_conflicting_seed_feedback_rejects(tmp_path: Path) -> None:
