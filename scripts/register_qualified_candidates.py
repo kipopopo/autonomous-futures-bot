@@ -38,10 +38,12 @@ from autonomous_futures.paper.candidate_registry import (  # noqa: E402
 )
 from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     CreatorCandidateArtifact,
+    read_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
 from autonomous_futures.research.qualification_artifacts import (  # noqa: E402
     WalkForwardQualificationPolicy,
+    read_creator_candidate_qualification_artifact,
     write_creator_candidate_qualification_artifact,
 )
 from scripts.explore_offline_strategies import (  # noqa: E402
@@ -56,11 +58,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_QUALIFIED_TARGETS: tuple[dict[str, Any], ...] = (
     {
         "symbol": "ETHUSDT",
-        "candidate_id": "cand-ethusdt-dcb-002",
+        "candidate_id": "cand-ethusdt-dcb-003",
         "timeframe": "15m",
         "parquet_path": Path("research/immutable-data/15m/canonical/ETHUSDT-15m.parquet"),
-        "bars_per_window": 192,
-        "windows_count": 3,
+        "bars_per_window": 288,
+        "windows_count": 4,
     },
     {
         "symbol": "BTCUSDT",
@@ -89,6 +91,7 @@ def register_qualified_candidates(
     qualifications_dir: Path | str = Path("artifacts/paper_live/qualifications"),
     policy: WalkForwardQualificationPolicy | None = None,
     admitted_at: datetime | None = None,
+    registry_version: int = 2,
 ) -> tuple[CandidateRegistryManifest, list[dict[str, Any]]]:
     """Evaluate and register qualified strategies into the candidate registry manifest.
 
@@ -135,23 +138,54 @@ def register_qualified_candidates(
         if not parquet_file.is_file():
             raise FileNotFoundError(f"Canonical parquet file missing for {symbol}: {parquet_file}")
 
-        # 1. Generate candidate artifact
-        catalog = generate_candidate_catalog(symbol, timeframe=timeframe, created_at=admission_time)
-        cand = next((c for c in catalog if c.candidate_id == candidate_id), None)
-        if cand is None:
-            raise DomainViolation(
-                f"Candidate {candidate_id} not found in catalog for {symbol} ({timeframe})"
-            )
+        cand_artifact_path = cand_dir / f"{candidate_id}.json"
+        qual_artifact_path = qual_dir / f"qual-{candidate_id}.json"
 
-        # 2. Slice walk-forward windows and evaluate offline
-        windows = load_and_slice_windows(
-            parquet_file,
-            symbol=symbol,
-            timeframe=timeframe,
-            windows_count=windows_count,
-            bars_per_window=bars_per_window,
-        )
-        qual_artifact, summary = evaluate_candidate_offline(cand, windows, qual_policy)
+        # 1. Generate or read existing candidate artifact
+        cand: CreatorCandidateArtifact
+        if cand_artifact_path.is_file():
+            cand = read_creator_candidate_artifact(cand_artifact_path)
+        else:
+            catalog = generate_candidate_catalog(
+                symbol, timeframe=timeframe, created_at=admission_time
+            )
+            found = next((c for c in catalog if c.candidate_id == candidate_id), None)
+            if found is None:
+                raise DomainViolation(
+                    f"Candidate {candidate_id} not found in catalog for {symbol} ({timeframe})"
+                )
+            cand = found
+
+        # 2. Slice walk-forward windows and evaluate offline (or read existing qualification)
+        if qual_artifact_path.is_file():
+            qual_artifact = read_creator_candidate_qualification_artifact(qual_artifact_path)
+            pf_val = next(
+                (str(m.value) for m in qual_artifact.metrics if "profit_factor" in m.metric_id),
+                "None",
+            )
+            dd_val = next(
+                (str(m.value) for m in qual_artifact.metrics if "drawdown" in m.metric_id),
+                "0.0",
+            )
+            pnl_val = next(
+                (str(m.value) for m in qual_artifact.metrics if "net_pnl" in m.metric_id),
+                "0.0",
+            )
+            summary = {
+                "profit_factor": pf_val,
+                "worst_drawdown_pct": dd_val,
+                "pooled_net_pnl": pnl_val,
+                "failed_gate_ids": [g.gate_id for g in qual_artifact.gates if not g.passed],
+            }
+        else:
+            windows = load_and_slice_windows(
+                parquet_file,
+                symbol=symbol,
+                timeframe=timeframe,
+                windows_count=windows_count,
+                bars_per_window=bars_per_window,
+            )
+            qual_artifact, summary = evaluate_candidate_offline(cand, windows, qual_policy)
 
         if qual_artifact.decision != "qualified":
             raise DomainViolation(
@@ -161,11 +195,9 @@ def register_qualified_candidates(
             )
 
         # 3. Write immutable candidate artifact
-        cand_artifact_path = cand_dir / f"{candidate_id}.json"
         write_creator_candidate_artifact(cand_artifact_path, cand)
 
         # 4. Write immutable qualification artifact
-        qual_artifact_path = qual_dir / f"qual-{candidate_id}.json"
         write_creator_candidate_qualification_artifact(qual_artifact_path, qual_artifact)
 
         # 5. Build relative manifest entry path
@@ -204,7 +236,7 @@ def register_qualified_candidates(
     manifest = build_candidate_registry_manifest(
         symbols=manifest_entries,
         updated_at=admission_time_iso,
-        registry_version=1,
+        registry_version=registry_version,
     )
     written_manifest = write_candidate_registry(reg_path, manifest)
 
@@ -248,6 +280,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Directory to store qualification JSON artifacts",
     )
     parser.add_argument(
+        "--registry-version",
+        type=int,
+        default=2,
+        help="Candidate registry version (default: 2)",
+    )
+    parser.add_argument(
         "--check-only",
         action="store_true",
         help="Only verify existing registry manifest and candidate artifacts without modifying",
@@ -269,6 +307,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         {
                             "status": "verified",
                             "registry_hash": manifest.registry_hash,
+                            "registry_version": manifest.registry_version,
                             "updated_at": manifest.updated_at,
                             "symbols": list(manifest.symbols.keys()),
                         },
@@ -280,6 +319,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sys.stdout.write(
                     f"Candidate registry at {args.registry_path} is VALID.\n"
                     f"Registry Hash: {manifest.registry_hash}\n"
+                    f"Registry Version: {manifest.registry_version}\n"
                     f"Symbols: {', '.join(manifest.symbols.keys())}\n"
                 )
             return 0
@@ -292,6 +332,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             registry_path=args.registry_path,
             candidates_dir=args.candidates_dir,
             qualifications_dir=args.qualifications_dir,
+            registry_version=args.registry_version,
         )
     except Exception as exc:
         sys.stderr.write(f"Failed to register qualified candidates: {exc}\n")

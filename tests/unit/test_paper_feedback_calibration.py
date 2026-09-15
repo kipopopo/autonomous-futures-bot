@@ -29,7 +29,13 @@ def test_extract_breach_feedback_from_phase262_ledger() -> None:
     phase262_dir = Path("artifacts/research/phase262")
     ledger_path = phase262_dir / "paper-ledger.sqlite3"
     lifecycle_path = phase262_dir / "paper-lifecycle.sqlite3"
-    manifest = read_candidate_registry("artifacts/paper_live/candidate_registry.json")
+    phase262_baseline = phase262_dir / "baseline_candidate_registry.json"
+    manifest_path = (
+        phase262_baseline
+        if phase262_baseline.is_file()
+        else Path("artifacts/paper_live/candidate_registry.json")
+    )
+    manifest = read_candidate_registry(manifest_path)
 
     feedbacks = extract_breach_feedback(ledger_path, lifecycle_path, manifest)
 

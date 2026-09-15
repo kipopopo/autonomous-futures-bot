@@ -200,7 +200,14 @@ def run_paper_feedback_calibration(
     feedback_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Read existing candidate registry
-    manifest = read_candidate_registry(registry_path)
+    # Prefer baseline_candidate_registry.json if present in phase262_dir
+    phase262_baseline = phase262_dir / "baseline_candidate_registry.json"
+    actual_registry_path = (
+        phase262_baseline
+        if phase262_baseline.is_file() and registry_path == DEFAULT_CANDIDATE_REGISTRY_PATH
+        else registry_path
+    )
+    manifest = read_candidate_registry(actual_registry_path)
 
     # 2. Extract failure feedback from Phase 262 ledger
     ledger_path = phase262_dir / "paper-ledger.sqlite3"

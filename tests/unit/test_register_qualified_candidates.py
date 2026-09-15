@@ -39,9 +39,13 @@ def test_register_qualified_candidates_execution(tmp_path: Path) -> None:
 
     assert reg_path.is_file()
     assert len(manifest.symbols) == 3
+    assert manifest.registry_version == 2
     assert "BTCUSDT" in manifest.symbols
     assert "ETHUSDT" in manifest.symbols
     assert "SOLUSDT" in manifest.symbols
+    assert manifest.symbols["ETHUSDT"].candidate_id == "cand-ethusdt-dcb-003"
+    assert manifest.symbols["BTCUSDT"].candidate_id == "cand-btcusdt-dcb-002"
+    assert manifest.symbols["SOLUSDT"].candidate_id == "cand-solusdt-rgb-001"
 
     assert len(records) == 3
     assert all(r["status"] == "admitted" for r in records)
@@ -53,6 +57,7 @@ def test_register_qualified_candidates_execution(tmp_path: Path) -> None:
     # Read back and validate manifest
     loaded_manifest, artifacts = verify_existing_registry(reg_path)
     assert loaded_manifest.registry_hash == manifest.registry_hash
+    assert loaded_manifest.registry_version == 2
     assert set(artifacts.keys()) == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
 
 
@@ -99,4 +104,5 @@ def test_cli_check_only_and_json(tmp_path: Path, capsys: pytest.CaptureFixture[s
     out = capsys.readouterr().out
     data = json.loads(out)
     assert data["status"] == "verified"
+    assert data["registry_version"] == 2
     assert "ETHUSDT" in data["symbols"]

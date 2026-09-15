@@ -285,6 +285,41 @@ def generate_candidate_catalog(
         )
     )
 
+    # 3b. Donchian Channel Breakout (Calibrated Slower Trend Following, 50-bar, tighter risk)
+    spec_dcb_3 = StrategySpec(
+        dsl_version=2,
+        strategy_id=f"cand-{symbol.lower()}-dcb-003",
+        family="donchian_channel_breakout",
+        universe=universe,
+        features=(FeatureRef(name="donchian_breakout", lookback=50, shift=1),),
+        entry=EntryExit(
+            long="donchian_breakout > 0.0",
+            short="donchian_breakout < 0.0",
+        ),
+        exit=EntryExit(
+            long="donchian_breakout < 0.0",
+            short="donchian_breakout > 0.0",
+        ),
+        vetoes=("testing_only_no_promotion",),
+        risk=CandidateSimulationRisk(
+            position_fraction=Decimal("0.10"),
+            stop_atr_multiplier=Decimal("1.5"),
+            take_profit_atr_multiplier=Decimal("5.0"),
+            trailing_atr_multiplier=Decimal("1.2"),
+        ),
+    )
+    catalog.append(
+        build_creator_candidate_artifact(
+            candidate_id=spec_dcb_3.strategy_id,
+            strategy=spec_dcb_3,
+            bundle_hash=bundle_hash,
+            dataset_registry_hash=dataset_registry_hash,
+            creator_run_id="explore-offline-001",
+            research_seed=109,
+            created_at=now,
+        )
+    )
+
     # 4. Volatility Compression Breakout (Bollinger Squeeze + Breakout)
     spec_vcb_1 = StrategySpec(
         dsl_version=2,
