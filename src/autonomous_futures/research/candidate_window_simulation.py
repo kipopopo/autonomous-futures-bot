@@ -42,6 +42,8 @@ def simulate_candidate_window(
             }
         )
     interval = _timeframe_to_timedelta(candidate.strategy.universe.timeframe)
+    if interval == timedelta(minutes=5):
+        return simulate_cached_signals(signals, symbol=symbol, config=config)
     return simulate_cached_signals(signals, symbol=symbol, config=config, interval=interval)
 
 
