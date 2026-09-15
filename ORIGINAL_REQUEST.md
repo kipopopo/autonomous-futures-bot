@@ -424,3 +424,63 @@ Strictly isolate unapproved runtime boundaries:
 - [ ] All code passes `ruff check`, `ruff format --check`, `mypy src scripts`, and test regressions.
 - [ ] Verified commits pushed to `origin/main` pass GitHub Actions on the exact commit SHA.
 - [ ] Completion matrix clearly identifies tested offline components as OFFLINE-VERIFIED and unapproved runtime actions as BLOCKED.
+
+## 2026-09-15T22:33:26Z
+
+Execute multi-vector stress testing and adverse conditions simulation (Phase 264) across the 3 active candidates (`BTCUSDT` cand-btcusdt-dcb-002, `ETHUSDT` cand-ethusdt-dcb-003, `SOLUSDT` cand-solusdt-rgb-001) under Candidate Registry Manifest Version 2 to verify capital survival, margin cap compliance, and accounting reconciliation under extreme market stress.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Multi-Vector Stress Scenario Execution under Manifest Version 2
+Implement and execute the deterministic Phase 264 stress test runner (`scripts/run_phase_264_stress_simulation.py`) against Candidate Registry Manifest Version 2 across 6 comparative shock tracks over the 7-day canonical window (672 15m bars):
+1. **Track 0: Baseline** (nominal Phase 263 conditions: 2.0 bps slippage, 0.04% taker fee).
+2. **Track 1: Flash Crash Shock** (severe intra-bar adverse gap down -15% to -25% on long positions).
+3. **Track 2: Slippage Surge Shock** (elevated adverse slippage 50.0 to 100.0 bps).
+4. **Track 3: Fee & Spread Blowout Shock** (doubled taker fee 0.08% / 8 bps and spread expansion).
+5. **Track 4: Volatility Spikes & Rapid Whipsaw Shock** (high volatility triggers and stop runs).
+6. **Track 5: Composite Crisis Shock** (simultaneous combination of adverse shocks).
+
+### R2. Portfolio Solvency & Risk Invariants
+Enforce portfolio survival and margin safety rules across all shock tracks:
+- Starting equity: 100.00 USDT shared margin account.
+- **Capital Survival**: Terminal equity > 0.00 USDT across all tracks (no bankruptcy / negative cash).
+- **Margin Utilization Ceiling**: Active margin allocation <= 80.00% of equity; preserve at least 20.00% unencumbered cash reserve buffer.
+- **Double-Entry Accounting Reconciliation**: Exact mathematical balance verification across all tracks: drift = |final_cash - (starting_equity + realized_pnl)| < 1e-15.
+
+### R3. Persistent Audit Telemetry & Artifact Packaging
+Persist isolated audit databases and scenario reports to `artifacts/research/phase264/`:
+- Isolated SQLite databases per track or composite (`paper-ledger.sqlite3`, `paper-lifecycle.sqlite3`, `paper-observations.sqlite3`).
+- Scenario audit reports (`stress-track-summary.json`, `paper-summary.json`) recording terminal equity, worst peak-to-trough drawdown, total fees, slippage absorbed, and cryptographic SHA-256 artifact hashes.
+
+### R4. Fail-Closed Safety, Quality Gates & Remote CI Polling
+Enforce strict autonomous operations safety:
+- Maintain fail-closed state: `paper_activation: false`, `execution_authority: false`, `exchange_access: false`, `orders: 0`.
+- Implement targeted unit tests in `tests/unit/test_phase_264_stress_simulation.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full 2,350+ regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Solvency & Risk Guardrails
+- [ ] Terminal equity remains > 0.00 USDT in every stress track.
+- [ ] Maximum margin utilization never exceeds the 80.00% ceiling.
+- [ ] Zero balance drift (drift < 1e-15) verified across all simulation tracks.
+- [ ] Circuit breaker / de-escalation logic successfully contains drawdown during flash crash scenarios.
+
+### Artifacts & Reproducibility
+- [ ] All required artifacts generated in `artifacts/research/phase264/`.
+- [ ] Complete scenario comparison table generated comparing Track 0 through Track 5.
+- [ ] Cryptographic SHA-256 checksums documented for all generated database and JSON artifacts.
+
+### Quality & Remote CI Verification
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Zero secrets or API keys detected.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.

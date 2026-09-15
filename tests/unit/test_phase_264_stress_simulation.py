@@ -1,0 +1,279 @@
+"""Unit test suite for Phase 264 multi-vector stress testing and adverse conditions simulation."""
+
+from __future__ import annotations
+
+import json
+import sys
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
+from autonomous_futures.paper.candidate_registry import (  # noqa: E402
+    DEFAULT_CANDIDATE_REGISTRY_PATH,
+    read_candidate_registry,
+    validate_manifest_candidate_artifacts,
+)
+from autonomous_futures.paper.circuit_breakers import (  # noqa: E402
+    calculate_adverse_gap_fill,
+)
+from scripts.run_phase_264_stress_simulation import (  # noqa: E402
+    DEFAULT_MAX_MARGIN_UTILIZATION,
+    DEFAULT_MIN_RESERVE_BUFFER,
+    DEFAULT_PHASE264_OUTPUT_DIR,
+    TRACK_DEFINITIONS,
+    main,
+    run_phase_264_simulation,
+)
+
+
+class TestPhase264ManifestAndConfig:
+    """Test Manifest Version 2 compliance and track specifications."""
+
+    def test_candidate_registry_manifest_v2_active_candidates(self) -> None:
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
+        assert manifest.registry_version >= 2
+        assert set(manifest.symbols.keys()) == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
+
+        assert manifest.symbols["BTCUSDT"].candidate_id == "cand-btcusdt-dcb-002"
+        assert manifest.symbols["ETHUSDT"].candidate_id == "cand-ethusdt-dcb-003"
+        assert manifest.symbols["SOLUSDT"].candidate_id == "cand-solusdt-rgb-001"
+
+        candidates = validate_manifest_candidate_artifacts(manifest)
+        assert len(candidates) == 3
+        assert candidates["BTCUSDT"].strategy.universe.timeframe == "15m"
+        assert candidates["ETHUSDT"].strategy.universe.timeframe == "15m"
+        assert candidates["SOLUSDT"].strategy.universe.timeframe == "1h"
+
+    def test_run_phase_264_simulation_rejects_manifest_v1(self, tmp_path: Path) -> None:
+        baseline_reg = Path("artifacts/research/phase262/baseline_candidate_registry.json")
+        if not baseline_reg.is_file():
+            pytest.skip("baseline_candidate_registry.json not found")
+
+        output_dir = tmp_path / "phase264_reject_test"
+        with pytest.raises(DomainViolation, match="requires candidate registry version >= 2"):
+            run_phase_264_simulation(
+                output_dir=output_dir,
+                registry_path=baseline_reg,
+                days=1,
+                selected_track="0",
+            )
+
+    def test_track_definitions_completeness(self) -> None:
+        assert len(TRACK_DEFINITIONS) == 6
+        track_names = [t["name"] for t in TRACK_DEFINITIONS]
+        assert track_names == [
+            "baseline",
+            "flash_crash",
+            "slippage_surge",
+            "fee_spread_blowout",
+            "volatility_whipsaw",
+            "composite_crisis",
+        ]
+
+        # Track 0: Baseline (2.0 bps, 0.04% fee)
+        assert TRACK_DEFINITIONS[0]["slippage_bps"] == Decimal("2.0")
+        assert TRACK_DEFINITIONS[0]["fee_rate"] == Decimal("0.0004")
+
+        # Track 1: Flash Crash (-20% adverse drop)
+        assert TRACK_DEFINITIONS[1]["price_shock_pct"] == Decimal("-0.20")
+
+        # Track 2: Slippage Surge (elevated slippage >= 50 bps)
+        assert TRACK_DEFINITIONS[2]["slippage_bps"] >= Decimal("50.0")
+
+        # Track 3: Fee & Spread Blowout (doubled fee 0.08% / 8 bps)
+        assert TRACK_DEFINITIONS[3]["fee_rate"] == Decimal("0.0008")
+        assert TRACK_DEFINITIONS[3]["slippage_bps"] >= Decimal("20.0")
+
+        # Track 4: Volatility Whipsaw (high volatility triggers)
+        assert TRACK_DEFINITIONS[4]["shock_type"] == "volatility_whipsaw"
+        assert TRACK_DEFINITIONS[4]["whipsaw_bars"] == 12
+
+        # Track 5: Composite Crisis (simultaneous adverse shocks)
+        assert TRACK_DEFINITIONS[5]["shock_type"] == "composite_crisis"
+        assert TRACK_DEFINITIONS[5]["price_shock_pct"] == Decimal("-0.20")
+        assert TRACK_DEFINITIONS[5]["fee_rate"] == Decimal("0.0008")
+        assert TRACK_DEFINITIONS[5]["slippage_bps"] >= Decimal("50.0")
+
+
+class TestPhase264AdverseExecutionAndMechanics:
+    """Test adverse gap calculations and simulation mechanics."""
+
+    def test_adverse_gap_fill_calculation_long_and_short(self) -> None:
+        # Long gap down: bar opens below stop price -> fill is worse than stop
+        raw_exit, fill_price = calculate_adverse_gap_fill(
+            side="LONG",
+            bar_open=Decimal("90.00"),
+            stop_price=Decimal("95.00"),
+            slippage_rate=Decimal("0.001"),  # 10 bps
+        )
+        assert raw_exit == Decimal("90.00")
+        assert fill_price == Decimal("90.00") * Decimal("0.999")
+
+        # Short gap up: bar opens above stop price -> fill is worse than stop
+        raw_exit_s, fill_price_s = calculate_adverse_gap_fill(
+            side="SHORT",
+            bar_open=Decimal("110.00"),
+            stop_price=Decimal("105.00"),
+            slippage_rate=Decimal("0.001"),  # 10 bps
+        )
+        assert raw_exit_s == Decimal("110.00")
+        assert fill_price_s == Decimal("110.00") * Decimal("1.001")
+
+
+class TestPhase264SimulationTracks:
+    """Test execution of stress tracks in isolated temporary directories."""
+
+    def test_run_phase_264_short_slice_baseline_and_flash_crash(self, tmp_path: Path) -> None:
+        out_baseline = tmp_path / "baseline_test"
+        res_baseline = run_phase_264_simulation(
+            output_dir=out_baseline,
+            days=2,
+            starting_equity=Decimal("100.00"),
+            selected_track="0",
+        )
+        assert res_baseline.all_tracks_survived is True
+        t0 = res_baseline.track_results["baseline"]
+        assert t0.final_cash > Decimal("0")
+        assert t0.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
+        assert t0.scenario_result.min_observed_equity_buffer >= DEFAULT_MIN_RESERVE_BUFFER
+        assert t0.cash_drift < Decimal("1e-15")
+        assert (out_baseline / "paper-ledger.sqlite3").is_file()
+        assert (out_baseline / "stress-track-summary.json").is_file()
+        assert (out_baseline / "paper-summary.json").is_file()
+
+    def test_run_phase_264_short_slice_slippage_and_fee_surge(self, tmp_path: Path) -> None:
+        out_slip = tmp_path / "slippage_test"
+        res_slip = run_phase_264_simulation(
+            output_dir=out_slip,
+            days=2,
+            starting_equity=Decimal("100.00"),
+            selected_track="2",
+        )
+        t2 = res_slip.track_results["slippage_surge"]
+        assert t2.final_cash > Decimal("0")
+        assert t2.cash_drift < Decimal("1e-15")
+        assert t2.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
+
+    def test_phase_264_cli_execution(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        out_cli = tmp_path / "cli_test"
+        code = main(
+            [
+                "--output-dir",
+                str(out_cli),
+                "--days",
+                "1",
+                "--track",
+                "0",
+                "--json",
+            ]
+        )
+        assert code == 0
+        out = capsys.readouterr().out
+        data = json.loads(out)
+        assert data["phase"] == "phase_264"
+        assert data["registry_version"] >= 2
+        assert data["all_tracks_survived"] is True
+        assert data["zero_balance_drift_verified"] is True
+
+
+class TestPhase264PersistedProductionArtifacts:
+    """Validate authoritative persistent artifacts in artifacts/research/phase264/."""
+
+    def test_persisted_databases_and_reports_exist(self) -> None:
+        out = DEFAULT_PHASE264_OUTPUT_DIR
+        assert out.is_dir(), f"Phase 264 artifact directory missing: {out}"
+
+        # SQLite stores
+        assert (out / "paper-ledger.sqlite3").is_file()
+        assert (out / "paper-lifecycle.sqlite3").is_file()
+        assert (out / "paper-observations.sqlite3").is_file()
+
+        # Reports
+        assert (out / "stress-track-summary.json").is_file()
+        assert (out / "paper-summary.json").is_file()
+        assert (out / "paper-cohort-readiness-report.json").is_file()
+        assert (out / "paper-health-report-BTCUSDT.json").is_file()
+        assert (out / "paper-health-report-ETHUSDT.json").is_file()
+        assert (out / "paper-health-report-SOLUSDT.json").is_file()
+
+        # Track subdirectories
+        tracks_dir = out / "tracks"
+        assert tracks_dir.is_dir()
+        for t in TRACK_DEFINITIONS:
+            t_dir = tracks_dir / f"track_{t['id']}_{t['name']}"
+            assert t_dir.is_dir(), f"Missing track directory: {t_dir}"
+            assert (t_dir / "paper-ledger.sqlite3").is_file()
+            assert (t_dir / "paper-lifecycle.sqlite3").is_file()
+            assert (t_dir / "paper-observations.sqlite3").is_file()
+
+    def test_persisted_stress_track_summary_content(self) -> None:
+        summary_path = DEFAULT_PHASE264_OUTPUT_DIR / "stress-track-summary.json"
+        data = json.loads(summary_path.read_text(encoding="utf-8"))
+
+        assert data["phase"] == "phase_264"
+        assert data["registry_version"] == 2
+        assert data["total_tracks"] == 6
+        assert data["all_tracks_survived"] is True
+        assert data["max_utilization_cap_satisfied"] is True
+        assert data["min_reserve_buffer_satisfied"] is True
+        assert data["zero_balance_drift_verified"] is True
+
+        matrix = data["portfolio_survival_matrix"]
+        assert len(matrix) == 6
+        for row in matrix:
+            assert row["capital_survived"] is True
+            assert row["margin_cap_satisfied"] is True
+            assert row["zero_balance_drift"] is True
+            end_cash = Decimal(row["ending_equity_usdt"])
+            assert end_cash > Decimal("0.00")
+            util_pct = Decimal(row["max_margin_utilization_pct"].rstrip("%"))
+            assert util_pct <= Decimal("80.00")
+            buf_pct = Decimal(row["min_reserve_buffer_pct"].rstrip("%"))
+            assert buf_pct >= Decimal("20.00")
+            drift = Decimal(row["balance_drift"])
+            assert drift < Decimal("1e-15")
+
+        # Offline safety invariants
+        safety = data["safety_invariants"]
+        assert safety["paper_activation"] is False
+        assert safety["execution_authority"] is False
+        assert safety["exchange_access"] is False
+        assert safety["orders"] == 0
+        assert safety["zero_secret_leakage"] is True
+
+        # Cryptographic checksums
+        hashes = data["artifact_hashes"]
+        assert "paper-ledger.sqlite3" in hashes
+        assert "paper-lifecycle.sqlite3" in hashes
+        assert "paper-observations.sqlite3" in hashes
+        for k, sha in hashes.items():
+            assert len(sha) == 64, f"Invalid SHA-256 for {k}: {sha}"
+
+    def test_persisted_paper_summary_content(self) -> None:
+        paper_path = DEFAULT_PHASE264_OUTPUT_DIR / "paper-summary.json"
+        data = json.loads(paper_path.read_text(encoding="utf-8"))
+
+        assert data["phase"] == "phase_264"
+        assert data["registry_version"] == 2
+        assert set(data["candidates"].keys()) == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
+        assert data["candidates"]["ETHUSDT"]["candidate_id"] == "cand-ethusdt-dcb-003"
+        assert data["candidates"]["BTCUSDT"]["candidate_id"] == "cand-btcusdt-dcb-002"
+        assert data["candidates"]["SOLUSDT"]["candidate_id"] == "cand-solusdt-rgb-001"
+
+        margin = data["shared_portfolio_margin"]
+        assert Decimal(margin["starting_equity_usdt"]) == Decimal("100.00")
+        assert Decimal(margin["final_cash_usdt"]) > Decimal("0.00")
+        assert Decimal(margin["max_observed_margin_utilization"]) <= Decimal("0.80")
+
+        summary = data["portfolio_summary"]
+        assert summary["positions_reconciled"] is True
+        assert summary["accounting_reconciled"] is True
+        assert summary["zero_balance_drift"] is True

@@ -61,8 +61,22 @@ class MarketShockSpec(BaseModel):
         return v
 
 
+def _infer_interval(df: pd.DataFrame, default: timedelta = timedelta(minutes=5)) -> timedelta:
+    if len(df) >= 2 and "timestamp" in df.columns:
+        try:
+            t0 = pd.Timestamp(df.iloc[0]["timestamp"])
+            t1 = pd.Timestamp(df.iloc[1]["timestamp"])
+            diff = t1 - t0
+            py_diff: timedelta = diff.to_pytimedelta()
+            if py_diff > timedelta(0):
+                return py_diff
+        except Exception:
+            pass
+    return default
+
+
 class SyntheticMarketShockInjector:
-    """Deterministic injector applying calibrated distress vectors to 5m market data."""
+    """Deterministic injector applying calibrated distress vectors to market data."""
 
     @staticmethod
     def inject_flash_crash(
@@ -70,6 +84,7 @@ class SyntheticMarketShockInjector:
         start_idx: int,
         drop_pct: Decimal | float,
         wick_only: bool = False,
+        interval: timedelta | None = None,
     ) -> pd.DataFrame:
         """Inject an adverse intra-bar flash crash (-10% to -25% price drop).
 
@@ -118,16 +133,18 @@ class SyntheticMarketShockInjector:
         df_mod.at[start_idx, "low"] = new_low
         df_mod.at[start_idx, "close"] = new_close
 
-        return canonicalize_bars(df_mod, interval=timedelta(minutes=5))
+        target_interval = interval or _infer_interval(df)
+        return canonicalize_bars(df_mod, interval=target_interval)
 
     @staticmethod
     def inject_slippage_surge(
         df: pd.DataFrame,
         multiplier: Decimal | int | float,
+        interval: timedelta | None = None,
     ) -> pd.DataFrame:
         """Inject severe execution slippage surge (10x to 50x baseline, up to 200 bps).
 
-        Annotates DataFrame columns and attributes while preserving canonical 5m bar structure.
+        Annotates DataFrame columns and attributes while preserving canonical bar structure.
         """
         mult_dec = Decimal(str(multiplier))
         if mult_dec < Decimal("1.0"):
@@ -140,16 +157,18 @@ class SyntheticMarketShockInjector:
         df_mod.attrs["slippage_multiplier"] = mult_dec
         df_mod.attrs["slippage_bps"] = Decimal("2.0") * mult_dec
 
-        return canonicalize_bars(df_mod, interval=timedelta(minutes=5))
+        target_interval = interval or _infer_interval(df)
+        return canonicalize_bars(df_mod, interval=target_interval)
 
     @staticmethod
     def inject_spread_blowout(
         df: pd.DataFrame,
         multiplier: Decimal | int | float,
+        interval: timedelta | None = None,
     ) -> pd.DataFrame:
         """Inject severe bid-ask spread blowout (5x to 20x baseline, 10 to 40 bps).
 
-        Annotates DataFrame columns and attributes while preserving canonical 5m bar structure.
+        Annotates DataFrame columns and attributes while preserving canonical bar structure.
         """
         mult_dec = Decimal(str(multiplier))
         if mult_dec < Decimal("1.0"):
@@ -162,7 +181,8 @@ class SyntheticMarketShockInjector:
         df_mod.attrs["spread_multiplier"] = mult_dec
         df_mod.attrs["spread_bps"] = Decimal("2.0") * mult_dec
 
-        return canonicalize_bars(df_mod, interval=timedelta(minutes=5))
+        target_interval = interval or _infer_interval(df)
+        return canonicalize_bars(df_mod, interval=target_interval)
 
     @staticmethod
     def inject_whipsaws(
@@ -170,11 +190,12 @@ class SyntheticMarketShockInjector:
         start_idx: int,
         num_bars: int,
         oscillation_pct: Decimal | float,
+        interval: timedelta | None = None,
     ) -> pd.DataFrame:
         """Inject high-frequency volatility spikes and rapid whipsaws over consecutive bars.
 
         Alternates between large upward surges and sharp downward plunges, surging ATR
-        while strictly preserving continuous canonical 5m bar formatting.
+        while strictly preserving continuous canonical bar formatting.
         """
         if not (0 <= start_idx < len(df)):
             raise ValueError(
@@ -224,7 +245,8 @@ class SyntheticMarketShockInjector:
             df_mod.at[idx, "low"] = new_low
             df_mod.at[idx, "close"] = new_close
 
-        return canonicalize_bars(df_mod, interval=timedelta(minutes=5))
+        target_interval = interval or _infer_interval(df)
+        return canonicalize_bars(df_mod, interval=target_interval)
 
     # Support alias inject_whipsaw (singular)
     inject_whipsaw = inject_whipsaws
@@ -234,8 +256,9 @@ class SyntheticMarketShockInjector:
         cls,
         df: pd.DataFrame,
         start_idx: int,
+        interval: timedelta | None = None,
     ) -> pd.DataFrame:
-        """Inject combined multi-vector crisis shock onto historical 5m market data.
+        """Inject combined multi-vector crisis shock onto historical market data.
 
         Simultaneously injects:
         - 1. Flash crash wick & gap drop (-20%) at start_idx
@@ -243,9 +266,14 @@ class SyntheticMarketShockInjector:
         - 3. 50x slippage surge (100 bps)
         - 4. 20x spread blowout (40 bps)
         """
+        target_interval = interval or _infer_interval(df)
         # Step 1: Flash crash
         df_shocked = cls.inject_flash_crash(
-            df, start_idx=start_idx, drop_pct=Decimal("0.20"), wick_only=False
+            df,
+            start_idx=start_idx,
+            drop_pct=Decimal("0.20"),
+            wick_only=False,
+            interval=target_interval,
         )
 
         # Step 2: Whipsaws
@@ -256,12 +284,17 @@ class SyntheticMarketShockInjector:
                 start_idx=start_idx + 1,
                 num_bars=whipsaw_bars,
                 oscillation_pct=Decimal("0.06"),
+                interval=target_interval,
             )
 
         # Step 3: Slippage surge (50x)
-        df_shocked = cls.inject_slippage_surge(df_shocked, multiplier=Decimal("50"))
+        df_shocked = cls.inject_slippage_surge(
+            df_shocked, multiplier=Decimal("50"), interval=target_interval
+        )
 
         # Step 4: Spread blowout (20x)
-        df_shocked = cls.inject_spread_blowout(df_shocked, multiplier=Decimal("20"))
+        df_shocked = cls.inject_spread_blowout(
+            df_shocked, multiplier=Decimal("20"), interval=target_interval
+        )
 
         return df_shocked
