@@ -32,8 +32,20 @@ _FAILURE_LEARNER_SYSTEM = (
 
 _RESEARCH_PLANNER_SYSTEM = (
     "Return exactly one JSON object with keys hypothesis, expected_regime, "
-    "strategy_family, novelty_dimensions, and falsification_criteria. Produce "
-    "one materially different falsifiable research thesis from the complete "
+    "strategy_family, novelty_dimensions, and falsification_criteria. "
+    "strategy_family must be one of: donchian_channel_breakout, experimental, "
+    "range_mean_reversion, regime_gated_breakout, volatility_compression_breakout, "
+    "or volume_confirmed_momentum. novelty_dimensions and falsification_criteria "
+    "must each be JSON arrays of unique strings, sorted lexicographically and unique. "
+    "novelty_dimensions values must be one of: entry_logic, exit_logic, feature_set, "
+    "regime_filter, risk_design, or strategy_family. falsification_criteria must be "
+    "a JSON array of 1 to 8 strings, sorted lexicographically. "
+    'A valid shape is {"expected_regime":"volatile_trend", '
+    '"falsification_criteria":["reject if OOS profit factor < 1.0"], '
+    '"hypothesis":"Trade volume-confirmed momentum with volatility filter.", '
+    '"novelty_dimensions":["entry_logic","feature_set"], '
+    '"strategy_family":"volume_confirmed_momentum"}. '
+    "Produce one materially different falsifiable research thesis from the complete "
     "failure memory and learned constraints. Do not relax qualification gates, "
     "reuse forbidden candidates or used holdouts, change capital/risk policy, "
     "promote a candidate, activate paper/testnet/live, or place an order."
