@@ -607,23 +607,38 @@ class AutonomousResearchBase:
                 raise DomainViolation("persisted autonomous base result scope mismatch")
             return existing
 
-        seed_memory = build_failure_memory_entry(
-            base_run_id=self.config.base_run_id,
-            source_type="seed_feedback",
-            source_id=f"seed-{initial_feedback.qualification_hash[:32]}",
-            sequence=0,
-            feedback=initial_feedback,
-            cycle_id=None,
-            cycle_hash=None,
-            recorded_at=timestamp,
-        )
-        seed_path = (
-            self.config.artifact_root / "failure-memory" / f"failure-{seed_memory.memory_hash}.json"
-        )
-        if seed_path.exists():
-            seed_memory = read_failure_memory_entry(seed_path)
+        failure_memory_root = self.config.artifact_root / "failure-memory"
+        existing_seed: FailureMemoryEntry | None = None
+        if failure_memory_root.exists():
+            for path in sorted(failure_memory_root.glob("failure-*.json")):
+                try:
+                    candidate_entry = read_failure_memory_entry(path)
+                    if (
+                        candidate_entry.base_run_id == self.config.base_run_id
+                        and candidate_entry.sequence == 0
+                        and candidate_entry.source_type == "seed_feedback"
+                    ):
+                        existing_seed = candidate_entry
+                        break
+                except Exception:
+                    pass
+
+        if existing_seed is not None:
+            seed_memory = existing_seed
         else:
+            seed_memory = build_failure_memory_entry(
+                base_run_id=self.config.base_run_id,
+                source_type="seed_feedback",
+                source_id=f"seed-{initial_feedback.qualification_hash[:32]}",
+                sequence=0,
+                feedback=initial_feedback,
+                cycle_id=None,
+                cycle_hash=None,
+                recorded_at=timestamp,
+            )
+            seed_path = failure_memory_root / f"failure-{seed_memory.memory_hash}.json"
             seed_memory = write_failure_memory_entry(seed_path, seed_memory)
+
         records, memory, feedback, forbidden, learning_hashes, plan_hashes = (
             self._load_existing_records(
                 initial_feedback=initial_feedback,

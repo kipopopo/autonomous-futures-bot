@@ -345,3 +345,82 @@ Generate a reproducible verification report (`verification/PHASE_277_AUTONOMOUS_
 ### Quality & Verification Evidence
 - [ ] `verification/PHASE_277_AUTONOMOUS_PIPELINE_DEPLOYMENT.md` committed and pushed to `origin/main`.
 - [ ] Local tests and static checks (`ruff`, `mypy`) pass cleanly.
+
+## 2026-09-15T03:18:22Z
+
+Autonomous futures execution, evidence-driven learning, strategy creation/revision (Creator/Critic), deterministic evaluation, paper feedback closure, and operational tooling for the Autonomous Futures Bot, executed under the strict safety mandate of ANTIGRAVITY_HANDOFF.md.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained project mandate with strict repository ownership: keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Durable Provider-to-Research Integration
+Implement and integrate a supported finite CLI/orchestration entrypoint replacing disposable smoke scripts:
+- Preflight credentials safely without printing, logging, or exposing secret values.
+- Bind run ID, input evidence hashes, full failure history, policy, role/model, and request budget.
+- Enforce zero retries and no provider fallback by default.
+- Write durable typed accepted artifacts and sanitized audit records to approved evidence storage; verify integrity on readback.
+- Reject partial, orphan, tampered, or replayed checkpoints prior to any network call.
+- Preserve rejected outcomes honestly without schema relaxation.
+- Full offline test coverage for accepted, rejected, schema diagnostic errors, provider failure, storage failure, restart/reuse, budget exhaustion, and zero-network preflight rejection.
+
+### R2. Complete Autonomous Learning and Strategy-Creation Loop
+Connect actual failure and paper feedback producers to learning, planning, Creator/Critic, deterministic evaluation, and immutable lineage:
+- Distinguish LLM failure analysis from model training; enforce explicit objectives, causal inputs, dataset cutoffs, and adoption gates.
+- Track complete historical forbidden candidate IDs and thesis fingerprints across cycles.
+- Feed real rejected outcomes into materially different hypotheses without recycling selection data.
+- Demonstrate restart-safe bounded cycles, call/cost/time limits, deterministic stop reasons, failure recovery, and auditable next-cycle inputs with zero unbounded spending loops.
+
+### R3. Deterministic Evaluation and Admission
+Enforce strict evaluation guardrails outside of AI control:
+- Causal features, contiguous historical windows, and strict OOS / walk-forward / stress separation.
+- Realistic fees, slippage, funding rates, conservative leverage/liquidation accounting, and Decimal ledger arithmetic. Missing data must remain UNAVAILABLE (never fabricated zero).
+- Fixed qualification and admission thresholds established prior to outcomes.
+- Demonstrate both qualified-fixture admission and real rejection paths, labeled separately.
+
+### R4. Paper Execution and Feedback Closure
+Connect qualified candidate loading to the paper trading runtime behind explicit admission/resume gates:
+- Verify at most one position per pair, cash/margin/equity reconciliation, durable close synchronization, protective exits, fee/P&L attribution, restart recovery, and prevention of duplicate orders/positions.
+- Route durable paper trade outcomes back into research/learning feedback loops.
+- Test via isolated deterministic replay and fault injection showing daemon-driven entry, protection, exit, and reconciliation.
+- Strictly respect the paper HALTED boundary: do not clear HALTED by restart or bypass breakers without explicit authorization.
+
+### R5. Operational Tooling, Release Quality, and Exact-SHA Verification
+Solidify operational infrastructure and verification:
+- Bounded scheduling, idempotency, process locking, health/freshness checks, audit/budget visibility, alerts, and runbooks.
+- Evidence-backed dashboard, API, and Telegram interfaces (dark accessible UI, MYT/GMT+8 display, UTC event storage).
+- Enforce canonical checks (`pytest`, `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`).
+- Commit verified changes with outcome-sized commits, push to `origin/main`, and confirm GitHub Actions passes on the exact commit SHA.
+
+### R6. Fail-Closed Boundaries & Safety Gate Isolation
+Strictly isolate unapproved runtime boundaries:
+- Default execution, live trading, VPS restart, paper resume, and paid provider network calls remain disabled until specific explicit approval is obtained.
+- Implement and test fail-closed readiness interfaces and isolated simulation.
+- Maintain a completion matrix tracking each component as IMPLEMENTED, OFFLINE-VERIFIED, PROVIDER-VERIFIED, DEPLOYED, RUNTIME-PROVEN, or BLOCKED.
+- Never claim project completion while runtime acceptance gates remain BLOCKED.
+
+## Acceptance Criteria
+
+### Integration & Persistence
+- [ ] Supported CLI entrypoint preflights credentials safely and executes provider-to-research orchestration with zero-retry and no-fallback enforcement.
+- [ ] Durable typed learner/planner artifacts and sanitized audit envelopes are persisted, read back, and hash-verified from durable storage.
+- [ ] Offline unit and integration tests verify accepted responses, schema rejections, provider failure, storage failure, checkpoint tampering, and budget limits.
+
+### Research & Learning Loop
+- [ ] End-to-end autonomous research loop connects failure memory -> learner -> planner -> Creator/Critic -> deterministic evaluation -> next failure memory.
+- [ ] Thesis deduplication rejects identical hypotheses; forbidden candidate IDs prevent re-evaluating rejected candidates.
+- [ ] Bounded cycle execution terminates cleanly on budget, cycle limit, or qualification with complete auditable lineage.
+
+### Evaluation & Paper Execution
+- [ ] Walk-forward and stress evaluation strictly enforce causal data, contiguous windows, and Decimal arithmetic without AI parameter overrides.
+- [ ] Paper execution engine enforces single-position invariants, protective stops, position reconciliation, and feeds outcomes back to the research lab.
+- [ ] Paper engine remains HALTED in production until explicit resume authorization is provided.
+
+### Verification & Quality Gates
+- [ ] All code passes `ruff check`, `ruff format --check`, `mypy src scripts`, and test regressions.
+- [ ] Verified commits pushed to `origin/main` pass GitHub Actions on the exact commit SHA.
+- [ ] Completion matrix clearly identifies tested offline components as OFFLINE-VERIFIED and unapproved runtime actions as BLOCKED.

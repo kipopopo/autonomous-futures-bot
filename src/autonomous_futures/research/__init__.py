@@ -221,6 +221,13 @@ from .persisted_qualification import (
     qualify_persisted_candidate,
     run_persisted_qualification_batch,
 )
+from .provider_orchestration import (
+    ProviderOrchestrationConfig,
+    ProviderOrchestrationResult,
+    ProviderOrchestrationRole,
+    ProviderOrchestrationStatus,
+    execute_provider_orchestration,
+)
 from .provider_smoke import (
     ProviderSmokePreparation,
     build_provider_smoke_preparation,
@@ -474,4 +481,9 @@ __all__ = [
     "build_walk_forward_qualification_artifact",
     "read_creator_candidate_qualification_artifact",
     "write_creator_candidate_qualification_artifact",
+    "ProviderOrchestrationConfig",
+    "ProviderOrchestrationResult",
+    "ProviderOrchestrationRole",
+    "ProviderOrchestrationStatus",
+    "execute_provider_orchestration",
 ]
