@@ -15,9 +15,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from autonomous_futures.data.parquet import DataQualityError  # noqa: E402
 from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.paper.candidate_registry import (  # noqa: E402
     DEFAULT_CANDIDATE_REGISTRY_PATH,
+    CandidateRegistryManifest,
+    compute_registry_hash,
     read_candidate_registry,
     validate_manifest_candidate_artifacts,
 )
@@ -32,6 +35,7 @@ from scripts.run_phase_264_stress_simulation import (  # noqa: E402
     DEFAULT_MIN_RESERVE_BUFFER,
     DEFAULT_PHASE264_OUTPUT_DIR,
     TRACK_DEFINITIONS,
+    apply_track_shocks,
     main,
     run_phase_264_simulation,
 )
@@ -341,3 +345,112 @@ class TestPhase264PersistedProductionArtifacts:
         assert summary["positions_reconciled"] is True
         assert summary["accounting_reconciled"] is True
         assert summary["zero_balance_drift"] is True
+
+
+class TestPhase264AdversarialEdgeCases:
+    """Adversarial challenge tests attacking boundary conditions, tampered manifests,
+
+    and data corruption.
+    """
+
+    def test_run_phase_264_simulation_rejects_missing_or_tampered_candidates(
+        self, tmp_path: Path
+    ) -> None:
+        orig = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        d = orig.model_dump(mode="json")
+
+        # Attack 1: Missing SOLUSDT
+        d_no_sol = json.loads(json.dumps(d))
+        del d_no_sol["symbols"]["SOLUSDT"]
+        m_no_sol = CandidateRegistryManifest.model_validate(d_no_sol)
+        d_no_sol["registry_hash"] = compute_registry_hash(m_no_sol)
+        p_no_sol = tmp_path / "reg_no_sol.json"
+        p_no_sol.write_text(json.dumps(d_no_sol), encoding="utf-8")
+
+        with pytest.raises(DomainViolation, match="requires active SOLUSDT candidate"):
+            run_phase_264_simulation(output_dir=tmp_path / "out1", registry_path=p_no_sol, days=1)
+
+        # Attack 2: Missing BTCUSDT
+        d_no_btc = json.loads(json.dumps(d))
+        del d_no_btc["symbols"]["BTCUSDT"]
+        m_no_btc = CandidateRegistryManifest.model_validate(d_no_btc)
+        d_no_btc["registry_hash"] = compute_registry_hash(m_no_btc)
+        p_no_btc = tmp_path / "reg_no_btc.json"
+        p_no_btc.write_text(json.dumps(d_no_btc), encoding="utf-8")
+
+        with pytest.raises(DomainViolation, match="requires active BTCUSDT candidate"):
+            run_phase_264_simulation(output_dir=tmp_path / "out2", registry_path=p_no_btc, days=1)
+
+        # Attack 3: Tampered candidate ID for BTC
+        d_bad_btc = json.loads(json.dumps(d))
+        d_bad_btc["symbols"]["BTCUSDT"]["candidate_id"] = "cand-btcusdt-dcb-wrong"
+        m_bad_btc = CandidateRegistryManifest.model_validate(d_bad_btc)
+        d_bad_btc["registry_hash"] = compute_registry_hash(m_bad_btc)
+        p_bad_btc = tmp_path / "reg_bad_btc.json"
+        p_bad_btc.write_text(json.dumps(d_bad_btc), encoding="utf-8")
+
+        with pytest.raises(DomainViolation, match="requires active BTCUSDT candidate"):
+            run_phase_264_simulation(output_dir=tmp_path / "out3", registry_path=p_bad_btc, days=1)
+
+    def test_run_phase_264_simulation_rejects_invalid_inputs(self, tmp_path: Path) -> None:
+        with pytest.raises(DomainViolation, match="starting_equity > 0"):
+            run_phase_264_simulation(
+                output_dir=tmp_path / "out_eq0", starting_equity=Decimal("0.00"), days=1
+            )
+
+        with pytest.raises(DomainViolation, match="starting_equity > 0"):
+            run_phase_264_simulation(
+                output_dir=tmp_path / "out_neg_eq", starting_equity=Decimal("-10.00"), days=1
+            )
+
+        with pytest.raises(DomainViolation, match="days >= 1"):
+            run_phase_264_simulation(output_dir=tmp_path / "out_days0", days=0)
+
+    def test_run_phase_264_simulation_enforces_1h_data_quality(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Simulate missing 1h parquet for 1h candidate (SOLUSDT)
+        orig_is_file = Path.is_file
+
+        def fake_is_file(self: Path) -> bool:
+            if "SOLUSDT-1h" in str(self):
+                return False
+            return orig_is_file(self)
+
+        monkeypatch.setattr(Path, "is_file", fake_is_file)
+        with pytest.raises(DataQualityError, match="Missing required 1h canonical dataset"):
+            run_phase_264_simulation(output_dir=tmp_path / "out_no_1h", days=1, selected_track="0")
+
+    def test_apply_track_shocks_1h_scaling_isolation(self) -> None:
+        t0 = datetime(2026, 7, 30, 0, 0, tzinfo=UTC)
+        frames_15m = {
+            "SOLUSDT": pd.DataFrame(
+                {
+                    "timestamp": [t0 + timedelta(minutes=15 * i) for i in range(48)],
+                    "open": [Decimal("150.00")] * 48,
+                    "high": [Decimal("155.00")] * 48,
+                    "low": [Decimal("148.00")] * 48,
+                    "close": [Decimal("152.00")] * 48,
+                    "volume": [Decimal("100.00")] * 48,
+                }
+            )
+        }
+        frames_1h = {
+            "SOLUSDT": pd.DataFrame(
+                {
+                    "timestamp": [t0 + timedelta(hours=i) for i in range(12)],
+                    "open": [Decimal("150.00")] * 12,
+                    "high": [Decimal("155.00")] * 12,
+                    "low": [Decimal("148.00")] * 12,
+                    "close": [Decimal("152.00")] * 12,
+                    "volume": [Decimal("400.00")] * 12,
+                }
+            )
+        }
+        s15, s1h = apply_track_shocks(frames_15m, frames_1h, TRACK_DEFINITIONS[5])
+        assert len(s15["SOLUSDT"]) == 48
+        assert len(s1h["SOLUSDT"]) == 12
+        df_mod_1h = s1h["SOLUSDT"]
+        assert (df_mod_1h["high"] >= df_mod_1h["low"]).all()
+        assert (df_mod_1h["high"] >= df_mod_1h["open"]).all()
+        assert (df_mod_1h["high"] >= df_mod_1h["close"]).all()

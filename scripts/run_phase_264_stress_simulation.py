@@ -432,8 +432,15 @@ def apply_track_shocks(
             start_idx_1h = nominal_start // 4
             whip_1h = max(1, nominal_whipsaw // 4)
         else:
-            start_idx_1h = min(start_idx // 4, max(0, n_1h - 2)) if n_1h >= 2 else 0
-            whip_1h = max(1, min(nominal_whipsaw // 4, max(1, n_1h - start_idx_1h - 1)))
+            ratio_1h = (nominal_start // 4) / 168
+            scaled_idx_1h = int(ratio_1h * n_1h)
+            nominal_whip_1h = max(1, nominal_whipsaw // 4)
+            if n_1h > nominal_whip_1h + 1:
+                start_idx_1h = min(scaled_idx_1h, n_1h - nominal_whip_1h - 1)
+                whip_1h = nominal_whip_1h
+            else:
+                start_idx_1h = max(0, min(scaled_idx_1h, n_1h - 2)) if n_1h >= 2 else 0
+                whip_1h = max(1, min(nominal_whip_1h, max(1, n_1h - start_idx_1h - 1)))
 
         if shock_type == "flash_crash":
             mod = SyntheticMarketShockInjector.inject_flash_crash(
@@ -913,6 +920,10 @@ def run_single_phase_264_track(
                     exit_mark_price=liq.gapped_market_price,
                     occurred_at=bar_ts,
                 )
+                if close_res.status != "closed":
+                    raise RuntimeError(
+                        f"Failed to emergency liquidate paper trade for {liq.symbol}: {close_res}"
+                    )
                 closed_this_bar[liq.symbol] = True
 
             # Ensure exact mathematical balance synchronization after emergency actions
@@ -1256,6 +1267,11 @@ def run_phase_264_simulation(
     assert_offline_safety_invariants()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    if days < 1:
+        raise DomainViolation(f"Phase 264 requires days >= 1, got {days}")
+    if starting_equity <= Decimal("0"):
+        raise DomainViolation(f"Phase 264 requires starting_equity > 0, got {starting_equity}")
+
     # 1. Validate Candidate Registry Manifest v2
     manifest = read_candidate_registry(registry_path, verify_hash=True)
     if manifest.registry_version < 2:
@@ -1263,12 +1279,18 @@ def run_phase_264_simulation(
             f"Phase 264 requires candidate registry version >= 2, got {manifest.registry_version}"
         )
 
-    eth_entry = manifest.symbols.get("ETHUSDT")
-    if eth_entry is None or eth_entry.candidate_id != "cand-ethusdt-dcb-003":
-        raise DomainViolation(
-            f"Phase 264 requires calibrated ETHUSDT candidate cand-ethusdt-dcb-003, "
-            f"got {eth_entry.candidate_id if eth_entry else 'missing'}"
-        )
+    expected_candidates = {
+        "BTCUSDT": "cand-btcusdt-dcb-002",
+        "ETHUSDT": "cand-ethusdt-dcb-003",
+        "SOLUSDT": "cand-solusdt-rgb-001",
+    }
+    for sym, expected_id in expected_candidates.items():
+        entry = manifest.symbols.get(sym)
+        if entry is None or entry.candidate_id != expected_id:
+            raise DomainViolation(
+                f"Phase 264 requires active {sym} candidate {expected_id}, "
+                f"got {entry.candidate_id if entry else 'missing'}"
+            )
 
     candidates = validate_manifest_candidate_artifacts(manifest)
     qualification_hashes = {
@@ -1277,13 +1299,16 @@ def run_phase_264_simulation(
 
     # 2. Load canonical baseline market frames
     total_bars_15m = days * 24 * 4
+    total_bars_1h = days * 24
     end_time = start_time + timedelta(days=days)
 
     raw_frames_15m: dict[str, pd.DataFrame] = {}
     raw_frames_1h: dict[str, pd.DataFrame] = {}
 
-    for sym in candidates:
+    for sym, cand in candidates.items():
         p15 = Path(f"research/immutable-data/15m/canonical/{sym}-15m.parquet")
+        if not p15.is_file():
+            raise DataQualityError(f"Missing required 15m canonical dataset for {sym}: {p15}")
         df15 = pd.read_parquet(p15)
         mask15 = (df15["timestamp"] >= start_time) & (df15["timestamp"] < end_time)
         sub15 = df15[mask15].copy().reset_index(drop=True)
@@ -1294,10 +1319,19 @@ def run_phase_264_simulation(
         raw_frames_15m[sym] = canonicalize_bars(sub15, interval=timedelta(minutes=15))
 
         p1h = Path(f"research/immutable-data/1h/canonical/{sym}-1h.parquet")
+        if cand.strategy.universe.timeframe == "1h" and not p1h.is_file():
+            raise DataQualityError(
+                f"Missing required 1h canonical dataset for 1h candidate {sym}: {p1h}"
+            )
         if p1h.is_file():
             df1h = pd.read_parquet(p1h)
             mask1h = (df1h["timestamp"] >= start_time) & (df1h["timestamp"] < end_time)
             sub1h = df1h[mask1h].copy().reset_index(drop=True)
+            if len(sub1h) != total_bars_1h:
+                raise DataQualityError(
+                    f"Incomplete 1h data for {sym}: expected {total_bars_1h} bars, "
+                    f"found {len(sub1h)}"
+                )
             raw_frames_1h[sym] = canonicalize_bars(sub1h, interval=timedelta(hours=1))
 
     # 3. Determine tracks to execute
