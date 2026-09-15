@@ -273,6 +273,8 @@ def _check_existing_checkpoints(
                     plan.base_run_id != config.base_run_id
                     or plan.symbol != config.symbol
                     or plan.cycle_index != config.cycle_index
+                    or plan.bundle_hash != config.bundle_hash
+                    or plan.dataset_registry_hash != config.dataset_registry_hash
                 ):
                     raise DomainViolation("existing research plan checkpoint scope mismatch")
                 existing_plan = plan
@@ -304,6 +306,14 @@ def _check_existing_checkpoints(
         if existing_envelope is None:
             raise DomainViolation(
                 "partial or orphan checkpoint: artifact exists without matching audit envelope "
+                f"for {config.research_run_id}"
+            )
+        if (
+            existing_envelope.policy_id != config.policy.policy_id
+            or existing_envelope.policy_hash != config.policy.policy_hash
+        ):
+            raise DomainViolation(
+                "tampered checkpoint: existing audit envelope policy mismatch "
                 f"for {config.research_run_id}"
             )
         audit = existing_envelope.audits[0] if existing_envelope.audits else None

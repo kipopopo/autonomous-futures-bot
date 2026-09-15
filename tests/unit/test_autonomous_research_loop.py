@@ -31,7 +31,9 @@ from autonomous_futures.pipeline.autonomous_base import (
     AutonomousBaseCycleExecution,
     AutonomousBaseCycleRequest,
     AutonomousResearchBase,
+    build_autonomous_base_result,
     read_autonomous_base_cycle_record,
+    write_autonomous_base_result,
 )
 from autonomous_futures.pipeline.autonomous_cycle import (
     AutonomousCycleResult,
@@ -42,6 +44,8 @@ from autonomous_futures.research.autonomy_contracts import (
     FailureLearningRequest,
     ResearchPlanner,
     ResearchPlanRequest,
+    build_failure_memory_entry,
+    write_failure_memory_entry,
 )
 from autonomous_futures.research.creator_failure_feedback import (
     CreatorQualificationFailureFeedback,
@@ -513,3 +517,121 @@ def test_cli_runner_executes_offline_cycle_end_to_end(
     assert report["cycles_executed"] == 1
     assert len(report["cycle_ids"]) == 1
     assert (tmp_path / "artifacts" / "base-result.json").is_file()
+
+
+def test_autonomous_base_write_readback_mismatch_rejects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify write_autonomous_base_* functions fail-closed on readback mismatch."""
+    import autonomous_futures.pipeline.autonomous_base as ab_mod
+
+    config = AutonomousBaseConfig(
+        base_run_id="base-readback-001",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        artifact_root=tmp_path,
+        max_cycles=1,
+    )
+    result = build_autonomous_base_result(
+        config=config,
+        status="completed",
+        terminal_reason="max_cycles_reached",
+        records=(),
+        failure_memory_entry_hashes=(HASH_A,),
+        completed_at=NOW,
+    )
+    result_path = tmp_path / "base-result.json"
+
+    def corrupted_read_result(path: Path) -> ab_mod.AutonomousBaseResult:
+        real_result = ab_mod.AutonomousBaseResult.model_validate_json(
+            path.read_text(encoding="utf-8")
+        )
+        return real_result.model_copy(update={"terminal_reason": "CORRUPTED_REASON"})
+
+    monkeypatch.setattr(ab_mod, "read_autonomous_base_result", corrupted_read_result)
+    with pytest.raises(DomainViolation, match="autonomous base result path is immutable"):
+        write_autonomous_base_result(result_path, result)
+
+
+def test_uncheckpointed_failure_memory_entry_rejects(tmp_path: Path) -> None:
+    """Verify that an uncheckpointed failure memory entry causes DomainViolation on load."""
+    config = AutonomousBaseConfig(
+        base_run_id="base-uncheckpointed-mem-001",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        artifact_root=tmp_path,
+        max_cycles=1,
+    )
+    seed_fb = _feedback(candidate_id="cand-seed-001", qualification_hash=HASH_C)
+    seed_memory = build_failure_memory_entry(
+        base_run_id=config.base_run_id,
+        source_type="seed_feedback",
+        source_id=f"seed-{seed_fb.qualification_hash[:32]}",
+        sequence=0,
+        feedback=seed_fb,
+        cycle_id=None,
+        cycle_hash=None,
+        recorded_at=NOW,
+    )
+    write_failure_memory_entry(
+        tmp_path / "failure-memory" / f"failure-{seed_memory.memory_hash}.json",
+        seed_memory,
+    )
+
+    # Now write an uncheckpointed rogue failure memory entry belonging to this base_run_id
+    rogue_feedback = _feedback(candidate_id="cand-rogue-001", qualification_hash="e" * 64)
+    rogue_entry = build_failure_memory_entry(
+        base_run_id=config.base_run_id,
+        source_type="cycle_result",
+        source_id="cycle-rogue-001",
+        sequence=1,
+        feedback=rogue_feedback,
+        cycle_id="cycle-rogue-001",
+        cycle_hash="f" * 64,
+        recorded_at=NOW,
+    )
+    write_failure_memory_entry(
+        tmp_path / "failure-memory" / f"failure-{rogue_entry.memory_hash}.json",
+        rogue_entry,
+    )
+
+    base = AutonomousResearchBase(
+        config=config,
+        learner=FailureLearner(_make_learner_transport()),
+        planner=ResearchPlanner(_make_planner_transport()),
+        cycle_runner=lambda _req: None,  # type: ignore[return-value]
+    )
+
+    with pytest.raises(
+        DomainViolation, match="uncheckpointed failure memory entry requires reconciliation"
+    ):
+        base.run(initial_feedback=seed_fb, now=NOW + timedelta(minutes=1))
+
+
+def test_tampered_failure_memory_entry_rejects(tmp_path: Path) -> None:
+    """Verify that a corrupted failure-*.json file in failure-memory causes DomainViolation."""
+    config = AutonomousBaseConfig(
+        base_run_id="base-tampered-mem-001",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        artifact_root=tmp_path,
+        max_cycles=1,
+    )
+    mem_dir = tmp_path / "failure-memory"
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    corrupted_name = f"failure-{'bad' * 21}0.json"
+    (mem_dir / corrupted_name).write_text("INVALID_JSON", encoding="utf-8")
+
+    seed_fb = _feedback(candidate_id="cand-seed-001", qualification_hash=HASH_C)
+    base = AutonomousResearchBase(
+        config=config,
+        learner=FailureLearner(_make_learner_transport()),
+        planner=ResearchPlanner(_make_planner_transport()),
+        cycle_runner=lambda _req: None,  # type: ignore[return-value]
+    )
+
+    with pytest.raises(DomainViolation, match="tampered or corrupted failure memory checkpoint"):
+        base.run(initial_feedback=seed_fb, now=NOW)

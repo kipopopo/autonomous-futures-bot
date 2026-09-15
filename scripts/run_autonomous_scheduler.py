@@ -1497,7 +1497,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """CLI runner entry point for autonomous scheduler daemon."""
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if _check_forbidden_credential_flags(raw_argv):
@@ -1519,7 +1519,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     try:
-        args = parser.parse_args(argv)
+        args = parser.parse_args(raw_argv)
     except SystemExit as exc:
         code = int(exc.code) if exc.code is not None and isinstance(exc.code, int) else 2
         return 2 if code != 0 else 0

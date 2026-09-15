@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from collections.abc import Sequence
 from decimal import Decimal
 from hashlib import sha256
@@ -182,6 +183,48 @@ class PaperFeedbackExtractor:
 
         self.default_policy = policy or PaperQualificationPolicy()
         self.candidates_dir = Path(candidates_dir) if candidates_dir else None
+        self._validate_ledger_database()
+
+    def _validate_ledger_database(self) -> None:
+        """Verify the SQLite ledger database is intact and contains required schema."""
+        try:
+            uri = f"file:{self.ledger_db_path.resolve().as_posix()}?mode=ro"
+            conn = sqlite3.connect(uri, uri=True, timeout=1.0)
+            try:
+                conn.execute("PRAGMA query_only = ON;")
+                cur = conn.execute("PRAGMA quick_check;")
+                row = cur.fetchone()
+                if not row or row[0] != "ok":
+                    raise DataQualityError(
+                        f"Corrupted paper ledger database at: {self.ledger_db_path} "
+                        f"(quick_check failed: {row})"
+                    )
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            raise DataQualityError(
+                f"Corrupted paper ledger database at: {self.ledger_db_path}: {exc}"
+            ) from exc
+
+        if self.lifecycle_db_path.is_file():
+            try:
+                uri = f"file:{self.lifecycle_db_path.resolve().as_posix()}?mode=ro"
+                conn = sqlite3.connect(uri, uri=True, timeout=1.0)
+                try:
+                    conn.execute("PRAGMA query_only = ON;")
+                    cur = conn.execute("PRAGMA quick_check;")
+                    row = cur.fetchone()
+                    if not row or row[0] != "ok":
+                        raise DataQualityError(
+                            f"Corrupted paper lifecycle database at: {self.lifecycle_db_path} "
+                            f"(quick_check failed: {row})"
+                        )
+                finally:
+                    conn.close()
+            except sqlite3.Error as exc:
+                raise DataQualityError(
+                    f"Corrupted paper lifecycle database at: {self.lifecycle_db_path}: {exc}"
+                ) from exc
 
     def get_closed_trades(
         self,
@@ -253,7 +296,9 @@ class PaperFeedbackExtractor:
                 resolved_symbol = resolved_symbol or latest_trade.symbol
 
         if resolved_cand_id is None:
-            raise ValueError("candidate_id could not be resolved from inputs or trade records")
+            raise DataQualityError(
+                "candidate_id could not be resolved from inputs or trade records"
+            )
 
         # Caller overrides
         if bundle_hash is not None:

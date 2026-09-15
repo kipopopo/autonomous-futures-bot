@@ -441,7 +441,11 @@ def format_portfolio_digest(
     """Format a 📊 Periodic Portfolio Digest alert using MarkdownV2 syntax."""
     daemon_status = str(health.get("daemon_status") or health.get("status") or "RUNNING")
     pid = str(health.get("pid", "N/A"))
-    uptime_sec = float(health.get("uptime_seconds", 0.0))
+    uptime_raw = health.get("uptime_seconds")
+    try:
+        uptime_sec = max(0.0, float(uptime_raw)) if uptime_raw is not None else 0.0
+    except ValueError, TypeError:
+        uptime_sec = 0.0
 
     # Format uptime nicely
     hours = int(uptime_sec // 3600)

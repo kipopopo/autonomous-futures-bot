@@ -11,7 +11,7 @@ Enforces strict fail-closed safety isolation:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from pydantic import Field, field_validator
@@ -55,9 +55,9 @@ class SafetyGateResult(DomainModel):
     @field_validator("evaluated_at")
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None or v.utcoffset() != UTC.utcoffset(v):
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
             raise ValueError("evaluated_at must be timezone-aware UTC")
-        return v
+        return v.astimezone(UTC)
 
 
 def evaluate_safety_gate(

@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+from autonomous_futures.data.parquet import DataQualityError
 from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.domain.risk import ResumeEvidence
 from autonomous_futures.paper.circuit_breakers import (
@@ -363,3 +364,98 @@ def test_durable_paper_feedback_extraction_to_research(tmp_path: Path) -> None:
     assert len(feedback.failed_gates) >= 1
     # Profit factor failed
     assert any("profit_factor" in code for code in feedback.failure_reason_codes)
+
+
+def test_extract_paper_feedback_corrupted_database_raises_data_quality_error(
+    tmp_path: Path,
+) -> None:
+    """Verify that a corrupted ledger database file raises DataQualityError."""
+    corrupt_db = tmp_path / "corrupt_ledger.sqlite3"
+    corrupt_db.write_bytes(b"NOT_A_VALID_SQLITE_DATABASE_HEADER_DATA_GARBAGE")
+
+    policy = PaperQualificationPolicy(policy_id="paper-policy-v1")
+    with pytest.raises(DataQualityError, match="Corrupted paper ledger database"):
+        extract_paper_feedback(
+            ledger_path=corrupt_db,
+            symbol="BTCUSDT",
+            candidate_id="cand-001",
+            candidate_artifact_hash=HASH_A,
+            bundle_hash=BUNDLE_HASH,
+            dataset_registry_hash=DATASET_HASH,
+            policy=policy,
+        )
+
+
+def test_extract_paper_feedback_corrupted_lifecycle_database_raises_data_quality_error(
+    tmp_path: Path,
+) -> None:
+    """Verify that a corrupted lifecycle database file raises DataQualityError."""
+    ledger_db = tmp_path / "valid_ledger.sqlite3"
+    conn = sqlite3.connect(ledger_db)
+    conn.execute("CREATE TABLE dummy (id INT);")
+    conn.commit()
+    conn.close()
+
+    corrupt_lifecycle = tmp_path / "paper-lifecycle.sqlite3"
+    corrupt_lifecycle.write_bytes(b"CORRUPTED_LIFECYCLE_BYTES")
+
+    policy = PaperQualificationPolicy(policy_id="paper-policy-v1")
+    with pytest.raises(DataQualityError, match="Corrupted paper lifecycle database"):
+        extract_paper_feedback(
+            ledger_path=ledger_db,
+            lifecycle_path=corrupt_lifecycle,
+            symbol="BTCUSDT",
+            candidate_id="cand-001",
+            candidate_artifact_hash=HASH_A,
+            bundle_hash=BUNDLE_HASH,
+            dataset_registry_hash=DATASET_HASH,
+            policy=policy,
+        )
+
+
+def test_extract_paper_feedback_empty_ledger_zero_trades(tmp_path: Path) -> None:
+    """Verify that an empty ledger with zero trades fails trades_min gate."""
+    empty_db = tmp_path / "empty_ledger.sqlite3"
+    conn = sqlite3.connect(empty_db)
+    conn.commit()
+    conn.close()
+
+    policy = PaperQualificationPolicy(
+        policy_id="paper-policy-v1",
+        paper_trades_min=5,
+    )
+    feedback = extract_paper_feedback(
+        ledger_path=empty_db,
+        symbol="BTCUSDT",
+        candidate_id="cand-001",
+        candidate_artifact_hash=HASH_A,
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=DATASET_HASH,
+        policy=policy,
+    )
+    assert feedback is not None
+    assert "paper_trades_below_threshold" in feedback.failure_reason_codes
+
+
+def test_extract_paper_feedback_unresolvable_candidate_id_raises_data_quality_error(
+    tmp_path: Path,
+) -> None:
+    """Verify that omitting candidate_id when ledger has no trades raises DataQualityError."""
+    empty_db = tmp_path / "empty_ledger.sqlite3"
+    conn = sqlite3.connect(empty_db)
+    conn.commit()
+    conn.close()
+
+    policy = PaperQualificationPolicy(policy_id="paper-policy-v1")
+    with pytest.raises(
+        DataQualityError, match="candidate_id could not be resolved from inputs or trade records"
+    ):
+        extract_paper_feedback(
+            ledger_path=empty_db,
+            symbol="BTCUSDT",
+            candidate_id=None,
+            candidate_artifact_hash=HASH_A,
+            bundle_hash=BUNDLE_HASH,
+            dataset_registry_hash=DATASET_HASH,
+            policy=policy,
+        )

@@ -990,3 +990,172 @@ def test_cli_runner_rejects_extended_forbidden_flags(
         assert exit_code == 2
         captured = capsys.readouterr()
         assert "forbidden_cli_argument" in captured.err
+
+
+def test_research_plan_dataset_scope_mismatch_rejects(tmp_path: Path) -> None:
+    """Verify that an existing plan checkpoint with mismatched bundle/dataset hash is rejected."""
+    learner_config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-learner-prep-scope-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+    )
+    learner_result = execute_provider_orchestration(
+        config=learner_config,
+        failure_memory=(_memory(),),
+        transport=lambda _r: {
+            "failure_patterns": ["oos_profit_factor_below_threshold"],
+            "learned_constraints": ["preserve_all_qualification_gates"],
+            "recommended_novelty_dimensions": ["entry_logic"],
+        },
+        now=NOW,
+    )
+    assert learner_result.learning_artifact is not None
+
+    def mock_transport(_r: object) -> Mapping[str, object]:
+        return {
+            "hypothesis": "Apply volume confirmation and volatility breakout on trend regime.",
+            "expected_regime": "volatile_trend",
+            "strategy_family": "volume_confirmed_momentum",
+            "novelty_dimensions": ["entry_logic"],
+            "falsification_criteria": ["reject when OOS profit factor drops below 1.05"],
+        }
+
+    config1 = ProviderOrchestrationConfig(
+        research_run_id="run-orch-plan-scope-001",
+        base_run_id="base-orch-001",
+        role="hypothesis_generator",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+        cycle_id="cycle-btcusdt-001",
+    )
+    result = execute_provider_orchestration(
+        config=config1,
+        failure_memory=(_memory(),),
+        learning_artifact=learner_result.learning_artifact,
+        transport=mock_transport,
+        now=NOW,
+    )
+    assert result.status == "succeeded"
+
+    # Now execute again with different bundle_hash
+    fb_c = CreatorQualificationFailureFeedback(
+        candidate_id="cand-orch-seed-001",
+        candidate_artifact_hash=HASH_A,
+        bundle_hash=HASH_C,
+        dataset_registry_hash=HASH_B,
+        qualification_hash=HASH_C,
+        qualification_policy_id="policy-orch-001",
+        failed_gates=(
+            QualificationGateResult(
+                gate_id="oos_profit_factor_min",
+                passed=False,
+                observed=Decimal("0.75"),
+                threshold=Decimal("1.05"),
+                comparator="gte",
+                reason_code="oos_profit_factor_below_threshold",
+            ),
+        ),
+        failure_reason_codes=("oos_profit_factor_below_threshold",),
+    )
+    mem_c = build_failure_memory_entry(
+        base_run_id="base-orch-001",
+        source_type="seed_feedback",
+        source_id="seed-feedback-orch-001",
+        sequence=0,
+        feedback=fb_c,
+        cycle_id=None,
+        cycle_hash=None,
+        recorded_at=NOW,
+    )
+
+    config_mismatch = ProviderOrchestrationConfig(
+        research_run_id="run-orch-plan-scope-001",
+        base_run_id="base-orch-001",
+        role="hypothesis_generator",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_C,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+        cycle_id="cycle-btcusdt-001",
+    )
+    with pytest.raises(DomainViolation, match="existing research plan checkpoint scope mismatch"):
+        execute_provider_orchestration(
+            config=config_mismatch,
+            failure_memory=(mem_c,),
+            learning_artifact=learner_result.learning_artifact,
+            transport=mock_transport,
+            now=NOW,
+        )
+
+
+def test_existing_audit_envelope_policy_mismatch_rejects(tmp_path: Path) -> None:
+    """Verify that an existing checkpoint with a different policy envelope is rejected."""
+
+    def mock_transport(_r: object) -> Mapping[str, object]:
+        return {
+            "failure_patterns": ["oos_profit_factor_below_threshold"],
+            "learned_constraints": ["preserve_all_qualification_gates"],
+            "recommended_novelty_dimensions": ["entry_logic"],
+        }
+
+    policy_orig = _policy()
+    config1 = ProviderOrchestrationConfig(
+        research_run_id="run-orch-policy-mismatch-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=policy_orig,
+        request_budget=1,
+        execute=True,
+    )
+    result = execute_provider_orchestration(
+        config=config1,
+        failure_memory=(_memory(),),
+        transport=mock_transport,
+        now=NOW,
+    )
+    assert result.status == "succeeded"
+
+    # Now execute again with a different policy (policy_id changed)
+    policy_drifted = build_research_model_policy(
+        policy_id="policy-orch-drifted-002",
+        policy_version=1,
+        roles=policy_orig.roles,
+    )
+    config_drifted = ProviderOrchestrationConfig(
+        research_run_id="run-orch-policy-mismatch-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=policy_drifted,
+        request_budget=1,
+        execute=True,
+    )
+    with pytest.raises(DomainViolation, match="existing audit envelope policy mismatch"):
+        execute_provider_orchestration(
+            config=config_drifted,
+            failure_memory=(_memory(),),
+            transport=mock_transport,
+            now=NOW,
+        )

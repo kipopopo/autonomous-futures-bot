@@ -25,6 +25,7 @@ if str(_REPO_ROOT) not in sys.path:
 from autonomous_futures.notify.telegram import (  # noqa: E402
     TelegramConfig,
     _myt_text,
+    format_portfolio_digest,
     format_risk_alert,
     sanitize_telegram_string,
 )
@@ -211,3 +212,29 @@ def test_budget_call_limits_prevent_unbounded_spending() -> None:
 
     # 4th call is blocked
     assert execute_bounded_call(calls_executed) is False
+
+
+def test_telegram_portfolio_digest_none_uptime() -> None:
+    """Verify format_portfolio_digest handles None or non-numeric uptime_seconds gracefully."""
+    metrics = {
+        "status": "HEALTHY",
+        "equity": "105.50",
+        "cash": "100.00",
+        "unrealized_pnl": "5.50",
+        "realized_pnl": "0.00",
+        "open_positions": 1,
+        "closed_trades": 3,
+        "uptime_seconds": None,
+    }
+    digest = format_portfolio_digest(metrics)
+    assert "PORTFOLIO DIGEST" in digest
+    assert "105\\.50" in digest
+    assert "0h 0m" in digest
+
+
+def test_scheduler_main_handles_argv() -> None:
+    """Verify scheduler main() correctly parses explicitly passed argv."""
+    from scripts.run_autonomous_scheduler import main as scheduler_main
+
+    ret = scheduler_main(["--interval-seconds", "5", "--min-cooldown-seconds", "10"])
+    assert ret == 2

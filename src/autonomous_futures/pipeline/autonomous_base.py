@@ -435,7 +435,10 @@ def write_autonomous_base_cycle_record(
         return existing
     payload = json.dumps(record.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
     _write_once(path, payload)
-    return read_autonomous_base_cycle_record(path)
+    readback = read_autonomous_base_cycle_record(path)
+    if readback != record:
+        raise DomainViolation(f"autonomous base cycle record path is immutable: {path}")
+    return readback
 
 
 def read_autonomous_base_result(path: Path) -> AutonomousBaseResult:
@@ -460,7 +463,10 @@ def write_autonomous_base_result(path: Path, result: AutonomousBaseResult) -> Au
         return existing
     payload = json.dumps(result.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
     _write_once(path, payload)
-    return read_autonomous_base_result(path)
+    readback = read_autonomous_base_result(path)
+    if readback != result:
+        raise DomainViolation(f"autonomous base result path is immutable: {path}")
+    return readback
 
 
 def _derived_id(prefix: str, base_run_id: str, sequence: int) -> str:
@@ -552,6 +558,23 @@ class AutonomousResearchBase:
             plan = read_research_plan(path)
             if plan.plan_hash not in referenced_plans:
                 raise DomainViolation("uncheckpointed research plan requires reconciliation")
+        referenced_memories = {seed_memory.memory_hash}
+        for record in records:
+            referenced_memories.update(record.failure_memory_hashes)
+        for path in (self.config.artifact_root / "failure-memory").glob("failure-*.json"):
+            try:
+                entry = read_failure_memory_entry(path)
+            except Exception as exc:
+                raise DomainViolation(
+                    f"tampered or corrupted failure memory checkpoint: {path}"
+                ) from exc
+            if path.name != f"failure-{entry.memory_hash}.json":
+                raise DomainViolation(f"tampered failure memory filename mismatch: {path.name}")
+            if entry.base_run_id == self.config.base_run_id:
+                if entry.memory_hash not in referenced_memories:
+                    raise DomainViolation(
+                        "uncheckpointed failure memory entry requires reconciliation"
+                    )
         if not records:
             return [], [seed_memory], initial_feedback, {initial_feedback.candidate_id}, [], []
         memory_by_hash: dict[str, FailureMemoryEntry] = {seed_memory.memory_hash: seed_memory}
@@ -613,15 +636,17 @@ class AutonomousResearchBase:
             for path in sorted(failure_memory_root.glob("failure-*.json")):
                 try:
                     candidate_entry = read_failure_memory_entry(path)
-                    if (
-                        candidate_entry.base_run_id == self.config.base_run_id
-                        and candidate_entry.sequence == 0
-                        and candidate_entry.source_type == "seed_feedback"
-                    ):
-                        existing_seed = candidate_entry
-                        break
-                except Exception:
-                    pass
+                except Exception as exc:
+                    raise DomainViolation(
+                        f"tampered or corrupted failure memory checkpoint: {path}"
+                    ) from exc
+                if (
+                    candidate_entry.base_run_id == self.config.base_run_id
+                    and candidate_entry.sequence == 0
+                    and candidate_entry.source_type == "seed_feedback"
+                ):
+                    existing_seed = candidate_entry
+                    break
 
         if existing_seed is not None:
             if (
