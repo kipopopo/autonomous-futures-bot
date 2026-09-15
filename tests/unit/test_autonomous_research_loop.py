@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 
+from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.pipeline.autonomous_base import (
     AutonomousBaseConfig,
     AutonomousBaseCycleExecution,
@@ -457,3 +458,57 @@ def test_cli_runner_rejects_forbidden_credential_flags(capsys: pytest.CaptureFix
     assert exit_code == 3
     captured = capsys.readouterr()
     assert "CRITICAL: Credentials must NOT be supplied via CLI flags" in captured.err
+
+
+def test_restart_with_conflicting_seed_feedback_rejects(tmp_path: Path) -> None:
+    """Verify restarting a base run with conflicting seed feedback raises DomainViolation."""
+    config = AutonomousBaseConfig(
+        base_run_id="base-conflict-seed-001",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        artifact_root=tmp_path,
+        max_cycles=1,
+    )
+    seed_fb1 = _feedback(candidate_id="cand-seed-001", qualification_hash=HASH_C)
+    seed_fb2 = _feedback(candidate_id="cand-seed-diff", qualification_hash="f" * 64)
+
+    base = AutonomousResearchBase(
+        config=config,
+        learner=FailureLearner(_make_learner_transport()),
+        planner=ResearchPlanner(_make_planner_transport()),
+        cycle_runner=lambda _req: None,  # type: ignore[return-value]
+    )
+
+    # First run creates seed failure memory with seed_fb1
+    try:
+        base.run(initial_feedback=seed_fb1, now=NOW)
+    except Exception:
+        pass
+
+    # Second run with different seed feedback must reject
+    with pytest.raises(DomainViolation, match="persisted seed failure memory does not match"):
+        base.run(initial_feedback=seed_fb2, now=NOW + timedelta(minutes=1))
+
+
+def test_cli_runner_executes_offline_cycle_end_to_end(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify CLI main executes offline bounded cycles and outputs structured report."""
+    exit_code = cli_main(
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--max-cycles",
+            "1",
+            "--artifact-root",
+            str(tmp_path / "artifacts"),
+        ]
+    )
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["symbol"] == "BTCUSDT"
+    assert report["cycles_executed"] == 1
+    assert len(report["cycle_ids"]) == 1
+    assert (tmp_path / "artifacts" / "base-result.json").is_file()

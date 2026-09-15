@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -30,8 +31,17 @@ from autonomous_futures.domain.contracts import (
     StrategySpec,
     StrategyUniverse,
 )
+from autonomous_futures.paper.candidate_registry import (
+    publish_candidate_admission,
+    read_candidate_registry,
+    verify_candidate_manifest_entry,
+    verify_candidate_registry_manifest,
+)
 from autonomous_futures.research.causal_evaluation import materialize_causal_context
-from autonomous_futures.research.creator_artifacts import build_creator_candidate_artifact
+from autonomous_futures.research.creator_artifacts import (
+    build_creator_candidate_artifact,
+    write_creator_candidate_artifact,
+)
 from autonomous_futures.research.creator_failure_feedback import (
     build_creator_qualification_failure_feedback,
 )
@@ -383,3 +393,81 @@ def test_real_rejection_path_with_failure_feedback() -> None:
     assert feedback is not None
     assert feedback.candidate_id == "cand-rejected-fixture-001"
     assert "oos_profit_factor_below_threshold" in feedback.failure_reason_codes
+
+
+def test_qualified_candidate_admission_to_registry(tmp_path: Path) -> None:
+    """[ADMISSION ENGINE] Qualified candidate artifact is published to candidate registry."""
+    candidate = _make_candidate("cand-admit-001")
+    cand_path = tmp_path / "candidates" / f"{candidate.candidate_id}.json"
+    cand_path.parent.mkdir(parents=True, exist_ok=True)
+    write_creator_candidate_artifact(cand_path, candidate)
+
+    policy = _make_policy(min_profit_factor="1.2", max_drawdown="0.10")
+    passed_gate = QualificationGateResult(
+        gate_id="oos_profit_factor_min",
+        passed=True,
+        observed=Decimal("1.50"),
+        threshold=policy.minimum_profit_factor,
+        comparator="gte",
+        reason_code="oos_profit_factor_passed",
+    )
+    artifact = build_creator_candidate_qualification_artifact(
+        candidate=candidate,
+        evaluator_run_id="eval-admit-001",
+        evaluator_version="1.0",
+        decision="qualified",
+        metrics=(QualificationMetric(metric_id="oos_profit_factor", value=Decimal("1.50")),),
+        gates=(passed_gate,),
+        windows_evaluated=1,
+        evaluated_at=START,
+        qualification_policy_id=policy.policy_id,
+    )
+    assert artifact.decision == "qualified"
+
+    manifest_path = tmp_path / "candidate_registry.json"
+    manifest = publish_candidate_admission(
+        manifest_path=manifest_path,
+        symbol=candidate.strategy.universe.symbols[0],
+        candidate_id=candidate.candidate_id,
+        candidate_artifact_hash=candidate.artifact_hash,
+        artifact_path=cand_path,
+        qualification_hash=artifact.qualification_hash,
+        admitted_at=START,
+    )
+
+    assert verify_candidate_registry_manifest(manifest) is True
+    disk_manifest = read_candidate_registry(manifest_path, verify_hash=True)
+    assert disk_manifest.registry_hash == manifest.registry_hash
+    entry = disk_manifest.symbols[candidate.strategy.universe.symbols[0]]
+    assert verify_candidate_manifest_entry(entry) is True
+    assert entry.candidate_id == "cand-admit-001"
+    assert entry.qualification_hash == artifact.qualification_hash
+
+
+def test_rejected_candidate_admission_prevention() -> None:
+    """[ADMISSION GATE] Unqualified candidate is blocked from qualified admission state."""
+    candidate = _make_candidate("cand-unqualified-001")
+    policy = _make_policy(min_profit_factor="1.5", max_drawdown="0.05")
+    failed_gate = QualificationGateResult(
+        gate_id="oos_profit_factor_min",
+        passed=False,
+        observed=Decimal("0.90"),
+        threshold=policy.minimum_profit_factor,
+        comparator="gte",
+        reason_code="oos_profit_factor_below_threshold",
+    )
+    rejected_artifact = build_creator_candidate_qualification_artifact(
+        candidate=candidate,
+        evaluator_run_id="eval-unqual-001",
+        evaluator_version="1.0",
+        decision="rejected",
+        metrics=(QualificationMetric(metric_id="oos_profit_factor", value=Decimal("0.90")),),
+        gates=(failed_gate,),
+        windows_evaluated=1,
+        evaluated_at=START,
+        qualification_policy_id=policy.policy_id,
+    )
+    assert rejected_artifact.decision == "rejected"
+    # An artifact with decision="rejected" cannot be admitted or promoted
+    assert rejected_artifact.promotion_state == "unpromoted"
+    assert rejected_artifact.execution_authority is False

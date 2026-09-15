@@ -193,8 +193,22 @@ def test_paper_halted_boundary_cannot_be_cleared_by_restart() -> None:
     # Simulated daemon restart: reading persistent account state still yields HALTED
     assert account.current_state == "HALTED"
 
-    # Unauthorized resume attempt without authorization is impossible
-    assert account.current_state != "NORMAL"
+    # Order entry is strictly inhibited in HALTED state
+    assert (
+        account.allocate_order(
+            symbol="BTCUSDT",
+            confidence=Decimal("0.8"),
+            mark_price=Decimal("50000"),
+            current_equity=Decimal("100.00"),
+        )
+        is None
+    )
+
+    # Unauthorized resume attempt without authorization is strictly rejected
+    with pytest.raises(DomainViolation, match="automatic resume is forbidden"):
+        account.request_resume(None)
+
+    assert account.current_state == "HALTED"
 
 
 def test_paper_resume_requires_valid_authorization_and_fresh_preflight() -> None:

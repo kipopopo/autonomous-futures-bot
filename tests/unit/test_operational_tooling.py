@@ -28,6 +28,10 @@ from autonomous_futures.notify.telegram import (  # noqa: E402
     format_risk_alert,
     sanitize_telegram_string,
 )
+from autonomous_futures.paper.resume_control import _is_fresh_timestamp  # noqa: E402
+from scripts.check_autonomous_pipeline_health import (  # noqa: E402
+    compute_heartbeat_age_seconds,
+)
 from scripts.run_autonomous_scheduler import (  # noqa: E402
     LockAcquisitionError,
     SingleInstanceLock,
@@ -78,18 +82,29 @@ def test_is_pid_alive() -> None:
 
 
 def test_heartbeat_freshness_evaluation() -> None:
-    """Verify stale heartbeat triggers degraded health status."""
+    """Verify stale or future heartbeats trigger degraded health status
+    using repository implementations.
+    """
     now = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
-    max_heartbeat_age = timedelta(seconds=60)
 
     fresh_heartbeat = now - timedelta(seconds=20)
-    stale_heartbeat = now - timedelta(seconds=120)
+    stale_heartbeat = now - timedelta(seconds=180)
+    future_heartbeat = now + timedelta(seconds=30)
 
-    def is_heartbeat_fresh(heartbeat: datetime, current_time: datetime) -> bool:
-        return (current_time - heartbeat) <= max_heartbeat_age
+    # 1. Test compute_heartbeat_age_seconds
+    fresh_age = compute_heartbeat_age_seconds(fresh_heartbeat.isoformat(), now=now)
+    assert fresh_age == pytest.approx(20.0, rel=1e-3)
 
-    assert is_heartbeat_fresh(fresh_heartbeat, now) is True
-    assert is_heartbeat_fresh(stale_heartbeat, now) is False
+    stale_age = compute_heartbeat_age_seconds(stale_heartbeat.isoformat(), now=now)
+    assert stale_age == pytest.approx(180.0, rel=1e-3)
+
+    future_age = compute_heartbeat_age_seconds(future_heartbeat.isoformat(), now=now)
+    assert future_age < 0.0  # negative indicates clock skew / future timestamp
+
+    # 2. Test _is_fresh_timestamp from resume_control
+    assert _is_fresh_timestamp(fresh_heartbeat.isoformat(), observed_at=now, label="test") is True
+    assert _is_fresh_timestamp(stale_heartbeat.isoformat(), observed_at=now, label="test") is False
+    assert _is_fresh_timestamp(future_heartbeat.isoformat(), observed_at=now, label="test") is False
 
 
 # ---------------------------------------------------------------------------

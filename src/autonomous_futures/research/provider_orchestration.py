@@ -193,12 +193,17 @@ def _build_audit(
     )
 
 
+def _artifact_output_hash(artifact: FailureLearningArtifact | ResearchPlan) -> str:
+    canonical = json.dumps(artifact.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return sha256(canonical.encode()).hexdigest()
+
+
 def _check_existing_checkpoints(
     config: ProviderOrchestrationConfig,
 ) -> tuple[FailureLearningArtifact | None, ResearchPlan | None, ResearchRunAuditEnvelope | None]:
     """Inspect existing artifacts and audits prior to any network call.
 
-    Raises DomainViolation if existing checkpoints are tampered, corrupted, or invalid.
+    Raises DomainViolation if existing checkpoints are tampered, corrupted, orphan, or replayed.
     Returns existing valid checkpoints if already present.
     """
     existing_learning: FailureLearningArtifact | None = None
@@ -215,12 +220,23 @@ def _check_existing_checkpoints(
                     raise DomainViolation(
                         f"tampered or corrupted failure learning checkpoint: {path}"
                     ) from exc
-                if (
-                    artifact.research_run_id == config.research_run_id
-                    and artifact.base_run_id == config.base_run_id
-                    and artifact.symbol == config.symbol
-                    and artifact.cycle_index == config.cycle_index
-                ):
+                if path.name != f"{artifact.learning_id}.json":
+                    raise DomainViolation(
+                        f"tampered checkpoint filename mismatch: "
+                        f"{path.name} != {artifact.learning_id}.json"
+                    )
+                if artifact.research_run_id == config.research_run_id:
+                    if existing_learning is not None:
+                        raise DomainViolation(
+                            "duplicate failure learning checkpoint for research run: "
+                            f"{config.research_run_id}"
+                        )
+                    if (
+                        artifact.base_run_id != config.base_run_id
+                        or artifact.symbol != config.symbol
+                        or artifact.cycle_index != config.cycle_index
+                    ):
+                        raise DomainViolation("existing failure learning checkpoint scope mismatch")
                     existing_learning = artifact
 
     elif config.role == "hypothesis_generator":
@@ -233,12 +249,22 @@ def _check_existing_checkpoints(
                     raise DomainViolation(
                         f"tampered or corrupted research plan checkpoint: {path}"
                     ) from exc
-                if (
-                    plan.research_run_id == config.research_run_id
-                    and plan.base_run_id == config.base_run_id
-                    and plan.symbol == config.symbol
-                    and plan.cycle_index == config.cycle_index
-                ):
+                if path.name != f"{plan.plan_id}.json":
+                    raise DomainViolation(
+                        f"tampered checkpoint filename mismatch: {path.name} != {plan.plan_id}.json"
+                    )
+                if plan.research_run_id == config.research_run_id:
+                    if existing_plan is not None:
+                        raise DomainViolation(
+                            "duplicate research plan checkpoint for research run: "
+                            f"{config.research_run_id}"
+                        )
+                    if (
+                        plan.base_run_id != config.base_run_id
+                        or plan.symbol != config.symbol
+                        or plan.cycle_index != config.cycle_index
+                    ):
+                        raise DomainViolation("existing research plan checkpoint scope mismatch")
                     existing_plan = plan
 
     audits_dir = config.evidence_root / "audits"
@@ -250,8 +276,54 @@ def _check_existing_checkpoints(
                 raise DomainViolation(
                     f"tampered or corrupted audit envelope checkpoint: {path}"
                 ) from exc
+            if path.name != f"envelope-{envelope.envelope_hash}.json":
+                raise DomainViolation(f"tampered audit envelope filename mismatch: {path.name}")
             if envelope.research_run_id == config.research_run_id:
+                if existing_envelope is not None:
+                    raise DomainViolation(
+                        f"duplicate audit envelope for research run: {config.research_run_id}"
+                    )
                 existing_envelope = envelope
+
+    # Cross-checkpoint validation: reject partial, orphan, tampered, or replayed checkpoints
+    target_artifact: FailureLearningArtifact | ResearchPlan | None = (
+        existing_learning if config.role == "failure_analyst" else existing_plan
+    )
+
+    if target_artifact is not None:
+        if existing_envelope is None:
+            raise DomainViolation(
+                "partial or orphan checkpoint: artifact exists without matching audit envelope "
+                f"for {config.research_run_id}"
+            )
+        audit = existing_envelope.audits[0] if existing_envelope.audits else None
+        if audit is None or audit.role != config.role:
+            raise DomainViolation(
+                f"tampered checkpoint: audit envelope role mismatch for {config.research_run_id}"
+            )
+        if audit.outcome != "succeeded":
+            raise DomainViolation(
+                f"tampered checkpoint: audit outcome is {audit.outcome} but artifact is present"
+            )
+        expected_output_hash = _artifact_output_hash(target_artifact)
+        if audit.output_hash != expected_output_hash:
+            raise DomainViolation(
+                "tampered checkpoint: audit output hash does not match artifact "
+                f"for {config.research_run_id}"
+            )
+
+    elif existing_envelope is not None:
+        audit = existing_envelope.audits[0] if existing_envelope.audits else None
+        if audit is not None and audit.outcome == "succeeded":
+            raise DomainViolation(
+                "partial or orphan checkpoint: audit envelope exists with outcome 'succeeded' "
+                f"but artifact is missing for {config.research_run_id}"
+            )
+        outcome_str = audit.outcome if audit else "unknown"
+        raise DomainViolation(
+            f"replayed checkpoint: research_run_id {config.research_run_id} "
+            f"already completed with outcome {outcome_str}"
+        )
 
     return existing_learning, existing_plan, existing_envelope
 
@@ -564,8 +636,15 @@ def execute_provider_orchestration(
             )
             output_hash = sha256(canonical.encode()).hexdigest()
         else:
-            outcome = "schema_rejected"
-            error_code = reason_codes[0] if reason_codes else "schema_rejected"
+            if any("provider_error" in r for r in reason_codes):
+                outcome = "provider_error"
+                error_code = "provider_error"
+            elif any("provider_model_unavailable" in r for r in reason_codes):
+                outcome = "provider_model_unavailable"
+                error_code = "provider_model_unavailable"
+            else:
+                outcome = "schema_rejected"
+                error_code = reason_codes[0] if reason_codes else "schema_rejected"
 
     else:
         # hypothesis_generator
@@ -584,8 +663,15 @@ def execute_provider_orchestration(
             )
             output_hash = sha256(canonical.encode()).hexdigest()
         else:
-            outcome = "schema_rejected"
-            error_code = reason_codes[0] if reason_codes else "schema_rejected"
+            if any("provider_error" in r for r in reason_codes):
+                outcome = "provider_error"
+                error_code = "provider_error"
+            elif any("provider_model_unavailable" in r for r in reason_codes):
+                outcome = "provider_model_unavailable"
+                error_code = "provider_model_unavailable"
+            else:
+                outcome = "schema_rejected"
+                error_code = reason_codes[0] if reason_codes else "schema_rejected"
 
     # 9. Durable Persistence & Readback Verification
     persisted_learning: FailureLearningArtifact | None = None

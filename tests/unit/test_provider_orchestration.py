@@ -13,6 +13,7 @@ import pytest
 
 from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.research.autonomy_contracts import (
+    FailureLearningArtifact,
     FailureMemoryEntry,
     build_failure_memory_entry,
     read_failure_learning_artifact,
@@ -29,13 +30,18 @@ from autonomous_futures.research.provider_orchestration import (
     execute_provider_orchestration,
 )
 from autonomous_futures.research.qualification_artifacts import QualificationGateResult
+from autonomous_futures.research_lab.model_audit import ModelCallAudit
 from autonomous_futures.research_lab.model_policy import (
     LLMRolePolicy,
     ResearchModelPolicy,
     build_research_model_policy,
 )
+from autonomous_futures.research_lab.research_run_audit import (
+    build_research_run_audit_envelope,
+)
 from autonomous_futures.research_lab.research_run_audit_persistence import (
     read_research_run_audit_envelope,
+    write_research_run_audit_envelope,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -321,6 +327,8 @@ def test_provider_failure_persists_sanitized_audit_without_leaking_secret(tmp_pa
     assert result.status == "rejected"
     assert result.decision == "rejected"
     assert result.audit_envelope is not None
+    assert result.audit_envelope.audits[0].outcome == "provider_error"
+    assert result.audit_envelope.audits[0].error_code == "provider_error"
     envelope_str = result.audit_envelope.model_dump_json()
     assert secret_text not in envelope_str
 
@@ -560,3 +568,237 @@ def test_cli_preflight_dry_run_end_to_end(
     result = json.loads(out)
     assert result["status"] == "prepared"
     assert result["decision"] == "prepared"
+
+
+def test_orphan_artifact_without_audit_envelope_rejects(tmp_path: Path) -> None:
+    config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-orphan-art-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+    )
+    # Execute valid run to produce durable artifact and audit
+    first = execute_provider_orchestration(
+        config=config,
+        failure_memory=(_memory(),),
+        transport=lambda _req: {
+            "failure_patterns": ["oos_profit_factor_below_threshold"],
+            "learned_constraints": ["preserve_all_qualification_gates"],
+            "recommended_novelty_dimensions": ["entry_logic"],
+        },
+        now=NOW,
+    )
+    assert first.status == "succeeded"
+
+    # Remove the audit envelope file to create an orphan artifact
+    assert first.audit_envelope is not None
+    envelope_file = (
+        tmp_path / "evidence" / "audits" / f"envelope-{first.audit_envelope.envelope_hash}.json"
+    )
+    envelope_file.unlink()
+
+    # Next call must detect the orphan artifact and reject prior to network call
+    with pytest.raises(DomainViolation, match="partial or orphan checkpoint"):
+        execute_provider_orchestration(
+            config=config,
+            failure_memory=(_memory(),),
+            transport=lambda _req: {},
+            now=NOW,
+        )
+
+
+def test_orphan_audit_envelope_without_artifact_rejects(tmp_path: Path) -> None:
+    config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-orphan-env-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+    )
+    audits_dir = tmp_path / "evidence" / "audits"
+    audits_dir.mkdir(parents=True, exist_ok=True)
+    audit = ModelCallAudit.build(
+        research_run_id=config.research_run_id,
+        call_id="call-orphan-001",
+        role=config.role,
+        policy_id=config.policy.policy_id,
+        policy_hash=config.policy.policy_hash,
+        provider="google_ai_studio",
+        model_id="gemma-4-26b-a4b-it",
+        prompt_template_hash="d" * 64,
+        system_policy_version="autonomous-research-base-v1",
+        input_evidence_refs=(f"failure/{_memory().memory_hash}",),
+        output_schema_id="failure-learning-v1",
+        outcome="succeeded",
+        output_hash="e" * 64,
+        input_tokens=None,
+        output_tokens=None,
+        declared_price_tier="unspecified",
+        rate_limit_delay_ms=0,
+        retry_count=0,
+        error_code=None,
+        observed_at=NOW,
+    )
+    envelope = build_research_run_audit_envelope(
+        research_run_id=config.research_run_id,
+        policy=config.policy,
+        audits=(audit,),
+        prepared_at=NOW,
+    )
+    write_research_run_audit_envelope(
+        audits_dir / f"envelope-{envelope.envelope_hash}.json", envelope
+    )
+
+    with pytest.raises(DomainViolation, match="partial or orphan checkpoint"):
+        execute_provider_orchestration(
+            config=config,
+            failure_memory=(_memory(),),
+            transport=lambda _req: {},
+            now=NOW,
+        )
+
+
+def test_replayed_terminal_checkpoint_rejects(tmp_path: Path) -> None:
+    config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-replay-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+    )
+    audits_dir = tmp_path / "evidence" / "audits"
+    audits_dir.mkdir(parents=True, exist_ok=True)
+    audit = ModelCallAudit.build(
+        research_run_id=config.research_run_id,
+        call_id="call-replay-001",
+        role=config.role,
+        policy_id=config.policy.policy_id,
+        policy_hash=config.policy.policy_hash,
+        provider="google_ai_studio",
+        model_id="gemma-4-26b-a4b-it",
+        prompt_template_hash="d" * 64,
+        system_policy_version="autonomous-research-base-v1",
+        input_evidence_refs=(f"failure/{_memory().memory_hash}",),
+        output_schema_id="failure-learning-v1",
+        outcome="schema_rejected",
+        output_hash=None,
+        input_tokens=None,
+        output_tokens=None,
+        declared_price_tier="unspecified",
+        rate_limit_delay_ms=0,
+        retry_count=0,
+        error_code="schema_rejected",
+        observed_at=NOW,
+    )
+    envelope = build_research_run_audit_envelope(
+        research_run_id=config.research_run_id,
+        policy=config.policy,
+        audits=(audit,),
+        prepared_at=NOW,
+    )
+    write_research_run_audit_envelope(
+        audits_dir / f"envelope-{envelope.envelope_hash}.json", envelope
+    )
+
+    with pytest.raises(DomainViolation, match="replayed checkpoint"):
+        execute_provider_orchestration(
+            config=config,
+            failure_memory=(_memory(),),
+            transport=lambda _req: {},
+            now=NOW,
+        )
+
+
+def test_tampered_checkpoint_filename_mismatch_rejects(tmp_path: Path) -> None:
+    config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-filename-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+    )
+    # Execute valid run to produce durable artifact
+    first = execute_provider_orchestration(
+        config=config,
+        failure_memory=(_memory(),),
+        transport=lambda _req: {
+            "failure_patterns": ["oos_profit_factor_below_threshold"],
+            "learned_constraints": ["preserve_all_qualification_gates"],
+            "recommended_novelty_dimensions": ["entry_logic"],
+        },
+        now=NOW,
+    )
+    assert first.status == "succeeded"
+    assert first.learning_artifact is not None
+
+    # Rename the artifact file to a mismatched filename
+    learning_dir = tmp_path / "evidence" / "learning"
+    real_file = learning_dir / f"{first.learning_artifact.learning_id}.json"
+    mismatched_file = learning_dir / "learn-forgedfilenamemismatch001.json"
+    real_file.rename(mismatched_file)
+
+    with pytest.raises(DomainViolation, match="tampered checkpoint filename mismatch"):
+        execute_provider_orchestration(
+            config=config,
+            failure_memory=(_memory(),),
+            transport=lambda _req: {},
+            now=NOW,
+        )
+
+
+def test_storage_failure_during_artifact_or_audit_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import autonomous_futures.research.provider_orchestration as po_mod
+
+    config = ProviderOrchestrationConfig(
+        research_run_id="run-orch-storage-fail-001",
+        base_run_id="base-orch-001",
+        role="failure_analyst",
+        symbol="BTCUSDT",
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        evidence_root=tmp_path / "evidence",
+        policy=_policy(),
+        request_budget=1,
+        execute=True,
+    )
+
+    def failing_read_artifact(path: Path) -> FailureLearningArtifact:
+        real_artifact = read_failure_learning_artifact(path)
+        return real_artifact.model_copy(update={"symbol": "FORGED"})
+
+    monkeypatch.setattr(po_mod, "read_failure_learning_artifact", failing_read_artifact)
+
+    with pytest.raises(DomainViolation, match="storage failure"):
+        execute_provider_orchestration(
+            config=config,
+            failure_memory=(_memory(),),
+            transport=lambda _req: {
+                "failure_patterns": ["oos_profit_factor_below_threshold"],
+                "learned_constraints": ["preserve_all_qualification_gates"],
+                "recommended_novelty_dimensions": ["entry_logic"],
+            },
+            now=NOW,
+        )

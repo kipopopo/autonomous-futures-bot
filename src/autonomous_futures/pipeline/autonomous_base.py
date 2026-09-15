@@ -624,6 +624,15 @@ class AutonomousResearchBase:
                     pass
 
         if existing_seed is not None:
+            if (
+                existing_seed.candidate_id != initial_feedback.candidate_id
+                or existing_seed.candidate_artifact_hash != initial_feedback.candidate_artifact_hash
+                or existing_seed.qualification_hash != initial_feedback.qualification_hash
+                or existing_seed.qualification_policy_id != initial_feedback.qualification_policy_id
+            ):
+                raise DomainViolation(
+                    "persisted seed failure memory does not match initial feedback"
+                )
             seed_memory = existing_seed
         else:
             seed_memory = build_failure_memory_entry(
