@@ -307,6 +307,7 @@ def simulate_cached_signals(
     *,
     symbol: str,
     config: TradeSimulationConfig,
+    interval: timedelta = timedelta(minutes=5),
 ) -> TradeSimulationResult:
     """Simulate cached signals with open fills and a deterministic final close."""
     if not re.fullmatch(r"[A-Z0-9]+", symbol):
@@ -315,7 +316,7 @@ def simulate_cached_signals(
     missing = sorted(required_columns.difference(frame.columns))
     if missing:
         raise DataQualityError("simulation frame is missing columns: " + ", ".join(missing))
-    canonical = canonicalize_bars(frame, interval=timedelta(minutes=5))
+    canonical = canonicalize_bars(frame, interval=interval)
     rows = canonical.to_dict(orient="records")
     parsed_rows: list[
         tuple[datetime, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]

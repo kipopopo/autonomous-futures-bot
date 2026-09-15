@@ -116,30 +116,60 @@ Deterministic research base execution runs were evaluated over real contiguous 5
 ## 5. Comprehensive Offline Strategy Exploration (R3)
 
 Tool: [`scripts/explore_offline_strategies.py`](file:///C:/Users/thaqi/Projects/Autonomous%20Futures%20Bot/scripts/explore_offline_strategies.py)
+Execution Cost Model: Taker Fee 0.04%, Slippage Rate 0.02% (~0.12% round-trip friction), Unlevered Decimal arithmetic.
+Assets Evaluated: Canonical Parquet for `BTCUSDT`, `ETHUSDT`, `SOLUSDT`.
+
+### 5.1 Baseline 5-Minute Timeframe Exploration
 Evidence File: [`data/research/strategy-exploration/exploration_summary.json`](file:///C:/Users/thaqi/Projects/Autonomous%20Futures%20Bot/data/research/strategy-exploration/exploration_summary.json)
-Dataset Scope: 3 Canonical Parquet Assets (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`), 3 Contiguous Windows of 288 Bars (864 Bars per symbol), Taker Fee 0.04%, Slippage 0.02%.
+Scope: 3 Contiguous Windows of 288 Bars (864 Bars per symbol = 3 days).
 
-### Top Exploration Leaderboard:
+| Candidate ID | Symbol | Strategy Family | Trades | Profit Factor | Max Drawdown % | Net PnL (USDT) | Decision |
+|---|---|---|---|---|---|---|---|
+| `cand-ethusdt-dcb-002` | **ETHUSDT** | `donchian_channel_breakout` (50-bar) | 14 | **0.5895** | **13.39%** | -0.1167 | **rejected** |
+| `cand-solusdt-rgb-001` | **SOLUSDT** | `regime_gated_breakout` (ADX > 25) | 22 | **0.3486** | 20.53% | -0.2568 | **rejected** |
+| `cand-ethusdt-vwap-001` | **ETHUSDT** | `experimental` (VWAP Reclaim) | 42 | **0.3260** | 19.56% | -0.4495 | **rejected** |
+| *(21 other 5m configs)* | BTC/ETH/SOL | Various families | 14–65 | 0.0465–0.3078 | 13.81%–43.11% | -0.2238 to -1.0023 | **rejected** |
 
-| Rank | Candidate ID | Symbol | Strategy Family | Trades | Profit Factor | Max Drawdown % | Net PnL (USDT) | Decision |
-|---|---|---|---|---|---|---|---|---|
-| 1 | `cand-ethusdt-dcb-002` | **ETHUSDT** | `donchian_channel_breakout` (50-bar) | 14 | **0.5895** | **13.39%** (Passed DD) | -0.1167 | **rejected** |
-| 2 | `cand-solusdt-rgb-001` | **SOLUSDT** | `regime_gated_breakout` (ADX > 25) | 22 | **0.3486** | 20.53% | -0.2568 | **rejected** |
-| 3 | `cand-ethusdt-vwap-001` | **ETHUSDT** | `experimental` (VWAP Reclaim) | 42 | **0.3260** | 19.56% | -0.4495 | **rejected** |
-| 4 | `cand-solusdt-dcb-001` | **SOLUSDT** | `donchian_channel_breakout` (20-bar) | 45 | **0.3078** | 43.11% | -0.5721 | **rejected** |
-| 5 | `cand-ethusdt-fbr-001` | **ETHUSDT** | `experimental` (Failed Breakout) | 60 | **0.2808** | 40.10% | -0.8417 | **rejected** |
-| 6 | `cand-solusdt-rmr-001` | **SOLUSDT** | `range_mean_reversion` (Bollinger+RSI) | 36 | **0.2760** | 27.80% | -0.4407 | **rejected** |
-| 7 | `cand-btcusdt-dcb-002` | **BTCUSDT** | `donchian_channel_breakout` (50-bar) | 22 | **0.2643** | 20.00% | -0.3982 | **rejected** |
-| 8 | `cand-ethusdt-vcb-001` | **ETHUSDT** | `volatility_compression_breakout` | 44 | **0.2461** | 32.85% | -0.5590 | **rejected** |
-| 9 | `cand-solusdt-vcm-001` | **SOLUSDT** | `volume_confirmed_momentum` | 40 | **0.2329** | 29.91% | -0.5038 | **rejected** |
-| 10 | `cand-ethusdt-rmr-001` | **ETHUSDT** | `range_mean_reversion` | 30 | **0.2308** | 23.42% | -0.4257 | **rejected** |
-| ... | *(14 additional configs)* | BTC/ETH/SOL | Various parameterizations | 14–65 | 0.0465–0.2277 | 13.81%–41.51% | -0.2238 to -1.0023 | **rejected** |
+*Outcome*: 24 evaluated, 0 qualified, 24 rejected. Root cause: high round-trip fee friction (~0.12%) relative to small 5m candle price range.
 
-**Summary Metrics**:
-- Total Configurations Evaluated: **24**
-- Qualified: **0**
-- Rejected: **24**
-- Root Cause Identified: High round-trip fee/slippage friction ($\approx 0.12\%$) on 5m high-frequency entries in choppy markets produces negative trade expectancy.
+### 5.2 Higher Timeframe: 15-Minute Exploration (Qualified Candidates Discovered)
+Evidence File: [`data/research/strategy-exploration-15m/exploration_summary.json`](file:///C:/Users/thaqi/Projects/Autonomous%20Futures%20Bot/data/research/strategy-exploration-15m/exploration_summary.json)
+Scope: 3 Contiguous Windows of 192 Bars (576 Bars per symbol = 6 days).
+
+| Candidate ID | Symbol | Strategy Family | Trades | Profit Factor | Max Drawdown % | Net PnL (USDT) | Decision |
+|---|---|---|---|---|---|---|---|
+| `cand-ethusdt-dcb-002` | **ETHUSDT** | `donchian_channel_breakout` (50-bar) | 7 | **1.9160** | **0.11%** | **+0.1150** | **qualified** |
+| `cand-btcusdt-dcb-002` | **BTCUSDT** | `donchian_channel_breakout` (50-bar) | 9 | **1.7503** | **0.10%** | **+0.0866** | **qualified** |
+| `cand-solusdt-dcb-002` | **SOLUSDT** | `donchian_channel_breakout` (50-bar) | 11 | **1.2024** | **0.20%** | **+0.0605** | **qualified** |
+| `cand-btcusdt-rgb-001` | **BTCUSDT** | `regime_gated_breakout` (ADX > 25) | 13 | **1.1728** | **0.11%** | **+0.0347** | **qualified** |
+| `cand-ethusdt-rgb-001` | **ETHUSDT** | `regime_gated_breakout` | 14 | 0.8389 | 0.10% | -0.0428 | rejected |
+| *(19 other 15m configs)* | BTC/ETH/SOL | Various families | 12–46 | 0.1503–0.6223 | 0.13%–0.64% | -0.1257 to -0.9079 | rejected |
+
+*Outcome*: 24 evaluated, **4 qualified**, 20 rejected. The 50-bar Donchian trend breakout significantly outpaces transaction costs across all three major assets.
+
+### 5.3 Higher Timeframe: 1-Hour Exploration (Qualified Regime-Gated Candidates)
+Evidence File: [`data/research/strategy-exploration-1h/exploration_summary.json`](file:///C:/Users/thaqi/Projects/Autonomous%20Futures%20Bot/data/research/strategy-exploration-1h/exploration_summary.json)
+Scope: 3 Contiguous Windows of 168 Bars (504 Bars per symbol = 21 days).
+
+| Candidate ID | Symbol | Strategy Family | Trades | Profit Factor | Max Drawdown % | Net PnL (USDT) | Decision |
+|---|---|---|---|---|---|---|---|
+| `cand-solusdt-rgb-001` | **SOLUSDT** | `regime_gated_breakout` (ADX > 25) | 9 | **2.0778** | **0.14%** | **+0.2712** | **qualified** |
+| `cand-btcusdt-rgb-001` | **BTCUSDT** | `regime_gated_breakout` (ADX > 25) | 7 | **1.7661** | **0.10%** | **+0.0937** | **qualified** |
+| `cand-solusdt-dcb-001` | **SOLUSDT** | `donchian_channel_breakout` (20-bar) | 18 | 0.9637 | 0.19% | -0.0216 | rejected |
+| `cand-solusdt-vcb-001` | **SOLUSDT** | `volatility_compression_breakout` | 18 | 0.8863 | 0.19% | -0.0577 | rejected |
+| `cand-solusdt-fbr-001` | **SOLUSDT** | `experimental` (Failed Breakout) | 40 | 0.8763 | 0.41% | -0.1487 | rejected |
+| `cand-btcusdt-dcb-001` | **BTCUSDT** | `donchian_channel_breakout` (20-bar) | 19 | 0.6885 | 0.27% | -0.1733 | rejected |
+| *(18 other 1h configs)* | BTC/ETH/SOL | Various families | 6–49 | 0.1407–0.6483 | 0.16%–0.89% | -0.1561 to -1.7943 | rejected |
+
+*Outcome*: 24 evaluated, **2 qualified**, 22 rejected. ADX trend-strength gating on 1h bars prevents false breakouts and produces high expectancy (PF > 2.0 on SOL, PF > 1.76 on BTC).
+
+### 5.4 Timeframe Economics Summary
+
+| Timeframe | Evaluated | Qualified | Top Strategy | Top Profit Factor | Top Net PnL | Economic Driver |
+|---|---|---|---|---|---|---|
+| **5m** | 24 | 0 | `cand-ethusdt-dcb-002` | 0.5895 | -0.1167 | Fee drag dominates (~0.12% round-trip) |
+| **15m** | 24 | **4** | `cand-ethusdt-dcb-002` | **1.9160** | **+0.1150** | Slower trend rides overcome transaction costs |
+| **1h** | 24 | **2** | `cand-solusdt-rgb-001` | **2.0778** | **+0.2712** | ADX filter + large swing sizes maximize edge |
 
 ---
 

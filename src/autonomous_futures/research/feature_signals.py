@@ -188,6 +188,16 @@ def _compare(values: pd.Series, operator: str, threshold: float) -> pd.Series:
     return result.fillna(False).astype(bool)
 
 
+def _timeframe_to_timedelta(timeframe: str) -> timedelta:
+    if timeframe == "5m":
+        return timedelta(minutes=5)
+    if timeframe == "15m":
+        return timedelta(minutes=15)
+    if timeframe == "1h":
+        return timedelta(hours=1)
+    return timedelta(minutes=5)
+
+
 def materialize_causal_features(
     candidate: CreatorCandidateArtifact, frame: pd.DataFrame
 ) -> pd.DataFrame:
@@ -195,7 +205,8 @@ def materialize_causal_features(
     missing = sorted(set(_REQUIRED_OHLC).difference(frame.columns))
     if missing:
         raise DataQualityError("feature evaluator is missing OHLC columns: " + ", ".join(missing))
-    canonical = canonicalize_bars(frame, interval=timedelta(minutes=5))
+    interval = _timeframe_to_timedelta(candidate.strategy.universe.timeframe)
+    canonical = canonicalize_bars(frame, interval=interval)
     close = _finite_positive_series(canonical, "close")
     high = _finite_positive_series(canonical, "high")
     low = _finite_positive_series(canonical, "low")

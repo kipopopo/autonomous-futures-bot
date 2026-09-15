@@ -26,8 +26,8 @@ class LearnerArtifact(DomainModel):
     bundle_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     dataset_registry_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     symbols: tuple[str, ...] = Field(min_length=1)
-    primary_interval: Literal["5m"] = "5m"
-    context_interval: Literal["15m"] = "15m"
+    primary_interval: Literal["5m", "15m", "1h"] = "5m"
+    context_interval: Literal["15m", "1h", "4h"] = "15m"
     learner_run_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
     learner_version: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
     model_family: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")

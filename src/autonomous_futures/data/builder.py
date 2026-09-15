@@ -21,8 +21,12 @@ from .parquet import (
     write_canonical_parquet,
 )
 
-KlineInterval = Literal["5m", "15m"]
-INTERVAL_MS: dict[KlineInterval, int] = {"5m": 300_000, "15m": 900_000}
+KlineInterval = Literal["5m", "15m", "1h"]
+INTERVAL_MS: dict[KlineInterval, int] = {
+    "5m": 300_000,
+    "15m": 900_000,
+    "1h": 3_600_000,
+}
 RAW_KLINE_COLUMNS = (
     "open_time",
     "open",

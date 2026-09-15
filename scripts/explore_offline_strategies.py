@@ -95,10 +95,31 @@ def _check_forbidden_credential_flags(argv: Sequence[str]) -> bool:
     return False
 
 
+def _timeframe_to_timedelta(timeframe: str) -> timedelta:
+    if timeframe == "5m":
+        return timedelta(minutes=5)
+    if timeframe == "15m":
+        return timedelta(minutes=15)
+    if timeframe == "1h":
+        return timedelta(hours=1)
+    raise DataQualityError(f"unsupported timeframe: {timeframe}")
+
+
+def _default_context_timeframe(timeframe: str) -> str:
+    if timeframe == "5m":
+        return "15m"
+    if timeframe == "15m":
+        return "1h"
+    if timeframe == "1h":
+        return "4h"
+    return "15m"
+
+
 def load_and_slice_windows(
     parquet_path: Path,
     *,
     symbol: str,
+    timeframe: str = "5m",
     bundle_hash: str = DEFAULT_BUNDLE_HASH,
     dataset_registry_hash: str = DEFAULT_REGISTRY_HASH,
     windows_count: int = 3,
@@ -108,7 +129,8 @@ def load_and_slice_windows(
     if not parquet_path.is_file():
         raise FileNotFoundError(f"Canonical Parquet file not found: {parquet_path}")
 
-    df = read_canonical_parquet(parquet_path, interval=timedelta(minutes=5))
+    delta = _timeframe_to_timedelta(timeframe)
+    df = read_canonical_parquet(parquet_path, interval=delta)
     total_bars = windows_count * bars_per_window
     if len(df) < total_bars:
         raise DataQualityError(
@@ -123,7 +145,7 @@ def load_and_slice_windows(
         end_idx = (i + 1) * bars_per_window
         sub = selected.iloc[start_idx:end_idx].copy().reset_index(drop=True)
         time_start = sub["timestamp"].iloc[0].to_pydatetime()
-        time_end = sub["timestamp"].iloc[-1].to_pydatetime() + timedelta(minutes=5)
+        time_end = sub["timestamp"].iloc[-1].to_pydatetime() + delta
         spec = CachedEvaluationWindowSpec(
             window_id=f"window-{symbol.lower()}-{i + 1:03d}",
             symbol=symbol,
@@ -131,6 +153,7 @@ def load_and_slice_windows(
             dataset_registry_hash=dataset_registry_hash,
             time_start=time_start,
             time_end=time_end,
+            timeframe=timeframe,  # type: ignore[arg-type]
         )
         windows.append(CachedEvaluationWindow(spec=spec, frame=sub))
     return tuple(windows)
@@ -139,6 +162,7 @@ def load_and_slice_windows(
 def generate_candidate_catalog(
     symbol: str,
     *,
+    timeframe: str = "5m",
     bundle_hash: str = DEFAULT_BUNDLE_HASH,
     dataset_registry_hash: str = DEFAULT_REGISTRY_HASH,
     created_at: datetime | None = None,
@@ -146,15 +170,19 @@ def generate_candidate_catalog(
     """Generate a diverse catalog of causal candidate strategies across multiple families."""
     now = created_at or datetime.now(UTC)
     catalog: list[CreatorCandidateArtifact] = []
+    context_tf = _default_context_timeframe(timeframe)
+    universe = StrategyUniverse(
+        symbols=(symbol,),
+        timeframe=timeframe,  # type: ignore[arg-type]
+        regime_context_timeframe=context_tf,  # type: ignore[arg-type]
+    )
 
     # 1. Range Mean Reversion (Bollinger Z-Score + RSI)
     spec_rmr_1 = StrategySpec(
         dsl_version=2,
         strategy_id=f"cand-{symbol.lower()}-rmr-001",
         family="range_mean_reversion",
-        universe=StrategyUniverse(
-            symbols=(symbol,), timeframe="5m", regime_context_timeframe="15m"
-        ),
+        universe=universe,
         features=(
             FeatureRef(name="bollinger_zscore", lookback=20, shift=1),
             FeatureRef(name="rsi", lookback=14, shift=1),
@@ -192,9 +220,7 @@ def generate_candidate_catalog(
         dsl_version=2,
         strategy_id=f"cand-{symbol.lower()}-dcb-001",
         family="donchian_channel_breakout",
-        universe=StrategyUniverse(
-            symbols=(symbol,), timeframe="5m", regime_context_timeframe="15m"
-        ),
+        universe=universe,
         features=(FeatureRef(name="donchian_breakout", lookback=20, shift=1),),
         entry=EntryExit(
             long="donchian_breakout > 0.0",
@@ -229,9 +255,7 @@ def generate_candidate_catalog(
         dsl_version=2,
         strategy_id=f"cand-{symbol.lower()}-dcb-002",
         family="donchian_channel_breakout",
-        universe=StrategyUniverse(
-            symbols=(symbol,), timeframe="5m", regime_context_timeframe="15m"
-        ),
+        universe=universe,
         features=(FeatureRef(name="donchian_breakout", lookback=50, shift=1),),
         entry=EntryExit(
             long="donchian_breakout > 0.0",
@@ -266,9 +290,7 @@ def generate_candidate_catalog(
         dsl_version=2,
         strategy_id=f"cand-{symbol.lower()}-vcb-001",
         family="volatility_compression_breakout",
-        universe=StrategyUniverse(
-            symbols=(symbol,), timeframe="5m", regime_context_timeframe="15m"
-        ),
+        universe=universe,
         features=(
             FeatureRef(name="donchian_breakout", lookback=20, shift=1),
             FeatureRef(name="bollinger_width", lookback=20, shift=1),
@@ -306,9 +328,7 @@ def generate_candidate_catalog(
         dsl_version=2,
         strategy_id=f"cand-{symbol.lower()}-vcm-001",
         family="volume_confirmed_momentum",
-        universe=StrategyUniverse(
-            symbols=(symbol,), timeframe="5m", regime_context_timeframe="15m"
-        ),
+        universe=universe,
         features=(
             FeatureRef(name="returns", lookback=3, shift=1),
             FeatureRef(name="relative_volume", lookback=20, shift=1),
@@ -346,9 +366,7 @@ def generate_candidate_catalog(
         dsl_version=2,
         strategy_id=f"cand-{symbol.lower()}-rgb-001",
         family="regime_gated_breakout",
-        universe=StrategyUniverse(
-            symbols=(symbol,), timeframe="5m", regime_context_timeframe="15m"
-        ),
+        universe=universe,
         features=(
             FeatureRef(name="donchian_breakout", lookback=20, shift=1),
             FeatureRef(name="adx", lookback=14, shift=1),
@@ -386,9 +404,7 @@ def generate_candidate_catalog(
         dsl_version=2,
         strategy_id=f"cand-{symbol.lower()}-vwap-001",
         family="experimental",
-        universe=StrategyUniverse(
-            symbols=(symbol,), timeframe="5m", regime_context_timeframe="15m"
-        ),
+        universe=universe,
         features=(
             FeatureRef(name="vwap_reclaim", lookback=24, shift=1),
             FeatureRef(name="relative_volume", lookback=20, shift=1),
@@ -426,9 +442,7 @@ def generate_candidate_catalog(
         dsl_version=2,
         strategy_id=f"cand-{symbol.lower()}-fbr-001",
         family="experimental",
-        universe=StrategyUniverse(
-            symbols=(symbol,), timeframe="5m", regime_context_timeframe="15m"
-        ),
+        universe=universe,
         features=(
             FeatureRef(name="failed_breakout_reentry", lookback=20, shift=1),
             FeatureRef(name="bollinger_width", lookback=20, shift=1),
@@ -526,15 +540,32 @@ def evaluate_candidate_offline(
 
 def run_strategy_exploration(
     symbols: Sequence[str] = ("BTCUSDT", "ETHUSDT", "SOLUSDT"),
-    parquet_dir: Path | str = Path("research/immutable-data/5m/canonical"),
+    parquet_dir: Path | str | None = None,
     *,
+    timeframe: str = "5m",
     windows_count: int = 3,
-    bars_per_window: int = 288,
+    bars_per_window: int | None = None,
     policy: WalkForwardQualificationPolicy | None = None,
     output_dir: Path | str | None = None,
 ) -> dict[str, Any]:
     """Execute complete offline strategy exploration across symbols."""
-    pdir = Path(parquet_dir)
+    pdir = (
+        Path(parquet_dir)
+        if parquet_dir is not None
+        else Path(f"research/immutable-data/{timeframe}/canonical")
+    )
+    if bars_per_window is None:
+        if timeframe == "5m":
+            actual_bars_per_window = 288
+        elif timeframe == "15m":
+            actual_bars_per_window = 192
+        elif timeframe == "1h":
+            actual_bars_per_window = 168
+        else:
+            actual_bars_per_window = 288
+    else:
+        actual_bars_per_window = bars_per_window
+
     qual_policy = policy or WalkForwardQualificationPolicy(
         policy_id="policy-offline-exploration-001",
         minimum_windows=1,
@@ -549,7 +580,7 @@ def run_strategy_exploration(
     candidates_map: dict[str, CreatorCandidateArtifact] = {}
 
     for symbol in symbols:
-        parquet_file = pdir / f"{symbol}-5m.parquet"
+        parquet_file = pdir / f"{symbol}-{timeframe}.parquet"
         if not parquet_file.is_file():
             logger.warning("Parquet data not found for %s at %s, skipping", symbol, parquet_file)
             continue
@@ -557,11 +588,12 @@ def run_strategy_exploration(
         windows = load_and_slice_windows(
             parquet_file,
             symbol=symbol,
+            timeframe=timeframe,
             windows_count=windows_count,
-            bars_per_window=bars_per_window,
+            bars_per_window=actual_bars_per_window,
         )
 
-        catalog = generate_candidate_catalog(symbol)
+        catalog = generate_candidate_catalog(symbol, timeframe=timeframe)
         for cand in catalog:
             candidates_map[cand.candidate_id] = cand
             qual, summary = evaluate_candidate_offline(cand, windows, qual_policy)
@@ -589,6 +621,7 @@ def run_strategy_exploration(
     result: dict[str, Any] = {
         "status": "completed",
         "evaluated_at": datetime.now(UTC).isoformat(),
+        "timeframe": timeframe,
         "symbols_evaluated": list(symbols),
         "total_candidates": len(leaderboard),
         "qualified_count": qualified_count,
@@ -626,6 +659,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Deterministic offline strategy-family exploration tool."
     )
     parser.add_argument(
+        "--timeframe",
+        choices=["5m", "15m", "1h"],
+        default="5m",
+        help="Bar interval for exploration (default: 5m)",
+    )
+    parser.add_argument(
         "--symbols",
         nargs="+",
         default=["BTCUSDT", "ETHUSDT", "SOLUSDT"],
@@ -634,8 +673,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--parquet-dir",
         type=Path,
-        default=Path("research/immutable-data/5m/canonical"),
-        help="Path to canonical parquet directory",
+        default=None,
+        help="Path to canonical parquet directory (default: derived from timeframe)",
     )
     parser.add_argument(
         "--windows-count",
@@ -646,8 +685,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--bars-per-window",
         type=int,
-        default=288,
-        help="Number of 5m bars per window (default: 288 = 24h)",
+        default=None,
+        help="Number of bars per window (default: 288 for 5m, 192 for 15m, 168 for 1h)",
     )
     parser.add_argument(
         "--min-profit-factor",
@@ -676,7 +715,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/research/strategy-exploration"),
+        default=None,
         help="Directory to store exploration artifacts",
     )
     parser.add_argument(
@@ -696,13 +735,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         minimum_average_return_pct=args.min_average_return_pct,
     )
 
+    out_dir = (
+        args.output_dir
+        if args.output_dir is not None
+        else Path(f"data/research/strategy-exploration-{args.timeframe}")
+    )
     results = run_strategy_exploration(
         symbols=args.symbols,
         parquet_dir=args.parquet_dir,
+        timeframe=args.timeframe,
         windows_count=args.windows_count,
         bars_per_window=args.bars_per_window,
         policy=policy,
-        output_dir=args.output_dir,
+        output_dir=out_dir,
     )
 
     if args.json:
@@ -710,10 +755,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     # Format human-readable table
+    actual_bpw = (
+        args.bars_per_window
+        if args.bars_per_window is not None
+        else (192 if args.timeframe == "15m" else (168 if args.timeframe == "1h" else 288))
+    )
     sys.stdout.write("\n=== OFFLINE STRATEGY EXPLORATION LEADERBOARD ===\n")
     sys.stdout.write(
         f"Symbols: {', '.join(results['symbols_evaluated'])} | "
-        f"Windows: {args.windows_count} x {args.bars_per_window} bars | "
+        f"Timeframe: {args.timeframe} | "
+        f"Windows: {args.windows_count} x {actual_bpw} bars | "
         f"Total: {results['total_candidates']} | "
         f"Qualified: {results['qualified_count']} | "
         f"Rejected: {results['rejected_count']}\n"

@@ -109,8 +109,8 @@ class PaperExecutionRequest(DomainModel):
 
 class StrategyUniverse(DomainModel):
     symbols: tuple[str, ...] = Field(min_length=1)
-    timeframe: Literal["5m"]
-    regime_context_timeframe: Literal["15m"]
+    timeframe: Literal["5m", "15m", "1h"] = "5m"
+    regime_context_timeframe: Literal["15m", "1h", "4h"] = "15m"
 
     @field_validator("symbols")
     @classmethod

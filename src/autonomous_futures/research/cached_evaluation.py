@@ -23,6 +23,7 @@ class CachedEvaluationWindowSpec(DomainModel):
     dataset_registry_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     time_start: datetime
     time_end: datetime
+    timeframe: Literal["5m", "15m", "1h"] = "5m"
 
     @field_validator("time_start", "time_end")
     @classmethod
@@ -38,6 +39,16 @@ class CachedEvaluationWindowSpec(DomainModel):
         return self
 
 
+def _timeframe_to_timedelta(timeframe: str) -> timedelta:
+    if timeframe == "5m":
+        return timedelta(minutes=5)
+    if timeframe == "15m":
+        return timedelta(minutes=15)
+    if timeframe == "1h":
+        return timedelta(hours=1)
+    return timedelta(minutes=5)
+
+
 @dataclass(frozen=True, slots=True)
 class CachedEvaluationWindow:
     spec: CachedEvaluationWindowSpec
@@ -50,11 +61,12 @@ class CachedEvaluationWindow:
             raise DataQualityError(
                 "cached evaluation frame is missing OHLC columns: " + ", ".join(missing_columns)
             )
-        canonical = canonicalize_bars(self.frame, interval=timedelta(minutes=5))
+        delta = _timeframe_to_timedelta(self.spec.timeframe)
+        canonical = canonicalize_bars(self.frame, interval=delta)
         timestamps = pd.DatetimeIndex(canonical["timestamp"])
         expected_start = pd.Timestamp(self.spec.time_start)
         expected_end = pd.Timestamp(self.spec.time_end)
-        if timestamps[0] != expected_start or timestamps[-1] + timedelta(minutes=5) != expected_end:
+        if timestamps[0] != expected_start or timestamps[-1] + delta != expected_end:
             raise DataQualityError("cached evaluation frame must cover exactly the window range")
         object.__setattr__(self, "frame", canonical.copy(deep=True))
 

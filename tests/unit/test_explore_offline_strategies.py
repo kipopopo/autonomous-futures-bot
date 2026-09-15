@@ -131,3 +131,68 @@ def test_cli_runner_json_output(capsys: pytest.CaptureFixture[str], tmp_path: Pa
     report = json.loads(captured.out)
     assert report["status"] == "completed"
     assert report["total_candidates"] >= 6
+
+
+def test_candidate_catalog_timeframes() -> None:
+    """Verify catalog generation supports 15m and 1h timeframes correctly."""
+    catalog_15m = generate_candidate_catalog("ETHUSDT", timeframe="15m")
+    assert len(catalog_15m) >= 8
+    for cand in catalog_15m:
+        assert cand.strategy.universe.timeframe == "15m"
+        assert cand.strategy.universe.regime_context_timeframe == "1h"
+
+    catalog_1h = generate_candidate_catalog("SOLUSDT", timeframe="1h")
+    assert len(catalog_1h) >= 8
+    for cand in catalog_1h:
+        assert cand.strategy.universe.timeframe == "1h"
+        assert cand.strategy.universe.regime_context_timeframe == "4h"
+
+
+def test_load_and_slice_windows_15m_and_1h() -> None:
+    """Verify slicing works for 15m and 1h canonical parquet files."""
+    p_15m = REPO_ROOT / "research" / "immutable-data" / "15m" / "canonical" / "BTCUSDT-15m.parquet"
+    if p_15m.is_file():
+        windows = load_and_slice_windows(
+            p_15m,
+            symbol="BTCUSDT",
+            timeframe="15m",
+            windows_count=2,
+            bars_per_window=40,
+        )
+        assert len(windows) == 2
+        assert windows[0].spec.timeframe == "15m"
+        assert windows[0].spec.time_end == windows[1].spec.time_start
+
+    p_1h = REPO_ROOT / "research" / "immutable-data" / "1h" / "canonical" / "BTCUSDT-1h.parquet"
+    if p_1h.is_file():
+        windows = load_and_slice_windows(
+            p_1h,
+            symbol="BTCUSDT",
+            timeframe="1h",
+            windows_count=2,
+            bars_per_window=30,
+        )
+        assert len(windows) == 2
+        assert windows[0].spec.timeframe == "1h"
+        assert windows[0].spec.time_end == windows[1].spec.time_start
+
+
+def test_run_strategy_exploration_15m_timeframe(tmp_path: Path) -> None:
+    """Verify 15m offline exploration executes and outputs results."""
+    p_15m_dir = REPO_ROOT / "research" / "immutable-data" / "15m" / "canonical"
+    if not (p_15m_dir / "ETHUSDT-15m.parquet").is_file():
+        pytest.skip("Canonical ETHUSDT 15m parquet not found")
+
+    out_dir = tmp_path / "exploration_15m"
+    results = run_strategy_exploration(
+        symbols=["ETHUSDT"],
+        parquet_dir=p_15m_dir,
+        timeframe="15m",
+        windows_count=2,
+        bars_per_window=40,
+        output_dir=out_dir,
+    )
+    assert results["status"] == "completed"
+    assert results["timeframe"] == "15m"
+    assert results["total_candidates"] >= 8
+    assert (out_dir / "exploration_summary.json").is_file()
