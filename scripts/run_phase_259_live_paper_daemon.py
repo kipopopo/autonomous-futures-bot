@@ -41,7 +41,6 @@ from autonomous_futures.feed.rest_client import (  # noqa: E402
 )
 from autonomous_futures.feed.telemetry import FeedTelemetryAccumulator  # noqa: E402
 from autonomous_futures.paper.candidate_registry import (  # noqa: E402
-    DEFAULT_CANDIDATE_REGISTRY_PATH,
     CandidateRegistryHotReloader,
 )
 from autonomous_futures.paper.circuit_breakers import (  # noqa: E402
@@ -647,13 +646,9 @@ async def run_live_paper_daemon(args: argparse.Namespace) -> dict[str, Any]:
     start_time = time.monotonic()
     started_at_str = datetime.now(UTC).isoformat()
 
-    # Resolve manifest: CLI flag > storage_dir / candidate_registry.json > DEFAULT
+    # Resolve manifest: CLI flag > storage_dir / candidate_registry.json
     if args.candidate_registry_path is not None:
         registry_path = Path(args.candidate_registry_path)
-    elif (storage_dir / "candidate_registry.json").is_file():
-        registry_path = storage_dir / "candidate_registry.json"
-    elif DEFAULT_CANDIDATE_REGISTRY_PATH.is_file():
-        registry_path = DEFAULT_CANDIDATE_REGISTRY_PATH
     else:
         registry_path = storage_dir / "candidate_registry.json"
 
