@@ -350,24 +350,7 @@ class LivePaperEngine:
                 require_flat=require_flat,
             )
         else:
-            default_manifest = Path("artifacts/paper_live/candidate_registry.json")
-            if default_manifest.is_file():
-                try:
-                    self.candidates = self._load_candidates_from_manifest(
-                        default_manifest,
-                        base_dir=self.base_dir,
-                        qualifications_dir=self.qualifications_dir,
-                        require_flat=require_flat,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to load candidates from %s: %s; falling back to default",
-                        default_manifest,
-                        exc,
-                    )
-                    self.candidates = self._load_default_candidates()
-            else:
-                self.candidates = self._load_default_candidates()
+            self.candidates = self._load_default_candidates()
 
         self.qualified_symbols: tuple[str, ...] = tuple(self.candidates.keys())
 

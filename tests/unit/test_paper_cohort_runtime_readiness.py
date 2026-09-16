@@ -213,6 +213,7 @@ def test_live_paper_engine_loads_repo_v2_manifest(tmp_path: Path) -> None:
 
     engine = LivePaperEngine(
         symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT"),
+        registry_manifest=DEFAULT_CANDIDATE_REGISTRY_PATH,
         ledger_db=tmp_path / "paper-ledger.sqlite3",
         lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
         observations_db=tmp_path / "paper-observations.sqlite3",
