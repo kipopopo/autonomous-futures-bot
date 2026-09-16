@@ -28,7 +28,7 @@ from autonomous_futures.paper.candidate_registry import (
     CandidateManifestEntry,
     build_candidate_registry_manifest,
 )
-from autonomous_futures.paper.observation import PaperObservation
+from autonomous_futures.paper.observation import PaperObservation, PaperObservationBinding
 from autonomous_futures.paper.sqlite_observation import SqlitePaperObservations
 from autonomous_futures.research.creator_artifacts import (
     CreatorCandidateArtifact,
@@ -758,3 +758,285 @@ def test_cohort_cli_and_script_corrupt_database_error_handling(
     script_payload = json.loads(script_err)
     assert script_payload["status"] == "error"
     assert script_payload["error_code"] == "invalid_input"
+
+
+def test_evaluate_paper_cohort_snapshot_multi_symbol_shared_candidate(tmp_path: Path) -> None:
+    """Cohort readiness evaluation handles multiple symbols sharing the same candidate artifact."""
+    from autonomous_futures.research.creator_artifacts import (
+        CreatorCandidateArtifact,
+        _artifact_content_hash,
+    )
+
+    cand = _build_test_candidate("cand-shared-alpha", "BTCUSDT")
+    cand_dict = cand.model_dump()
+    cand_dict["strategy"]["universe"]["symbols"] = ["BTCUSDT", "ETHUSDT"]
+    cand_shared = CreatorCandidateArtifact.model_validate(cand_dict)
+    cand_shared = cand_shared.model_copy(
+        update={"artifact_hash": _artifact_content_hash(cand_shared)}
+    )
+    qual = _build_test_qualification(cand_shared, "qualified")
+
+    manifest_path = _write_v2_manifest(
+        tmp_path, {"BTCUSDT": (cand_shared, qual), "ETHUSDT": (cand_shared, qual)}
+    )
+
+    ledger_db = tmp_path / "paper-ledger.sqlite3"
+    lifecycle_db = tmp_path / "paper-lifecycle.sqlite3"
+    obs_db = tmp_path / "paper-observations.sqlite3"
+    out_dir = tmp_path / "reports_shared"
+
+    obs_store = SqlitePaperObservations(obs_db)
+    observations = _generate_healthy_observations(
+        cand_shared.candidate_id, cand_shared.artifact_hash, days=7
+    )
+    for obs in observations:
+        obs_store.append(obs)
+
+    as_of = datetime(2026, 8, 1, tzinfo=UTC) + timedelta(days=7)
+
+    health_reports, cohort_report = evaluate_paper_cohort_snapshot(
+        ledger_path=ledger_db,
+        lifecycle_path=lifecycle_db,
+        observations_path=obs_db,
+        manifest=manifest_path,
+        output_dir=out_dir,
+        as_of=as_of,
+        required_days=7,
+    )
+
+    # Both symbols have health reports
+    assert "BTCUSDT" in health_reports
+    assert "ETHUSDT" in health_reports
+    assert health_reports["BTCUSDT"].health_status == "healthy"
+    assert health_reports["ETHUSDT"].health_status == "healthy"
+    # Cohort report is not blocked by duplicate bindings
+    assert cohort_report.cohort_status == "ready_for_human_review"
+    assert len(cohort_report.candidates) == 1
+    assert cohort_report.candidates[0].candidate_id == cand_shared.candidate_id
+
+
+def test_admit_candidate_registers_symbol_with_engine_and_monitor(tmp_path: Path) -> None:
+    """admit_candidate dynamically registers new symbol across engine and monitor components."""
+    cand_btc = _build_test_candidate("cand-btc", "BTCUSDT")
+    qual_btc = _build_test_qualification(cand_btc, "qualified")
+    manifest_path = _write_v2_manifest(tmp_path / "m1", {"BTCUSDT": (cand_btc, qual_btc)})
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_path,
+        ledger_db=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+        observations_db=tmp_path / "paper-observations.sqlite3",
+    )
+    assert engine.symbols == ("BTCUSDT",)
+    assert "ETHUSDT" not in engine.symbols
+
+    cand_eth = _build_test_candidate("cand-eth", "ETHUSDT")
+    qual_eth = _build_test_qualification(cand_eth, "qualified")
+    decision = engine.admit_candidate(cand_eth, qual_eth)
+
+    assert decision.decision == "admitted"
+    assert "ETHUSDT" in engine.symbols
+    assert "ETHUSDT" in engine.qualified_symbols
+    assert "ETHUSDT" in engine.candidates
+    assert "ETHUSDT" in engine._bar_history
+    assert "ETHUSDT" in engine.max_observed_spread_bps
+    assert "ETHUSDT" in engine.monitor.symbols
+    assert "ETHUSDT" in engine.monitor._baseline_atrs
+    assert "ETHUSDT" in engine.telemetry.monitored_symbols
+    assert "ETHUSDT" in engine.feed_client.symbols
+
+
+def test_discover_and_admit_candidates_registers_symbol_with_monitor_and_feed(
+    tmp_path: Path,
+) -> None:
+    """discover_and_admit_candidates registers dynamic symbols across monitor and feed client."""
+    cand_btc = _build_test_candidate("cand-btc", "BTCUSDT")
+    qual_btc = _build_test_qualification(cand_btc, "qualified")
+    manifest_btc = _write_v2_manifest(tmp_path / "m1", {"BTCUSDT": (cand_btc, qual_btc)})
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_btc,
+        ledger_db=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+        observations_db=tmp_path / "paper-observations.sqlite3",
+    )
+
+    cand_sol = _build_test_candidate("cand-sol", "SOLUSDT")
+    qual_sol = _build_test_qualification(cand_sol, "qualified")
+    manifest_sol = _write_v2_manifest(tmp_path / "m2", {"SOLUSDT": (cand_sol, qual_sol)})
+
+    engine.discover_and_admit_candidates(manifest_sol)
+
+    assert "SOLUSDT" in engine.symbols
+    assert "SOLUSDT" in engine.monitor.symbols
+    assert "SOLUSDT" in engine.telemetry.monitored_symbols
+    assert "SOLUSDT" in engine.feed_client.symbols
+
+
+def test_live_paper_engine_skips_unselected_manifest_symbols(tmp_path: Path) -> None:
+    """Engine initializes cleanly when caller restricts symbols, skipping unselected candidates."""
+    from autonomous_futures.paper.candidate_registry import (
+        CandidateRegistryManifest,
+        compute_registry_hash,
+    )
+
+    cand_btc = _build_test_candidate("cand-btc", "BTCUSDT")
+    qual_btc = _build_test_qualification(cand_btc, "qualified")
+    manifest_path = _write_v2_manifest(tmp_path, {"BTCUSDT": (cand_btc, qual_btc)})
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_data["symbols"]["SOLUSDT"] = {
+        "candidate_id": "cand-sol-missing",
+        "candidate_artifact_hash": "0" * 64,
+        "artifact_path": "candidates/non_existent.json",
+        "qualification_hash": "0" * 64,
+        "admitted_at": NOW.isoformat(),
+    }
+    raw_m = CandidateRegistryManifest.model_validate(manifest_data)
+    manifest_obj = raw_m.model_copy(update={"registry_hash": compute_registry_hash(raw_m)})
+    manifest_path.write_text(manifest_obj.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_path,
+        ledger_db=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+        observations_db=tmp_path / "paper-observations.sqlite3",
+    )
+    assert engine.symbols == ("BTCUSDT",)
+    assert "BTCUSDT" in engine.candidates
+    assert "SOLUSDT" not in engine.candidates
+
+
+def test_evaluate_paper_cohort_snapshot_prefers_obs_store_over_default_manifest(
+    tmp_path: Path,
+) -> None:
+    """Inspects distinct candidates from observations store before default manifest fallback."""
+    obs_db = tmp_path / "paper-observations.sqlite3"
+    obs_store = SqlitePaperObservations(obs_db)
+    cand_custom = "cand-custom-isolated"
+    cand_hash = "a" * 64
+
+    obs = PaperObservation(
+        candidate_id=cand_custom,
+        candidate_artifact_hash=cand_hash,
+        observed_at=datetime(2026, 9, 16, 12, 0, 0, tzinfo=UTC),
+        equity=Decimal("100"),
+        realized_pnl=Decimal("0"),
+        unrealized_pnl=Decimal("0"),
+        peak_equity=Decimal("100"),
+        drawdown_pct=Decimal("0"),
+        open_position_count=0,
+        quote_exposure=Decimal("0"),
+        cumulative_fees=Decimal("0"),
+        cumulative_slippage=Decimal("0"),
+        accounting_complete=True,
+        reason_codes=("paper_observation_complete",),
+    )
+    obs_store.append(obs)
+
+    health_reports, cohort_report = evaluate_paper_cohort_snapshot(
+        ledger_path=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_path=tmp_path / "paper-lifecycle.sqlite3",
+        observations_path=obs_db,
+    )
+
+    assert cand_custom in health_reports
+    assert len(cohort_report.candidates) == 1
+    assert cohort_report.candidates[0].candidate_id == cand_custom
+
+
+def test_evaluate_paper_cohort_snapshot_handles_corrupt_marked_at(tmp_path: Path) -> None:
+    """evaluate_paper_cohort_snapshot handles malformed timestamps in marks gracefully."""
+    import sqlite3
+
+    lifecycle_db = tmp_path / "paper-lifecycle.sqlite3"
+    conn = sqlite3.connect(lifecycle_db)
+    conn.execute("CREATE TABLE paper_lifecycle_marks (marked_at TEXT)")
+    conn.execute("INSERT INTO paper_lifecycle_marks VALUES ('corrupt-non-iso-timestamp')")
+    conn.commit()
+    conn.close()
+
+    health_reports, cohort_report = evaluate_paper_cohort_snapshot(
+        ledger_path=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_path=lifecycle_db,
+        observations_path=tmp_path / "paper-observations.sqlite3",
+        expected_bindings=[
+            PaperObservationBinding(candidate_id="cand-test", candidate_artifact_hash="b" * 64)
+        ],
+    )
+
+    assert cohort_report.cohort_status == "not_ready"
+    assert health_reports["cand-test"].health_status == "unavailable"
+
+
+def test_evaluate_paper_cohort_snapshot_handles_microsecond_timestamps(tmp_path: Path) -> None:
+    """Snapshot rounds up microseconds to whole seconds without false future-mark block."""
+    obs_db = tmp_path / "paper-observations.sqlite3"
+    obs_store = SqlitePaperObservations(obs_db)
+
+    dt = datetime(2026, 9, 16, 12, 0, 0, 500000, tzinfo=UTC)
+    obs = PaperObservation(
+        candidate_id="cand-microsecond-test",
+        candidate_artifact_hash="c" * 64,
+        observed_at=dt,
+        equity=Decimal("100"),
+        realized_pnl=Decimal("0"),
+        unrealized_pnl=Decimal("0"),
+        peak_equity=Decimal("100"),
+        drawdown_pct=Decimal("0"),
+        open_position_count=0,
+        quote_exposure=Decimal("0"),
+        cumulative_fees=Decimal("0"),
+        cumulative_slippage=Decimal("0"),
+        accounting_complete=True,
+        reason_codes=("paper_observation_complete",),
+    )
+    obs_store.append(obs)
+
+    health_reports, _ = evaluate_paper_cohort_snapshot(
+        ledger_path=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_path=tmp_path / "paper-lifecycle.sqlite3",
+        observations_path=obs_db,
+        expected_bindings=[
+            PaperObservationBinding(
+                candidate_id="cand-microsecond-test", candidate_artifact_hash="c" * 64
+            )
+        ],
+    )
+
+    h_rep = health_reports["cand-microsecond-test"]
+    assert "paper_health_observation_binding_or_time_invalid" not in h_rep.reason_codes
+    assert h_rep.health_status != "blocked"
+
+
+def test_engine_validates_qualification_hash_before_signals_and_execution(tmp_path: Path) -> None:
+    """Engine rejects signal evaluation and trade execution if qualification hash was tampered."""
+    cand = _build_test_candidate("cand-tamper-qual", "BTCUSDT")
+    qual = _build_test_qualification(cand, "qualified")
+    manifest_path = _write_v2_manifest(tmp_path, {"BTCUSDT": (cand, qual)})
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_path,
+        ledger_db=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+        observations_db=tmp_path / "paper-observations.sqlite3",
+    )
+
+    # Tamper with qualification in memory
+    tampered_qual = engine.qualifications["BTCUSDT"].model_copy(
+        update={"qualification_hash": "f" * 64}
+    )
+    engine.qualifications["BTCUSDT"] = tampered_qual
+
+    # execute_open must reject the trade
+    res = engine.execute_open(
+        symbol="BTCUSDT",
+        signal=1,
+        conviction=Decimal("0.80"),
+        event_time=datetime.now(UTC),
+    )
+    assert res is None
+    assert "BTCUSDT" not in engine.active_trades

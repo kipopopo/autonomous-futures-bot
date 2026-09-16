@@ -7,7 +7,7 @@ import logging
 import re
 import sqlite3
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -239,12 +239,6 @@ def evaluate_paper_cohort_snapshot(
         entries = [
             (b.candidate_id, b.candidate_id, b.candidate_artifact_hash) for b in expected_bindings
         ]
-    elif Path(DEFAULT_CANDIDATE_REGISTRY_PATH).is_file():
-        manifest_obj = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
-        entries = [
-            (sym, entry.candidate_id, entry.candidate_artifact_hash)
-            for sym, entry in sorted(manifest_obj.symbols.items())
-        ]
     elif obs_file.is_file():
         try:
             conn = obs_store._connect()
@@ -259,6 +253,20 @@ def evaluate_paper_cohort_snapshot(
                 conn.close()
         except sqlite3.Error:
             pass
+        if not entries and Path(DEFAULT_CANDIDATE_REGISTRY_PATH).is_file():
+            manifest_obj = read_candidate_registry(
+                DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True
+            )
+            entries = [
+                (sym, entry.candidate_id, entry.candidate_artifact_hash)
+                for sym, entry in sorted(manifest_obj.symbols.items())
+            ]
+    elif Path(DEFAULT_CANDIDATE_REGISTRY_PATH).is_file():
+        manifest_obj = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
+        entries = [
+            (sym, entry.candidate_id, entry.candidate_artifact_hash)
+            for sym, entry in sorted(manifest_obj.symbols.items())
+        ]
 
     if not entries:
         placeholder = PaperObservationBinding(
@@ -269,23 +277,33 @@ def evaluate_paper_cohort_snapshot(
         empty_rep = summarize_paper_cohort([], target_b)
         return {}, empty_rep
 
+    # Deduplicate unique candidate bindings for cohort evaluation
     if expected_bindings is not None:
         target_bindings = tuple(expected_bindings)
     else:
-        target_bindings = tuple(
-            PaperObservationBinding(candidate_id=c_id, candidate_artifact_hash=c_hash)
-            for _, c_id, c_hash in entries
-        )
+        seen_bindings: set[tuple[str, str]] = set()
+        unique_bindings: list[PaperObservationBinding] = []
+        for _, c_id, c_hash in entries:
+            key = (c_id, c_hash)
+            if key not in seen_bindings:
+                seen_bindings.add(key)
+                unique_bindings.append(
+                    PaperObservationBinding(candidate_id=c_id, candidate_artifact_hash=c_hash)
+                )
+        target_bindings = tuple(unique_bindings)
 
     # Load active open positions from ledger
     final_ledger = ledger_store.load()
     open_positions = final_ledger.open_positions()
 
-    # Determine reference as_of timestamp
+    # Determine reference as_of timestamp with whole-second precision
     if as_of is not None:
         if as_of.tzinfo is None or as_of.utcoffset() != UTC.utcoffset(as_of):
             raise ValueError("as_of must be timezone-aware UTC")
-        observed_at = as_of.astimezone(UTC).replace(microsecond=0)
+        if as_of.microsecond > 0:
+            observed_at = (as_of + timedelta(seconds=1)).astimezone(UTC).replace(microsecond=0)
+        else:
+            observed_at = as_of.astimezone(UTC).replace(microsecond=0)
     else:
         latest_ts: datetime | None = None
         for _, c_id, c_hash in entries:
@@ -312,12 +330,20 @@ def evaluate_paper_cohort_snapshot(
                                 latest_ts = ts
                 finally:
                     conn.close()
-            except sqlite3.Error:
+            except sqlite3.Error, ValueError:
                 pass
         for e in final_ledger.entries:
             if latest_ts is None or e.occurred_at > latest_ts:
                 latest_ts = e.occurred_at
-        observed_at = (latest_ts or datetime.now(UTC)).astimezone(UTC).replace(microsecond=0)
+        if latest_ts is not None:
+            if latest_ts.microsecond > 0:
+                observed_at = (
+                    (latest_ts + timedelta(seconds=1)).astimezone(UTC).replace(microsecond=0)
+                )
+            else:
+                observed_at = latest_ts.astimezone(UTC).replace(microsecond=0)
+        else:
+            observed_at = datetime.now(UTC).astimezone(UTC).replace(microsecond=0)
 
     # Aggregate health per candidate
     health_reports: dict[str, PaperHealthReport] = {}
@@ -345,7 +371,16 @@ def evaluate_paper_cohort_snapshot(
         )
         health_reports[sym] = health_rep
 
-    cohort_rep = summarize_paper_cohort(list(health_reports.values()), target_bindings)
+    # Deduplicate candidate reports for cohort summary
+    seen_rep_keys: set[tuple[str, str]] = set()
+    unique_reports: list[PaperHealthReport] = []
+    for rep in health_reports.values():
+        rep_key = (rep.candidate_id, rep.candidate_artifact_hash)
+        if rep_key not in seen_rep_keys:
+            seen_rep_keys.add(rep_key)
+            unique_reports.append(rep)
+
+    cohort_rep = summarize_paper_cohort(unique_reports, target_bindings)
 
     # Persist serialized reports if output directory requested
     if output_dir is not None:

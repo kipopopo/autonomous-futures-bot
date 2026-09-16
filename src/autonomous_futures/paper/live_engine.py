@@ -381,7 +381,6 @@ class LivePaperEngine:
         )
         if owns_account:
             self._restore_account_cash_from_ledger()
-        self._restore_open_positions()
 
         # Real-time circuit breaker monitor
         if monitor is None:
@@ -425,6 +424,8 @@ class LivePaperEngine:
         self.start_time: datetime = datetime.now(UTC)
         self.stop_time: datetime | None = None
         self._running: bool = False
+
+        self._restore_open_positions()
 
     def _load_default_candidates(self) -> dict[str, CreatorCandidateArtifact]:
         """Load pinned candidate artifacts if available on filesystem."""
@@ -475,6 +476,8 @@ class LivePaperEngine:
 
         for symbol, entry in manifest.symbols.items():
             sym = symbol.upper()
+            if allowed_symbols is not None and sym not in allowed_symbols:
+                continue
             art_path = Path(entry.artifact_path)
             if not art_path.is_file() and base_dir is not None:
                 cand_path = Path(base_dir) / art_path
@@ -624,6 +627,52 @@ class LivePaperEngine:
 
         return loaded
 
+    def _register_symbol(self, symbol: str) -> None:
+        """Register newly admitted or restored symbol across engine and monitor components."""
+        from collections import deque
+
+        from autonomous_futures.feed.monitor import DEFAULT_FALLBACK_ATR, DEFAULT_NOMINAL_ATRS
+
+        sym = symbol.upper()
+        if sym not in self.symbols:
+            self.symbols = (*self.symbols, sym)
+        if sym not in self.qualified_symbols:
+            self.qualified_symbols = (*self.qualified_symbols, sym)
+        if hasattr(self, "_bar_history"):
+            self._bar_history.setdefault(sym, [])
+        if hasattr(self, "max_observed_spread_bps"):
+            self.max_observed_spread_bps.setdefault(sym, Decimal("0"))
+
+        if hasattr(self, "monitor") and self.monitor is not None:
+            if hasattr(self.monitor, "symbols") and sym not in self.monitor.symbols:
+                self.monitor.symbols = (*self.monitor.symbols, sym)
+            base_atr = DEFAULT_NOMINAL_ATRS.get(sym, DEFAULT_FALLBACK_ATR)
+            if hasattr(self.monitor, "_baseline_atrs"):
+                self.monitor._baseline_atrs.setdefault(sym, base_atr)
+            if hasattr(self.monitor, "_rolling_atrs"):
+                self.monitor._rolling_atrs.setdefault(sym, base_atr)
+            if (
+                hasattr(self.monitor, "_true_ranges")
+                and hasattr(self, "account")
+                and self.account is not None
+            ):
+                self.monitor._true_ranges.setdefault(
+                    sym, deque(maxlen=self.account.config.baseline_window_bars)
+                )
+            if hasattr(self.monitor, "_latest_slippage_bps"):
+                self.monitor._latest_slippage_bps.setdefault(sym, Decimal("0"))
+
+        if hasattr(self, "telemetry") and self.telemetry is not None:
+            if (
+                hasattr(self.telemetry, "monitored_symbols")
+                and sym not in self.telemetry.monitored_symbols
+            ):
+                self.telemetry.monitored_symbols = (*self.telemetry.monitored_symbols, sym)
+
+        if hasattr(self, "feed_client") and self.feed_client is not None:
+            if hasattr(self.feed_client, "symbols") and sym not in self.feed_client.symbols:
+                self.feed_client.symbols = (*self.feed_client.symbols, sym)
+
     def discover_and_admit_candidates(
         self,
         manifest: CandidateRegistryManifest | Path | str,
@@ -643,12 +692,7 @@ class LivePaperEngine:
         )
         for sym, cand in new_candidates.items():
             self.candidates[sym] = cand
-            if sym not in self.qualified_symbols:
-                self.qualified_symbols = (*self.qualified_symbols, sym)
-            if sym not in self.symbols:
-                self.symbols = (*self.symbols, sym)
-                self._bar_history.setdefault(sym, [])
-                self.max_observed_spread_bps.setdefault(sym, Decimal("0"))
+            self._register_symbol(sym)
         return dict(self.admission_decisions)
 
     def seed_history(
@@ -986,6 +1030,13 @@ class LivePaperEngine:
             )
             return
 
+        qual = self.qualifications.get(sym)
+        if qual is not None and qual.qualification_hash != _qualification_content_hash(qual):
+            logger.error(
+                "Tampered qualification artifact detected for %s; aborting signal processing", sym
+            )
+            return
+
         adm_dec = self.admission_decisions.get(sym)
         if adm_dec is not None and adm_dec.decision != "admitted":
             logger.warning(
@@ -1077,6 +1128,17 @@ class LivePaperEngine:
             logger.error(
                 "Tampered candidate artifact detected for %s; aborting trade execution", sym
             )
+            return None
+
+        qual = self.qualifications.get(sym)
+        if qual is not None and qual.qualification_hash != _qualification_content_hash(qual):
+            logger.error(
+                "Tampered qualification artifact detected for %s; aborting trade execution", sym
+            )
+            return None
+
+        if self.registry_manifest is not None and sym not in self.admission_decisions:
+            logger.warning("Trade rejected for %s: missing admission decision from manifest", sym)
             return None
 
         adm_dec = self.admission_decisions.get(sym)
@@ -1611,6 +1673,7 @@ class LivePaperEngine:
         for trade, _candidate in pending:
             self.account.restore_open(trade.trade_id, trade.base_margin, trade.leverage)
             self.active_trades[trade.symbol] = trade
+            self._register_symbol(trade.symbol)
 
     def reconcile_balances(self) -> dict[str, Any]:
         """Verify exact Decimal cash balance reconciliation with zero drift."""
@@ -1986,8 +2049,7 @@ class LivePaperEngine:
         self.admission_decisions[symbol] = decision
         if decision.decision == "admitted":
             self.candidates[symbol] = candidate
-            if symbol not in self.qualified_symbols:
-                self.qualified_symbols = (*self.qualified_symbols, symbol)
+            self._register_symbol(symbol)
             logger.info(
                 "Admitted strategy %s for symbol %s (active_trade_retained=%s)",
                 candidate.candidate_id,
@@ -2017,7 +2079,8 @@ class LivePaperEngine:
             ledger_db=self.ledger_path,
             lifecycle_db=self.lifecycle_path,
             observations_db=self.observations_path,
-            candidates=self.candidates,
+            manifest=self.registry_manifest,
+            candidates=self.candidates if not self.registry_manifest else None,
             output_dir=output_dir,
             as_of=as_of,
             max_mark_age_seconds=max_mark_age_seconds,
