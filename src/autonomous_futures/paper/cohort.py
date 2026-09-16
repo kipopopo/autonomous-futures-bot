@@ -246,13 +246,19 @@ def evaluate_paper_cohort_snapshot(
             for sym, entry in sorted(manifest_obj.symbols.items())
         ]
     elif obs_file.is_file():
-        with obs_store._connect() as conn:
-            cursor = conn.execute(
-                "SELECT DISTINCT candidate_id, candidate_artifact_hash "
-                "FROM paper_observations ORDER BY candidate_id ASC"
-            )
-            for row in cursor.fetchall():
-                entries.append((row[0], row[0], row[1]))
+        try:
+            conn = obs_store._connect()
+            try:
+                cursor = conn.execute(
+                    "SELECT DISTINCT candidate_id, candidate_artifact_hash "
+                    "FROM paper_observations ORDER BY candidate_id ASC"
+                )
+                for row in cursor.fetchall():
+                    entries.append((row[0], row[0], row[1]))
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            pass
 
     if not entries:
         placeholder = PaperObservationBinding(
@@ -289,7 +295,8 @@ def evaluate_paper_cohort_snapshot(
                     latest_ts = o.observed_at
         if lifecycle_file.is_file():
             try:
-                with sqlite3.connect(lifecycle_file) as conn:
+                conn = sqlite3.connect(lifecycle_file)
+                try:
                     cursor = conn.execute(
                         "SELECT 1 FROM sqlite_master "
                         "WHERE type = 'table' AND name = 'paper_lifecycle_marks'"
@@ -303,7 +310,9 @@ def evaluate_paper_cohort_snapshot(
                             ts = datetime.fromisoformat(raw_ts).astimezone(UTC)
                             if latest_ts is None or ts > latest_ts:
                                 latest_ts = ts
-            except Exception:
+                finally:
+                    conn.close()
+            except sqlite3.Error:
                 pass
         for e in final_ledger.entries:
             if latest_ts is None or e.occurred_at > latest_ts:

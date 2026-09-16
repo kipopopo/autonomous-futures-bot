@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -79,22 +80,31 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    as_of = (
-        datetime.fromisoformat(args.as_of.replace("Z", "+00:00")).astimezone(UTC)
-        if args.as_of
-        else None
-    )
+    try:
+        as_of = (
+            datetime.fromisoformat(args.as_of.replace("Z", "+00:00")).astimezone(UTC)
+            if args.as_of
+            else None
+        )
 
-    health_reports, cohort_report = evaluate_paper_cohort_snapshot(
-        ledger_db=args.ledger_db,
-        lifecycle_db=args.lifecycle_db,
-        observations_db=args.observations_db,
-        manifest=args.manifest_path,
-        as_of=as_of,
-        max_mark_age_seconds=args.max_mark_age_seconds,
-        required_days=args.required_days,
-        output_dir=args.output_dir,
-    )
+        health_reports, cohort_report = evaluate_paper_cohort_snapshot(
+            ledger_db=args.ledger_db,
+            lifecycle_db=args.lifecycle_db,
+            observations_db=args.observations_db,
+            manifest=args.manifest_path,
+            as_of=as_of,
+            max_mark_age_seconds=args.max_mark_age_seconds,
+            required_days=args.required_days,
+            output_dir=args.output_dir,
+        )
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        err_payload = {
+            "error": str(exc),
+            "error_code": "invalid_input",
+            "status": "error",
+        }
+        print(json.dumps(err_payload, indent=2, sort_keys=True), file=sys.stderr)
+        return 2
 
     report_payload = cohort_report.model_dump(mode="json")
     report_payload["status"] = cohort_report.cohort_status

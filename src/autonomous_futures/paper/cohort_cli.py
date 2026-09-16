@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -103,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
                 PaperHealthReport.model_validate(item) for item in _load_list(args.reports_path)
             )
             report = summarize_paper_cohort(reports, expected)
-        except (OSError, ValidationError, ValueError, TypeError) as exc:
+        except (OSError, ValidationError, ValueError, TypeError, sqlite3.Error) as exc:
             del exc
             _print_json({"error_code": "invalid_input", "status": "error"})
             return 2
@@ -128,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
             required_days=args.required_days,
             output_dir=args.output_dir,
         )
-    except (OSError, ValidationError, ValueError, TypeError) as exc:
+    except (OSError, ValidationError, ValueError, TypeError, sqlite3.Error) as exc:
         _print_json({"error_code": "invalid_input", "error": str(exc), "status": "error"})
         return 2
 

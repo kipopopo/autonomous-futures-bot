@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from autonomous_futures.paper.health import PaperHealthReport
 
 import pandas as pd
+from pydantic import ValidationError
 
 from autonomous_futures.domain.contracts import (
     PaperExecutionRequest,
@@ -278,7 +279,7 @@ class LivePaperEngine:
 
     def __init__(
         self,
-        symbols: tuple[str, ...] = DEFAULT_SYMBOLS,
+        symbols: tuple[str, ...] | None = None,
         starting_capital: Decimal = DEFAULT_STARTING_CAPITAL,
         max_utilization: Decimal = DEFAULT_MAX_MARGIN_UTILIZATION,
         min_reserve_buffer: Decimal = DEFAULT_MIN_RESERVE_BUFFER,
@@ -298,7 +299,21 @@ class LivePaperEngine:
         base_dir: Path | str | None = None,
         require_flat: bool = False,
     ) -> None:
-        self.symbols: tuple[str, ...] = tuple(s.upper() for s in symbols)
+        explicit_symbols = symbols is not None
+        if symbols is not None:
+            self.symbols: tuple[str, ...] = tuple(s.upper() for s in symbols)
+        elif candidates is not None:
+            self.symbols = tuple(s.upper() for s in candidates.keys())
+        elif registry_manifest is not None:
+            manifest_obj = (
+                read_candidate_registry(registry_manifest, verify_hash=False)
+                if isinstance(registry_manifest, (str, Path))
+                else registry_manifest
+            )
+            self.symbols = tuple(s.upper() for s in manifest_obj.symbols.keys())
+        else:
+            self.symbols = tuple(s.upper() for s in DEFAULT_SYMBOLS)
+
         self.fee_rate: Decimal = fee_rate
         self.slippage_bps: Decimal = slippage_bps
         self.slippage_rate: Decimal = slippage_bps / Decimal("10000")
@@ -348,6 +363,8 @@ class LivePaperEngine:
                 base_dir=self.base_dir,
                 qualifications_dir=self.qualifications_dir,
                 require_flat=require_flat,
+                allowed_symbols=self.symbols if explicit_symbols else None,
+                require_admitted=True,
             )
         else:
             self.candidates = self._load_default_candidates()
@@ -431,6 +448,8 @@ class LivePaperEngine:
         base_dir: Path | None = None,
         qualifications_dir: Path | None = None,
         require_flat: bool = False,
+        allowed_symbols: tuple[str, ...] | None = None,
+        require_admitted: bool = True,
     ) -> dict[str, CreatorCandidateArtifact]:
         """Load, validate, and admit candidates directly from CandidateRegistryManifest v2."""
         if isinstance(manifest_input, (str, Path)):
@@ -469,7 +488,14 @@ class LivePaperEngine:
                     f"Candidate artifact file for {symbol} not found: {entry.artifact_path}"
                 )
 
-            cand = read_creator_candidate_artifact(art_path)
+            try:
+                cand = read_creator_candidate_artifact(art_path)
+            except (json.JSONDecodeError, ValidationError) as exc:
+                raise DomainViolation(
+                    f"Candidate artifact file for {symbol} is invalid JSON/schema: "
+                    f"{art_path}: {exc}"
+                ) from exc
+
             if cand.candidate_id != entry.candidate_id:
                 raise DomainViolation(
                     f"Candidate ID mismatch for {symbol}: expected {entry.candidate_id}, "
@@ -536,7 +562,14 @@ class LivePaperEngine:
                     f"Qualification artifact file for {entry.candidate_id} not found"
                 )
 
-            qual = read_creator_candidate_qualification_artifact(qual_file)
+            try:
+                qual = read_creator_candidate_qualification_artifact(qual_file)
+            except (json.JSONDecodeError, ValidationError) as exc:
+                raise DomainViolation(
+                    f"Qualification artifact file for {entry.candidate_id} is invalid JSON/schema: "
+                    f"{qual_file}: {exc}"
+                ) from exc
+
             if qual.qualification_hash != entry.qualification_hash:
                 raise DomainViolation(
                     f"Qualification hash mismatch for {entry.candidate_id}: "
@@ -569,15 +602,24 @@ class LivePaperEngine:
                 require_flat=require_flat,
                 evaluated_at=datetime.now(UTC),
             )
-            if decision.decision != "admitted":
-                raise DomainViolation(
-                    f"Candidate {entry.candidate_id} admission blocked: {decision.decision} "
-                    f"(reasons: {decision.reason_codes})"
-                )
-
             self.admission_decisions[sym] = decision
             self.qualifications[sym] = qual
-            if sym in self.symbols:
+
+            if decision.decision != "admitted":
+                if require_admitted:
+                    raise DomainViolation(
+                        f"Candidate {entry.candidate_id} admission blocked: {decision.decision} "
+                        f"(reasons: {decision.reason_codes})"
+                    )
+                logger.warning(
+                    "Candidate %s admission not admitted: %s (%s)",
+                    entry.candidate_id,
+                    decision.decision,
+                    decision.reason_codes,
+                )
+                continue
+
+            if allowed_symbols is None or sym in allowed_symbols:
                 loaded[sym] = cand
 
         return loaded
@@ -596,11 +638,17 @@ class LivePaperEngine:
             base_dir=base_dir or self.base_dir,
             qualifications_dir=qualifications_dir or self.qualifications_dir,
             require_flat=require_flat,
+            allowed_symbols=None,
+            require_admitted=False,
         )
         for sym, cand in new_candidates.items():
             self.candidates[sym] = cand
             if sym not in self.qualified_symbols:
                 self.qualified_symbols = (*self.qualified_symbols, sym)
+            if sym not in self.symbols:
+                self.symbols = (*self.symbols, sym)
+                self._bar_history.setdefault(sym, [])
+                self.max_observed_spread_bps.setdefault(sym, Decimal("0"))
         return dict(self.admission_decisions)
 
     def seed_history(

@@ -629,3 +629,132 @@ def test_run_paper_readiness_snapshot_script(
     payload = json.loads(stdout)
     assert payload["status"] == "ready_for_human_review"
     assert (out_dir / "paper-cohort-readiness-report.json").is_file()
+
+
+def test_live_paper_engine_resolves_symbols_dynamically_from_manifest(tmp_path: Path) -> None:
+    """Engine dynamically resolves symbols from manifest v2 when symbols is not provided."""
+    cand = _build_test_candidate("cand-test-avax", "AVAXUSDT")
+    qual = _build_test_qualification(cand, "qualified")
+    manifest_path = _write_v2_manifest(tmp_path, {"AVAXUSDT": (cand, qual)})
+
+    # Initialize LivePaperEngine WITHOUT passing symbols
+    engine = LivePaperEngine(
+        registry_manifest=manifest_path,
+        ledger_db=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+        observations_db=tmp_path / "paper-observations.sqlite3",
+    )
+
+    assert engine.symbols == ("AVAXUSDT",)
+    assert "AVAXUSDT" in engine.candidates
+    assert engine.candidates["AVAXUSDT"].candidate_id == "cand-test-avax"
+    assert "AVAXUSDT" in engine.qualified_symbols
+    assert engine.candidate_admission_decisions["AVAXUSDT"].decision == "admitted"
+
+
+def test_discover_and_admit_candidates_runtime(tmp_path: Path) -> None:
+    """discover_and_admit_candidates dynamically admits new candidate symbols at runtime."""
+    cand_btc = _build_test_candidate("cand-btc", "BTCUSDT")
+    qual_btc = _build_test_qualification(cand_btc, "qualified")
+    manifest_btc = _write_v2_manifest(tmp_path / "m1", {"BTCUSDT": (cand_btc, qual_btc)})
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_btc,
+        ledger_db=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+        observations_db=tmp_path / "paper-observations.sqlite3",
+    )
+    assert "BTCUSDT" in engine.candidates
+
+    # Discover and admit a new candidate for AVAXUSDT
+    cand_avax = _build_test_candidate("cand-avax", "AVAXUSDT")
+    qual_avax = _build_test_qualification(cand_avax, "qualified")
+    manifest_avax = _write_v2_manifest(tmp_path / "m2", {"AVAXUSDT": (cand_avax, qual_avax)})
+
+    decisions = engine.discover_and_admit_candidates(manifest_avax)
+    assert "AVAXUSDT" in decisions
+    assert decisions["AVAXUSDT"].decision == "admitted"
+    assert "AVAXUSDT" in engine.candidates
+    assert "AVAXUSDT" in engine.symbols
+    assert "AVAXUSDT" in engine.qualified_symbols
+    assert "AVAXUSDT" in engine._bar_history
+
+
+def test_discover_and_admit_candidates_deferred_active_position(tmp_path: Path) -> None:
+    """discover_and_admit_candidates defers admission when active trade is open."""
+    from unittest.mock import MagicMock
+
+    cand_btc = _build_test_candidate("cand-btc-001", "BTCUSDT")
+    qual_btc = _build_test_qualification(cand_btc, "qualified")
+    manifest_btc = _write_v2_manifest(tmp_path / "m1", {"BTCUSDT": (cand_btc, qual_btc)})
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_btc,
+        ledger_db=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+        observations_db=tmp_path / "paper-observations.sqlite3",
+    )
+
+    # Active trade is open on BTCUSDT
+    engine.active_trades["BTCUSDT"] = MagicMock()
+
+    # Attempt dynamic admission of updated candidate for BTCUSDT with require_flat=True
+    cand_btc_v2 = _build_test_candidate("cand-btc-002", "BTCUSDT")
+    qual_btc_v2 = _build_test_qualification(cand_btc_v2, "qualified")
+    manifest_btc_v2 = _write_v2_manifest(tmp_path / "m2", {"BTCUSDT": (cand_btc_v2, qual_btc_v2)})
+
+    decisions = engine.discover_and_admit_candidates(manifest_btc_v2, require_flat=True)
+    assert "BTCUSDT" in decisions
+    assert decisions["BTCUSDT"].decision == "deferred_active_position"
+    assert "active_position_open" in decisions["BTCUSDT"].reason_codes
+    # Original candidate is retained
+    assert engine.candidates["BTCUSDT"].candidate_id == "cand-btc-001"
+
+
+def test_engine_rejects_corrupted_json_in_artifacts(tmp_path: Path) -> None:
+    """Engine rejects manifest loading when candidate or qualification file is corrupted JSON."""
+    cand = _build_test_candidate("cand-corrupt-json", "BTCUSDT")
+    qual = _build_test_qualification(cand, "qualified")
+    manifest_path = _write_v2_manifest(tmp_path, {"BTCUSDT": (cand, qual)})
+
+    # Corrupt candidate file with invalid JSON syntax
+    cand_file = tmp_path / "candidates" / f"{cand.candidate_id}.json"
+    cand_file.write_text("{not valid json", encoding="utf-8")
+
+    with pytest.raises(DomainViolation, match="invalid JSON/schema"):
+        LivePaperTradingEngine(
+            symbols=("BTCUSDT",),
+            registry_manifest=manifest_path,
+            ledger_db=tmp_path / "paper-ledger.sqlite3",
+            lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+            observations_db=tmp_path / "paper-observations.sqlite3",
+        )
+
+
+def test_cohort_cli_and_script_corrupt_database_error_handling(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CLI and standalone script handle corrupted SQLite databases gracefully with exit code 2."""
+    from autonomous_futures.paper.cohort_cli import main as cli_main
+    from scripts.run_paper_readiness_snapshot import main as script_main
+
+    corrupt_db = tmp_path / "corrupt.sqlite3"
+    corrupt_db.write_text("NOT A VALID SQLITE DATABASE", encoding="utf-8")
+
+    # Test cohort_cli
+    cli_ret = cli_main(["--ledger-path", str(corrupt_db)])
+    assert cli_ret == 2
+    cli_out = capsys.readouterr().out
+    cli_payload = json.loads(cli_out)
+    assert cli_payload["status"] == "error"
+    assert cli_payload["error_code"] == "invalid_input"
+
+    # Test run_paper_readiness_snapshot script
+    script_ret = script_main(["--ledger-db", str(corrupt_db)])
+    assert script_ret == 2
+    script_err = capsys.readouterr().err
+    script_payload = json.loads(script_err)
+    assert script_payload["status"] == "error"
+    assert script_payload["error_code"] == "invalid_input"
