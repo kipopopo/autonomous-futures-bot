@@ -24,10 +24,8 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 
 if TYPE_CHECKING:
     from autonomous_futures.feed.monitor import CircuitBreakerFeedMonitor
-    from autonomous_futures.paper.admission import StrategyAdmissionDecision
-    from autonomous_futures.research.qualification_artifacts import (
-        CreatorCandidateQualificationArtifact,
-    )
+    from autonomous_futures.paper.cohort import PaperCohortReadinessReport
+    from autonomous_futures.paper.health import PaperHealthReport
 
 import pandas as pd
 
@@ -41,6 +39,17 @@ from autonomous_futures.feed.models import (
     TickerSnapshot,
 )
 from autonomous_futures.feed.telemetry import FeedTelemetryAccumulator
+from autonomous_futures.paper.admission import (
+    StrategyAdmissionDecider,
+    StrategyAdmissionDecision,
+    strategy_admission_content_hash,
+)
+from autonomous_futures.paper.candidate_registry import (
+    CandidateRegistryManifest,
+    compute_registry_hash,
+    read_candidate_registry,
+    verify_candidate_registry_manifest,
+)
 from autonomous_futures.paper.circuit_breakers import (
     HardenedSharedMarginAccount,
 )
@@ -70,6 +79,11 @@ from autonomous_futures.research.creator_artifacts import (
 from autonomous_futures.research.feature_signals import (
     CausalFeatureSignalEvaluator,
     _parse_expression,
+)
+from autonomous_futures.research.qualification_artifacts import (
+    CreatorCandidateQualificationArtifact,
+    _qualification_content_hash,
+    read_creator_candidate_qualification_artifact,
 )
 
 logger = logging.getLogger("autonomous_futures.paper.live_engine")
@@ -278,11 +292,26 @@ class LivePaperEngine:
         monitor: CircuitBreakerFeedMonitor | None = None,
         account: HardenedSharedMarginAccount | None = None,
         telemetry: FeedTelemetryAccumulator | None = None,
+        *,
+        registry_manifest: CandidateRegistryManifest | Path | str | None = None,
+        qualifications_dir: Path | str | None = None,
+        base_dir: Path | str | None = None,
+        require_flat: bool = False,
     ) -> None:
         self.symbols: tuple[str, ...] = tuple(s.upper() for s in symbols)
         self.fee_rate: Decimal = fee_rate
         self.slippage_bps: Decimal = slippage_bps
         self.slippage_rate: Decimal = slippage_bps / Decimal("10000")
+        self.qualifications_dir: Path | None = (
+            Path(qualifications_dir) if qualifications_dir is not None else None
+        )
+        self.base_dir: Path | None = Path(base_dir) if base_dir is not None else None
+        self.registry_manifest: CandidateRegistryManifest | None = None
+        self.admission_decisions: dict[str, StrategyAdmissionDecision] = {}
+        self.candidate_admission_decisions: dict[str, StrategyAdmissionDecision] = (
+            self.admission_decisions
+        )
+        self.qualifications: dict[str, CreatorCandidateQualificationArtifact] = {}
 
         # Isolated SQLite persistence stores
         self.ledger_path = ledger_db or Path("paper-ledger.sqlite3")
@@ -311,9 +340,35 @@ class LivePaperEngine:
         self._persistence_failed = False
 
         # Candidate strategies are needed to validate persisted immutable strategy content.
-        self.candidates: dict[str, CreatorCandidateArtifact] = (
-            dict(candidates) if candidates is not None else self._load_default_candidates()
-        )
+        if candidates is not None:
+            self.candidates: dict[str, CreatorCandidateArtifact] = dict(candidates)
+        elif registry_manifest is not None:
+            self.candidates = self._load_candidates_from_manifest(
+                registry_manifest,
+                base_dir=self.base_dir,
+                qualifications_dir=self.qualifications_dir,
+                require_flat=require_flat,
+            )
+        else:
+            default_manifest = Path("artifacts/paper_live/candidate_registry.json")
+            if default_manifest.is_file():
+                try:
+                    self.candidates = self._load_candidates_from_manifest(
+                        default_manifest,
+                        base_dir=self.base_dir,
+                        qualifications_dir=self.qualifications_dir,
+                        require_flat=require_flat,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to load candidates from %s: %s; falling back to default",
+                        default_manifest,
+                        exc,
+                    )
+                    self.candidates = self._load_default_candidates()
+            else:
+                self.candidates = self._load_default_candidates()
+
         self.qualified_symbols: tuple[str, ...] = tuple(self.candidates.keys())
 
         # Shared 100 USDT margin account
@@ -385,6 +440,185 @@ class LivePaperEngine:
                     except Exception as exc:
                         logger.warning("Failed to load candidate for %s: %s", symbol, exc)
         return candidates
+
+    def _load_candidates_from_manifest(
+        self,
+        manifest_input: CandidateRegistryManifest | Path | str,
+        *,
+        base_dir: Path | None = None,
+        qualifications_dir: Path | None = None,
+        require_flat: bool = False,
+    ) -> dict[str, CreatorCandidateArtifact]:
+        """Load, validate, and admit candidates directly from CandidateRegistryManifest v2."""
+        if isinstance(manifest_input, (str, Path)):
+            manifest = read_candidate_registry(manifest_input, verify_hash=True)
+            manifest_dir = Path(manifest_input).parent
+        else:
+            manifest = manifest_input
+            manifest_dir = Path("artifacts/paper_live")
+            if not verify_candidate_registry_manifest(manifest):
+                raise DomainViolation(
+                    f"CandidateRegistryManifest registry_hash mismatch: "
+                    f"expected {manifest.registry_hash}, computed {compute_registry_hash(manifest)}"
+                )
+
+        if manifest.registry_version < 2:
+            raise ValueError(
+                f"CandidateRegistryManifest version must be >= 2, got {manifest.registry_version}"
+            )
+
+        self.registry_manifest = manifest
+        loaded: dict[str, CreatorCandidateArtifact] = {}
+        decider = StrategyAdmissionDecider()
+
+        for symbol, entry in manifest.symbols.items():
+            sym = symbol.upper()
+            art_path = Path(entry.artifact_path)
+            if not art_path.is_file() and base_dir is not None:
+                cand_path = Path(base_dir) / art_path
+                if cand_path.is_file():
+                    art_path = cand_path
+            if not art_path.is_file() and (manifest_dir / entry.artifact_path).is_file():
+                art_path = manifest_dir / entry.artifact_path
+
+            if not art_path.is_file():
+                raise FileNotFoundError(
+                    f"Candidate artifact file for {symbol} not found: {entry.artifact_path}"
+                )
+
+            cand = read_creator_candidate_artifact(art_path)
+            if cand.candidate_id != entry.candidate_id:
+                raise DomainViolation(
+                    f"Candidate ID mismatch for {symbol}: expected {entry.candidate_id}, "
+                    f"found {cand.candidate_id}"
+                )
+            if cand.artifact_hash != entry.candidate_artifact_hash:
+                raise DomainViolation(
+                    f"Candidate artifact hash mismatch for {symbol}: "
+                    f"expected {entry.candidate_artifact_hash}, "
+                    f"found {cand.artifact_hash}"
+                )
+            computed_art_hash = _artifact_content_hash(cand)
+            if computed_art_hash != entry.candidate_artifact_hash:
+                raise DomainViolation(
+                    f"Candidate content hash mismatch for {symbol}: "
+                    f"expected {entry.candidate_artifact_hash}, "
+                    f"computed {computed_art_hash}"
+                )
+            if sym not in cand.strategy.universe.symbols:
+                raise DomainViolation(
+                    f"Symbol {sym} not present in candidate universe symbols: "
+                    f"{cand.strategy.universe.symbols}"
+                )
+
+            # Locate qualification artifact
+            qual_paths = []
+            if qualifications_dir is not None:
+                qual_paths.append(Path(qualifications_dir) / f"qual-{entry.candidate_id}.json")
+                qual_paths.append(Path(qualifications_dir) / f"{entry.candidate_id}.json")
+                qual_paths.append(Path(qualifications_dir) / f"{entry.qualification_hash}.json")
+            qual_paths.append(
+                art_path.parent.parent / "qualifications" / f"qual-{entry.candidate_id}.json"
+            )
+            qual_paths.append(
+                art_path.parent.parent / "qualifications" / f"{entry.candidate_id}.json"
+            )
+            qual_paths.append(
+                Path("artifacts/paper_live/qualifications") / f"qual-{entry.candidate_id}.json"
+            )
+            qual_paths.append(
+                Path("artifacts/paper_live/qualifications") / f"{entry.candidate_id}.json"
+            )
+            qual_paths.append(art_path.parent / f"qual-{entry.candidate_id}.json")
+            qual_paths.append(art_path.parent / f"{entry.candidate_id}.json")
+            if base_dir is not None:
+                qual_paths.append(
+                    Path(base_dir)
+                    / "artifacts/paper_live/qualifications"
+                    / f"qual-{entry.candidate_id}.json"
+                )
+                qual_paths.append(
+                    Path(base_dir)
+                    / "artifacts/paper_live/qualifications"
+                    / f"{entry.candidate_id}.json"
+                )
+                qual_paths.append(
+                    Path(base_dir) / "qualifications" / f"qual-{entry.candidate_id}.json"
+                )
+                qual_paths.append(Path(base_dir) / "qualifications" / f"{entry.candidate_id}.json")
+
+            qual_file = next((p for p in qual_paths if p.is_file()), None)
+            if qual_file is None:
+                raise DomainViolation(
+                    f"Qualification artifact file for {entry.candidate_id} not found"
+                )
+
+            qual = read_creator_candidate_qualification_artifact(qual_file)
+            if qual.qualification_hash != entry.qualification_hash:
+                raise DomainViolation(
+                    f"Qualification hash mismatch for {entry.candidate_id}: "
+                    f"expected {entry.qualification_hash}, found {qual.qualification_hash}"
+                )
+            computed_qual_hash = _qualification_content_hash(qual)
+            if computed_qual_hash != entry.qualification_hash:
+                raise DomainViolation(
+                    f"Qualification content hash mismatch for {entry.candidate_id}: "
+                    f"expected {entry.qualification_hash}, computed {computed_qual_hash}"
+                )
+            if qual.candidate_id != entry.candidate_id:
+                raise DomainViolation(
+                    f"Qualification candidate_id mismatch for {symbol}: "
+                    f"expected {entry.candidate_id}, found {qual.candidate_id}"
+                )
+            if qual.candidate_artifact_hash != entry.candidate_artifact_hash:
+                raise DomainViolation(
+                    f"Qualification candidate_artifact_hash mismatch for {symbol}: "
+                    f"expected {entry.candidate_artifact_hash}, "
+                    f"found {qual.candidate_artifact_hash}"
+                )
+
+            # Evaluate admission decision using StrategyAdmissionDecider
+            decision = decider.evaluate_admission(
+                candidate=cand,
+                qualification=qual,
+                symbol=sym,
+                active_trades=self.active_trades,
+                require_flat=require_flat,
+                evaluated_at=datetime.now(UTC),
+            )
+            if decision.decision != "admitted":
+                raise DomainViolation(
+                    f"Candidate {entry.candidate_id} admission blocked: {decision.decision} "
+                    f"(reasons: {decision.reason_codes})"
+                )
+
+            self.admission_decisions[sym] = decision
+            self.qualifications[sym] = qual
+            if sym in self.symbols:
+                loaded[sym] = cand
+
+        return loaded
+
+    def discover_and_admit_candidates(
+        self,
+        manifest: CandidateRegistryManifest | Path | str,
+        *,
+        base_dir: Path | None = None,
+        qualifications_dir: Path | None = None,
+        require_flat: bool = False,
+    ) -> dict[str, StrategyAdmissionDecision]:
+        """Dynamically discover, validate, and admit candidates from manifest v2."""
+        new_candidates = self._load_candidates_from_manifest(
+            manifest,
+            base_dir=base_dir or self.base_dir,
+            qualifications_dir=qualifications_dir or self.qualifications_dir,
+            require_flat=require_flat,
+        )
+        for sym, cand in new_candidates.items():
+            self.candidates[sym] = cand
+            if sym not in self.qualified_symbols:
+                self.qualified_symbols = (*self.qualified_symbols, sym)
+        return dict(self.admission_decisions)
 
     def seed_history(
         self,
@@ -714,6 +948,20 @@ class LivePaperEngine:
         if cand is None:
             return
 
+        # Pre-signal validation: verify candidate artifact hash integrity
+        if cand.artifact_hash != _artifact_content_hash(cand):
+            logger.error(
+                "Tampered candidate artifact detected for %s; aborting signal processing", sym
+            )
+            return
+
+        adm_dec = self.admission_decisions.get(sym)
+        if adm_dec is not None and adm_dec.decision != "admitted":
+            logger.warning(
+                "Signal evaluation blocked for %s: admission decision is %s", sym, adm_dec.decision
+            )
+            return
+
         df = self.get_bar_dataframe(sym)
         min_bars = 20  # Minimum bars to compute RSI/ADX/EMA
         if len(df) < min_bars:
@@ -793,6 +1041,20 @@ class LivePaperEngine:
         if self._persistence_failed or cand is None or sym in self.active_trades:
             return None
 
+        # Pre-execution validation: verify candidate artifact hash integrity
+        if cand.artifact_hash != _artifact_content_hash(cand):
+            logger.error(
+                "Tampered candidate artifact detected for %s; aborting trade execution", sym
+            )
+            return None
+
+        adm_dec = self.admission_decisions.get(sym)
+        if adm_dec is not None and adm_dec.decision != "admitted":
+            logger.warning(
+                "Trade rejected for %s: strategy admission decision is %s", sym, adm_dec.decision
+            )
+            return None
+
         # Circuit breaker safety guards
         if self.account.current_state in ("HALTED", "EMERGENCY_FLAT"):
             logger.info("Order rejected: circuit breaker in %s state", self.account.current_state)
@@ -860,10 +1122,15 @@ class LivePaperEngine:
             fee_rate=self.fee_rate,
             slippage_bps=self.slippage_bps,
         )
+        qual_hash = (
+            self.admission_decisions[sym].qualification_hash
+            if sym in self.admission_decisions
+            else "0" * 64
+        )
         evidence = PaperSafetyEvidence(
             candidate_id=cand.candidate_id,
             candidate_artifact_hash=cand.artifact_hash,
-            qualification_hash="0" * 64,
+            qualification_hash=qual_hash,
             qualification_decision="qualified",
             zero_oos_liquidations=True,
         )
@@ -1575,17 +1842,39 @@ class LivePaperEngine:
         require_flat: bool = False,
     ) -> StrategyAdmissionDecision:
         """Evaluate and admit a newly qualified strategy candidate safely into paper runtime."""
-        from autonomous_futures.paper.admission import (
-            StrategyAdmissionDecider,
-            StrategyAdmissionDecision,
-            strategy_admission_content_hash,
-        )
-
         symbol = (
             candidate.strategy.universe.symbols[0]
             if candidate.strategy.universe.symbols
             else self.symbols[0]
         )
+
+        # Attempt to locate qualification artifact on disk if not provided
+        if qualification is None:
+            qual_paths = []
+            if self.qualifications_dir is not None:
+                qual_paths.append(self.qualifications_dir / f"qual-{candidate.candidate_id}.json")
+                if qualification_hash:
+                    qual_paths.append(self.qualifications_dir / f"{qualification_hash}.json")
+            qual_paths.append(
+                Path("artifacts/paper_live/qualifications") / f"qual-{candidate.candidate_id}.json"
+            )
+            if self.base_dir is not None:
+                qual_paths.append(
+                    self.base_dir
+                    / "artifacts/paper_live/qualifications"
+                    / f"qual-{candidate.candidate_id}.json"
+                )
+                qual_paths.append(
+                    self.base_dir / "qualifications" / f"qual-{candidate.candidate_id}.json"
+                )
+
+            qual_file = next((p for p in qual_paths if p.is_file()), None)
+            if qual_file is not None:
+                try:
+                    qualification = read_creator_candidate_qualification_artifact(qual_file)
+                except Exception as exc:
+                    logger.warning("Failed to load qualification from %s: %s", qual_file, exc)
+
         if qualification is not None:
             decider = StrategyAdmissionDecider()
             decision = decider.evaluate_admission(
@@ -1600,44 +1889,70 @@ class LivePaperEngine:
             now = datetime.now(UTC)
             cand_slug = re.sub(r"[^a-z0-9-]", "-", candidate.candidate_id.lower()).strip("-")
             dec_id = f"admission-{cand_slug[:24]}-{int(now.timestamp())}"
-            has_active = symbol in self.active_trades
-            if has_active and require_flat:
-                decision_outcome = "deferred_active_position"
-                reasons = ("active_position_open",)
-                active_retained = False
-            else:
-                decision_outcome = "admitted"
-                reasons = (
-                    ("candidate_qualified_active_trade_retained",)
-                    if has_active
-                    else ("candidate_qualified_for_admission",)
+
+            # Check candidate content hash integrity
+            if _artifact_content_hash(candidate) != candidate.artifact_hash:
+                provisional = StrategyAdmissionDecision.model_validate(
+                    {
+                        "decision_version": 1,
+                        "decision_id": dec_id,
+                        "candidate_id": candidate.candidate_id,
+                        "candidate_artifact_hash": candidate.artifact_hash,
+                        "qualification_hash": qualification_hash or ("0" * 64),
+                        "symbol": symbol,
+                        "decision": "blocked_invalid_binding",
+                        "reason_codes": ("candidate_hash_mismatch",),
+                        "active_trade_retained": False,
+                        "data_source": "cached_only",
+                        "promotion_state": "unpromoted",
+                        "paper_activation": False,
+                        "execution_authority": False,
+                        "evaluated_at": now,
+                        "decision_hash": "0" * 64,
+                    }
                 )
-                active_retained = has_active
+                dec_hash = strategy_admission_content_hash(provisional)
+                decision = provisional.model_copy(update={"decision_hash": dec_hash})
+            else:
+                has_active = symbol in self.active_trades
+                if has_active and require_flat:
+                    decision_outcome = "deferred_active_position"
+                    reasons = ("active_position_open",)
+                    active_retained = False
+                else:
+                    decision_outcome = "admitted"
+                    reasons = (
+                        ("candidate_qualified_active_trade_retained",)
+                        if has_active
+                        else ("candidate_qualified_for_admission",)
+                    )
+                    active_retained = has_active
 
-            q_hash = qualification_hash or ("0" * 64)
-            sorted_reasons = tuple(sorted(set(reasons)))
-            provisional = StrategyAdmissionDecision.model_validate(
-                {
-                    "decision_version": 1,
-                    "decision_id": dec_id,
-                    "candidate_id": candidate.candidate_id,
-                    "candidate_artifact_hash": candidate.artifact_hash,
-                    "qualification_hash": q_hash,
-                    "symbol": symbol,
-                    "decision": decision_outcome,
-                    "reason_codes": sorted_reasons,
-                    "active_trade_retained": active_retained,
-                    "data_source": "cached_only",
-                    "promotion_state": "unpromoted",
-                    "paper_activation": decision_outcome == "admitted",
-                    "execution_authority": False,
-                    "evaluated_at": now,
-                    "decision_hash": "0" * 64,
-                }
-            )
-            dec_hash = strategy_admission_content_hash(provisional)
-            decision = provisional.model_copy(update={"decision_hash": dec_hash})
+                q_hash = qualification_hash or ("0" * 64)
+                sorted_reasons = tuple(sorted(set(reasons)))
+                provisional = StrategyAdmissionDecision.model_validate(
+                    {
+                        "decision_version": 1,
+                        "decision_id": dec_id,
+                        "candidate_id": candidate.candidate_id,
+                        "candidate_artifact_hash": candidate.artifact_hash,
+                        "qualification_hash": q_hash,
+                        "symbol": symbol,
+                        "decision": decision_outcome,
+                        "reason_codes": sorted_reasons,
+                        "active_trade_retained": active_retained,
+                        "data_source": "cached_only",
+                        "promotion_state": "unpromoted",
+                        "paper_activation": decision_outcome == "admitted",
+                        "execution_authority": False,
+                        "evaluated_at": now,
+                        "decision_hash": "0" * 64,
+                    }
+                )
+                dec_hash = strategy_admission_content_hash(provisional)
+                decision = provisional.model_copy(update={"decision_hash": dec_hash})
 
+        self.admission_decisions[symbol] = decision
         if decision.decision == "admitted":
             self.candidates[symbol] = candidate
             if symbol not in self.qualified_symbols:
@@ -1656,3 +1971,37 @@ class LivePaperEngine:
                 decision.reason_codes,
             )
         return decision
+
+    def evaluate_cohort_readiness(
+        self,
+        output_dir: Path | str | None = None,
+        as_of: datetime | None = None,
+        max_mark_age_seconds: int = 86400,
+        required_days: int = 7,
+    ) -> tuple[dict[str, PaperHealthReport], PaperCohortReadinessReport]:
+        """Evaluate automated cohort readiness and health telemetry from runtime stores."""
+        from autonomous_futures.paper.cohort import evaluate_paper_cohort_snapshot
+
+        return evaluate_paper_cohort_snapshot(
+            ledger_db=self.ledger_path,
+            lifecycle_db=self.lifecycle_path,
+            observations_db=self.observations_path,
+            candidates=self.candidates,
+            output_dir=output_dir,
+            as_of=as_of,
+            max_mark_age_seconds=max_mark_age_seconds,
+            required_days=required_days,
+        )
+
+
+LivePaperTradingEngine = LivePaperEngine
+
+__all__ = [
+    "ActivePaperTrade",
+    "LivePaperEngine",
+    "LivePaperTradingEngine",
+    "compute_atr_series",
+    "compute_file_sha256",
+    "compute_signal_conviction",
+    "evaluate_strategy_exit",
+]

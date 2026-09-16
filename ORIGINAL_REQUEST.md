@@ -484,3 +484,55 @@ Enforce strict autonomous operations safety:
 - [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Zero secrets or API keys detected.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-16T12:57:37Z
+
+Integrate candidate manifest v2 discovery, lifecycle telemetry monitoring, and automated cohort readiness evaluation into the autonomous paper trading runtime (Phase 265) to prepare fail-closed daemon operations without external order routing.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Manifest-Driven Candidate Discovery & Dynamic Admission in Live Engine
+Enhance `LivePaperTradingEngine` to support candidate loading and validation directly from `CandidateRegistryManifest`:
+- Dynamically resolve active candidates from `CandidateRegistryManifest` (version >= 2, e.g. `artifacts/paper_live/candidate_registry.json`) instead of static hardcoded candidate tuples.
+- Validate candidate artifact hashes, qualification hashes, and admission decisions using `StrategyAdmissionDecider` before trade execution or signal processing.
+- Maintain single-position invariants per admitted symbol across shared portfolio margin.
+
+### R2. Periodic Cohort Readiness & Health Telemetry Integration
+Wire automated cohort readiness reporting into the paper runtime:
+- Implement periodic or snapshot cohort evaluation combining `aggregate_paper_health` and `summarize_paper_cohort`.
+- Expose a clean programmatic interface / CLI command (`autonomous_futures.paper.cohort_cli` or `scripts/run_paper_readiness_snapshot.py`) to generate `paper-cohort-readiness-report.json` and per-symbol health reports from SQLite stores (`paper-ledger.sqlite3`, `paper-lifecycle.sqlite3`, `paper-observations.sqlite3`).
+- Track readiness status codes: `unavailable`, `not_ready`, `blocked`, and `ready_for_human_review` based on mature trade count, accounting completeness, and lifecycle health.
+
+### R3. Strict Fail-Closed Invariants & Zero Secret Leakage
+Ensure absolute containment of live/external dependencies:
+- Strict fail-closed defaults: `paper_activation: false`, `execution_authority: false`, `exchange_access: false`, `orders: 0`.
+- Offline safety invariants: verify zero external API order execution and zero secrets/credentials in serialized reports or logs.
+
+### R4. Targeted Testing, Static Quality Gates & Remote CI Polling
+Enforce rigorous engineering hygiene:
+- Add comprehensive targeted unit tests in `tests/unit/test_paper_cohort_runtime_readiness.py` covering manifest-driven admission, snapshot report generation, and status code transitions.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full 2,350+ regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Candidate Discovery & Admission
+- [ ] `LivePaperTradingEngine` can initialize and admit candidates dynamically from `CandidateRegistryManifest` (v2).
+- [ ] Invalid or tampered candidates are rejected with explicit domain error codes.
+
+### Cohort Readiness & Telemetry
+- [ ] Cohort readiness evaluation executes cleanly against isolated SQLite stores and outputs valid `PaperCohortReadinessReport`.
+- [ ] Per-symbol health reports and reason codes accurately reflect open positions, stale telemetry, or maturity status.
+
+### Safety & Verification
+- [ ] All safety invariants verified: fail-closed runtime, no exchange access, no API secret leakage.
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.

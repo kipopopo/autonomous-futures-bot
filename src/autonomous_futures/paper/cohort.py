@@ -2,14 +2,45 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Literal
+import json
+import logging
+import re
+import sqlite3
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field
 
 from ..domain.contracts import DomainModel
-from .health import PaperHealthReport
+from ..domain.errors import DomainViolation
+from .candidate_registry import (
+    DEFAULT_CANDIDATE_REGISTRY_PATH,
+    CandidateRegistryManifest,
+    read_candidate_registry,
+)
+from .health import PaperHealthReport, aggregate_paper_health
+from .lifecycle import PaperLifecycleTelemetry
 from .observation import PaperObservationBinding
+from .sqlite_ledger import SqlitePaperLedger
+from .sqlite_lifecycle import SqlitePaperLifecycle
+from .sqlite_observation import SqlitePaperObservations
+
+if TYPE_CHECKING:
+    from ..research.creator_artifacts import CreatorCandidateArtifact
+
+logger = logging.getLogger(__name__)
+
+_SECRET_PATTERN = re.compile(
+    r"(?i)(AIza[0-9A-Za-z\-_]{20,}|ya29\.[0-9A-Za-z\-_]+|bearer\s+[A-Za-z0-9\-._~+/]+=*)"
+)
+
+
+def _assert_zero_secrets(text: str, source_label: str) -> None:
+    match = _SECRET_PATTERN.search(text)
+    if match:
+        raise DomainViolation(f"Secret pattern matched in {source_label}: {match.group(0)[:8]}...")
 
 
 class PaperCohortCandidateStatus(DomainModel):
@@ -156,3 +187,180 @@ def summarize_paper_cohort(
         missing=missing,
         reason_codes=reason_codes,
     )
+
+
+def evaluate_paper_cohort_snapshot(
+    ledger_db: Path | str | None = None,
+    lifecycle_db: Path | str | None = None,
+    observations_db: Path | str | None = None,
+    *,
+    ledger_path: Path | str | None = None,
+    lifecycle_path: Path | str | None = None,
+    observations_path: Path | str | None = None,
+    manifest: CandidateRegistryManifest | Path | str | None = None,
+    candidates: Mapping[str, CreatorCandidateArtifact] | None = None,
+    expected_bindings: Sequence[PaperObservationBinding] | None = None,
+    as_of: datetime | None = None,
+    max_mark_age_seconds: int = 86400,
+    required_days: int = 7,
+    output_dir: Path | str | None = None,
+) -> tuple[dict[str, PaperHealthReport], PaperCohortReadinessReport]:
+    """Execute automated cohort readiness snapshot evaluation across isolated SQLite stores.
+
+    Combines aggregate_paper_health per candidate and summarize_paper_cohort
+    without external order routing. Optionally serializes paper-cohort-readiness-report.json
+    and per-symbol health reports after zero-secret verification.
+    """
+    ledger_file = Path(ledger_path or ledger_db or "paper-ledger.sqlite3")
+    lifecycle_file = Path(lifecycle_path or lifecycle_db or "paper-lifecycle.sqlite3")
+    obs_file = Path(observations_path or observations_db or "paper-observations.sqlite3")
+
+    ledger_store = SqlitePaperLedger(ledger_file)
+    lifecycle_store = SqlitePaperLifecycle(lifecycle_file)
+    obs_store = SqlitePaperObservations(obs_file)
+
+    # Resolve candidate targets (symbol, candidate_id, candidate_artifact_hash)
+    entries: list[tuple[str, str, str]] = []
+    if candidates is not None:
+        entries = [
+            (sym, cand.candidate_id, cand.artifact_hash) for sym, cand in sorted(candidates.items())
+        ]
+    elif manifest is not None:
+        manifest_obj = (
+            read_candidate_registry(manifest, verify_hash=True)
+            if isinstance(manifest, (str, Path))
+            else manifest
+        )
+        entries = [
+            (sym, entry.candidate_id, entry.candidate_artifact_hash)
+            for sym, entry in sorted(manifest_obj.symbols.items())
+        ]
+    elif expected_bindings is not None:
+        entries = [
+            (b.candidate_id, b.candidate_id, b.candidate_artifact_hash) for b in expected_bindings
+        ]
+    elif Path(DEFAULT_CANDIDATE_REGISTRY_PATH).is_file():
+        manifest_obj = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
+        entries = [
+            (sym, entry.candidate_id, entry.candidate_artifact_hash)
+            for sym, entry in sorted(manifest_obj.symbols.items())
+        ]
+    elif obs_file.is_file():
+        with obs_store._connect() as conn:
+            cursor = conn.execute(
+                "SELECT DISTINCT candidate_id, candidate_artifact_hash "
+                "FROM paper_observations ORDER BY candidate_id ASC"
+            )
+            for row in cursor.fetchall():
+                entries.append((row[0], row[0], row[1]))
+
+    if not entries:
+        placeholder = PaperObservationBinding(
+            candidate_id="cand-unavailable-placeholder",
+            candidate_artifact_hash="0" * 64,
+        )
+        target_b = tuple(expected_bindings) if expected_bindings else (placeholder,)
+        empty_rep = summarize_paper_cohort([], target_b)
+        return {}, empty_rep
+
+    if expected_bindings is not None:
+        target_bindings = tuple(expected_bindings)
+    else:
+        target_bindings = tuple(
+            PaperObservationBinding(candidate_id=c_id, candidate_artifact_hash=c_hash)
+            for _, c_id, c_hash in entries
+        )
+
+    # Load active open positions from ledger
+    final_ledger = ledger_store.load()
+    open_positions = final_ledger.open_positions()
+
+    # Determine reference as_of timestamp
+    if as_of is not None:
+        if as_of.tzinfo is None or as_of.utcoffset() != UTC.utcoffset(as_of):
+            raise ValueError("as_of must be timezone-aware UTC")
+        observed_at = as_of.astimezone(UTC).replace(microsecond=0)
+    else:
+        latest_ts: datetime | None = None
+        for _, c_id, c_hash in entries:
+            c_obs = obs_store.read(c_id, c_hash)
+            for o in c_obs:
+                if latest_ts is None or o.observed_at > latest_ts:
+                    latest_ts = o.observed_at
+        if lifecycle_file.is_file():
+            try:
+                with sqlite3.connect(lifecycle_file) as conn:
+                    cursor = conn.execute(
+                        "SELECT 1 FROM sqlite_master "
+                        "WHERE type = 'table' AND name = 'paper_lifecycle_marks'"
+                    )
+                    if cursor.fetchone() is not None:
+                        row = conn.execute(
+                            "SELECT MAX(marked_at) FROM paper_lifecycle_marks"
+                        ).fetchone()
+                        if row and row[0]:
+                            raw_ts = row[0].replace("Z", "+00:00")
+                            ts = datetime.fromisoformat(raw_ts).astimezone(UTC)
+                            if latest_ts is None or ts > latest_ts:
+                                latest_ts = ts
+            except Exception:
+                pass
+        for e in final_ledger.entries:
+            if latest_ts is None or e.occurred_at > latest_ts:
+                latest_ts = e.occurred_at
+        observed_at = (latest_ts or datetime.now(UTC)).astimezone(UTC).replace(microsecond=0)
+
+    # Aggregate health per candidate
+    health_reports: dict[str, PaperHealthReport] = {}
+    for sym, c_id, c_hash in entries:
+        cand_obs = obs_store.read(c_id, c_hash)
+        active_marks: list[PaperLifecycleTelemetry] = []
+        for pos in open_positions:
+            if pos.candidate_id == c_id:
+                mark = lifecycle_store.latest(
+                    candidate_id=c_id,
+                    candidate_artifact_hash=c_hash,
+                    trade_id=pos.trade_id,
+                )
+                if mark is not None:
+                    active_marks.append(mark)
+
+        health_rep = aggregate_paper_health(
+            cand_obs,
+            tuple(active_marks),
+            candidate_id=c_id,
+            candidate_artifact_hash=c_hash,
+            as_of=observed_at,
+            max_mark_age_seconds=max_mark_age_seconds,
+            required_days=required_days,
+        )
+        health_reports[sym] = health_rep
+
+    cohort_rep = summarize_paper_cohort(list(health_reports.values()), target_bindings)
+
+    # Persist serialized reports if output directory requested
+    if output_dir is not None:
+        out_p = Path(output_dir)
+        out_p.mkdir(parents=True, exist_ok=True)
+        cohort_path = out_p / "paper-cohort-readiness-report.json"
+        cohort_json = (
+            json.dumps(cohort_rep.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+        )
+        _assert_zero_secrets(cohort_json, str(cohort_path))
+        cohort_path.write_text(cohort_json, encoding="utf-8")
+
+        for sym, h_rep in health_reports.items():
+            health_path = out_p / f"paper-health-report-{sym}.json"
+            health_json = json.dumps(h_rep.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+            _assert_zero_secrets(health_json, str(health_path))
+            health_path.write_text(health_json, encoding="utf-8")
+
+    return health_reports, cohort_rep
+
+
+__all__ = [
+    "PaperCohortCandidateStatus",
+    "PaperCohortReadinessReport",
+    "evaluate_paper_cohort_snapshot",
+    "summarize_paper_cohort",
+]

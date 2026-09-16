@@ -1,5 +1,10 @@
 """Autonomous Futures Paper Trading Subsystem."""
 
+from .admission import (
+    StrategyAdmissionDecider,
+    StrategyAdmissionDecision,
+    strategy_admission_content_hash,
+)
 from .candidate_registry import (
     DEFAULT_CANDIDATE_REGISTRY_PATH,
     CandidateManifestEntry,
@@ -21,6 +26,12 @@ from .circuit_breakers import (
     HardenedSharedMarginAccount,
     calculate_adverse_gap_fill,
 )
+from .cohort import (
+    PaperCohortCandidateStatus,
+    PaperCohortReadinessReport,
+    evaluate_paper_cohort_snapshot,
+    summarize_paper_cohort,
+)
 from .feedback_extractor import (
     PaperFeedbackExtractor,
     PaperQualificationPolicy,
@@ -30,9 +41,10 @@ from .feedback_extractor import (
     paper_qualification_policy_content_hash,
 )
 from .fills import PaperRoundTripResult, simulate_paper_round_trip
+from .health import PaperHealthReport, PaperLifecycleHealth, aggregate_paper_health
 from .ledger import PaperLedger, PaperLedgerEntry, PaperLedgerError
 from .lifecycle import PaperLifecycleTelemetry, mark_paper_position
-from .live_engine import ActivePaperTrade, LivePaperEngine
+from .live_engine import ActivePaperTrade, LivePaperEngine, LivePaperTradingEngine
 from .observation import PaperObservation, observe_paper_ledger
 from .resume_control import (
     PaperRecoveryPreflight,
@@ -69,12 +81,17 @@ __all__ = [
     "DEFAULT_CANDIDATE_REGISTRY_PATH",
     "HardenedSharedMarginAccount",
     "LivePaperEngine",
+    "LivePaperTradingEngine",
     "PaperActionApproval",
     "PaperActionPermission",
+    "PaperCohortCandidateStatus",
+    "PaperCohortReadinessReport",
     "PaperFeedbackExtractor",
+    "PaperHealthReport",
     "PaperLedger",
     "PaperLedgerEntry",
     "PaperLedgerError",
+    "PaperLifecycleHealth",
     "PaperLifecycleTelemetry",
     "PaperObservation",
     "PaperRecoveryPreflight",
@@ -91,12 +108,16 @@ __all__ = [
     "SqlitePaperLedger",
     "SqlitePaperLifecycle",
     "SqlitePaperObservations",
+    "StrategyAdmissionDecider",
+    "StrategyAdmissionDecision",
+    "aggregate_paper_health",
     "apply_paper_resume_request",
     "build_candidate_registry_manifest",
     "calculate_adverse_gap_fill",
     "compute_feedback_qualification_hash",
     "compute_registry_hash",
     "evaluate_paper_action_permission",
+    "evaluate_paper_cohort_snapshot",
     "evaluate_paper_safety",
     "extract_paper_feedback",
     "mark_paper_position",
@@ -108,6 +129,8 @@ __all__ = [
     "read_candidate_registry",
     "read_paper_resume_request",
     "simulate_paper_round_trip",
+    "strategy_admission_content_hash",
+    "summarize_paper_cohort",
     "validate_manifest_candidate_artifacts",
     "verify_candidate_manifest_entry",
     "verify_candidate_registry_manifest",
