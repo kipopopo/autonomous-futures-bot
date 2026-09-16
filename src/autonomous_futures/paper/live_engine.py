@@ -1761,7 +1761,7 @@ class LivePaperEngine:
             self.active_trades[trade.symbol] = trade
             self._register_symbol(trade.symbol)
 
-    def reconcile_balances(self) -> dict[str, Any]:
+    def reconcile_balances(self, *, tolerance: Decimal = Decimal("1e-15")) -> dict[str, Any]:
         """Verify exact Decimal cash balance reconciliation with zero drift."""
         ledger = self.runtime.ledger.load()
         closed_entries = [e for e in ledger.entries if e.event == "close"]
@@ -1779,7 +1779,7 @@ class LivePaperEngine:
         expected_cash = self.account.starting_capital + total_realized_pnl - total_open_entry_fees
         actual_cash = self.account.cash
         drift = abs(actual_cash - expected_cash)
-        zero_drift = drift <= Decimal("0.0001")
+        zero_drift = drift < tolerance
 
         if not zero_drift:
             raise DomainViolation(

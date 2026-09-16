@@ -88,7 +88,8 @@ EXPECTED_MANIFEST_V2_CANDIDATES = {
 }
 
 _SECRET_PATTERN = re.compile(
-    r"(?i)(AIza[0-9A-Za-z\-_]{20,}|ya29\.[0-9A-Za-z\-_]+|bearer\s+[A-Za-z0-9\-._~+/]+=*)"
+    r"(?i)(AIza[0-9A-Za-z\-_]{20,}|ya29\.[0-9A-Za-z\-_]+|bearer\s+[A-Za-z0-9\-._~+/]+=*|"
+    r"ghp_[0-9A-Za-z]{36}|gho_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{82}|AKIA[0-9A-Z]{16})"
 )
 
 
@@ -278,8 +279,10 @@ async def replay_batch_bar_ticks(
         logger.warning("No canonical data found for batch ticks replay")
         return 0
 
-    first_sym = next(iter(symbol_dfs))
-    timestamps = [t.to_pydatetime().astimezone(UTC) for t in symbol_dfs[first_sym]["timestamp"]]
+    all_timestamps: set[datetime] = set()
+    for df in symbol_dfs.values():
+        all_timestamps.update(t.to_pydatetime().astimezone(UTC) for t in df["timestamp"])
+    timestamps = sorted(all_timestamps)
 
     ticks_processed = 0
     for ts in timestamps:
@@ -487,7 +490,7 @@ async def run_phase_266_daemon_verification(
         history_dir=history_dir,
         symbols=symbols,
         warmup_bars=100,
-        offset_ticks=batch_ticks_count if effective_mode == "batch" else 0,
+        offset_ticks=batch_ticks_count if effective_mode in ("batch", "auto") else 0,
     )
 
     # 8. Setup graceful shutdown handling (signal trap and timeout-driven termination)
@@ -527,13 +530,26 @@ async def run_phase_266_daemon_verification(
             )
             for t in pending:
                 t.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
             if stream_task in done and not stream_task.cancelled():
                 exc = stream_task.exception()
                 if exc is not None:
                     raise exc
+            if (
+                not stop_event.is_set()
+                and feed_client.reconnect_count > 0
+                and telemetry.total_messages == 0
+            ):
+                raise ConnectionError(
+                    f"Live feed connection failed to receive messages after "
+                    f"{feed_client.reconnect_count} reconnect attempts"
+                )
         finally:
             stop_event.set()
     else:  # auto mode: try live, fall back gracefully to batch on network failure
+        stream_failed = False
+        stream_exc: BaseException | None = None
         try:
             stream_task = asyncio.create_task(
                 feed_client.connect_and_stream(
@@ -549,14 +565,24 @@ async def run_phase_266_daemon_verification(
             )
             for t in pending:
                 t.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
             if stream_task in done and not stream_task.cancelled():
                 exc = stream_task.exception()
                 if exc is not None:
-                    raise exc
+                    stream_failed = True
+                    stream_exc = exc
+            # If duration expired but feed never received messages, live stream was unavailable
+            if not stop_event.is_set() and telemetry.total_messages == 0:
+                stream_failed = True
         except Exception as exc:
+            stream_failed = True
+            stream_exc = exc
+
+        if stream_failed and not stop_event.is_set():
             logger.warning(
-                "Live public stream unavailable (%s); executing batch bar ticks playback",
-                exc,
+                "Live public stream unavailable or empty (%s); executing batch bar ticks playback",
+                stream_exc or "zero messages received",
             )
             await replay_batch_bar_ticks(
                 engine=engine,
@@ -565,8 +591,7 @@ async def run_phase_266_daemon_verification(
                 max_ticks=batch_ticks_count,
                 stop_event=stop_event,
             )
-        finally:
-            stop_event.set()
+        stop_event.set()
 
     # 10. Graceful shutdown and clean resource cleanup
     logger.info("Initiating graceful shutdown of LivePaperTradingEngine...")
@@ -664,12 +689,18 @@ async def run_phase_266_daemon_verification(
     obs_count = 0
     if lifecycle_db.is_file():
         with closing(sqlite3.connect(lifecycle_db)) as conn:
-            row = conn.execute("SELECT COUNT(*) FROM paper_lifecycle_marks").fetchone()
-            lifecycle_count = row[0] if row else 0
+            try:
+                row = conn.execute("SELECT COUNT(*) FROM paper_lifecycle_marks").fetchone()
+                lifecycle_count = row[0] if row else 0
+            except sqlite3.OperationalError:
+                lifecycle_count = 0
     if observations_db.is_file():
         with closing(sqlite3.connect(observations_db)) as conn:
-            row = conn.execute("SELECT COUNT(*) FROM paper_observations").fetchone()
-            obs_count = row[0] if row else 0
+            try:
+                row = conn.execute("SELECT COUNT(*) FROM paper_observations").fetchone()
+                obs_count = row[0] if row else 0
+            except sqlite3.OperationalError:
+                obs_count = 0
 
     # 14. Comprehensive daemon verification summary (R2, R4)
     summary_payload: dict[str, Any] = {

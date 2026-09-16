@@ -135,6 +135,16 @@ class TestPhase266ManifestAndConfig:
         with pytest.raises(DomainViolation):
             validate_manifest_v2(tampered_file)
 
+    def test_validate_manifest_v2_rejects_missing_qualification_file(self, tmp_path: Path) -> None:
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
+        raw_manifest = manifest.model_dump(mode="json")
+        raw_manifest["symbols"]["BTCUSDT"]["candidate_id"] = "cand-nonexistent-999"
+        tampered_file = tmp_path / "missing_qual_manifest.json"
+        tampered_file.write_text(json.dumps(raw_manifest), encoding="utf-8")
+
+        with pytest.raises((DomainViolation, FileNotFoundError)):
+            validate_manifest_v2(tampered_file)
+
 
 class TestPhase266StrategyAdmission:
     """Test StrategyAdmissionDecider evaluation on daemon startup."""
@@ -317,6 +327,119 @@ class TestPhase266BoundedDaemonExecution:
                     mode="live",
                 )
 
+    @pytest.mark.anyio
+    async def test_daemon_auto_fallback_when_feed_receives_zero_messages(
+        self, tmp_path: Path
+    ) -> None:
+        """When stream finishes with 0 messages, auto mode falls back to batch."""
+        from typing import Any
+
+        out_dir = tmp_path / "zero_msg_fallback_test"
+
+        async def mock_connect_empty(*args: Any, **kwargs: Any) -> None:
+            return
+
+        with patch(
+            "autonomous_futures.feed.client.BinancePublicFeedClient.connect_and_stream",
+            side_effect=mock_connect_empty,
+        ):
+            res = await run_phase_266_daemon_verification(
+                output_dir=out_dir,
+                ticks=5,
+                mode="auto",
+            )
+        assert res.accounting_reconciled is True
+        assert (out_dir / "daemon-summary.json").is_file()
+        assert (out_dir / "paper-observations.sqlite3").is_file()
+
+    @pytest.mark.anyio
+    async def test_daemon_live_mode_fails_fast_on_zero_messages_reconnect_loop(
+        self, tmp_path: Path
+    ) -> None:
+        """When mode is live and reconnect count > 0 with 0 messages, ConnectionError is raised."""
+        from typing import Any
+
+        out_dir = tmp_path / "live_fail_fast_test"
+
+        async def mock_connect_reconnecting(self_feed: Any, *args: Any, **kwargs: Any) -> None:
+            self_feed.reconnect_count = 3
+            return
+
+        with patch(
+            "autonomous_futures.feed.client.BinancePublicFeedClient.connect_and_stream",
+            mock_connect_reconnecting,
+        ):
+            with pytest.raises(
+                ConnectionError, match="Live feed connection failed to receive messages"
+            ):
+                await run_phase_266_daemon_verification(
+                    output_dir=out_dir,
+                    duration=1.0,
+                    mode="live",
+                )
+
+    @pytest.mark.anyio
+    async def test_batch_bar_ticks_replay_disparate_symbol_timestamps(self, tmp_path: Path) -> None:
+        """Replaying batch ticks with disjoint symbol timestamps executes all timestamps cleanly."""
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+        from scripts.run_phase_266_daemon_verification import replay_batch_bar_ticks
+
+        hist_dir = tmp_path / "staggered_history"
+        hist_dir.mkdir()
+
+        base_time = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+        df_btc = pd.DataFrame(
+            [
+                {
+                    "timestamp": base_time + timedelta(minutes=5 * i),
+                    "close_time": base_time + timedelta(minutes=5 * (i + 1)),
+                    "open": 90000.0,
+                    "high": 90100.0,
+                    "low": 89900.0,
+                    "close": 90050.0,
+                    "volume": 10.0,
+                    "quote_volume": 900500.0,
+                    "trades": 100,
+                    "taker_buy_base": 5.0,
+                    "taker_buy_quote": 450250.0,
+                }
+                for i in range(3)
+            ]
+        )
+        df_eth = pd.DataFrame(
+            [
+                {
+                    "timestamp": base_time + timedelta(minutes=5 * (i + 1)),
+                    "close_time": base_time + timedelta(minutes=5 * (i + 2)),
+                    "open": 3000.0,
+                    "high": 3010.0,
+                    "low": 2990.0,
+                    "close": 3005.0,
+                    "volume": 50.0,
+                    "quote_volume": 150250.0,
+                    "trades": 80,
+                    "taker_buy_base": 25.0,
+                    "taker_buy_quote": 75125.0,
+                }
+                for i in range(3)
+            ]
+        )
+        df_btc.to_parquet(hist_dir / "BTCUSDT-5m.parquet")
+        df_eth.to_parquet(hist_dir / "ETHUSDT-5m.parquet")
+
+        engine = LivePaperTradingEngine(
+            ledger_db=tmp_path / "ledger.sqlite3",
+            lifecycle_db=tmp_path / "lifecycle.sqlite3",
+            observations_db=tmp_path / "obs.sqlite3",
+        )
+        ticks_replayed = await replay_batch_bar_ticks(
+            engine=engine,
+            history_dir=hist_dir,
+            symbols=("BTCUSDT", "ETHUSDT"),
+            max_ticks=5,
+        )
+        assert ticks_replayed == 4
+
 
 class TestPhase266AccountingAndRiskInvariants:
     """Test exact double-entry accounting reconciliation and risk limits."""
@@ -448,6 +571,20 @@ class TestPhase266AccountingAndRiskInvariants:
             assert res.accounting_reconciled is True
             assert res.drift < Decimal("1e-15")
 
+    def test_reconcile_balances_strict_drift_precision_ceiling(self, tmp_path: Path) -> None:
+        """LivePaperTradingEngine.reconcile_balances strictly enforces < 1e-15 drift tolerance."""
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        engine = LivePaperTradingEngine(
+            ledger_db=tmp_path / "ledger.sqlite3",
+            lifecycle_db=tmp_path / "lifecycle.sqlite3",
+            observations_db=tmp_path / "obs.sqlite3",
+        )
+        # Inject micro-drift of 0.00005 (which previously slipped past 0.0001)
+        engine.account.cash += Decimal("0.00005")
+        with pytest.raises(DomainViolation, match="Cash balance drift detected"):
+            engine.reconcile_balances()
+
 
 class TestPhase266PersistenceAndCohortReporting:
     """Test isolated SQLite persistence, cohort reports, and artifact hashes."""
@@ -501,6 +638,25 @@ class TestPhase266PersistenceAndCohortReporting:
             db_path.rename(renamed_path)
             renamed_path.unlink()
 
+    @pytest.mark.anyio
+    async def test_summary_handles_empty_sqlite_files_without_tables(self, tmp_path: Path) -> None:
+        """Summary generation handles preexisting empty 0-byte SQLite files without crashing."""
+        out_dir = tmp_path / "empty_sqlite_test"
+        out_dir.mkdir(parents=True)
+        # Touch empty databases
+        (out_dir / "paper-ledger.sqlite3").touch()
+        (out_dir / "paper-lifecycle.sqlite3").touch()
+        (out_dir / "paper-observations.sqlite3").touch()
+
+        res = await run_phase_266_daemon_verification(
+            output_dir=out_dir,
+            ticks=5,
+            offline=True,
+        )
+        assert res.accounting_reconciled is True
+        summary = json.loads(res.daemon_summary_path.read_text(encoding="utf-8"))
+        assert "sqlite_persistence" in summary
+
 
 class TestPhase266FailClosedAndZeroSecrets:
     """Test safety invariants, fail-closed boundaries, and zero secret leakage."""
@@ -543,6 +699,24 @@ class TestPhase266FailClosedAndZeroSecrets:
         for jfile in out_dir.glob("*.json"):
             content = jfile.read_text(encoding="utf-8")
             _assert_zero_secrets(content, jfile.name)
+
+    def test_zero_secret_patterns_detects_multiple_token_formats(self) -> None:
+        """_assert_zero_secrets detects GitHub tokens, PATs, and AWS keys."""
+        # Clean passes
+        _assert_zero_secrets("nominal_string_with_no_tokens", "test")
+
+        # GitHub token format
+        with pytest.raises(DomainViolation, match="Secret pattern matched"):
+            _assert_zero_secrets("ghp_1234567890abcdefghijklmnopqrstuvwxyz", "test_ghp")
+
+        # GitHub PAT format
+        pat = "github_pat_" + "a" * 82
+        with pytest.raises(DomainViolation, match="Secret pattern matched"):
+            _assert_zero_secrets(pat, "test_pat")
+
+        # AWS Access Key format
+        with pytest.raises(DomainViolation, match="Secret pattern matched"):
+            _assert_zero_secrets("AKIAIOSFODNN7EXAMPLE", "test_aws")
 
 
 class TestPhase266CLI:
