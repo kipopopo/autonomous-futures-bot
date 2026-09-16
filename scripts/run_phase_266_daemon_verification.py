@@ -16,9 +16,11 @@ import logging
 import os
 import re
 import signal
+import sqlite3
 import sys
 import time
 from collections.abc import Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -137,6 +139,8 @@ def verify_strict_safety_invariants(*, orders_submitted: int = 0) -> dict[str, A
 def validate_manifest_v2(manifest_path: Path) -> CandidateRegistryManifest:
     """Validate Candidate Registry Manifest Version 2 compliance and candidate hashes."""
     if not manifest_path.is_file():
+        manifest_path = _REPO_ROOT / manifest_path
+    if not manifest_path.is_file():
         raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
 
     manifest = read_candidate_registry(manifest_path, verify_hash=True)
@@ -205,8 +209,9 @@ def seed_engine_history_from_canonical(
     offset_ticks: int = 0,
 ) -> None:
     """Seed causal historical bars for dynamic feature calculation warmup from parquet data."""
+    resolved_history_dir = history_dir if history_dir.is_dir() else _REPO_ROOT / history_dir
     for symbol in symbols:
-        parquet_file = history_dir / f"{symbol}-5m.parquet"
+        parquet_file = resolved_history_dir / f"{symbol}-5m.parquet"
         if parquet_file.is_file():
             try:
                 df = pd.read_parquet(parquet_file)
@@ -258,11 +263,12 @@ async def replay_batch_bar_ticks(
     stop_event: asyncio.Event | None = None,
 ) -> int:
     """Replay deterministic batch bars and tickers sequentially from canonical parquet data."""
+    resolved_history_dir = history_dir if history_dir.is_dir() else _REPO_ROOT / history_dir
     symbol_dfs: dict[str, pd.DataFrame] = {}
     for sym in symbols:
-        parquet_path = history_dir / f"{sym}-5m.parquet"
+        parquet_path = resolved_history_dir / f"{sym}-5m.parquet"
         if not parquet_path.is_file():
-            logger.warning("Parquet file for %s not found in %s", sym, history_dir)
+            logger.warning("Parquet file for %s not found in %s", sym, resolved_history_dir)
             continue
         df = pd.read_parquet(parquet_path)
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
@@ -469,9 +475,11 @@ async def run_phase_266_daemon_verification(
                 f"{decision.decision} ({decision.reason_codes})"
             )
 
-    session_duration = 5.0 if smoke_test and duration is None else (duration or 10.0)
-    effective_mode = "batch" if (offline or mode == "batch" or ticks is not None) else mode
-    batch_ticks_count = ticks or 50
+    session_duration = (
+        5.0 if smoke_test and (duration is None or duration == 10.0) else (duration or 10.0)
+    )
+    effective_mode = "batch" if (offline or mode == "batch") else mode
+    batch_ticks_count = ticks if ticks is not None else (10 if smoke_test else 50)
 
     # 7. Seed warmup bars for causal indicators
     seed_engine_history_from_canonical(
@@ -500,7 +508,7 @@ async def run_phase_266_daemon_verification(
             engine=engine,
             history_dir=history_dir,
             symbols=symbols,
-            max_ticks=ticks or 50,
+            max_ticks=batch_ticks_count,
             stop_event=stop_event,
         )
     elif effective_mode == "live":
@@ -519,6 +527,10 @@ async def run_phase_266_daemon_verification(
             )
             for t in pending:
                 t.cancel()
+            if stream_task in done and not stream_task.cancelled():
+                exc = stream_task.exception()
+                if exc is not None:
+                    raise exc
         finally:
             stop_event.set()
     else:  # auto mode: try live, fall back gracefully to batch on network failure
@@ -537,6 +549,10 @@ async def run_phase_266_daemon_verification(
             )
             for t in pending:
                 t.cancel()
+            if stream_task in done and not stream_task.cancelled():
+                exc = stream_task.exception()
+                if exc is not None:
+                    raise exc
         except Exception as exc:
             logger.warning(
                 "Live public stream unavailable (%s); executing batch bar ticks playback",
@@ -546,7 +562,7 @@ async def run_phase_266_daemon_verification(
                 engine=engine,
                 history_dir=history_dir,
                 symbols=symbols,
-                max_ticks=ticks or 50,
+                max_ticks=batch_ticks_count,
                 stop_event=stop_event,
             )
         finally:
@@ -563,13 +579,15 @@ async def run_phase_266_daemon_verification(
 
     final_cash = account.cash
     realized_pnl = Decimal(reconciliation["total_realized_pnl"])
-    expected_cash = starting_capital + realized_pnl
+    total_open_entry_fees = Decimal(reconciliation.get("total_open_entry_fees", "0"))
+    expected_cash = starting_capital + realized_pnl - total_open_entry_fees
     drift = abs(final_cash - expected_cash)
 
     if drift >= Decimal("1e-15"):
         raise DomainViolation(
             f"Double-entry accounting drift violation: "
-            f"|{final_cash} - ({starting_capital} + {realized_pnl})| = {drift} >= 1e-15"
+            f"|{final_cash} - ({starting_capital} + {realized_pnl} - "
+            f"{total_open_entry_fees})| = {drift} >= 1e-15"
         )
     if not reconciliation["zero_balance_drift"]:
         raise DomainViolation(
@@ -645,15 +663,11 @@ async def run_phase_266_daemon_verification(
     lifecycle_count = 0
     obs_count = 0
     if lifecycle_db.is_file():
-        import sqlite3
-
-        with sqlite3.connect(lifecycle_db) as conn:
+        with closing(sqlite3.connect(lifecycle_db)) as conn:
             row = conn.execute("SELECT COUNT(*) FROM paper_lifecycle_marks").fetchone()
             lifecycle_count = row[0] if row else 0
     if observations_db.is_file():
-        import sqlite3
-
-        with sqlite3.connect(observations_db) as conn:
+        with closing(sqlite3.connect(observations_db)) as conn:
             row = conn.execute("SELECT COUNT(*) FROM paper_observations").fetchone()
             obs_count = row[0] if row else 0
 
@@ -729,17 +743,17 @@ async def run_phase_266_daemon_verification(
         "sqlite_persistence": {
             "databases": {
                 "paper-ledger.sqlite3": {
-                    "path": str(ledger_db),
+                    "path": ledger_db.as_posix(),
                     "row_count": ledger_count,
                     "sha256": artifact_hashes.get("paper-ledger.sqlite3", ""),
                 },
                 "paper-lifecycle.sqlite3": {
-                    "path": str(lifecycle_db),
+                    "path": lifecycle_db.as_posix(),
                     "row_count": lifecycle_count,
                     "sha256": artifact_hashes.get("paper-lifecycle.sqlite3", ""),
                 },
                 "paper-observations.sqlite3": {
-                    "path": str(observations_db),
+                    "path": observations_db.as_posix(),
                     "row_count": obs_count,
                     "sha256": artifact_hashes.get("paper-observations.sqlite3", ""),
                 },
@@ -772,8 +786,8 @@ async def run_phase_266_daemon_verification(
 
     daemon_summary_path = output_dir / "daemon-summary.json"
     paper_summary_path = output_dir / "paper-summary.json"
-    daemon_summary_path.write_text(summary_json, encoding="utf-8")
-    paper_summary_path.write_text(summary_json, encoding="utf-8")
+    daemon_summary_path.write_text(summary_json, encoding="utf-8", newline="\n")
+    paper_summary_path.write_text(summary_json, encoding="utf-8", newline="\n")
 
     # Update artifact hashes with summary files
     artifact_hashes["daemon-summary.json"] = compute_file_sha256(daemon_summary_path)

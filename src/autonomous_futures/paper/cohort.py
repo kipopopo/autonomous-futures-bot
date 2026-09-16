@@ -408,13 +408,13 @@ def evaluate_paper_cohort_snapshot(
             json.dumps(cohort_rep.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
         )
         _assert_zero_secrets(cohort_json, str(cohort_path))
-        cohort_path.write_text(cohort_json, encoding="utf-8")
+        cohort_path.write_text(cohort_json, encoding="utf-8", newline="\n")
 
         for sym, h_rep in health_reports.items():
             health_path = out_p / f"paper-health-report-{sym}.json"
             health_json = json.dumps(h_rep.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
             _assert_zero_secrets(health_json, str(health_path))
-            health_path.write_text(health_json, encoding="utf-8")
+            health_path.write_text(health_json, encoding="utf-8", newline="\n")
 
     return health_reports, cohort_rep
 

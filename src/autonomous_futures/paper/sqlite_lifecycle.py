@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from .lifecycle import PaperLifecycleTelemetry
@@ -38,21 +39,22 @@ class SqlitePaperLifecycle:
         return row is not None
 
     def append(self, telemetry: PaperLifecycleTelemetry) -> None:
-        with self._connect_for_append() as connection:
-            connection.execute(
-                """
-                INSERT INTO paper_lifecycle_marks (
-                    candidate_id, candidate_artifact_hash, trade_id, marked_at, payload
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    telemetry.candidate_id,
-                    telemetry.candidate_artifact_hash,
-                    telemetry.trade_id,
-                    telemetry.marked_at.isoformat(),
-                    telemetry.model_dump_json(),
-                ),
-            )
+        with closing(self._connect_for_append()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO paper_lifecycle_marks (
+                        candidate_id, candidate_artifact_hash, trade_id, marked_at, payload
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        telemetry.candidate_id,
+                        telemetry.candidate_artifact_hash,
+                        telemetry.trade_id,
+                        telemetry.marked_at.isoformat(),
+                        telemetry.model_dump_json(),
+                    ),
+                )
 
     def read(
         self,
@@ -84,7 +86,7 @@ class SqlitePaperLifecycle:
     ) -> tuple[PaperLifecycleTelemetry, ...]:
         if not self._path.exists():
             return ()
-        with sqlite3.connect(self._path) as connection:
+        with closing(sqlite3.connect(self._path)) as connection:
             if not self._has_table(connection):
                 return ()
             rows = connection.execute(

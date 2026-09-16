@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -156,25 +157,27 @@ class SqlitePaperLedger:
 
     def begin_position_update(self, trade_id: str, intent: str = "mutable_state") -> None:
         """Commit a write-ahead dirty marker before changing runtime state."""
-        with self._connect() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO paper_position_update_intent("
-                "trade_id, intent) VALUES (?, ?)",
-                (trade_id, intent),
-            )
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.execute(
+                    "INSERT OR REPLACE INTO paper_position_update_intent("
+                    "trade_id, intent) VALUES (?, ?)",
+                    (trade_id, intent),
+                )
 
     def clear_position_update(self, trade_id: str) -> None:
         """Clear a dirty marker only after durable and memory updates complete."""
-        with self._connect() as connection:
-            connection.execute(
-                "DELETE FROM paper_position_update_intent WHERE trade_id = ?", (trade_id,)
-            )
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.execute(
+                    "DELETE FROM paper_position_update_intent WHERE trade_id = ?", (trade_id,)
+                )
 
     def require_no_position_update_intents(self) -> None:
         """Reject recovery when any previously committed update did not finish."""
         if not self._path.exists():
             return
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             row = connection.execute(
                 "SELECT trade_id FROM paper_position_update_intent ORDER BY trade_id LIMIT 1"
             ).fetchone()
@@ -191,25 +194,29 @@ class SqlitePaperLedger:
         for key in _POSITION_DECIMAL_KEYS:
             if payload[key] is not None:
                 payload[key] = str(payload[key])
-        with self._connect() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO paper_position_state("
-                "trade_id,state_version,state_json) VALUES(?,?,?)",
-                (
-                    str(payload["trade_id"]),
-                    1,
-                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
-                ),
-            )
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.execute(
+                    "INSERT OR REPLACE INTO paper_position_state("
+                    "trade_id,state_version,state_json) VALUES(?,?,?)",
+                    (
+                        str(payload["trade_id"]),
+                        1,
+                        json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                    ),
+                )
 
     def delete_position_state(self, trade_id: str) -> None:
-        with self._connect() as connection:
-            connection.execute("DELETE FROM paper_position_state WHERE trade_id = ?", (trade_id,))
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.execute(
+                    "DELETE FROM paper_position_state WHERE trade_id = ?", (trade_id,)
+                )
 
     def load_position_states(self) -> tuple[dict[str, Any], ...]:
         if not self._path.exists():
             return ()
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             rows = connection.execute(
                 "SELECT trade_id,state_version,state_json "
                 "FROM paper_position_state "
@@ -288,36 +295,37 @@ class SqlitePaperLedger:
     def load(self) -> PaperLedger:
         if not self._path.exists():
             return PaperLedger()
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             return PaperLedger(self._entries(connection))
 
     def append(self, entry: PaperLedgerEntry) -> None:
-        with self._connect() as connection:
-            ledger = PaperLedger(self._entries(connection))
-            ledger.append(entry)
-            connection.execute(
-                """
+        with closing(self._connect()) as connection:
+            with connection:
+                ledger = PaperLedger(self._entries(connection))
+                ledger.append(entry)
+                connection.execute(
+                    """
                 INSERT INTO paper_ledger_events (
                     event, trade_id, candidate_id, candidate_artifact_hash, symbol,
                     side, quantity, fill_price, occurred_at, approval_id, entry_fee, exit_fee,
                     slippage_cost, gross_pnl, net_pnl
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    entry.event,
-                    entry.trade_id,
-                    entry.candidate_id,
-                    entry.candidate_artifact_hash,
-                    entry.symbol,
-                    entry.side,
-                    str(entry.quantity),
-                    str(entry.fill_price),
-                    entry.occurred_at.isoformat(),
-                    entry.approval_id,
-                    None if entry.entry_fee is None else str(entry.entry_fee),
-                    None if entry.exit_fee is None else str(entry.exit_fee),
-                    None if entry.slippage_cost is None else str(entry.slippage_cost),
-                    None if entry.gross_pnl is None else str(entry.gross_pnl),
-                    None if entry.net_pnl is None else str(entry.net_pnl),
-                ),
-            )
+                    (
+                        entry.event,
+                        entry.trade_id,
+                        entry.candidate_id,
+                        entry.candidate_artifact_hash,
+                        entry.symbol,
+                        entry.side,
+                        str(entry.quantity),
+                        str(entry.fill_price),
+                        entry.occurred_at.isoformat(),
+                        entry.approval_id,
+                        None if entry.entry_fee is None else str(entry.entry_fee),
+                        None if entry.exit_fee is None else str(entry.exit_fee),
+                        None if entry.slippage_cost is None else str(entry.slippage_cost),
+                        None if entry.gross_pnl is None else str(entry.gross_pnl),
+                        None if entry.net_pnl is None else str(entry.net_pnl),
+                    ),
+                )

@@ -6,11 +6,12 @@ import asyncio
 import json
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -102,6 +103,33 @@ class TestPhase266ManifestAndConfig:
         # Tamper candidate artifact hash for BTCUSDT
         raw_manifest["symbols"]["BTCUSDT"]["candidate_artifact_hash"] = "0" * 64
         tampered_file = tmp_path / "tampered_candidate_manifest.json"
+        tampered_file.write_text(json.dumps(raw_manifest), encoding="utf-8")
+
+        with pytest.raises(DomainViolation):
+            validate_manifest_v2(tampered_file)
+
+    def test_validate_manifest_v2_rejects_missing_symbol(self, tmp_path: Path) -> None:
+        from autonomous_futures.paper.candidate_registry import (
+            CandidateRegistryManifest,
+            compute_registry_hash,
+        )
+
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
+        raw_manifest = manifest.model_dump(mode="json")
+        del raw_manifest["symbols"]["BTCUSDT"]
+        m_obj = CandidateRegistryManifest.model_validate(raw_manifest)
+        raw_manifest["registry_hash"] = compute_registry_hash(m_obj)
+        missing_file = tmp_path / "missing_symbol_manifest.json"
+        missing_file.write_text(json.dumps(raw_manifest), encoding="utf-8")
+
+        with pytest.raises(DomainViolation, match="Missing required active candidate BTCUSDT"):
+            validate_manifest_v2(missing_file)
+
+    def test_validate_manifest_v2_rejects_tampered_qualification_hash(self, tmp_path: Path) -> None:
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
+        raw_manifest = manifest.model_dump(mode="json")
+        raw_manifest["symbols"]["BTCUSDT"]["qualification_hash"] = "0" * 64
+        tampered_file = tmp_path / "tampered_qual_manifest.json"
         tampered_file.write_text(json.dumps(raw_manifest), encoding="utf-8")
 
         with pytest.raises(DomainViolation):
@@ -274,6 +302,21 @@ class TestPhase266BoundedDaemonExecution:
         assert res.accounting_reconciled is True
         assert (out_dir / "daemon-summary.json").is_file()
 
+    @pytest.mark.anyio
+    async def test_daemon_live_mode_propagates_stream_error(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "live_error_test"
+
+        with patch(
+            "autonomous_futures.feed.client.BinancePublicFeedClient.connect_and_stream",
+            side_effect=OSError("Network unreachable"),
+        ):
+            with pytest.raises(OSError, match="Network unreachable"):
+                await run_phase_266_daemon_verification(
+                    output_dir=out_dir,
+                    duration=1.0,
+                    mode="live",
+                )
+
 
 class TestPhase266AccountingAndRiskInvariants:
     """Test exact double-entry accounting reconciliation and risk limits."""
@@ -309,6 +352,102 @@ class TestPhase266AccountingAndRiskInvariants:
         )
         assert res.positions_reconciled is True
 
+    @pytest.mark.anyio
+    async def test_single_position_invariant_violation_raises(self, tmp_path: Path) -> None:
+        from typing import Any
+        from unittest.mock import MagicMock
+
+        from autonomous_futures.paper.sqlite_ledger import SqlitePaperLedger
+
+        real_load = SqlitePaperLedger.load
+        mock_p1 = MagicMock(symbol="BTCUSDT", entry_fee=None)
+        mock_p2 = MagicMock(symbol="BTCUSDT", entry_fee=None)
+
+        call_count = 0
+
+        def load_side_effect(self: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return real_load(self)
+            mock_ledger = MagicMock()
+            mock_ledger.open_positions.return_value = [mock_p1, mock_p2]
+            mock_ledger.entries = []
+            return mock_ledger
+
+        with patch(
+            "autonomous_futures.paper.sqlite_ledger.SqlitePaperLedger.load",
+            side_effect=load_side_effect,
+            autospec=True,
+        ):
+            with pytest.raises(DomainViolation, match="Single-position invariant violated"):
+                await run_phase_266_daemon_verification(
+                    output_dir=tmp_path / "single_pos_violation",
+                    ticks=5,
+                    offline=True,
+                )
+
+    @pytest.mark.anyio
+    async def test_accounting_reconciled_with_open_position(self, tmp_path: Path) -> None:
+        from typing import Any
+        from unittest.mock import MagicMock
+
+        from autonomous_futures.paper.sqlite_ledger import SqlitePaperLedger
+
+        real_load = SqlitePaperLedger.load
+        mock_open = MagicMock(
+            symbol="BTCUSDT",
+            trade_id="mock-open-trade",
+            event="open",
+            entry_fee=Decimal("0.008"),
+            net_pnl=None,
+        )
+
+        call_count = 0
+
+        def load_side_effect(self: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return real_load(self)
+            mock_ledger = MagicMock()
+            mock_ledger.open_positions.return_value = [mock_open]
+            mock_ledger.entries = [mock_open]
+            return mock_ledger
+
+        def mock_reconcile(self: Any) -> dict[str, Any]:
+            self.account.cash = self.account.starting_capital - Decimal("0.008")
+            return {
+                "starting_capital": str(self.account.starting_capital),
+                "actual_cash": str(self.account.cash),
+                "expected_cash": str(self.account.cash),
+                "drift": "0",
+                "zero_balance_drift": True,
+                "closed_trades_count": 0,
+                "open_positions_count": 1,
+                "total_realized_pnl": "0",
+                "total_open_entry_fees": "0.008",
+            }
+
+        with (
+            patch(
+                "autonomous_futures.paper.live_engine.LivePaperTradingEngine.reconcile_balances",
+                mock_reconcile,
+            ),
+            patch(
+                "autonomous_futures.paper.sqlite_ledger.SqlitePaperLedger.load",
+                side_effect=load_side_effect,
+                autospec=True,
+            ),
+        ):
+            res = await run_phase_266_daemon_verification(
+                output_dir=tmp_path / "open_pos_accounting",
+                ticks=5,
+                offline=True,
+            )
+            assert res.accounting_reconciled is True
+            assert res.drift < Decimal("1e-15")
+
 
 class TestPhase266PersistenceAndCohortReporting:
     """Test isolated SQLite persistence, cohort reports, and artifact hashes."""
@@ -340,6 +479,27 @@ class TestPhase266PersistenceAndCohortReporting:
         )
         assert cohort_json["expected_candidate_count"] == 3
         assert cohort_json["reported_candidate_count"] == 3
+
+    @pytest.mark.anyio
+    async def test_sqlite_file_handles_closed_cleanly(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "sqlite_cleanup_test"
+        res = await run_phase_266_daemon_verification(
+            output_dir=out_dir,
+            ticks=5,
+            offline=True,
+        )
+        assert res.accounting_reconciled is True
+        for db_name in (
+            "paper-ledger.sqlite3",
+            "paper-lifecycle.sqlite3",
+            "paper-observations.sqlite3",
+        ):
+            db_path = out_dir / db_name
+            assert db_path.is_file()
+            # On Windows, renaming/unlinking succeeds only if all file handles are closed
+            renamed_path = out_dir / f"{db_name}.closed_check"
+            db_path.rename(renamed_path)
+            renamed_path.unlink()
 
 
 class TestPhase266FailClosedAndZeroSecrets:
@@ -412,3 +572,74 @@ class TestPhase266CLI:
         data = json.loads(captured.out)
         assert data["phase"] == "phase_266"
         assert data["shared_portfolio_margin"]["starting_capital_usdt"] == "100.00"
+
+    def test_main_cli_smoke_test_flag(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        out_dir = tmp_path / "cli_smoke_test"
+        ret = main(["--output-dir", str(out_dir), "--offline", "--smoke-test", "--json"])
+        assert ret == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["phase"] == "phase_266"
+
+
+class TestPhase266DataAggregationAndRobustness:
+    """Test get_bar_dataframe aggregation, preaggregated bar pass-through, and gap handling."""
+
+    def test_get_bar_dataframe_with_preaggregated_bars(self, tmp_path: Path) -> None:
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        engine = LivePaperTradingEngine(
+            ledger_db=tmp_path / "ledger.sqlite3",
+            lifecycle_db=tmp_path / "lifecycle.sqlite3",
+            observations_db=tmp_path / "obs.sqlite3",
+        )
+        base_time = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+        # Feed 15m bars directly into _bar_history
+        engine._bar_history["BTCUSDT"] = [
+            {
+                "timestamp": (base_time + timedelta(minutes=15 * i)).isoformat(),
+                "open": "90000.0",
+                "high": "90100.0",
+                "low": "89900.0",
+                "close": "90050.0",
+                "volume": "10.0",
+            }
+            for i in range(10)
+        ]
+        df_15m = engine.get_bar_dataframe("BTCUSDT", timeframe="15m")
+        assert not df_15m.empty
+        assert len(df_15m) == 10
+
+    def test_get_bar_dataframe_resampling_drops_historic_gaps(self, tmp_path: Path) -> None:
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        engine = LivePaperTradingEngine(
+            ledger_db=tmp_path / "ledger.sqlite3",
+            lifecycle_db=tmp_path / "lifecycle.sqlite3",
+            observations_db=tmp_path / "obs.sqlite3",
+        )
+        base_time = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+        # Create 5m bars with a gap in the middle (e.g. at i=6)
+        records = []
+        for i in range(12):
+            if i in (6, 7):  # missing 2 bars creates incomplete 15m bucket
+                continue
+            records.append(
+                {
+                    "timestamp": (base_time + timedelta(minutes=5 * i)).isoformat(),
+                    "open": "90000.0",
+                    "high": "90100.0",
+                    "low": "89900.0",
+                    "close": "90050.0",
+                    "volume": "10.0",
+                }
+            )
+        engine._bar_history["BTCUSDT"] = records
+        df_resamp = engine.get_bar_dataframe("BTCUSDT", timeframe="15m")
+        # Should return contiguous trailing partition without crashing
+        assert not df_resamp.empty
+        diffs = df_resamp["timestamp"].diff()
+        valid_diffs = diffs[diffs.notna()]
+        assert (valid_diffs == pd.Timedelta(minutes=15)).all()

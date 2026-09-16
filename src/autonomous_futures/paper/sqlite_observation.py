@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from .observation import PaperObservation
@@ -30,25 +31,26 @@ class SqlitePaperObservations:
         return connection
 
     def append(self, observation: PaperObservation) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO paper_observations (
-                    candidate_id, candidate_artifact_hash, observed_at, payload
-                ) VALUES (?, ?, ?, ?)
-                """,
-                (
-                    observation.candidate_id,
-                    observation.candidate_artifact_hash,
-                    observation.observed_at.isoformat(),
-                    observation.model_dump_json(),
-                ),
-            )
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO paper_observations (
+                        candidate_id, candidate_artifact_hash, observed_at, payload
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        observation.candidate_id,
+                        observation.candidate_artifact_hash,
+                        observation.observed_at.isoformat(),
+                        observation.model_dump_json(),
+                    ),
+                )
 
     def read(self, candidate_id: str, candidate_artifact_hash: str) -> tuple[PaperObservation, ...]:
         if not self._path.exists():
             return ()
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
                 SELECT payload

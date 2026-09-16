@@ -16,6 +16,7 @@ import re
 import socket
 import sys
 from collections.abc import Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -351,11 +352,11 @@ class LivePaperEngine:
         self.observation_store = SqlitePaperObservations(self.observations_path)
 
         # Initialize schema tables immediately on startup
-        with self.sqlite_ledger._connect():
+        with closing(self.sqlite_ledger._connect()):
             pass
-        with self.lifecycle_store._connect_for_append():
+        with closing(self.lifecycle_store._connect_for_append()):
             pass
-        with self.observation_store._connect():
+        with closing(self.observation_store._connect()):
             pass
 
         # Core paper execution runtime
@@ -819,6 +820,13 @@ class LivePaperEngine:
         if timeframe is not None and timeframe != "5m":
             interval_minutes = 15 if timeframe == "15m" else (60 if timeframe == "1h" else None)
             if interval_minutes is not None and not df.empty:
+                if len(df) >= 2:
+                    first_diff = (
+                        df["timestamp"].iloc[1] - df["timestamp"].iloc[0]
+                    ).total_seconds() / 60
+                    if round(first_diff) == interval_minutes:
+                        return df
+
                 df_resamp = df.copy()
                 df_resamp["bucket"] = df_resamp["timestamp"].dt.floor(f"{interval_minutes}min")
                 g = df_resamp.groupby("bucket", sort=True)
@@ -840,6 +848,14 @@ class LivePaperEngine:
                     )
                     .rename(columns={"bucket": "timestamp"})
                 )
+                if len(agg_df) > 1:
+                    expected_delta = pd.Timedelta(minutes=interval_minutes)
+                    diffs = agg_df["timestamp"].diff()
+                    gap_mask = (diffs != expected_delta) & (diffs.notna())
+                    if gap_mask.any():
+                        last_gap_idx = int(gap_mask[gap_mask].index[-1])
+                        agg_df = agg_df.iloc[last_gap_idx:].reset_index(drop=True)
+
                 return agg_df
 
         return df
@@ -1867,13 +1883,13 @@ class LivePaperEngine:
         if self.lifecycle_path.is_file():
             import sqlite3
 
-            with sqlite3.connect(self.lifecycle_path) as conn:
+            with closing(sqlite3.connect(self.lifecycle_path)) as conn:
                 res = conn.execute("SELECT COUNT(*) FROM paper_lifecycle_marks").fetchone()
                 lifecycle_count = res[0] if res else 0
         if self.observations_path.is_file():
             import sqlite3
 
-            with sqlite3.connect(self.observations_path) as conn:
+            with closing(sqlite3.connect(self.observations_path)) as conn:
                 res = conn.execute("SELECT COUNT(*) FROM paper_observations").fetchone()
                 observation_count = res[0] if res else 0
 
