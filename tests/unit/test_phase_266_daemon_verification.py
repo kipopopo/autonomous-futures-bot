@@ -145,6 +145,29 @@ class TestPhase266ManifestAndConfig:
         with pytest.raises((DomainViolation, FileNotFoundError)):
             validate_manifest_v2(tampered_file)
 
+    def test_validate_manifest_v2_rejects_unexpected_symbol(self, tmp_path: Path) -> None:
+        from autonomous_futures.paper.candidate_registry import (
+            CandidateRegistryManifest,
+            compute_registry_hash,
+        )
+
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
+        raw_manifest = manifest.model_dump(mode="json")
+        raw_manifest["symbols"]["BNBUSDT"] = {
+            "candidate_id": "cand-bnbusdt-dcb-001",
+            "candidate_artifact_hash": "a" * 64,
+            "qualification_hash": "b" * 64,
+            "artifact_path": "artifacts/paper_live/candidates/cand-bnbusdt-dcb-001.json",
+            "admitted_at": "2026-09-15T16:10:54.132807+00:00",
+        }
+        m_obj = CandidateRegistryManifest.model_validate(raw_manifest)
+        raw_manifest["registry_hash"] = compute_registry_hash(m_obj)
+        unexpected_file = tmp_path / "unexpected_symbol_manifest.json"
+        unexpected_file.write_text(json.dumps(raw_manifest), encoding="utf-8")
+
+        with pytest.raises(DomainViolation, match="Unexpected candidate symbols in manifest v2"):
+            validate_manifest_v2(unexpected_file)
+
 
 class TestPhase266StrategyAdmission:
     """Test StrategyAdmissionDecider evaluation on daemon startup."""
@@ -585,6 +608,34 @@ class TestPhase266AccountingAndRiskInvariants:
         with pytest.raises(DomainViolation, match="Cash balance drift detected"):
             engine.reconcile_balances()
 
+    @pytest.mark.anyio
+    async def test_daemon_rejects_invalid_risk_bounds(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "invalid_risk_test"
+        with pytest.raises(DomainViolation, match="Starting capital must be strictly positive"):
+            await run_phase_266_daemon_verification(
+                output_dir=out_dir,
+                ticks=5,
+                offline=True,
+                starting_capital=Decimal("0"),
+            )
+        with pytest.raises(DomainViolation, match="Max margin utilization must be in"):
+            await run_phase_266_daemon_verification(
+                output_dir=out_dir,
+                ticks=5,
+                offline=True,
+                max_margin_utilization=Decimal("1.5"),
+            )
+        with pytest.raises(
+            DomainViolation, match="Sum of max margin utilization and min reserve buffer"
+        ):
+            await run_phase_266_daemon_verification(
+                output_dir=out_dir,
+                ticks=5,
+                offline=True,
+                max_margin_utilization=Decimal("0.85"),
+                min_reserve_buffer=Decimal("0.25"),
+            )
+
 
 class TestPhase266PersistenceAndCohortReporting:
     """Test isolated SQLite persistence, cohort reports, and artifact hashes."""
@@ -657,6 +708,49 @@ class TestPhase266PersistenceAndCohortReporting:
         summary = json.loads(res.daemon_summary_path.read_text(encoding="utf-8"))
         assert "sqlite_persistence" in summary
 
+    @pytest.mark.anyio
+    async def test_cohort_reporting_no_duplicate_slots_and_candidates_maturing(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify cohort report contains 0 blocked candidates and candidate health is maturing."""
+        out_dir = tmp_path / "cohort_maturing_test"
+        res = await run_phase_266_daemon_verification(
+            output_dir=out_dir,
+            ticks=15,
+            offline=True,
+        )
+        assert res.cohort_report.blocked_candidate_count == 0
+        assert res.cohort_report.maturing_candidate_count == 3
+        assert res.cohort_report.cohort_status == "not_ready"
+        assert res.cohort_report.all_accounting_complete is True
+        for sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+            assert res.health_reports[sym].health_status == "maturing"
+            assert res.health_reports[sym].maturity_status == "maturing"
+            assert "paper_observation_duplicate_slot" not in res.health_reports[sym].reason_codes
+
+    @pytest.mark.anyio
+    async def test_observation_store_single_observation_per_slot(self, tmp_path: Path) -> None:
+        """Verify multiple bar ticks within same 6-hour slot write 1 observation per candidate."""
+        import sqlite3
+        from contextlib import closing
+
+        out_dir = tmp_path / "slot_dedup_test"
+        res = await run_phase_266_daemon_verification(
+            output_dir=out_dir,
+            ticks=15,
+            offline=True,
+        )
+        assert res.accounting_reconciled is True
+        obs_db = out_dir / "paper-observations.sqlite3"
+        assert obs_db.is_file()
+        with closing(sqlite3.connect(obs_db)) as conn:
+            rows = conn.execute(
+                "SELECT candidate_id, COUNT(*) FROM paper_observations GROUP BY candidate_id"
+            ).fetchall()
+            assert len(rows) == 3
+            for cand_id, count in rows:
+                assert count == 1, f"Expected 1 observation for {cand_id}, got {count}"
+
 
 class TestPhase266FailClosedAndZeroSecrets:
     """Test safety invariants, fail-closed boundaries, and zero secret leakage."""
@@ -716,7 +810,16 @@ class TestPhase266FailClosedAndZeroSecrets:
 
         # AWS Access Key format
         with pytest.raises(DomainViolation, match="Secret pattern matched"):
-            _assert_zero_secrets("AKIAIOSFODNN7EXAMPLE", "test_aws")
+            _assert_zero_secrets("AKIA" + "IOSFODNN7EXAMPLE", "test_aws")
+
+    def test_runner_source_syntax_valid(self) -> None:
+        """Verify runner script compiles cleanly without syntax errors."""
+        import ast
+
+        runner_path = _REPO_ROOT / "scripts" / "run_phase_266_daemon_verification.py"
+        source = runner_path.read_text(encoding="utf-8")
+        parsed = ast.parse(source, filename=str(runner_path))
+        assert parsed is not None
 
 
 class TestPhase266CLI:

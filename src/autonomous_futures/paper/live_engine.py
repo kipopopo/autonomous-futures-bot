@@ -59,6 +59,7 @@ from autonomous_futures.paper.ledger import PaperLedgerEntry, PaperRestartRecove
 from autonomous_futures.paper.lifecycle import (
     mark_paper_position,
 )
+from autonomous_futures.paper.maturity import _slot_start
 from autonomous_futures.paper.observation import (
     observe_paper_ledger,
 )
@@ -380,6 +381,14 @@ class LivePaperEngine:
             self.candidates = self._load_default_candidates()
 
         self.qualified_symbols: tuple[str, ...] = tuple(self.candidates.keys())
+
+        # Track recorded 6-hour observation slots per candidate to enforce fixed-slot invariant
+        self._recorded_observation_slots: dict[str, set[datetime]] = {}
+        for cand in self.candidates.values():
+            existing = self.observation_store.read(cand.candidate_id, cand.artifact_hash)
+            self._recorded_observation_slots[cand.candidate_id] = {
+                _slot_start(obs.observed_at) for obs in existing
+            }
 
         # Shared 100 USDT margin account
         owns_account = account is None
@@ -1097,6 +1106,9 @@ class LivePaperEngine:
         if cand is None:
             return
 
+        # Record fixed-slot observation snapshot for candidate on finalized bar
+        self._record_observation(sym, cand, bar.close_time)
+
         # Pre-signal validation: verify candidate artifact hash integrity
         if cand.artifact_hash != _artifact_content_hash(cand):
             logger.error(
@@ -1192,9 +1204,6 @@ class LivePaperEngine:
                     conviction=conviction,
                     event_time=bar.close_time,
                 )
-
-        # Record observation snapshot
-        self._record_observation(sym, cand, bar.close_time)
 
     def execute_open(
         self,
@@ -1579,6 +1588,17 @@ class LivePaperEngine:
     ) -> None:
         """Record observation snapshot for candidate into SqlitePaperObservations."""
         ts = observed_at.astimezone(UTC).replace(microsecond=0)
+        slot_start = _slot_start(ts)
+        cand_id = candidate.candidate_id
+        if cand_id not in self._recorded_observation_slots:
+            existing = self.observation_store.read(candidate.candidate_id, candidate.artifact_hash)
+            self._recorded_observation_slots[cand_id] = {
+                _slot_start(obs.observed_at) for obs in existing
+            }
+        recorded = self._recorded_observation_slots[cand_id]
+        if slot_start in recorded:
+            return
+
         mark_prices = {
             s: self.latest_tickers[s].mid_price for s in self.symbols if s in self.latest_tickers
         }
@@ -1595,6 +1615,7 @@ class LivePaperEngine:
                 observed_at=ts,
             )
             self.observation_store.append(obs)
+            recorded.add(slot_start)
         except Exception as exc:
             logger.debug("Failed to record observation for %s: %s", symbol, exc)
 
@@ -1831,9 +1852,14 @@ class LivePaperEngine:
         await self.monitor.stop()
 
         # Record final observation snapshot for all active candidates on stop
-        now = datetime.now(UTC).replace(microsecond=0)
+        if self.latest_bars:
+            final_ts = max(b.close_time for b in self.latest_bars.values())
+        elif self.latest_tickers:
+            final_ts = max(t.transaction_time for t in self.latest_tickers.values())
+        else:
+            final_ts = datetime.now(UTC).replace(microsecond=0)
         for sym, cand in self.candidates.items():
-            self._record_observation(sym, cand, now)
+            self._record_observation(sym, cand, final_ts)
 
         # Reconcile final cash balance
         self.reconcile_balances()

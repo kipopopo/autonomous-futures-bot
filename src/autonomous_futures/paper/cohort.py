@@ -350,8 +350,10 @@ def evaluate_paper_cohort_snapshot(
             except sqlite3.Error, ValueError:
                 pass
         for e in final_ledger.entries:
-            if latest_ts is None or e.occurred_at > latest_ts:
-                latest_ts = e.occurred_at
+            occurred = getattr(e, "occurred_at", None)
+            if isinstance(occurred, datetime):
+                if latest_ts is None or occurred > latest_ts:
+                    latest_ts = occurred
         if latest_ts is not None:
             if latest_ts.microsecond > 0:
                 observed_at = (

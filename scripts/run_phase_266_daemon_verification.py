@@ -199,6 +199,12 @@ def validate_manifest_v2(manifest_path: Path) -> CandidateRegistryManifest:
         if _qualification_content_hash(qual) != entry.qualification_hash:
             raise DomainViolation(f"Qualification content hash mismatch for {entry.candidate_id}")
 
+    unexpected_symbols = set(manifest.symbols.keys()) - set(EXPECTED_MANIFEST_V2_CANDIDATES.keys())
+    if unexpected_symbols:
+        raise DomainViolation(
+            f"Unexpected candidate symbols in manifest v2: {sorted(unexpected_symbols)}"
+        )
+
     return manifest
 
 
@@ -206,7 +212,7 @@ def seed_engine_history_from_canonical(
     engine: LivePaperTradingEngine,
     history_dir: Path,
     symbols: Sequence[str],
-    warmup_bars: int = 100,
+    warmup_bars: int = 300,
     offset_ticks: int = 0,
 ) -> None:
     """Seed causal historical bars for dynamic feature calculation warmup from parquet data."""
@@ -382,6 +388,7 @@ async def run_phase_266_daemon_verification(
     mode: str = "auto",
     ticks: int | None = None,
     offline: bool = False,
+    clean: bool = False,
     starting_capital: Decimal = DEFAULT_STARTING_CAPITAL,
     max_margin_utilization: Decimal = DEFAULT_MAX_MARGIN_UTILIZATION,
     min_reserve_buffer: Decimal = DEFAULT_MIN_RESERVE_BUFFER,
@@ -393,8 +400,18 @@ async def run_phase_266_daemon_verification(
     start_monotonic = time.monotonic()
     start_utc = datetime.now(UTC)
 
-    # 1. Enforce strict safety invariants prior to execution
+    # 1. Enforce strict safety invariants and risk parameter bounds prior to execution
     verify_strict_safety_invariants(orders_submitted=0)
+    if starting_capital <= Decimal("0"):
+        raise DomainViolation("Starting capital must be strictly positive")
+    if not (Decimal("0") < max_margin_utilization <= Decimal("1.0")):
+        raise DomainViolation("Max margin utilization must be in (0, 1]")
+    if not (Decimal("0") <= min_reserve_buffer < Decimal("1.0")):
+        raise DomainViolation("Min reserve buffer must be in [0, 1)")
+    if max_margin_utilization + min_reserve_buffer > Decimal("1.0"):
+        raise DomainViolation(
+            "Sum of max margin utilization and min reserve buffer cannot exceed 1.0"
+        )
 
     # 2. Validate Candidate Registry Manifest Version 2
     manifest = validate_manifest_v2(registry_path)
@@ -405,6 +422,14 @@ async def run_phase_266_daemon_verification(
     ledger_db = output_dir / "paper-ledger.sqlite3"
     lifecycle_db = output_dir / "paper-lifecycle.sqlite3"
     observations_db = output_dir / "paper-observations.sqlite3"
+
+    if clean:
+        for db_file in (ledger_db, lifecycle_db, observations_db):
+            if db_file.is_file():
+                try:
+                    db_file.unlink()
+                except OSError:
+                    pass
 
     # 4. Initialize shared margin account
     account = HardenedSharedMarginAccount(
@@ -489,7 +514,7 @@ async def run_phase_266_daemon_verification(
         engine=engine,
         history_dir=history_dir,
         symbols=symbols,
-        warmup_bars=100,
+        warmup_bars=300,
         offset_ticks=batch_ticks_count if effective_mode in ("batch", "auto") else 0,
     )
 
@@ -645,7 +670,7 @@ async def run_phase_266_daemon_verification(
         observations_db=observations_db,
         manifest=manifest,
         output_dir=output_dir,
-        as_of=datetime.now(UTC),
+        as_of=None,
     )
 
     # Compute cumulative metrics
@@ -917,6 +942,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Force offline batch ticks replay using canonical Parquet data",
     )
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        default=False,
+        help="Remove pre-existing SQLite databases in output directory before starting session",
+    )
+    parser.add_argument(
         "--starting-capital",
         type=Decimal,
         default=DEFAULT_STARTING_CAPITAL,
@@ -988,6 +1019,7 @@ def main(argv: list[str] | None = None) -> int:
                 mode=args.mode,
                 ticks=args.ticks,
                 offline=args.offline,
+                clean=args.clean,
                 starting_capital=args.starting_capital,
                 max_margin_utilization=args.max_margin_utilization,
                 min_reserve_buffer=args.min_reserve_buffer,
