@@ -536,3 +536,59 @@ Enforce rigorous engineering hygiene:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+## 2026-09-16T15:48:50Z
+
+Verify the full lifecycle of the autonomous paper trading daemon under Candidate Registry Manifest Version 2 (Phase 266), coupling `LivePaperTradingEngine` with public market feeds, isolated SQLite persistence, dynamic candidate admission, automated cohort readiness telemetry, and strict fail-closed shutdown handling.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Bounded Daemon Lifecycle Runner under Manifest Version 2
+Implement and execute the deterministic Phase 266 dry-run daemon runner (`scripts/run_phase_266_daemon_verification.py`):
+- Couple `LivePaperTradingEngine` with active Candidate Registry Manifest Version 2 (`BTCUSDT` cand-btcusdt-dcb-002, `ETHUSDT` cand-ethusdt-dcb-003, `SOLUSDT` cand-solusdt-rgb-001).
+- Support a bounded execution mode (time-bounded seconds/minutes or batch bar ticks) with graceful shutdown handling (signal trap and timeout-driven termination).
+- Validate candidate artifact hashes, qualification hashes, and admission decisions using `StrategyAdmissionDecider` on daemon startup.
+- Maintain single-position invariants per symbol across shared portfolio margin (100.00 USDT initial equity).
+
+### R2. Isolated Telemetry, Cohort Reporting & Artifact Packaging
+Persist execution telemetry and audit reports to `artifacts/research/phase266/`:
+- Record transactions and lifecycle marks into isolated SQLite databases: `paper-ledger.sqlite3`, `paper-lifecycle.sqlite3`, and `paper-observations.sqlite3`.
+- Generate automated snapshot cohort readiness report (`paper-cohort-readiness-report.json`) using `evaluate_paper_cohort_snapshot`.
+- Produce per-symbol health reports (`paper-health-report-{sym}.json`) and a comprehensive daemon verification summary (`daemon-summary.json` / `paper-summary.json`) with deterministic cryptographic SHA-256 artifact hashes.
+
+### R3. Exact Accounting Reconciliation & Risk Invariants
+Enforce mathematical precision and fail-closed safety:
+- Verify exact double-entry accounting reconciliation: drift = |final_cash - (starting_equity + realized_pnl)| < 1e-15.
+- Enforce margin utilization ceiling <= 80.00% and preserve >= 20.00% unencumbered reserve buffer.
+- Ensure clean resource cleanup: no dangling WebSocket connections, no background thread leaks, and no unclosed SQLite file handles.
+
+### R4. Fail-Closed Boundaries, Targeted Testing & Remote CI Polling
+Enforce autonomous operations safety:
+- Maintain strict fail-closed state: `paper_activation: false`, `execution_authority: false`, `exchange_access: false`, `orders: 0`.
+- Verify zero secret or API key leakage across code, logs, and generated JSON reports.
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_266_daemon_verification.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full 2,350+ regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Daemon Execution & Admission
+- [ ] Daemon runner initializes and admits candidates dynamically from Manifest Version 2.
+- [ ] Bounded dry-run execution completes without unhandled exceptions and terminates gracefully.
+
+### Telemetry & Reporting
+- [ ] Isolated SQLite databases (`paper-ledger.sqlite3`, `paper-lifecycle.sqlite3`, `paper-observations.sqlite3`) persisted in `artifacts/research/phase266/`.
+- [ ] `paper-cohort-readiness-report.json` and per-symbol health reports generated and cryptographically hashed.
+- [ ] Balance reconciliation confirms zero drift (< 1e-15) between cash, equity, and realized PnL.
+
+### Safety & Remote CI Verification
+- [ ] Fail-closed safety invariants verified (zero exchange orders, no secret leakage).
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.

@@ -330,9 +330,17 @@ class LivePaperEngine:
         self.qualifications: dict[str, CreatorCandidateQualificationArtifact] = {}
 
         # Isolated SQLite persistence stores
-        self.ledger_path = ledger_db or Path("paper-ledger.sqlite3")
-        self.lifecycle_path = lifecycle_db or Path("paper-lifecycle.sqlite3")
-        self.observations_path = observations_db or Path("paper-observations.sqlite3")
+        self.ledger_path = (
+            Path(ledger_db) if ledger_db is not None else Path("paper-ledger.sqlite3")
+        )
+        self.lifecycle_path = (
+            Path(lifecycle_db) if lifecycle_db is not None else Path("paper-lifecycle.sqlite3")
+        )
+        self.observations_path = (
+            Path(observations_db)
+            if observations_db is not None
+            else Path("paper-observations.sqlite3")
+        )
 
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
         self.lifecycle_path.parent.mkdir(parents=True, exist_ok=True)
@@ -796,8 +804,8 @@ class LivePaperEngine:
                 self.monitor._baseline_atrs[sym] = baseline
                 self.monitor._rolling_atrs[sym] = valid[-1]
 
-    def get_bar_dataframe(self, symbol: str) -> pd.DataFrame:
-        """Return historical closed bars as a pandas DataFrame."""
+    def get_bar_dataframe(self, symbol: str, timeframe: str | None = None) -> pd.DataFrame:
+        """Return historical closed bars as a DataFrame, optionally aggregated."""
         records = self._bar_history.get(symbol.upper(), [])
         if not records:
             return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
@@ -807,6 +815,33 @@ class LivePaperEngine:
         df = df.sort_values("timestamp", kind="mergesort").reset_index(drop=True)
         for col in ("open", "high", "low", "close", "volume"):
             df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        if timeframe is not None and timeframe != "5m":
+            interval_minutes = 15 if timeframe == "15m" else (60 if timeframe == "1h" else None)
+            if interval_minutes is not None and not df.empty:
+                df_resamp = df.copy()
+                df_resamp["bucket"] = df_resamp["timestamp"].dt.floor(f"{interval_minutes}min")
+                g = df_resamp.groupby("bucket", sort=True)
+                expected_bars = interval_minutes // 5
+                complete = g.size()[g.size() >= expected_bars].index
+                if len(complete) == 0:
+                    return pd.DataFrame(
+                        columns=["timestamp", "open", "high", "low", "close", "volume"]
+                    )
+                df_comp = df_resamp[df_resamp["bucket"].isin(complete)]
+                agg_df = (
+                    df_comp.groupby("bucket", as_index=False)
+                    .agg(
+                        open=("open", "first"),
+                        high=("high", "max"),
+                        low=("low", "min"),
+                        close=("close", "last"),
+                        volume=("volume", "sum"),
+                    )
+                    .rename(columns={"bucket": "timestamp"})
+                )
+                return agg_df
+
         return df
 
     def get_current_atr(self, symbol: str) -> Decimal:
@@ -1073,7 +1108,8 @@ class LivePaperEngine:
             )
             return
 
-        df = self.get_bar_dataframe(sym)
+        cand_tf = cand.strategy.universe.timeframe
+        df = self.get_bar_dataframe(sym, timeframe=cand_tf)
         min_bars = 20  # Minimum bars to compute RSI/ADX/EMA
         if len(df) < min_bars:
             logger.debug("Warmup bars accumulating for %s: %d/%d", sym, len(df), min_bars)
@@ -1083,8 +1119,13 @@ class LivePaperEngine:
         if sym in self.active_trades:
             trade = self.active_trades[sym]
             exit_candidate = trade.candidate if trade.candidate is not None else cand
+            trade_tf = exit_candidate.strategy.universe.timeframe
+            trade_df = self.get_bar_dataframe(sym, timeframe=trade_tf)
+            if len(trade_df) < min_bars:
+                self._mark_active_position(trade, bar.close, bar.close_time)
+                return
             try:
-                trade_evaluated_df = self.signal_evaluator.evaluate(exit_candidate, df)
+                trade_evaluated_df = self.signal_evaluator.evaluate(exit_candidate, trade_df)
                 trade_row = trade_evaluated_df.iloc[-1]
                 trade_signal = int(trade_row.get("signal", 0))
             except Exception as exc:
@@ -1093,7 +1134,7 @@ class LivePaperEngine:
                     exit_candidate.candidate_id,
                     exc,
                 )
-                trade_row = df.iloc[-1]
+                trade_row = trade_df.iloc[-1]
                 trade_signal = 0
 
             strategy_exit = evaluate_strategy_exit(
