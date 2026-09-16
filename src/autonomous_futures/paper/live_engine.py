@@ -321,6 +321,7 @@ class LivePaperEngine:
             Path(qualifications_dir) if qualifications_dir is not None else None
         )
         self.base_dir: Path | None = Path(base_dir) if base_dir is not None else None
+        self.require_flat: bool = require_flat
         self.registry_manifest: CandidateRegistryManifest | None = None
         self.admission_decisions: dict[str, StrategyAdmissionDecision] = {}
         self.candidate_admission_decisions: dict[str, StrategyAdmissionDecision] = (
@@ -426,6 +427,28 @@ class LivePaperEngine:
         self._running: bool = False
 
         self._restore_open_positions()
+
+        # Re-evaluate admission decisions against restored open positions
+        # to preserve single-position invariants
+        if self.registry_manifest is not None and self.active_trades:
+            decider = StrategyAdmissionDecider()
+            for sym, cand in list(self.candidates.items()):
+                qual = self.qualifications.get(sym)
+                if qual is not None:
+                    decision = decider.evaluate_admission(
+                        candidate=cand,
+                        qualification=qual,
+                        symbol=sym,
+                        active_trades=self.active_trades,
+                        require_flat=require_flat,
+                        evaluated_at=datetime.now(UTC),
+                    )
+                    self.admission_decisions[sym] = decision
+                    if decision.decision != "admitted":
+                        raise DomainViolation(
+                            f"Candidate {cand.candidate_id} admission blocked: {decision.decision} "
+                            f"(reasons: {decision.reason_codes})"
+                        )
 
     def _load_default_candidates(self) -> dict[str, CreatorCandidateArtifact]:
         """Load pinned candidate artifacts if available on filesystem."""
@@ -1034,6 +1057,12 @@ class LivePaperEngine:
         if qual is not None and qual.qualification_hash != _qualification_content_hash(qual):
             logger.error(
                 "Tampered qualification artifact detected for %s; aborting signal processing", sym
+            )
+            return
+
+        if self.registry_manifest is not None and sym not in self.admission_decisions:
+            logger.warning(
+                "Signal evaluation blocked for %s: missing admission decision from manifest", sym
             )
             return
 
@@ -2049,6 +2078,8 @@ class LivePaperEngine:
         self.admission_decisions[symbol] = decision
         if decision.decision == "admitted":
             self.candidates[symbol] = candidate
+            if qualification is not None:
+                self.qualifications[symbol] = qualification
             self._register_symbol(symbol)
             logger.info(
                 "Admitted strategy %s for symbol %s (active_trade_retained=%s)",
@@ -2079,8 +2110,8 @@ class LivePaperEngine:
             ledger_db=self.ledger_path,
             lifecycle_db=self.lifecycle_path,
             observations_db=self.observations_path,
-            manifest=self.registry_manifest,
-            candidates=self.candidates if not self.registry_manifest else None,
+            manifest=self.registry_manifest if not self.candidates else None,
+            candidates=self.candidates if self.candidates else None,
             output_dir=output_dir,
             as_of=as_of,
             max_mark_age_seconds=max_mark_age_seconds,

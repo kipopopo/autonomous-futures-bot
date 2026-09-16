@@ -119,11 +119,20 @@ def main(argv: list[str] | None = None) -> int:
             if args.as_of
             else None
         )
+        expected_bindings = (
+            tuple(
+                PaperObservationBinding.model_validate(item)
+                for item in _load_list(args.expected_path)
+            )
+            if args.expected_path is not None
+            else None
+        )
         health_reports, report = evaluate_paper_cohort_snapshot(
             ledger_db=args.ledger_path,
             lifecycle_db=args.lifecycle_path,
             observations_db=args.observations_path,
             manifest=args.manifest_path,
+            expected_bindings=expected_bindings,
             as_of=as_of_dt,
             max_mark_age_seconds=args.max_mark_age_seconds,
             required_days=args.required_days,

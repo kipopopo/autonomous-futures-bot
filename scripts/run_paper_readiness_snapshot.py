@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from autonomous_futures.paper.cohort import evaluate_paper_cohort_snapshot
+from autonomous_futures.paper.observation import PaperObservationBinding
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,6 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Path to candidate_registry.json",
+    )
+    parser.add_argument(
+        "--expected-path",
+        type=Path,
+        default=None,
+        help="Path to expected bindings JSON list",
     )
     parser.add_argument(
         "--output-dir",
@@ -86,12 +93,21 @@ def main(argv: list[str] | None = None) -> int:
             if args.as_of
             else None
         )
+        expected_bindings = None
+        if args.expected_path is not None:
+            raw_bindings = json.loads(args.expected_path.read_text(encoding="utf-8"))
+            if not isinstance(raw_bindings, list):
+                raise ValueError("expected bindings JSON must be a list")
+            expected_bindings = tuple(
+                PaperObservationBinding.model_validate(item) for item in raw_bindings
+            )
 
         health_reports, cohort_report = evaluate_paper_cohort_snapshot(
             ledger_db=args.ledger_db,
             lifecycle_db=args.lifecycle_db,
             observations_db=args.observations_db,
             manifest=args.manifest_path,
+            expected_bindings=expected_bindings,
             as_of=as_of,
             max_mark_age_seconds=args.max_mark_age_seconds,
             required_days=args.required_days,

@@ -18,7 +18,9 @@ from ..domain.errors import DomainViolation
 from .candidate_registry import (
     DEFAULT_CANDIDATE_REGISTRY_PATH,
     CandidateRegistryManifest,
+    compute_registry_hash,
     read_candidate_registry,
+    verify_candidate_registry_manifest,
 )
 from .health import PaperHealthReport, aggregate_paper_health
 from .lifecycle import PaperLifecycleTelemetry
@@ -226,11 +228,17 @@ def evaluate_paper_cohort_snapshot(
             (sym, cand.candidate_id, cand.artifact_hash) for sym, cand in sorted(candidates.items())
         ]
     elif manifest is not None:
-        manifest_obj = (
-            read_candidate_registry(manifest, verify_hash=True)
-            if isinstance(manifest, (str, Path))
-            else manifest
-        )
+        if isinstance(manifest, (str, Path)):
+            manifest_obj = read_candidate_registry(manifest, verify_hash=True)
+        else:
+            manifest_obj = manifest
+            if not verify_candidate_registry_manifest(manifest_obj):
+                exp_h = manifest_obj.registry_hash
+                comp_h = compute_registry_hash(manifest_obj)
+                raise DomainViolation(
+                    f"CandidateRegistryManifest registry_hash mismatch: "
+                    f"expected {exp_h}, computed {comp_h}"
+                )
         entries = [
             (sym, entry.candidate_id, entry.candidate_artifact_hash)
             for sym, entry in sorted(manifest_obj.symbols.items())
@@ -275,6 +283,15 @@ def evaluate_paper_cohort_snapshot(
         )
         target_b = tuple(expected_bindings) if expected_bindings else (placeholder,)
         empty_rep = summarize_paper_cohort([], target_b)
+        if output_dir is not None:
+            out_p = Path(output_dir)
+            out_p.mkdir(parents=True, exist_ok=True)
+            cohort_path = out_p / "paper-cohort-readiness-report.json"
+            cohort_json = (
+                json.dumps(empty_rep.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+            )
+            _assert_zero_secrets(cohort_json, str(cohort_path))
+            cohort_path.write_text(cohort_json, encoding="utf-8")
         return {}, empty_rep
 
     # Deduplicate unique candidate bindings for cohort evaluation
@@ -351,7 +368,7 @@ def evaluate_paper_cohort_snapshot(
         cand_obs = obs_store.read(c_id, c_hash)
         active_marks: list[PaperLifecycleTelemetry] = []
         for pos in open_positions:
-            if pos.candidate_id == c_id:
+            if pos.candidate_id == c_id and (sym == c_id or pos.symbol.upper() == sym.upper()):
                 mark = lifecycle_store.latest(
                     candidate_id=c_id,
                     candidate_artifact_hash=c_hash,

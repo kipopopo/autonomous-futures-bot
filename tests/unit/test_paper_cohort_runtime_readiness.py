@@ -1040,3 +1040,405 @@ def test_engine_validates_qualification_hash_before_signals_and_execution(tmp_pa
     )
     assert res is None
     assert "BTCUSDT" not in engine.active_trades
+
+
+def test_live_paper_engine_restart_with_active_trade_enforces_require_flat(
+    tmp_path: Path,
+) -> None:
+    """Engine restart with active position rejects admission when require_flat=True."""
+    from autonomous_futures.feed.models import TickerSnapshot
+
+    cand = _build_test_candidate("cand-btc-flat", "BTCUSDT")
+    qual = _build_test_qualification(cand, "qualified")
+    manifest_path = _write_v2_manifest(tmp_path / "m1", {"BTCUSDT": (cand, qual)})
+
+    ledger_db = tmp_path / "paper-ledger.sqlite3"
+    lifecycle_db = tmp_path / "paper-lifecycle.sqlite3"
+    obs_db = tmp_path / "paper-observations.sqlite3"
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_path,
+        ledger_db=ledger_db,
+        lifecycle_db=lifecycle_db,
+        observations_db=obs_db,
+    )
+    engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
+        symbol="BTCUSDT",
+        best_bid_price=Decimal("50000"),
+        best_bid_qty=Decimal("1"),
+        best_ask_price=Decimal("50001"),
+        best_ask_qty=Decimal("1"),
+        transaction_time=datetime.now(UTC),
+        event_time=datetime.now(UTC),
+    )
+    opened = engine.execute_open("BTCUSDT", 1, Decimal("0.8"), datetime.now(UTC))
+    assert opened is not None
+    engine._mark_active_position(
+        engine.active_trades["BTCUSDT"],
+        Decimal("50010"),
+        datetime.now(UTC) + timedelta(seconds=10),
+    )
+
+    # Restarting engine with require_flat=True must fail with DomainViolation
+    with pytest.raises(DomainViolation, match="admission blocked: deferred_active_position"):
+        LivePaperEngine(
+            symbols=("BTCUSDT",),
+            registry_manifest=manifest_path,
+            ledger_db=ledger_db,
+            lifecycle_db=lifecycle_db,
+            observations_db=obs_db,
+            require_flat=True,
+        )
+
+
+def test_live_paper_engine_restart_with_active_trade_retained(tmp_path: Path) -> None:
+    """Engine restart retains active position when require_flat=False."""
+    from autonomous_futures.feed.models import TickerSnapshot
+
+    cand = _build_test_candidate("cand-btc-retain", "BTCUSDT")
+    qual = _build_test_qualification(cand, "qualified")
+    manifest_path = _write_v2_manifest(tmp_path / "m2", {"BTCUSDT": (cand, qual)})
+
+    ledger_db = tmp_path / "paper-ledger.sqlite3"
+    lifecycle_db = tmp_path / "paper-lifecycle.sqlite3"
+    obs_db = tmp_path / "paper-observations.sqlite3"
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_path,
+        ledger_db=ledger_db,
+        lifecycle_db=lifecycle_db,
+        observations_db=obs_db,
+    )
+    engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
+        symbol="BTCUSDT",
+        best_bid_price=Decimal("50000"),
+        best_bid_qty=Decimal("1"),
+        best_ask_price=Decimal("50001"),
+        best_ask_qty=Decimal("1"),
+        transaction_time=datetime.now(UTC),
+        event_time=datetime.now(UTC),
+    )
+    opened = engine.execute_open("BTCUSDT", 1, Decimal("0.8"), datetime.now(UTC))
+    assert opened is not None
+    engine._mark_active_position(
+        engine.active_trades["BTCUSDT"],
+        Decimal("50010"),
+        datetime.now(UTC) + timedelta(seconds=10),
+    )
+
+    # Restarting engine with require_flat=False must preserve active trade and update decision
+    restarted = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_path,
+        ledger_db=ledger_db,
+        lifecycle_db=lifecycle_db,
+        observations_db=obs_db,
+        require_flat=False,
+    )
+    assert "BTCUSDT" in restarted.active_trades
+    dec = restarted.admission_decisions["BTCUSDT"]
+    assert dec.decision == "admitted"
+    assert dec.active_trade_retained is True
+    assert "candidate_qualified_active_trade_retained" in dec.reason_codes
+
+
+def test_admit_candidate_registers_qualification_and_checks_hash_integrity(
+    tmp_path: Path,
+) -> None:
+    """admit_candidate registers qualification artifact and rejects execution if tampered."""
+    from autonomous_futures.feed.models import TickerSnapshot
+
+    cand_btc = _build_test_candidate("cand-btc-base", "BTCUSDT")
+    qual_btc = _build_test_qualification(cand_btc, "qualified")
+    manifest_path = _write_v2_manifest(tmp_path / "m3", {"BTCUSDT": (cand_btc, qual_btc)})
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_path,
+        ledger_db=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+        observations_db=tmp_path / "paper-observations.sqlite3",
+    )
+
+    cand_eth = _build_test_candidate("cand-eth-admit", "ETHUSDT")
+    qual_eth = _build_test_qualification(cand_eth, "qualified")
+
+    decision = engine.admit_candidate(cand_eth, qual_eth)
+    assert decision.decision == "admitted"
+    assert "ETHUSDT" in engine.qualifications
+    assert engine.qualifications["ETHUSDT"].qualification_hash == qual_eth.qualification_hash
+
+    # Tamper with ETH qualification in memory
+    engine.qualifications["ETHUSDT"] = qual_eth.model_copy(update={"qualification_hash": "e" * 64})
+
+    engine.latest_tickers["ETHUSDT"] = TickerSnapshot(
+        symbol="ETHUSDT",
+        best_bid_price=Decimal("3000"),
+        best_bid_qty=Decimal("1"),
+        best_ask_price=Decimal("3001"),
+        best_ask_qty=Decimal("1"),
+        transaction_time=datetime.now(UTC),
+        event_time=datetime.now(UTC),
+    )
+
+    res = engine.execute_open("ETHUSDT", 1, Decimal("0.8"), datetime.now(UTC))
+    assert res is None
+    assert "ETHUSDT" not in engine.active_trades
+
+
+def test_evaluate_cohort_readiness_excludes_unselected_manifest_symbols(
+    tmp_path: Path,
+) -> None:
+    """evaluate_cohort_readiness only evaluates candidates admitted to the engine."""
+    cand_btc = _build_test_candidate("cand-btc-single", "BTCUSDT")
+    qual_btc = _build_test_qualification(cand_btc, "qualified")
+    cand_sol = _build_test_candidate("cand-sol-unselected", "SOLUSDT")
+    qual_sol = _build_test_qualification(cand_sol, "qualified")
+    manifest_path = _write_v2_manifest(
+        tmp_path / "m4",
+        {"BTCUSDT": (cand_btc, qual_btc), "SOLUSDT": (cand_sol, qual_sol)},
+    )
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        registry_manifest=manifest_path,
+        ledger_db=tmp_path / "paper-ledger.sqlite3",
+        lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+        observations_db=tmp_path / "paper-observations.sqlite3",
+    )
+
+    health_reports, cohort_report = engine.evaluate_cohort_readiness()
+    assert list(health_reports.keys()) == ["BTCUSDT"]
+    assert cohort_report.expected_candidate_count == 1
+    assert cohort_report.candidates[0].candidate_id == cand_btc.candidate_id
+
+
+def test_evaluate_paper_cohort_snapshot_rejects_tampered_manifest_object(
+    tmp_path: Path,
+) -> None:
+    """evaluate_paper_cohort_snapshot rejects tampered CandidateRegistryManifest object."""
+    from autonomous_futures.paper.candidate_registry import (
+        CandidateRegistryManifest,
+    )
+
+    cand = _build_test_candidate("cand-btc-obj", "BTCUSDT")
+    qual = _build_test_qualification(cand, "qualified")
+    manifest_path = _write_v2_manifest(tmp_path / "m5", {"BTCUSDT": (cand, qual)})
+    manifest_obj = CandidateRegistryManifest.model_validate_json(
+        manifest_path.read_text(encoding="utf-8")
+    )
+    tampered_manifest = manifest_obj.model_copy(update={"registry_hash": "f" * 64})
+
+    with pytest.raises(DomainViolation, match="CandidateRegistryManifest registry_hash mismatch"):
+        evaluate_paper_cohort_snapshot(
+            ledger_path=tmp_path / "paper-ledger.sqlite3",
+            lifecycle_path=tmp_path / "paper-lifecycle.sqlite3",
+            observations_path=tmp_path / "paper-observations.sqlite3",
+            manifest=tampered_manifest,
+        )
+
+
+def test_evaluate_paper_cohort_snapshot_scopes_active_marks_by_symbol(
+    tmp_path: Path,
+) -> None:
+    """Active lifecycle marks are scoped to the matching symbol for shared candidates."""
+    from autonomous_futures.feed.models import TickerSnapshot
+
+    cand = _build_test_candidate("cand-shared-sym", "BTCUSDT")
+    cand = cand.model_copy(
+        update={
+            "strategy": cand.strategy.model_copy(
+                update={
+                    "universe": cand.strategy.universe.model_copy(
+                        update={"symbols": ("BTCUSDT", "ETHUSDT")}
+                    )
+                }
+            )
+        }
+    )
+    from autonomous_futures.research.creator_artifacts import _artifact_content_hash
+
+    cand = cand.model_copy(update={"artifact_hash": _artifact_content_hash(cand)})
+    qual = _build_test_qualification(cand, "qualified")
+    manifest_path = _write_v2_manifest(
+        tmp_path / "m6",
+        {"BTCUSDT": (cand, qual), "ETHUSDT": (cand, qual)},
+    )
+
+    ledger_db = tmp_path / "paper-ledger.sqlite3"
+    lifecycle_db = tmp_path / "paper-lifecycle.sqlite3"
+    obs_db = tmp_path / "paper-observations.sqlite3"
+
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT", "ETHUSDT"),
+        registry_manifest=manifest_path,
+        ledger_db=ledger_db,
+        lifecycle_db=lifecycle_db,
+        observations_db=obs_db,
+    )
+    now = datetime.now(UTC)
+    engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
+        symbol="BTCUSDT",
+        best_bid_price=Decimal("50000"),
+        best_bid_qty=Decimal("1"),
+        best_ask_price=Decimal("50001"),
+        best_ask_qty=Decimal("1"),
+        transaction_time=now,
+        event_time=now,
+    )
+    engine.latest_tickers["ETHUSDT"] = TickerSnapshot(
+        symbol="ETHUSDT",
+        best_bid_price=Decimal("3000"),
+        best_bid_qty=Decimal("1"),
+        best_ask_price=Decimal("3001"),
+        best_ask_qty=Decimal("1"),
+        transaction_time=now,
+        event_time=now,
+    )
+
+    op_btc = engine.execute_open("BTCUSDT", 1, Decimal("0.8"), now)
+    op_eth = engine.execute_open("ETHUSDT", 1, Decimal("0.8"), now)
+    assert op_btc is not None and op_eth is not None
+
+    engine._mark_active_position(
+        engine.active_trades["BTCUSDT"], Decimal("50010"), now + timedelta(seconds=60)
+    )
+    engine._mark_active_position(
+        engine.active_trades["ETHUSDT"], Decimal("3005"), now + timedelta(seconds=60)
+    )
+
+    from autonomous_futures.paper.observation import PaperObservation
+    from autonomous_futures.paper.sqlite_observation import SqlitePaperObservations
+
+    obs_store = SqlitePaperObservations(obs_db)
+    obs = PaperObservation(
+        candidate_id=cand.candidate_id,
+        candidate_artifact_hash=cand.artifact_hash,
+        observed_at=now,
+        equity=Decimal("100"),
+        realized_pnl=Decimal("0"),
+        unrealized_pnl=Decimal("0"),
+        peak_equity=Decimal("100"),
+        drawdown_pct=Decimal("0"),
+        open_position_count=2,
+        quote_exposure=Decimal("6000"),
+        cumulative_fees=Decimal("0"),
+        cumulative_slippage=Decimal("0"),
+        accounting_complete=True,
+        reason_codes=("paper_observation_complete",),
+    )
+    obs_store.append(obs)
+
+    health_reports, _ = evaluate_paper_cohort_snapshot(
+        ledger_path=ledger_db,
+        lifecycle_path=lifecycle_db,
+        observations_path=obs_db,
+        manifest=manifest_path,
+    )
+
+    btc_health = health_reports["BTCUSDT"]
+    eth_health = health_reports["ETHUSDT"]
+
+    assert len(btc_health.lifecycle) == 1
+    assert btc_health.lifecycle[0].trade_id == op_btc.trade_id
+    assert btc_health.lifecycle[0].symbol == "BTCUSDT"
+
+    assert len(eth_health.lifecycle) == 1
+    assert eth_health.lifecycle[0].trade_id == op_eth.trade_id
+    assert eth_health.lifecycle[0].symbol == "ETHUSDT"
+
+
+def test_evaluate_paper_cohort_snapshot_persists_report_on_empty_db(tmp_path: Path) -> None:
+    """evaluate_paper_cohort_snapshot persists readiness report even when empty."""
+    from autonomous_futures.paper.candidate_registry import (
+        CandidateRegistryManifest,
+        compute_registry_hash,
+    )
+
+    # 1. Fallback to default repo manifest against empty DBs writes report (status not_ready)
+    out_dir1 = tmp_path / "reports_empty_db"
+    health_reports1, cohort_report1 = evaluate_paper_cohort_snapshot(
+        ledger_path=tmp_path / "empty-ledger.sqlite3",
+        lifecycle_path=tmp_path / "empty-lifecycle.sqlite3",
+        observations_path=tmp_path / "empty-observations.sqlite3",
+        output_dir=out_dir1,
+    )
+    assert cohort_report1.cohort_status == "not_ready"
+    assert (out_dir1 / "paper-cohort-readiness-report.json").is_file()
+
+    # 2. Fully empty manifest with zero candidate entries writes report (status unavailable)
+    out_dir2 = tmp_path / "reports_empty_manifest"
+    raw_m = CandidateRegistryManifest(
+        registry_version=2,
+        symbols={},
+        updated_at=datetime.now(UTC).isoformat(),
+        registry_hash="0" * 64,
+    )
+    empty_manifest = raw_m.model_copy(update={"registry_hash": compute_registry_hash(raw_m)})
+    health_reports2, cohort_report2 = evaluate_paper_cohort_snapshot(
+        ledger_path=tmp_path / "empty-ledger.sqlite3",
+        lifecycle_path=tmp_path / "empty-lifecycle.sqlite3",
+        observations_path=tmp_path / "empty-observations.sqlite3",
+        manifest=empty_manifest,
+        output_dir=out_dir2,
+    )
+    assert cohort_report2.cohort_status == "unavailable"
+    assert (out_dir2 / "paper-cohort-readiness-report.json").is_file()
+    saved_report = json.loads(
+        (out_dir2 / "paper-cohort-readiness-report.json").read_text(encoding="utf-8")
+    )
+    assert saved_report["cohort_status"] == "unavailable"
+
+
+def test_scripts_and_cli_support_expected_path(tmp_path: Path, capsys) -> None:
+    """scripts/run_paper_readiness_snapshot.py and cohort_cli.py support --expected-path."""
+    from autonomous_futures.paper.cohort_cli import main as cli_main
+    from scripts.run_paper_readiness_snapshot import main as script_main
+
+    bindings = [
+        {
+            "candidate_id": "cand-exp-cli",
+            "candidate_artifact_hash": "d" * 64,
+        }
+    ]
+    exp_path = tmp_path / "expected_bindings.json"
+    exp_path.write_text(json.dumps(bindings), encoding="utf-8")
+
+    out_script = tmp_path / "out_script"
+    rc_script = script_main(
+        [
+            "--ledger-path",
+            str(tmp_path / "paper-ledger.sqlite3"),
+            "--lifecycle-path",
+            str(tmp_path / "paper-lifecycle.sqlite3"),
+            "--observations-path",
+            str(tmp_path / "paper-observations.sqlite3"),
+            "--expected-path",
+            str(exp_path),
+            "--output-dir",
+            str(out_script),
+        ]
+    )
+    assert rc_script == 0
+    payload_script = json.loads(capsys.readouterr().out)
+    assert payload_script["status"] == "not_ready"
+    assert payload_script["expected_candidate_count"] == 1
+
+    rc_cli = cli_main(
+        [
+            "--ledger-path",
+            str(tmp_path / "paper-ledger.sqlite3"),
+            "--lifecycle-path",
+            str(tmp_path / "paper-lifecycle.sqlite3"),
+            "--observations-path",
+            str(tmp_path / "paper-observations.sqlite3"),
+            "--expected-path",
+            str(exp_path),
+        ]
+    )
+    assert rc_cli == 0
+    payload_cli = json.loads(capsys.readouterr().out)
+    assert payload_cli["status"] == "not_ready"
+    assert payload_cli["expected_candidate_count"] == 1
