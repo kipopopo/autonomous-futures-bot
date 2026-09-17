@@ -197,13 +197,14 @@ def _prompt_operator_interactive(
             sys.stdout.write("Choice [1/2/3 or name]: ")
             sys.stdout.flush()
             choice = sys.stdin.readline().strip()
-            if choice in ("1", "approved_for_canary"):
+            choice_clean = choice.lower()
+            if choice_clean in ("1", "approved_for_canary", "approved", "approve"):
                 decision = "approved_for_canary"
                 break
-            elif choice in ("2", "rejected"):
+            elif choice_clean in ("2", "rejected", "reject"):
                 decision = "rejected"
                 break
-            elif choice in ("3", "held"):
+            elif choice_clean in ("3", "held", "hold"):
                 decision = "held"
                 break
             sys.stdout.write(

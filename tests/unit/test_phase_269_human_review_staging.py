@@ -622,3 +622,208 @@ class TestPhase269FailClosedSafetyAndZeroSecrets:
         # Clean strings pass without raising
         assert_zero_secrets("clean_token_string_here_no_secrets", "clean")
         assert_zero_secrets(None, "none")
+
+    def test_secret_scanner_catches_openai_sk_token(self) -> None:
+        fake_sk_token = "sk-" + "A" * 32
+        with pytest.raises(DomainViolation, match="Secret pattern matched"):
+            assert_zero_secrets(fake_sk_token, "openai_token")
+
+
+class TestPhase269AdversarialHardening:
+    """Targeted tests probing adversarial edge cases and fail-closed gates."""
+
+    def test_fails_when_credential_contamination_in_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        monkeypatch.setenv("BINANCE_API_KEY", "adverse_live_key_999")
+
+        # 1. Gate check fails
+        chk = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0.0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+        )
+        assert chk.all_gates_passed is False
+        assert chk.zero_api_keys_loaded is False
+        assert any("credential_contamination_detected:1" in r for r in chk.failure_reasons)
+
+        # 2. Canary staging fails closed
+        with pytest.raises(DomainViolation, match="live exchange credentials detected"):
+            stage_canary_candidates(
+                decision="approved_for_canary",
+                operator_id="operator-ops-001",
+                rationale="Should fail due to env credentials",
+                inspection=inspection,
+            )
+
+    def test_fails_when_unclosed_positions_detected(self) -> None:
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        chk = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0.0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+            raw_summary={
+                "portfolio_summary": {
+                    "open_positions_count": 2,
+                    "positions_reconciled": False,
+                }
+            },
+        )
+        assert chk.all_gates_passed is False
+        assert chk.all_positions_closed is False
+        assert any("unclosed_positions_detected:2" in r for r in chk.failure_reasons)
+        assert any("positions_unreconciled" in r for r in chk.failure_reasons)
+
+    def test_fails_when_candidate_pnl_drift_exceeded(self) -> None:
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        chk = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0.0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+            realized_pnl=Decimal("10.00"),  # drastically different from candidate pnl sum (-3.2387)
+        )
+        assert chk.all_gates_passed is False
+        assert chk.candidate_accounting_reconciled is False
+        assert any("candidate_pnl_reconciliation_drift_exceeded" in r for r in chk.failure_reasons)
+
+    def test_fails_when_upstream_artifact_tampered(self) -> None:
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        chk = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0.0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+            upstream_integrity_verified=False,
+            tampered_files=["paper-ledger.sqlite3:badbeef!=deadbeef"],
+        )
+        assert chk.all_gates_passed is False
+        assert chk.upstream_integrity_verified is False
+        assert any("upstream_artifact_hash_mismatch" in r for r in chk.failure_reasons)
+
+    def test_fails_when_candidate_hash_mismatch_with_registry(self) -> None:
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH)
+
+        # Corrupt one entry in registry manifest to simulate mismatch
+        corrupt_symbols = dict(manifest.symbols)
+        corrupt_symbols["BTCUSDT"] = corrupt_symbols["BTCUSDT"].model_copy(
+            update={"candidate_artifact_hash": "a" * 64}
+        )
+        corrupt_manifest = manifest.model_copy(update={"symbols": corrupt_symbols})
+
+        with pytest.raises(DomainViolation, match="Candidate artifact hash mismatch"):
+            stage_canary_candidates(
+                decision="approved_for_canary",
+                operator_id="operator-ops-001",
+                rationale="Candidate hash mismatch test",
+                inspection=inspection,
+                registry_manifest=corrupt_manifest,
+            )
+
+    def test_fails_when_candidate_hash_missing_or_dummy_on_approval(self) -> None:
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+
+        # Empty candidates in raw summary
+        corrupt_summary = dict(inspection.raw_summary)
+        corrupt_summary["candidates"] = {
+            "BTCUSDT": {"artifact_hash": "0" * 64, "qualification_hash": "0" * 64}
+        }
+        corrupt_inspection = inspection.model_copy(update={"raw_summary": corrupt_summary})
+
+        with pytest.raises(DomainViolation, match="Missing valid candidate artifact hash"):
+            stage_canary_candidates(
+                decision="approved_for_canary",
+                operator_id="operator-ops-001",
+                rationale="Dummy hash test",
+                inspection=corrupt_inspection,
+                registry_manifest=None,
+            )
+
+    def test_exact_decimal_accounting_precision_preserved(self) -> None:
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        btc = inspection.candidate_breakdowns["BTCUSDT"]
+        eth = inspection.candidate_breakdowns["ETHUSDT"]
+        sol = inspection.candidate_breakdowns["SOLUSDT"]
+
+        # Exact 20-digit precision without float truncation
+        assert btc.realized_pnl_usdt == Decimal("-1.0962967458302564112")
+        assert eth.realized_pnl_usdt == Decimal("-1.14877107936705144624")
+        assert sol.realized_pnl_usdt == Decimal("-0.9936529753003224")
+
+        total_pnl = btc.realized_pnl_usdt + eth.realized_pnl_usdt + sol.realized_pnl_usdt
+        assert total_pnl == Decimal("-3.23872080049763025744")
+        assert total_pnl == inspection.realized_pnl
+
+    def test_format_performance_table_includes_all_required_columns(self) -> None:
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        table = format_performance_table(inspection)
+        assert "Margin%" in table
+        assert "Fees(USDT)" in table
+        assert "Slip(USDT)" in table
+        assert "Trades" in table
+        assert "Win%" in table
+        assert "PnL(USDT)" in table
+
+    def test_audit_summary_includes_complete_candidate_metrics(self) -> None:
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        _, _, summary = stage_canary_candidates(
+            decision="approved_for_canary",
+            operator_id="operator-audit-test",
+            rationale="Audit completeness test",
+            inspection=inspection,
+        )
+        btc_summary = summary["candidates"]["BTCUSDT"]
+        assert "margin_utilization" in btc_summary
+        assert "cumulative_fees_usdt" in btc_summary
+        assert "cumulative_slippage_usdt" in btc_summary
+        assert "health_status" in btc_summary
+        assert "maturity_status" in btc_summary
+        assert "accounting_complete" in btc_summary
+        assert btc_summary["accounting_complete"] is True
+
+    def test_interactive_choice_case_insensitivity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        out_dir = tmp_path / "phase269_case_out"
+        user_inputs = io.StringIO(
+            "operator-case-lead\nAPPROVED_FOR_CANARY\nCase-insensitive prompt test\n"
+        )
+        monkeypatch.setattr(sys, "stdin", user_inputs)
+
+        ret = review_cli_main(
+            [
+                "--cohort-dir",
+                str(DEFAULT_PHASE268_COHORT_DIR),
+                "--output-dir",
+                str(out_dir),
+                "--interactive",
+            ]
+        )
+        assert ret == 0
+        captured = capsys.readouterr().out
+        assert "Decision:               approved_for_canary" in captured
+        assert (out_dir / "canary-staging-manifest.json").is_file()

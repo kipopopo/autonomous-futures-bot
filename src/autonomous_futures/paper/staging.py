@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import sqlite3
 from collections.abc import Mapping
@@ -47,8 +48,24 @@ DOUBLE_ENTRY_MAX_DRIFT = Decimal("1e-15")
 
 _SECRET_PATTERN = re.compile(
     r"(?i)(AIza[0-9A-Za-z\-_]{20,}|ya29\.[0-9A-Za-z\-_]+|bearer\s+[A-Za-z0-9\-._~+/]+=*|"
-    r"ghp_[0-9A-Za-z]{36}|gho_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{82}|AKIA[0-9A-Z]{16})"
+    r"ghp_[0-9A-Za-z]{36}|gho_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{82}|AKIA[0-9A-Z]{16}|"
+    r"sk-[0-9A-Za-z]{20,})"
 )
+
+
+def check_fail_closed_safety_invariants() -> dict[str, Any]:
+    """Check runtime environment for credentials and return fail-closed safety state."""
+    api_key = os.environ.get("BINANCE_API_KEY")
+    api_secret = os.environ.get("BINANCE_API_SECRET") or os.environ.get("BINANCE_SECRET")
+    keys_loaded = int(bool(api_key)) + int(bool(api_secret))
+    return {
+        "api_keys_loaded": keys_loaded,
+        "exchange_access": False,
+        "execution_authority": False,
+        "orders": 0,
+        "paper_activation": False,
+        "zero_secret_leakage": keys_loaded == 0,
+    }
 
 
 def assert_zero_secrets(text: Any, source_label: str) -> None:
@@ -179,9 +196,13 @@ class PrerequisiteChecklist(DomainModel):
     zero_candidates_blocked: bool = False
     accounting_complete: bool = False
     zero_balance_drift: bool = False
+    candidate_accounting_reconciled: bool = False
+    all_positions_closed: bool = False
     margin_guardrails_compliant: bool = False
     positive_terminal_equity: bool = False
     zero_circuit_breaker_flags: bool = False
+    zero_api_keys_loaded: bool = False
+    upstream_integrity_verified: bool = False
     all_gates_passed: bool = False
     failure_reasons: list[str] = Field(default_factory=list)
 
@@ -341,6 +362,16 @@ def inspect_cohort(
     except Exception as exc:
         raise DomainViolation(f"Failed to parse summary JSON at {summary_path}: {exc}") from exc
 
+    # Verify upstream file integrity against recorded hashes in raw_summary
+    recorded_hashes = raw_summary.get("artifact_hashes", {})
+    upstream_integrity_verified = True
+    tampered_files: list[str] = []
+    for fname, exp_hash in recorded_hashes.items():
+        computed_hash = upstream_hashes.get(fname)
+        if computed_hash is not None and computed_hash != exp_hash:
+            upstream_integrity_verified = False
+            tampered_files.append(f"{fname}:{computed_hash[:8]}!={exp_hash[:8]}")
+
     # 3. Read readiness report
     readiness_path = c_dir / "paper-cohort-readiness-report.json"
     if not readiness_path.is_file():
@@ -370,13 +401,17 @@ def inspect_cohort(
     realized_pnl = safe_decimal(shared_margin.get("realized_pnl_usdt", "0.0"))
     max_margin_util = safe_decimal(shared_margin.get("max_observed_margin_utilization", "0.0"))
     min_reserve_buf = safe_decimal(shared_margin.get("min_observed_reserve_buffer", "1.0"))
+    base_pos_fraction = safe_decimal(
+        shared_margin.get("base_position_fraction", DEFAULT_BASE_POSITION_FRACTION),
+        default=DEFAULT_BASE_POSITION_FRACTION,
+    )
 
     # Exact double-entry accounting drift: drift = |final_cash - (starting_equity + realized_pnl)|
     expected_cash = starting_equity + realized_pnl
     drift = abs(final_cash - expected_cash)
     zero_drift = drift < DOUBLE_ENTRY_MAX_DRIFT
 
-    # 5. Extract per-candidate metrics from ledger DB or summary
+    # 5. Extract per-candidate metrics from ledger DB or summary with exact Decimal precision
     candidate_breakdowns: dict[str, CandidatePerformanceBreakdown] = {}
     ledger_path = c_dir / "paper-ledger.sqlite3"
     obs_path = c_dir / "paper-observations.sqlite3"
@@ -393,31 +428,33 @@ def inspect_cohort(
                 if has_events:
                     rows = cursor.execute(
                         """
-                        SELECT symbol, candidate_id, COUNT(*),
-                               SUM(CASE WHEN CAST(net_pnl AS REAL) > 0 THEN 1 ELSE 0 END),
-                               SUM(CASE WHEN CAST(net_pnl AS REAL) <= 0 THEN 1 ELSE 0 END),
-                               SUM(CAST(net_pnl AS REAL)),
-                               SUM(
-                                   COALESCE(CAST(entry_fee AS REAL), 0)
-                                   + COALESCE(CAST(exit_fee AS REAL), 0)
-                               ),
-                               SUM(COALESCE(CAST(slippage_cost AS REAL), 0))
+                        SELECT symbol, candidate_id, net_pnl, entry_fee, exit_fee, slippage_cost
                         FROM paper_ledger_events
                         WHERE event = 'close'
-                        GROUP BY symbol, candidate_id
                         """
                     ).fetchall()
-                    for r in rows:
-                        sym, cid, cnt, win, loss, pnl, fees, slip = r
-                        ledger_stats[sym] = {
-                            "candidate_id": cid,
-                            "total_trades": int(cnt or 0),
-                            "winning_trades": int(win or 0),
-                            "losing_trades": int(loss or 0),
-                            "realized_pnl": safe_decimal(pnl),
-                            "fees": safe_decimal(fees),
-                            "slippage": safe_decimal(slip),
-                        }
+                    for sym, cid, net_pnl, entry_fee, exit_fee, slip in rows:
+                        stats = ledger_stats.setdefault(
+                            sym,
+                            {
+                                "candidate_id": cid,
+                                "total_trades": 0,
+                                "winning_trades": 0,
+                                "losing_trades": 0,
+                                "realized_pnl": Decimal("0"),
+                                "fees": Decimal("0"),
+                                "slippage": Decimal("0"),
+                            },
+                        )
+                        pnl_dec = safe_decimal(net_pnl)
+                        stats["total_trades"] += 1
+                        if pnl_dec > Decimal("0"):
+                            stats["winning_trades"] += 1
+                        else:
+                            stats["losing_trades"] += 1
+                        stats["realized_pnl"] += pnl_dec
+                        stats["fees"] += safe_decimal(entry_fee) + safe_decimal(exit_fee)
+                        stats["slippage"] += safe_decimal(slip)
         except sqlite3.Error as err:
             logger.warning("Could not read ledger sqlite: %s", err)
 
@@ -482,7 +519,7 @@ def inspect_cohort(
             win_rate_pct=round(win_rate_pct, 2),
             realized_pnl_usdt=pnl,
             observed_slots=int(observed_slots),
-            margin_utilization=DEFAULT_BASE_POSITION_FRACTION,
+            margin_utilization=base_pos_fraction,
             cumulative_fees_usdt=fees,
             cumulative_slippage_usdt=slippage,
             health_status=health,
@@ -501,6 +538,11 @@ def inspect_cohort(
         final_cash=final_cash,
         max_margin_utilization=max_margin_util,
         min_reserve_buffer=min_reserve_buf,
+        realized_pnl=realized_pnl,
+        raw_summary=raw_summary,
+        upstream_integrity_verified=upstream_integrity_verified,
+        tampered_files=tampered_files,
+        base_position_fraction=base_pos_fraction,
     )
 
     return CohortInspectionResult(
@@ -532,6 +574,11 @@ def verify_prerequisite_gates(
     final_cash: Decimal,
     max_margin_utilization: Decimal,
     min_reserve_buffer: Decimal,
+    realized_pnl: Decimal | None = None,
+    raw_summary: Mapping[str, Any] | None = None,
+    upstream_integrity_verified: bool = True,
+    tampered_files: list[str] | None = None,
+    base_position_fraction: Decimal = DEFAULT_BASE_POSITION_FRACTION,
 ) -> PrerequisiteChecklist:
     """Verify all prerequisite gates for Phase 269 human review staging."""
     failure_reasons: list[str] = []
@@ -583,9 +630,33 @@ def verify_prerequisite_gates(
     if not zero_drift:
         failure_reasons.append(f"balance_drift_exceeded:{drift:.2e}>={DOUBLE_ENTRY_MAX_DRIFT:.0e}")
 
+    # 4b. Three-way accounting reconciliation (Candidate PnL sum vs Portfolio Realized PnL)
+    if realized_pnl is not None:
+        cand_pnl_sum = sum(
+            (cb.realized_pnl_usdt for cb in candidate_breakdowns.values()), Decimal("0")
+        )
+        cand_pnl_drift = abs(cand_pnl_sum - realized_pnl)
+        zero_cand_drift = cand_pnl_drift < DOUBLE_ENTRY_MAX_DRIFT
+        if not zero_cand_drift:
+            failure_reasons.append(
+                f"candidate_pnl_reconciliation_drift_exceeded:{cand_pnl_drift:.2e}>={DOUBLE_ENTRY_MAX_DRIFT:.0e}"
+            )
+    else:
+        zero_cand_drift = True
+
+    # 4c. Open positions & single-position reconciliation
+    port_sum = (raw_summary or {}).get("portfolio_summary", {})
+    open_pos_cnt = int(port_sum.get("open_positions_count", 0))
+    pos_rec = bool(port_sum.get("positions_reconciled", True))
+    positions_closed = (open_pos_cnt == 0) and pos_rec
+    if open_pos_cnt > 0:
+        failure_reasons.append(f"unclosed_positions_detected:{open_pos_cnt}")
+    if not pos_rec:
+        failure_reasons.append("positions_unreconciled")
+
     # 5. Margin guardrails compliance (<= 80% utilization, >= 20% reserve)
     # Check both historical observed and staged aggregate limits
-    staged_util = Decimal(len(expected_candidates)) * DEFAULT_BASE_POSITION_FRACTION
+    staged_util = Decimal(len(expected_candidates)) * base_position_fraction
     staged_buf = Decimal("1.00") - staged_util
     margin_compliant = (
         max_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
@@ -615,6 +686,17 @@ def verify_prerequisite_gates(
             zero_cb_flags = False
             failure_reasons.append(f"unresolved_circuit_breaker:{code}")
 
+    # 8. Zero credentials in environment
+    api_keys_count = check_fail_closed_safety_invariants()["api_keys_loaded"]
+    zero_api_keys = api_keys_count == 0
+    if not zero_api_keys:
+        failure_reasons.append(f"credential_contamination_detected:{api_keys_count}")
+
+    # 9. Upstream cohort file integrity
+    if not upstream_integrity_verified:
+        for t in tampered_files or []:
+            failure_reasons.append(f"upstream_artifact_hash_mismatch:{t}")
+
     all_passed = (
         cohort_ready
         and expected_present
@@ -623,9 +705,13 @@ def verify_prerequisite_gates(
         and zero_blocked
         and accounting_comp
         and zero_drift
+        and zero_cand_drift
+        and positions_closed
         and margin_compliant
         and positive_equity
         and zero_cb_flags
+        and zero_api_keys
+        and upstream_integrity_verified
     )
 
     return PrerequisiteChecklist(
@@ -636,9 +722,13 @@ def verify_prerequisite_gates(
         zero_candidates_blocked=zero_blocked,
         accounting_complete=accounting_comp,
         zero_balance_drift=zero_drift,
+        candidate_accounting_reconciled=zero_cand_drift,
+        all_positions_closed=positions_closed,
         margin_guardrails_compliant=margin_compliant,
         positive_terminal_equity=positive_equity,
         zero_circuit_breaker_flags=zero_cb_flags,
+        zero_api_keys_loaded=zero_api_keys,
+        upstream_integrity_verified=upstream_integrity_verified,
         all_gates_passed=all_passed,
         failure_reasons=failure_reasons,
     )
@@ -701,19 +791,46 @@ def stage_canary_candidates(
         summary_cand = summary_cand_entries.get(sym, {})
         reg_entry = registry_manifest.symbols.get(sym) if registry_manifest else None
 
+        # Cross-verify registry vs summary hashes if both present
+        if reg_entry and summary_cand.get("artifact_hash"):
+            sum_art = summary_cand.get("artifact_hash")
+            if reg_entry.candidate_artifact_hash != sum_art:
+                raise DomainViolation(
+                    f"Candidate artifact hash mismatch for {sym}: "
+                    f"registry={reg_entry.candidate_artifact_hash} vs summary={sum_art}"
+                )
+        if reg_entry and summary_cand.get("qualification_hash"):
+            sum_qual = summary_cand.get("qualification_hash")
+            if reg_entry.qualification_hash != sum_qual:
+                raise DomainViolation(
+                    f"Qualification hash mismatch for {sym}: "
+                    f"registry={reg_entry.qualification_hash} vs summary={sum_qual}"
+                )
+
         art_hash = (
             (reg_entry.candidate_artifact_hash if reg_entry else None)
             or summary_cand.get("artifact_hash")
-            or "0" * 64
+            or ""
         )
         qual_hash = (
             (reg_entry.qualification_hash if reg_entry else None)
             or summary_cand.get("qualification_hash")
-            or "0" * 64
+            or ""
         )
         art_path = (
             reg_entry.artifact_path if reg_entry else None
         ) or f"artifacts/paper_live/candidates/{breakdown.candidate_id}.json"
+
+        # Fail closed on dummy or missing hashes when approving for canary
+        if decision == "approved_for_canary":
+            if not art_hash or art_hash == "0" * 64 or len(art_hash) != 64:
+                raise DomainViolation(f"Missing valid candidate artifact hash for symbol {sym}")
+            if not qual_hash or qual_hash == "0" * 64 or len(qual_hash) != 64:
+                raise DomainViolation(f"Missing valid qualification hash for symbol {sym}")
+        elif not art_hash:
+            art_hash = "0" * 64
+        elif not qual_hash:
+            qual_hash = "0" * 64
 
         staged_candidates[sym] = CanaryStagedCandidate(
             symbol=sym,
@@ -734,15 +851,13 @@ def stage_canary_candidates(
             promotion_timestamp=now_iso,
         )
 
-    # Common fail-closed safety invariants
-    safety_invariants = {
-        "api_keys_loaded": 0,
-        "exchange_access": False,
-        "execution_authority": False,
-        "orders": 0,
-        "paper_activation": False,
-        "zero_secret_leakage": True,
-    }
+    # Dynamic fail-closed safety invariants verification
+    safety_invariants = check_fail_closed_safety_invariants()
+    if safety_invariants["api_keys_loaded"] > 0:
+        raise DomainViolation(
+            f"Cannot stage candidates: live exchange credentials detected in environment "
+            f"(api_keys_loaded={safety_invariants['api_keys_loaded']})"
+        )
 
     # 1. Build CanaryStagingManifest
     provisional_manifest = CanaryStagingManifest(
@@ -819,7 +934,17 @@ def stage_canary_candidates(
                 "total_trades": inspection.candidate_breakdowns[sym].total_trades,
                 "win_rate_pct": inspection.candidate_breakdowns[sym].win_rate_pct,
                 "realized_pnl_usdt": str(inspection.candidate_breakdowns[sym].realized_pnl_usdt),
+                "margin_utilization": str(inspection.candidate_breakdowns[sym].margin_utilization),
+                "cumulative_fees_usdt": str(
+                    inspection.candidate_breakdowns[sym].cumulative_fees_usdt
+                ),
+                "cumulative_slippage_usdt": str(
+                    inspection.candidate_breakdowns[sym].cumulative_slippage_usdt
+                ),
                 "observed_slots": inspection.candidate_breakdowns[sym].observed_slots,
+                "health_status": inspection.candidate_breakdowns[sym].health_status,
+                "maturity_status": inspection.candidate_breakdowns[sym].maturity_status,
+                "accounting_complete": inspection.candidate_breakdowns[sym].accounting_complete,
             }
             for sym, cand in staged_candidates.items()
         },
@@ -900,10 +1025,12 @@ def save_staging_artifacts(
 
 def format_performance_table(inspection: CohortInspectionResult) -> str:
     """Format an ASCII breakdown of candidate performance and portfolio metrics."""
+    sep = "=" * 98
+    sub_sep = "-" * 98
     lines: list[str] = [
-        "================================================================================",
-        "          PHASE 269: CANDIDATE PERFORMANCE & COHORT INSPECTION BREAKDOWN        ",
-        "================================================================================",
+        sep,
+        "           PHASE 269: CANDIDATE PERFORMANCE & COHORT INSPECTION BREAKDOWN         ",
+        sep,
         f"Cohort Directory:       {inspection.cohort_dir}",
         f"Cohort Status:          {inspection.cohort_status}",
         f"Upstream SHA-256:       {inspection.upstream_digest[:16]}...",
@@ -911,29 +1038,37 @@ def format_performance_table(inspection: CohortInspectionResult) -> str:
         f"Final Cash Balance:     {inspection.final_cash:.4f} USDT",
         f"Realized PnL:           {inspection.realized_pnl:+.4f} USDT",
         f"Accounting Drift:       {inspection.drift:.2e} USDT (zero_drift={inspection.zero_drift})",
-        f"Max Margin Utilization: {inspection.max_margin_utilization * 100:.2f}% (limit <= 80.00%)",
-        f"Min Reserve Buffer:     {inspection.min_reserve_buffer * 100:.2f}% (minimum >= 20.00%)",
-        "--------------------------------------------------------------------------------",
-        f"{'Symbol':<8} {'Candidate ID':<22} {'Family':<22} {'Trades':<6} {'Win%':<6} "
-        f"{'PnL(USDT)':<11} {'Slots':<5} {'Health':<7} {'Maturity':<8}",
-        "--------------------------------------------------------------------------------",
+        (
+            f"Max Margin Utilization: {inspection.max_margin_utilization * 100:.2f}% "
+            "(limit <= 80.00%)"
+        ),
+        (f"Min Reserve Buffer:     {inspection.min_reserve_buffer * 100:.2f}% (minimum >= 20.00%)"),
+        sub_sep,
+        (
+            f"{'Symbol':<8} {'Candidate ID':<20} {'Trades':<6} {'Win%':<5} {'PnL(USDT)':<10} "
+            f"{'Margin%':<7} {'Fees(USDT)':<10} {'Slip(USDT)':<10} {'Slots':<5} {'Health':<6} "
+            f"{'Maturity':<8}"
+        ),
+        sub_sep,
     ]
 
     for sym, cb in sorted(inspection.candidate_breakdowns.items()):
         lines.append(
-            f"{sym:<9} {cb.candidate_id:<22} {cb.family:<24} {cb.total_trades:<7} "
-            f"{cb.win_rate_pct:>5.1f}% {float(cb.realized_pnl_usdt):>+11.4f} "
-            f"{cb.observed_slots:<6} {cb.health_status:<8} {cb.maturity_status:<8}"
+            f"{sym:<8} {cb.candidate_id:<20} {cb.total_trades:<6} "
+            f"{cb.win_rate_pct:>4.1f}% {float(cb.realized_pnl_usdt):>+10.4f} "
+            f"{float(cb.margin_utilization) * 100:>6.1f}% {float(cb.cumulative_fees_usdt):>10.4f} "
+            f"{float(cb.cumulative_slippage_usdt):>10.4f} {cb.observed_slots:<5} "
+            f"{cb.health_status:<6} {cb.maturity_status:<8}"
         )
 
-    lines.append("--------------------------------------------------------------------------------")
+    lines.append(sub_sep)
     chk = inspection.prerequisite_checklist
     lines.append(f"Prerequisite Gates Result: {'ALL PASSED' if chk.all_gates_passed else 'FAILED'}")
     if not chk.all_gates_passed:
         lines.append("Failed Gates:")
         for r in chk.failure_reasons:
             lines.append(f"  - {r}")
-    lines.append("================================================================================")
+    lines.append(sep)
     return "\n".join(lines)
 
 
@@ -956,6 +1091,7 @@ __all__ = [
     "PortfolioRiskGuardrails",
     "PrerequisiteChecklist",
     "assert_zero_secrets",
+    "check_fail_closed_safety_invariants",
     "compute_decision_hash",
     "compute_file_sha256",
     "compute_manifest_hash",
