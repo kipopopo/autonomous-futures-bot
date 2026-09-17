@@ -25,7 +25,7 @@ from collections.abc import Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -108,6 +108,28 @@ def _assert_zero_secrets(text: str, source_label: str) -> None:
     match = _SECRET_PATTERN.search(text)
     if match:
         raise DomainViolation(f"Secret pattern matched in {source_label}: {match.group(0)[:8]}...")
+
+
+def _safe_decimal(val: Any, default: Decimal) -> Decimal:
+    """Safely convert value to finite Decimal or return default on error."""
+    if val is None or pd.isna(val):
+        return default
+    try:
+        d = Decimal(str(val))
+        return d if d.is_finite() else default
+    except InvalidOperation, TypeError, ValueError:
+        return default
+
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    """Safely convert value to non-negative int or return default on error."""
+    if val is None or pd.isna(val):
+        return default
+    try:
+        i = int(float(str(val)))
+        return max(0, i)
+    except TypeError, ValueError, OverflowError:
+        return default
 
 
 def verify_strict_safety_invariants(*, orders_submitted: int = 0) -> dict[str, Any]:
@@ -223,6 +245,8 @@ def _sqlite_row_count(
     """Safely count rows in SQLite table with retry handling for transient lock contention."""
     if not db_path.is_file():
         return 0
+    if not re.match(r"^[A-Za-z0-9_]+$", table_name):
+        return 0
     for attempt in range(max_retries):
         try:
             with closing(sqlite3.connect(db_path, timeout=5.0)) as conn:
@@ -324,8 +348,11 @@ def _load_canonical_df(parquet_file: Path, tail_rows: int | None = None) -> pd.D
         _PARQUET_CACHE[cache_key] = df_clean
 
     cached_df = _PARQUET_CACHE[cache_key]
-    if tail_rows is not None and tail_rows > 0 and len(cached_df) > tail_rows:
-        return cached_df.iloc[-tail_rows:].copy()
+    if tail_rows is not None:
+        if tail_rows <= 0:
+            return cached_df.iloc[0:0].copy()
+        if len(cached_df) > tail_rows:
+            return cached_df.iloc[-tail_rows:].copy()
     return cached_df.copy()
 
 
@@ -337,6 +364,10 @@ def seed_engine_history_from_canonical(
     offset_ticks: int = 0,
 ) -> None:
     """Seed causal historical bars for dynamic feature calculation warmup from parquet data."""
+    if warmup_bars <= 0:
+        return
+    if offset_ticks < 0:
+        offset_ticks = 0
     resolved_history_dir = history_dir if history_dir.is_dir() else _REPO_ROOT / history_dir
     for symbol in symbols:
         parquet_file = resolved_history_dir / f"{symbol}-5m.parquet"
@@ -479,9 +510,7 @@ async def replay_long_horizon_cohort_observations(
             row = rows_map[ts]
 
             r_close = row.get("close")
-            if r_close is None or pd.isna(r_close):
-                continue
-            close_price = Decimal(str(r_close))
+            close_price = _safe_decimal(r_close, Decimal("0"))
             if close_price <= Decimal("0"):
                 continue
             spread_half = max(Decimal("0.01"), close_price * Decimal("0.0001"))
@@ -515,73 +544,35 @@ async def replay_long_horizon_cohort_observations(
                 engine._evaluate_tick_stops(sym, ticker)
             await engine.monitor.push_ticker(ticker)
 
-            open_val = row.get("open")
-            open_price = (
-                Decimal(str(open_val))
-                if open_val is not None and not pd.isna(open_val)
-                else close_price
-            )
+            open_price = _safe_decimal(row.get("open"), close_price)
             if open_price <= Decimal("0"):
                 open_price = close_price
 
-            high_val = row.get("high")
-            high_price = (
-                Decimal(str(high_val))
-                if high_val is not None and not pd.isna(high_val)
-                else max(open_price, close_price)
-            )
-            low_val = row.get("low")
-            low_price = (
-                Decimal(str(low_val))
-                if low_val is not None and not pd.isna(low_val)
-                else min(open_price, close_price)
-            )
+            high_price = _safe_decimal(row.get("high"), max(open_price, close_price))
+            low_price = _safe_decimal(row.get("low"), min(open_price, close_price))
 
             high_price = max(high_price, open_price, close_price)
             low_price = max(Decimal("0.000001"), min(low_price, open_price, close_price))
 
-            raw_vol = row.get("volume")
-            volume = (
-                Decimal(str(raw_vol))
-                if raw_vol is not None and not pd.isna(raw_vol)
-                else Decimal("0")
-            )
-            if volume < Decimal("0"):
-                volume = Decimal("0")
+            volume = max(Decimal("0"), _safe_decimal(row.get("volume"), Decimal("0")))
 
             raw_qvol = row.get("quote_volume")
             quote_volume = (
-                Decimal(str(raw_qvol))
+                _safe_decimal(raw_qvol, volume * close_price)
                 if raw_qvol is not None and not pd.isna(raw_qvol)
                 else volume * close_price
             )
             if quote_volume < Decimal("0"):
                 quote_volume = volume * close_price
 
-            raw_trades = row.get("trades")
-            trades = (
-                int(raw_trades)
-                if raw_trades is not None and not pd.isna(raw_trades) and int(raw_trades) >= 0
-                else 0
-            )
+            trades = _safe_int(row.get("trades"), 0)
 
-            raw_tbb = row.get("taker_buy_base")
-            taker_buy_base = (
-                Decimal(str(raw_tbb))
-                if raw_tbb is not None and not pd.isna(raw_tbb)
-                else Decimal("0")
+            taker_buy_base = max(
+                Decimal("0"), _safe_decimal(row.get("taker_buy_base"), Decimal("0"))
             )
-            if taker_buy_base < Decimal("0"):
-                taker_buy_base = Decimal("0")
-
-            raw_tbq = row.get("taker_buy_quote")
-            taker_buy_quote = (
-                Decimal(str(raw_tbq))
-                if raw_tbq is not None and not pd.isna(raw_tbq)
-                else Decimal("0")
+            taker_buy_quote = max(
+                Decimal("0"), _safe_decimal(row.get("taker_buy_quote"), Decimal("0"))
             )
-            if taker_buy_quote < Decimal("0"):
-                taker_buy_quote = Decimal("0")
 
             bar = CanonicalBar(
                 symbol=sym,
@@ -700,6 +691,8 @@ async def run_phase_268_long_horizon_maturation(
         raise DomainViolation("Cannot specify both 'days' and 'ticks'")
     if required_days <= 0:
         raise DomainViolation("Required days for cohort evaluation must be positive")
+    if not ws_url or not ws_url.strip():
+        raise DomainViolation("ws_url must not be empty")
 
     # 2. Validate Candidate Registry Manifest Version 2
     manifest = validate_manifest_v2(registry_path)

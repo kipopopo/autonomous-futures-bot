@@ -799,6 +799,42 @@ class TestPhase268CLI:
         ret = main(["--output-dir", str(tmp_path / "cli_neg_ticks"), "--ticks", "-5", "--offline"])
         assert ret == 1
 
+    def test_cli_rejects_zero_and_negative_days_exit_code_1(self, tmp_path: Path) -> None:
+        ret = main(["--output-dir", str(tmp_path / "cli_zero_days"), "--days", "0", "--offline"])
+        assert ret == 1
+        ret_neg = main(
+            ["--output-dir", str(tmp_path / "cli_neg_days"), "--days", "-2.0", "--offline"]
+        )
+        assert ret_neg == 1
+
+    def test_cli_rejects_nonpositive_starting_capital_exit_code_1(self, tmp_path: Path) -> None:
+        ret = main(
+            [
+                "--output-dir",
+                str(tmp_path / "cli_zero_cap"),
+                "--starting-capital",
+                "0",
+                "--ticks",
+                "5",
+                "--offline",
+            ]
+        )
+        assert ret == 1
+
+    def test_cli_rejects_nonpositive_required_days_exit_code_1(self, tmp_path: Path) -> None:
+        ret = main(
+            [
+                "--output-dir",
+                str(tmp_path / "cli_bad_req_days"),
+                "--required-days",
+                "0",
+                "--ticks",
+                "5",
+                "--offline",
+            ]
+        )
+        assert ret == 1
+
 
 class TestPhase268AdversarialDataRobustnessAndEdgeCases:
     """Adversarial stress tests for parquet cache isolation, malformed data, and timeline gaps."""
@@ -1357,3 +1393,155 @@ class TestPhase268AdversarialDataRobustnessAndEdgeCases:
             holder.close()
 
         assert _verify_sqlite_unlocked(db_file) is True
+
+    def test_load_canonical_df_zero_and_negative_tail_rows(self, tmp_path: Path) -> None:
+        clear_parquet_cache()
+        pfile = tmp_path / "tail_zero_test.parquet"
+        base_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        df = pd.DataFrame(
+            {
+                "timestamp": [base_t, base_t + timedelta(minutes=5)],
+                "close": [Decimal("100.0"), Decimal("101.0")],
+            }
+        )
+        df.to_parquet(pfile)
+
+        loaded_zero = _load_canonical_df(pfile, tail_rows=0)
+        assert len(loaded_zero) == 0
+        assert set(df.columns).issubset(set(loaded_zero.columns))
+
+        loaded_neg = _load_canonical_df(pfile, tail_rows=-5)
+        assert len(loaded_neg) == 0
+
+    @pytest.mark.anyio
+    async def test_parquet_non_numeric_and_inf_values_sanitization(self, tmp_path: Path) -> None:
+        clear_parquet_cache()
+        manifest = validate_manifest_v2(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        symbols = tuple(s.upper() for s in manifest.symbols.keys())
+
+        data_dir = tmp_path / "bad_strings_data"
+        data_dir.mkdir()
+
+        base_t = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+        for sym in symbols:
+            df = pd.DataFrame(
+                {
+                    "timestamp": [
+                        base_t,
+                        base_t + timedelta(minutes=5),
+                        base_t + timedelta(minutes=10),
+                    ],
+                    "close": ["100.0", "101.0", "102.0"],
+                    "open": ["not_a_number", "inf", None],
+                    "high": ["invalid_high", "Infinity", "105.0"],
+                    "low": ["-Infinity", "bad_low", "95.0"],
+                    "volume": ["corrupt_vol", "-10.0", "50.0"],
+                    "quote_volume": ["corrupt_qvol", None, "5100.0"],
+                    "trades": ["not_an_int", "-5", "10"],
+                    "taker_buy_base": ["bad_tbb", None, "25.0"],
+                    "taker_buy_quote": ["bad_tbq", None, "2550.0"],
+                }
+            )
+            df.to_parquet(data_dir / f"{sym}-5m.parquet")
+
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        engine = LivePaperTradingEngine(
+            registry_manifest=manifest,
+            ledger_db=tmp_path / "bad-num-ledger.sqlite3",
+            lifecycle_db=tmp_path / "bad-num-lifecycle.sqlite3",
+            observations_db=tmp_path / "bad-num-obs.sqlite3",
+            require_flat=False,
+        )
+
+        ticks = await replay_long_horizon_cohort_observations(
+            engine=engine,
+            history_dir=data_dir,
+            symbols=symbols,
+            max_ticks=3,
+        )
+        await engine.stop()
+        assert ticks == 3
+
+    def test_sqlite_row_count_sql_injection_defense(self, tmp_path: Path) -> None:
+        db_file = tmp_path / "test_injection.sqlite3"
+        import sqlite3
+        from contextlib import closing
+
+        with closing(sqlite3.connect(db_file)) as conn:
+            conn.execute("CREATE TABLE valid_table (id INTEGER PRIMARY KEY)")
+            conn.execute("INSERT INTO valid_table DEFAULT VALUES")
+            conn.commit()
+
+        assert _sqlite_row_count(db_file, "valid_table") == 1
+        assert _sqlite_row_count(db_file, "valid_table; DROP TABLE valid_table;") == 0
+        assert _sqlite_row_count(db_file, "table with spaces") == 0
+        assert _sqlite_row_count(db_file, "table'--") == 0
+
+    def test_seed_engine_history_zero_and_negative_warmup(self, tmp_path: Path) -> None:
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        manifest = validate_manifest_v2(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        symbols = tuple(s.upper() for s in manifest.symbols.keys())
+
+        engine = LivePaperTradingEngine(
+            registry_manifest=manifest,
+            ledger_db=tmp_path / "seed-zero-ledger.sqlite3",
+            lifecycle_db=tmp_path / "seed-zero-lifecycle.sqlite3",
+            observations_db=tmp_path / "seed-zero-obs.sqlite3",
+            require_flat=False,
+        )
+
+        seed_engine_history_from_canonical(
+            engine=engine,
+            history_dir=DEFAULT_CANONICAL_HISTORY_DIR,
+            symbols=symbols,
+            warmup_bars=0,
+        )
+        seed_engine_history_from_canonical(
+            engine=engine,
+            history_dir=DEFAULT_CANONICAL_HISTORY_DIR,
+            symbols=symbols,
+            warmup_bars=-10,
+            offset_ticks=-5,
+        )
+        assert True
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_empty_ws_url(self, tmp_path: Path) -> None:
+        with pytest.raises(DomainViolation, match="ws_url must not be empty"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "empty_ws",
+                ticks=5,
+                offline=True,
+                ws_url="",
+            )
+
+        with pytest.raises(DomainViolation, match="ws_url must not be empty"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "space_ws",
+                ticks=5,
+                offline=True,
+                ws_url="   ",
+            )
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_nonpositive_required_days(self, tmp_path: Path) -> None:
+        with pytest.raises(
+            DomainViolation, match="Required days for cohort evaluation must be positive"
+        ):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "bad_req_days_0",
+                ticks=5,
+                offline=True,
+                required_days=0,
+            )
+        with pytest.raises(
+            DomainViolation, match="Required days for cohort evaluation must be positive"
+        ):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "bad_req_days_neg",
+                ticks=5,
+                offline=True,
+                required_days=-3,
+            )
