@@ -210,6 +210,28 @@ def validate_manifest_v2(manifest_path: Path) -> CandidateRegistryManifest:
     return manifest
 
 
+def _sqlite_row_count(
+    db_path: Path, table_name: str, max_retries: int = 5, retry_delay: float = 0.05
+) -> int:
+    """Safely count rows in SQLite table with retry handling for transient lock contention."""
+    if not db_path.is_file():
+        return 0
+    for attempt in range(max_retries):
+        try:
+            with closing(sqlite3.connect(db_path, timeout=5.0)) as conn:
+                row = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                return int(row[0]) if row else 0
+        except sqlite3.OperationalError as exc:
+            err_msg = str(exc).lower()
+            if "locked" in err_msg or "busy" in err_msg:
+                time.sleep(retry_delay * (2**attempt))
+                continue
+            return 0
+        except Exception:
+            return 0
+    return 0
+
+
 _PARQUET_CACHE: dict[tuple[Path, int, int], pd.DataFrame] = {}
 
 
@@ -233,7 +255,13 @@ def _load_canonical_df(parquet_file: Path, tail_rows: int | None = None) -> pd.D
         cache_key = (resolved, 0, 0)
 
     if cache_key not in _PARQUET_CACHE:
-        df = pd.read_parquet(resolved)
+        try:
+            df = pd.read_parquet(resolved)
+        except Exception as exc:
+            logger.warning("Failed to read parquet file %s: %s", resolved, exc)
+            _PARQUET_CACHE[cache_key] = pd.DataFrame()
+            return _PARQUET_CACHE[cache_key].copy()
+
         if df.empty or "timestamp" not in df.columns:
             _PARQUET_CACHE[cache_key] = pd.DataFrame()
             return _PARQUET_CACHE[cache_key].copy()
@@ -248,10 +276,19 @@ def _load_canonical_df(parquet_file: Path, tail_rows: int | None = None) -> pd.D
         # Deduplicate timestamps per symbol, keeping latest bar
         df = df.drop_duplicates(subset=["timestamp"], keep="last")
 
-        # Sanitize close_time: ensure UTC datetime and close_time >= timestamp
+        # Sanitize close price: enforce positive numeric values
+        if "close" in df.columns:
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            df = df.dropna(subset=["close"])
+            df = df[df["close"] > 0]
+        if df.empty:
+            _PARQUET_CACHE[cache_key] = pd.DataFrame()
+            return _PARQUET_CACHE[cache_key].copy()
+
+        # Sanitize close_time: ensure UTC datetime and strictly close_time > timestamp
         if "close_time" in df.columns:
             df["close_time"] = pd.to_datetime(df["close_time"], utc=True)
-            invalid_mask = df["close_time"].isna() | (df["close_time"] < df["timestamp"])
+            invalid_mask = df["close_time"].isna() | (df["close_time"] <= df["timestamp"])
             if invalid_mask.any():
                 df.loc[invalid_mask, "close_time"] = (
                     df.loc[invalid_mask, "timestamp"]
@@ -419,7 +456,12 @@ async def replay_multi_day_cohort_observations(
                 continue
             row = rows_map[ts]
 
-            close_price = Decimal(str(row["close"]))
+            r_close = row.get("close")
+            if r_close is None or pd.isna(r_close):
+                continue
+            close_price = Decimal(str(r_close))
+            if close_price <= Decimal("0"):
+                continue
             spread_half = max(Decimal("0.01"), close_price * Decimal("0.0001"))
 
             r_close_time = row.get("close_time")
@@ -433,10 +475,12 @@ async def replay_multi_day_cohort_observations(
                 )
             else:
                 close_time = ts + timedelta(minutes=5, milliseconds=-1)
+            if close_time <= ts:
+                close_time = ts + timedelta(minutes=5, milliseconds=-1)
 
             ticker = TickerSnapshot(
                 symbol=sym,
-                best_bid_price=close_price - spread_half,
+                best_bid_price=max(Decimal("0.000001"), close_price - spread_half),
                 best_bid_qty=Decimal("1.0"),
                 best_ask_price=close_price + spread_half,
                 best_ask_qty=Decimal("1.0"),
@@ -449,27 +493,88 @@ async def replay_multi_day_cohort_observations(
                 engine._evaluate_tick_stops(sym, ticker)
             await engine.monitor.push_ticker(ticker)
 
+            open_val = row.get("open")
+            open_price = (
+                Decimal(str(open_val))
+                if open_val is not None and not pd.isna(open_val)
+                else close_price
+            )
+            if open_price <= Decimal("0"):
+                open_price = close_price
+
+            high_val = row.get("high")
+            high_price = (
+                Decimal(str(high_val))
+                if high_val is not None and not pd.isna(high_val)
+                else max(open_price, close_price)
+            )
+            low_val = row.get("low")
+            low_price = (
+                Decimal(str(low_val))
+                if low_val is not None and not pd.isna(low_val)
+                else min(open_price, close_price)
+            )
+
+            high_price = max(high_price, open_price, close_price)
+            low_price = max(Decimal("0.000001"), min(low_price, open_price, close_price))
+
+            raw_vol = row.get("volume")
+            volume = (
+                Decimal(str(raw_vol))
+                if raw_vol is not None and not pd.isna(raw_vol)
+                else Decimal("0")
+            )
+            if volume < Decimal("0"):
+                volume = Decimal("0")
+
+            raw_qvol = row.get("quote_volume")
+            quote_volume = (
+                Decimal(str(raw_qvol))
+                if raw_qvol is not None and not pd.isna(raw_qvol)
+                else volume * close_price
+            )
+            if quote_volume < Decimal("0"):
+                quote_volume = volume * close_price
+
+            raw_trades = row.get("trades")
+            trades = (
+                int(raw_trades)
+                if raw_trades is not None and not pd.isna(raw_trades) and int(raw_trades) >= 0
+                else 0
+            )
+
+            raw_tbb = row.get("taker_buy_base")
+            taker_buy_base = (
+                Decimal(str(raw_tbb))
+                if raw_tbb is not None and not pd.isna(raw_tbb)
+                else Decimal("0")
+            )
+            if taker_buy_base < Decimal("0"):
+                taker_buy_base = Decimal("0")
+
+            raw_tbq = row.get("taker_buy_quote")
+            taker_buy_quote = (
+                Decimal(str(raw_tbq))
+                if raw_tbq is not None and not pd.isna(raw_tbq)
+                else Decimal("0")
+            )
+            if taker_buy_quote < Decimal("0"):
+                taker_buy_quote = Decimal("0")
+
             bar = CanonicalBar(
                 symbol=sym,
                 interval="5m",
                 timestamp=ts,
                 close_time=close_time,
-                open=Decimal(str(row["open"])),
-                high=Decimal(str(row["high"])),
-                low=Decimal(str(row["low"])),
+                open=open_price,
+                high=high_price,
+                low=low_price,
                 close=close_price,
-                volume=Decimal(str(row.get("volume", "0"))),
-                quote_volume=Decimal(
-                    str(
-                        row.get(
-                            "quote_volume",
-                            Decimal(str(row.get("volume", "0"))) * close_price,
-                        )
-                    )
-                ),
-                trades=int(row.get("trades", 0)),
-                taker_buy_base=Decimal(str(row.get("taker_buy_base", "0"))),
-                taker_buy_quote=Decimal(str(row.get("taker_buy_quote", "0"))),
+                volume=volume,
+                quote_volume=quote_volume,
+                trades=trades,
+                taker_buy_base=taker_buy_base,
+                taker_buy_quote=taker_buy_quote,
                 is_closed=True,
             )
             await engine.handle_bar(bar)
@@ -562,11 +667,13 @@ async def run_phase_267_cohort_maturation(
     if clean:
         clear_parquet_cache()
         for db_file in (ledger_db, lifecycle_db, observations_db):
-            if db_file.is_file():
-                try:
-                    db_file.unlink()
-                except OSError:
-                    pass
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                target = db_file.parent / f"{db_file.name}{suffix}"
+                if target.is_file():
+                    try:
+                        target.unlink()
+                    except OSError:
+                        pass
 
     # 4. Initialize shared margin account
     account = HardenedSharedMarginAccount(
@@ -684,52 +791,17 @@ async def run_phase_267_cohort_maturation(
         batch_ticks_count if effective_mode in ("batch", "auto") else None,
     )
 
-    # 9. Execute bounded execution mode
-    if effective_mode == "batch":
-        await replay_multi_day_cohort_observations(
-            engine=engine,
-            history_dir=history_dir,
-            symbols=symbols,
-            max_ticks=batch_ticks_count,
-            stop_event=stop_event,
-        )
-    elif effective_mode == "live":
-        stream_task = asyncio.create_task(
-            feed_client.connect_and_stream(
-                duration_seconds=session_duration,
-                on_bar=engine.handle_bar,
-                on_ticker=engine.handle_ticker,
+    try:
+        # 9. Execute bounded execution mode
+        if effective_mode == "batch":
+            await replay_multi_day_cohort_observations(
+                engine=engine,
+                history_dir=history_dir,
+                symbols=symbols,
+                max_ticks=batch_ticks_count,
+                stop_event=stop_event,
             )
-        )
-        wait_task = asyncio.create_task(stop_event.wait())
-        try:
-            done, pending = await asyncio.wait(
-                [stream_task, wait_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for t in pending:
-                t.cancel()
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
-            if stream_task in done and not stream_task.cancelled():
-                exc = stream_task.exception()
-                if exc is not None:
-                    raise exc
-            if (
-                not stop_event.is_set()
-                and feed_client.reconnect_count > 0
-                and telemetry.total_messages == 0
-            ):
-                raise ConnectionError(
-                    f"Live feed connection failed to receive messages after "
-                    f"{feed_client.reconnect_count} reconnect attempts"
-                )
-        finally:
-            stop_event.set()
-    else:  # auto mode: try live, fall back gracefully to batch on network failure
-        stream_failed = False
-        stream_exc: BaseException | None = None
-        try:
+        elif effective_mode == "live":
             stream_task = asyncio.create_task(
                 feed_client.connect_and_stream(
                     duration_seconds=session_duration,
@@ -738,43 +810,79 @@ async def run_phase_267_cohort_maturation(
                 )
             )
             wait_task = asyncio.create_task(stop_event.wait())
-            done, pending = await asyncio.wait(
-                [stream_task, wait_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for t in pending:
-                t.cancel()
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
-            if stream_task in done and not stream_task.cancelled():
-                exc = stream_task.exception()
-                if exc is not None:
+            try:
+                done, pending = await asyncio.wait(
+                    [stream_task, wait_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for t in pending:
+                    t.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+                if stream_task in done and not stream_task.cancelled():
+                    exc = stream_task.exception()
+                    if exc is not None:
+                        raise exc
+                if (
+                    not stop_event.is_set()
+                    and feed_client.reconnect_count > 0
+                    and telemetry.total_messages == 0
+                ):
+                    raise ConnectionError(
+                        f"Live feed connection failed to receive messages after "
+                        f"{feed_client.reconnect_count} reconnect attempts"
+                    )
+            finally:
+                stop_event.set()
+        else:  # auto mode: try live, fall back gracefully to batch on network failure
+            stream_failed = False
+            stream_exc: BaseException | None = None
+            try:
+                stream_task = asyncio.create_task(
+                    feed_client.connect_and_stream(
+                        duration_seconds=session_duration,
+                        on_bar=engine.handle_bar,
+                        on_ticker=engine.handle_ticker,
+                    )
+                )
+                wait_task = asyncio.create_task(stop_event.wait())
+                done, pending = await asyncio.wait(
+                    [stream_task, wait_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for t in pending:
+                    t.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+                if stream_task in done and not stream_task.cancelled():
+                    exc = stream_task.exception()
+                    if exc is not None:
+                        stream_failed = True
+                        stream_exc = exc
+                if not stop_event.is_set() and telemetry.total_messages == 0:
                     stream_failed = True
-                    stream_exc = exc
-            if not stop_event.is_set() and telemetry.total_messages == 0:
+            except Exception as exc:
                 stream_failed = True
-        except Exception as exc:
-            stream_failed = True
-            stream_exc = exc
+                stream_exc = exc
 
-        if stream_failed and not stop_event.is_set():
-            logger.warning(
-                "Live public stream unavailable or empty (%s); executing multi-day replay",
-                stream_exc or "zero messages received",
-            )
-            await replay_multi_day_cohort_observations(
-                engine=engine,
-                history_dir=history_dir,
-                symbols=symbols,
-                max_ticks=batch_ticks_count,
-                stop_event=stop_event,
-            )
+            if stream_failed and not stop_event.is_set():
+                logger.warning(
+                    "Live public stream unavailable or empty (%s); executing multi-day replay",
+                    stream_exc or "zero messages received",
+                )
+                await replay_multi_day_cohort_observations(
+                    engine=engine,
+                    history_dir=history_dir,
+                    symbols=symbols,
+                    max_ticks=batch_ticks_count,
+                    stop_event=stop_event,
+                )
+            stop_event.set()
+    finally:
+        # 10. Graceful shutdown and clean resource cleanup
+        logger.info("Initiating graceful shutdown of LivePaperTradingEngine...")
         stop_event.set()
-
-    # 10. Graceful shutdown and clean resource cleanup
-    logger.info("Initiating graceful shutdown of LivePaperTradingEngine...")
-    stop_event.set()
-    await engine.stop()
+        await engine.stop()
 
     # 11. Exact double-entry accounting reconciliation (R3)
     reconciliation = engine.reconcile_balances()
@@ -880,22 +988,8 @@ async def run_phase_267_cohort_maturation(
 
     # Query SQLite database counts
     ledger_count = len(final_ledger.entries)
-    lifecycle_count = 0
-    obs_count = 0
-    if lifecycle_db.is_file():
-        with closing(sqlite3.connect(lifecycle_db)) as conn:
-            try:
-                row = conn.execute("SELECT COUNT(*) FROM paper_lifecycle_marks").fetchone()
-                lifecycle_count = row[0] if row else 0
-            except sqlite3.OperationalError:
-                lifecycle_count = 0
-    if observations_db.is_file():
-        with closing(sqlite3.connect(observations_db)) as conn:
-            try:
-                row = conn.execute("SELECT COUNT(*) FROM paper_observations").fetchone()
-                obs_count = row[0] if row else 0
-            except sqlite3.OperationalError:
-                obs_count = 0
+    lifecycle_count = _sqlite_row_count(lifecycle_db, "paper_lifecycle_marks")
+    obs_count = _sqlite_row_count(observations_db, "paper_observations")
 
     # 15. Comprehensive maturation summary (R2, R4)
     summary_payload: dict[str, Any] = {
@@ -1028,10 +1122,12 @@ async def run_phase_267_cohort_maturation(
             "zero_secret_leakage": True,
         },
         "resource_cleanup": {
-            "feed_client_connected": False,
-            "websocket_closed": True,
+            "feed_client_connected": bool(getattr(feed_client, "_running", False)),
+            "websocket_closed": getattr(feed_client, "_ws", None) is None,
             "sqlite_connections_closed": True,
-            "background_tasks_cleaned": True,
+            "background_tasks_cleaned": bool(
+                monitor._worker_task is None or monitor._worker_task.done()
+            ),
         },
         "artifact_hashes": artifact_hashes,
     }

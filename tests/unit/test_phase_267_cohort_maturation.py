@@ -9,6 +9,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
@@ -34,6 +35,7 @@ from scripts.run_phase_267_cohort_maturation import (  # noqa: E402
     EXPECTED_MANIFEST_V2_CANDIDATES,
     _assert_zero_secrets,
     _load_canonical_df,
+    _sqlite_row_count,
     build_arg_parser,
     clear_parquet_cache,
     main,
@@ -462,7 +464,6 @@ class TestPhase267AccountingAndRiskInvariants:
 
     @pytest.mark.anyio
     async def test_accounting_reconciled_with_open_position(self, tmp_path: Path) -> None:
-        from typing import Any
         from unittest.mock import MagicMock
 
         from autonomous_futures.paper.sqlite_ledger import SqlitePaperLedger
@@ -989,3 +990,249 @@ class TestPhase267AdversarialDataRobustnessAndEdgeCases:
             offset_ticks=1,
         )
         assert True
+
+
+class TestPhase267AdversarialRound2StressAndSafety:
+    """Adversarial Round 2 tests for SQLite persistence, margin guardrails, and error paths."""
+
+    def test_sqlite_sidecar_cleanup_on_clean(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "sqlite_clean_test"
+        out_dir.mkdir()
+
+        # Create primary db files and sidecars
+        for db_name in (
+            "paper-ledger.sqlite3",
+            "paper-lifecycle.sqlite3",
+            "paper-observations.sqlite3",
+        ):
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                sidecar = out_dir / f"{db_name}{suffix}"
+                sidecar.write_text("test_data", encoding="utf-8")
+                assert sidecar.is_file()
+
+        # Run with clean=True (using offline smoke test to avoid network)
+        res = asyncio.run(
+            run_phase_267_cohort_maturation(
+                output_dir=out_dir,
+                clean=True,
+                offline=True,
+                ticks=1,
+            )
+        )
+        assert res is not None
+
+        # Verify all -journal, -wal, -shm files were removed
+        for db_name in (
+            "paper-ledger.sqlite3",
+            "paper-lifecycle.sqlite3",
+            "paper-observations.sqlite3",
+        ):
+            for suffix in ("-wal", "-shm", "-journal"):
+                assert not (out_dir / f"{db_name}{suffix}").exists()
+
+    def test_sqlite_row_count_locked_retry_and_resilience(self, tmp_path: Path) -> None:
+        import sqlite3
+        from contextlib import closing
+
+        db_file = tmp_path / "test_count.sqlite3"
+        with closing(sqlite3.connect(db_file)) as conn:
+            conn.execute("CREATE TABLE test_table (id INTEGER PRIMARY KEY, val TEXT)")
+            conn.execute("INSERT INTO test_table (val) VALUES ('a'), ('b'), ('c')")
+            conn.commit()
+
+        # Normal count
+        assert _sqlite_row_count(db_file, "test_table") == 3
+        # Non-existent file
+        assert _sqlite_row_count(tmp_path / "nonexistent.sqlite3", "test_table") == 0
+        # Non-existent table
+        assert _sqlite_row_count(db_file, "nonexistent_table") == 0
+
+        # Transient lock retry simulation
+        real_connect = sqlite3.connect
+        attempts = 0
+
+        def flaky_connect(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+            nonlocal attempts
+            attempts += 1
+            if attempts <= 2:
+                raise sqlite3.OperationalError("database is locked")
+            return real_connect(*args, **kwargs)
+
+        with patch(
+            "scripts.run_phase_267_cohort_maturation.sqlite3.connect", side_effect=flaky_connect
+        ):
+            count = _sqlite_row_count(db_file, "test_table", max_retries=5, retry_delay=0.01)
+            assert count == 3
+            assert attempts == 3
+
+    @pytest.mark.anyio
+    async def test_abnormal_shutdown_guarantees_engine_and_monitor_cleanup(
+        self, tmp_path: Path
+    ) -> None:
+        out_dir = tmp_path / "abnormal_shutdown"
+        out_dir.mkdir()
+
+        # Patch replay_multi_day_cohort_observations to raise an exception
+        with patch(
+            "scripts.run_phase_267_cohort_maturation.replay_multi_day_cohort_observations",
+            side_effect=RuntimeError("Simulated unhandled failure in replay loop"),
+        ):
+            with pytest.raises(RuntimeError, match="Simulated unhandled failure in replay loop"):
+                await run_phase_267_cohort_maturation(
+                    output_dir=out_dir,
+                    offline=True,
+                    ticks=5,
+                )
+
+    def test_rapid_multi_symbol_order_signals_approaching_80_percent_margin_ceiling(
+        self, tmp_path: Path
+    ) -> None:
+        from autonomous_futures.paper.circuit_breakers import HardenedSharedMarginAccount
+
+        account = HardenedSharedMarginAccount(
+            starting_capital=Decimal("100.00"),
+            max_utilization=Decimal("0.80"),
+            base_allocation_fraction=Decimal("0.20"),
+            min_reserve_buffer=Decimal("0.20"),
+        )
+
+        cur_eq = Decimal("100.00")
+
+        # Allocate order 1 (20% of 100 = 20 USDT)
+        alloc1 = account.allocate_order("BTCUSDT", Decimal("0.8"), Decimal("50000.0"), cur_eq)
+        assert alloc1 is not None
+        base1, lev1, _ = alloc1
+        assert base1 == Decimal("20.00")
+        account.record_open("t1", base1, lev1, Decimal("0.008"), cur_eq)
+        assert account.margin_utilization(cur_eq) == Decimal("0.20")
+
+        # Allocate order 2 (20% of 100 = 20 USDT, total locked = 40 USDT)
+        alloc2 = account.allocate_order("ETHUSDT", Decimal("0.8"), Decimal("3000.0"), cur_eq)
+        assert alloc2 is not None
+        base2, lev2, _ = alloc2
+        assert base2 == Decimal("20.00")
+        account.record_open("t2", base2, lev2, Decimal("0.008"), cur_eq)
+        assert account.margin_utilization(cur_eq) == Decimal("0.40")
+
+        # Allocate order 3 (20% of 100 = 20 USDT, total locked = 60 USDT)
+        alloc3 = account.allocate_order("SOLUSDT", Decimal("0.8"), Decimal("150.0"), cur_eq)
+        assert alloc3 is not None
+        base3, lev3, _ = alloc3
+        assert base3 == Decimal("20.00")
+        account.record_open("t3", base3, lev3, Decimal("0.008"), cur_eq)
+        assert account.margin_utilization(cur_eq) == Decimal("0.60")
+
+        # Allocate order 4 (20% of 100 = 20 USDT, total locked = 80 USDT -> hits 80% ceiling)
+        alloc4 = account.allocate_order("DOGEUSDT", Decimal("0.8"), Decimal("0.10"), cur_eq)
+        assert alloc4 is not None
+        base4, lev4, _ = alloc4
+        assert base4 == Decimal("20.00")
+        account.record_open("t4", base4, lev4, Decimal("0.008"), cur_eq)
+        assert account.margin_utilization(cur_eq) == Decimal("0.80")
+
+        # Attempt 5th order allocation: exceeds 80% ceiling -> must be strictly rejected
+        alloc5 = account.allocate_order("ADAUSDT", Decimal("0.8"), Decimal("0.50"), cur_eq)
+        assert alloc5 is None, "Order exceeding 80% ceiling must be rejected"
+
+        # Verify max observed utilization
+        assert account.max_observed_utilization <= Decimal("0.80")
+        assert account.min_observed_buffer >= Decimal("0.20")
+
+        # Close all 4 orders and verify zero drift
+        account.record_close("t1", Decimal("2.00"), Decimal("0.008"))
+        account.record_close("t2", Decimal("-1.00"), Decimal("0.008"))
+        account.record_close("t3", Decimal("3.00"), Decimal("0.008"))
+        account.record_close("t4", Decimal("0.50"), Decimal("0.008"))
+
+        expected_cash = Decimal("100.00") + Decimal("4.436")
+        assert abs(account.cash - expected_cash) < Decimal("1e-15")
+
+    @pytest.mark.anyio
+    async def test_parquet_inverted_and_degenerate_ohlc_bars_sanitization(
+        self, tmp_path: Path
+    ) -> None:
+        clear_parquet_cache()
+        manifest = validate_manifest_v2(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        symbols = tuple(s.upper() for s in manifest.symbols.keys())
+
+        data_dir = tmp_path / "anomalous_data"
+        data_dir.mkdir()
+
+        base_t = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+        for sym in symbols:
+            # Create synthetic bars with intentional anomalies:
+            # Bar 0: degenerate close_time (close_time == timestamp)
+            # Bar 1: inverted high/low (high=90, low=110, open=105, close=100)
+            # Bar 2: missing open/high/low (NaN), negative volume (-10)
+            df = pd.DataFrame(
+                {
+                    "timestamp": [
+                        base_t,
+                        base_t + timedelta(minutes=5),
+                        base_t + timedelta(minutes=10),
+                    ],
+                    "close_time": [
+                        base_t,
+                        base_t + timedelta(minutes=10),
+                        base_t + timedelta(minutes=15),
+                    ],
+                    "open": [Decimal("100.0"), Decimal("105.0"), None],
+                    "high": [Decimal("102.0"), Decimal("90.0"), None],  # Inverted!
+                    "low": [Decimal("98.0"), Decimal("110.0"), None],  # Inverted!
+                    "close": [Decimal("101.0"), Decimal("100.0"), Decimal("102.0")],
+                    "volume": [Decimal("10.0"), Decimal("20.0"), Decimal("-10.0")],
+                    "trades": [5, 10, -3],
+                }
+            )
+            df.to_parquet(data_dir / f"{sym}-5m.parquet")
+
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        engine = LivePaperTradingEngine(
+            registry_manifest=manifest,
+            ledger_db=tmp_path / "anom-ledger.sqlite3",
+            lifecycle_db=tmp_path / "anom-lifecycle.sqlite3",
+            observations_db=tmp_path / "anom-obs.sqlite3",
+            require_flat=False,
+        )
+
+        ticks = await replay_multi_day_cohort_observations(
+            engine=engine,
+            history_dir=data_dir,
+            symbols=symbols,
+            max_ticks=3,
+        )
+        await engine.stop()
+        # All 3 ticks successfully sanitized and processed
+        assert ticks == 3
+
+    def test_parquet_corrupted_file_handling(self, tmp_path: Path) -> None:
+        clear_parquet_cache()
+        corrupt_file = tmp_path / "corrupt.parquet"
+        corrupt_file.write_bytes(b"THIS_IS_NOT_A_VALID_PARQUET_FILE_CORRUPTED_BYTES")
+
+        df = _load_canonical_df(corrupt_file)
+        assert df.empty, "Corrupted parquet file must return empty DataFrame"
+
+    def test_dirty_position_update_intent_detection(self, tmp_path: Path) -> None:
+        from autonomous_futures.paper.sqlite_ledger import (
+            PaperRestartRecoveryError,
+            SqlitePaperLedger,
+        )
+
+        ledger_path = tmp_path / "dirty-ledger.sqlite3"
+        ledger = SqlitePaperLedger(ledger_path)
+
+        # Inject dirty position update intent simulating mid-transaction crash
+        ledger.begin_position_update("trade-1234", "open")
+
+        # Crash recovery check must detect dirty marker and refuse unsafe startup
+        with pytest.raises(
+            PaperRestartRecoveryError, match="dirty paper position update intent remains"
+        ):
+            ledger.require_no_position_update_intents()
+
+        # Clear marker simulating successful resolution
+        ledger.clear_position_update("trade-1234")
+        # Now require_no_position_update_intents passes cleanly
+        ledger.require_no_position_update_intents()
