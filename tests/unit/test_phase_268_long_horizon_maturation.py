@@ -1743,3 +1743,175 @@ class TestPhase268AdversarialDataRobustnessAndEdgeCases:
             _load_canonical_df(p)
 
         assert len(_PARQUET_CACHE) <= 64
+
+    def test_load_canonical_df_corrupt_date_strings_coerced_without_crash(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify unparseable timestamp strings are coerced without DateParseError crashes."""
+        clear_parquet_cache()
+        pfile = tmp_path / "corrupt_dates.parquet"
+        valid_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        df = pd.DataFrame(
+            {
+                "timestamp": ["invalid_date_str", valid_t.isoformat(), "another_bad_date"],
+                "close": [100.0, 105.0, 110.0],
+                "close_time": [
+                    "bad_close_time",
+                    (valid_t + timedelta(minutes=5)).isoformat(),
+                    "bad_close_time_2",
+                ],
+            }
+        )
+        df.to_parquet(pfile)
+
+        loaded = _load_canonical_df(pfile)
+        # Invalid timestamps should be dropped, leaving only the 1 valid row
+        assert len(loaded) == 1
+        assert loaded.iloc[0]["close"] == 105.0
+        # close_time for the valid row should be valid UTC datetime > timestamp
+        assert loaded.iloc[0]["close_time"] > loaded.iloc[0]["timestamp"]
+
+    def test_load_canonical_df_trades_non_finite_inf_without_crash(self, tmp_path: Path) -> None:
+        """Verify float inf or non-finite values in trades column avoid IntCastingNaNError."""
+        clear_parquet_cache()
+        pfile = tmp_path / "inf_trades.parquet"
+        base_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        df = pd.DataFrame(
+            {
+                "timestamp": [base_t, base_t + timedelta(minutes=5)],
+                "close": [100.0, 105.0],
+                "trades": [float("inf"), float("-inf")],
+            }
+        )
+        df.to_parquet(pfile)
+
+        loaded = _load_canonical_df(pfile)
+        assert len(loaded) == 2
+        assert all(isinstance(t, (int, float)) and t >= 0 for t in loaded["trades"])
+
+    def test_load_canonical_df_infinite_close_price_dropped(self, tmp_path: Path) -> None:
+        """Verify rows with infinite close prices are dropped rather than corrupting indicators."""
+        clear_parquet_cache()
+        pfile = tmp_path / "inf_close.parquet"
+        base_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        df = pd.DataFrame(
+            {
+                "timestamp": [base_t, base_t + timedelta(minutes=5)],
+                "close": [float("inf"), 105.0],
+            }
+        )
+        df.to_parquet(pfile)
+
+        loaded = _load_canonical_df(pfile)
+        assert len(loaded) == 1
+        assert loaded.iloc[0]["close"] == 105.0
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_boolean_days_and_duration(self, tmp_path: Path) -> None:
+        """Verify boolean inputs to days and duration are rejected with DomainViolation."""
+        with pytest.raises(
+            DomainViolation, match="Observation replay days must be strictly positive"
+        ):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "days_bool",
+                days=True,
+                offline=True,
+            )
+
+        with pytest.raises(
+            DomainViolation, match="Observation replay days must be strictly positive"
+        ):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "days_bool_false",
+                days=False,
+                offline=True,
+            )
+
+        with pytest.raises(DomainViolation, match="Session duration must be strictly positive"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "dur_bool",
+                duration=True,
+                ticks=5,
+                offline=True,
+            )
+
+        with pytest.raises(DomainViolation, match="Session duration must be strictly positive"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "dur_bool_false",
+                duration=False,
+                ticks=5,
+                offline=True,
+            )
+
+    @pytest.mark.anyio
+    async def test_seed_history_and_replay_reject_boolean_parameters(self, tmp_path: Path) -> None:
+        """Verify seed_history and replay functions safely handle boolean arguments."""
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        manifest = validate_manifest_v2(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        engine = LivePaperTradingEngine(
+            registry_manifest=manifest,
+            ledger_db=tmp_path / "bool-test-ledger.sqlite3",
+            lifecycle_db=tmp_path / "bool-test-lifecycle.sqlite3",
+            observations_db=tmp_path / "bool-test-obs.sqlite3",
+            require_flat=False,
+        )
+
+        # seed_engine_history_from_canonical returns without seeding on bool warmup_bars
+        seed_engine_history_from_canonical(
+            engine=engine,
+            history_dir=DEFAULT_CANONICAL_HISTORY_DIR,
+            symbols=["BTCUSDT"],
+            warmup_bars=True,  # type: ignore[arg-type]
+        )
+        assert len(engine._bar_history.get("BTCUSDT", [])) == 0
+
+        # replay_long_horizon_cohort_observations should return 0 on bool max_ticks
+        ticks = await replay_long_horizon_cohort_observations(
+            engine=engine,
+            history_dir=DEFAULT_CANONICAL_HISTORY_DIR,
+            symbols=["BTCUSDT"],
+            max_ticks=True,  # type: ignore[arg-type]
+        )
+        assert ticks == 0
+        await engine.stop()
+
+    def test_parquet_cache_bounded_on_empty_and_corrupted_files(self, tmp_path: Path) -> None:
+        """Verify parquet cache remains bounded at <= 64 even with corrupt/empty files."""
+        from scripts.run_phase_268_long_horizon_maturation import _PARQUET_CACHE
+
+        clear_parquet_cache()
+        for i in range(70):
+            p = tmp_path / f"corrupt_{i}.parquet"
+            # Write an empty dataframe (missing required close/timestamp columns)
+            pd.DataFrame({"dummy": [1, 2]}).to_parquet(p)
+            _load_canonical_df(p)
+
+        assert len(_PARQUET_CACHE) <= 64
+
+    def test_downstream_paper_review_checkpoint_integration(self) -> None:
+        """Verify downstream review checkpoint can ingest Phase 268 readiness report."""
+        from autonomous_futures.paper.review import create_paper_review_checkpoint
+
+        report_file = Path("artifacts/research/phase268/paper-cohort-readiness-report.json")
+        assert report_file.is_file(), f"Readiness report {report_file} does not exist"
+        report = PaperCohortReadinessReport.model_validate_json(
+            report_file.read_text(encoding="utf-8")
+        )
+        assert report.cohort_status == "ready_for_human_review"
+        assert report.expected_candidate_count == 3
+        assert report.reported_candidate_count == 3
+        assert report.all_mature is True
+        assert report.all_accounting_complete is True
+
+        checkpoint = create_paper_review_checkpoint(
+            report,
+            review_id="review-phase268-001",
+            reviewer_id="reviewer-round3",
+            reviewed_at=datetime.now(UTC),
+            decision="accept_paper_observation",
+            review_notes="Phase 268 14-day observation horizon successfully matured.",
+        )
+        assert checkpoint.review_id == "review-phase268-001"
+        assert checkpoint.decision == "accept_paper_observation"
+        assert checkpoint.cohort_report.cohort_status == "ready_for_human_review"

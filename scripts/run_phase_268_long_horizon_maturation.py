@@ -310,92 +310,119 @@ def _load_canonical_df(parquet_file: Path, tail_rows: int | None = None) -> pd.D
             df = pd.read_parquet(resolved)
         except Exception as exc:
             logger.warning("Failed to read parquet file %s: %s", resolved, exc)
+            if len(_PARQUET_CACHE) >= 64:
+                _PARQUET_CACHE.pop(next(iter(_PARQUET_CACHE)))
             _PARQUET_CACHE[cache_key] = pd.DataFrame()
             return _PARQUET_CACHE[cache_key].copy()
 
         if df.empty or "timestamp" not in df.columns or "close" not in df.columns:
+            if len(_PARQUET_CACHE) >= 64:
+                _PARQUET_CACHE.pop(next(iter(_PARQUET_CACHE)))
             _PARQUET_CACHE[cache_key] = pd.DataFrame()
             return _PARQUET_CACHE[cache_key].copy()
 
-        # Sanitize timestamp: enforce UTC datetime and drop nulls
-        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+        # Sanitize timestamp: enforce UTC datetime and drop unparseable/null values
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
         df = df.dropna(subset=["timestamp"])
         if df.empty:
+            if len(_PARQUET_CACHE) >= 64:
+                _PARQUET_CACHE.pop(next(iter(_PARQUET_CACHE)))
             _PARQUET_CACHE[cache_key] = pd.DataFrame()
             return _PARQUET_CACHE[cache_key].copy()
 
         # Deduplicate timestamps per symbol, keeping latest bar
         df = df.drop_duplicates(subset=["timestamp"], keep="last")
 
-        # Sanitize close price: enforce positive numeric values
+        # Sanitize close price: enforce strictly positive and finite numeric values
         df["close"] = pd.to_numeric(df["close"], errors="coerce")
         df = df.dropna(subset=["close"])
-        df = df[df["close"] > 0]
+        df = df[(df["close"] > 0) & (df["close"] < float("inf"))]
         if df.empty:
+            if len(_PARQUET_CACHE) >= 64:
+                _PARQUET_CACHE.pop(next(iter(_PARQUET_CACHE)))
             _PARQUET_CACHE[cache_key] = pd.DataFrame()
             return _PARQUET_CACHE[cache_key].copy()
 
-        # Sanitize open price: fallback to close price if missing, non-numeric, or non-positive
+        # Sanitize open price: fallback to close price if missing, non-numeric, or non-finite
         if "open" in df.columns:
             df["open"] = pd.to_numeric(df["open"], errors="coerce").fillna(df["close"])
-            df["open"] = df["open"].where(df["open"] > 0, df["close"])
+            df["open"] = df["open"].where(
+                (df["open"] > 0) & (df["open"] < float("inf")), df["close"]
+            )
         else:
             df["open"] = df["close"]
 
-        # Sanitize high price: must be >= max(open, close)
+        # Sanitize high price: must be >= max(open, close) and strictly finite
         max_oc = df[["open", "close"]].max(axis=1)
         if "high" in df.columns:
             df["high"] = pd.to_numeric(df["high"], errors="coerce").fillna(max_oc)
+            df["high"] = df["high"].where(df["high"] < float("inf"), max_oc)
             df["high"] = df[["high", "open", "close"]].max(axis=1)
         else:
             df["high"] = max_oc
 
-        # Sanitize low price: must be <= min(open, close) and strictly positive
+        # Sanitize low price: must be <= min(open, close) and strictly positive and finite
         min_oc = df[["open", "close"]].min(axis=1)
         if "low" in df.columns:
             df["low"] = pd.to_numeric(df["low"], errors="coerce").fillna(min_oc)
+            df["low"] = df["low"].where(df["low"] > 0, min_oc)
             df["low"] = df[["low", "open", "close"]].min(axis=1).clip(lower=0.000001)
         else:
             df["low"] = min_oc.clip(lower=0.000001)
 
-        # Sanitize volume: non-negative numeric
+        # Sanitize volume: non-negative numeric and strictly finite
         if "volume" in df.columns:
-            df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0).clip(lower=0.0)
+            df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
+            df["volume"] = df["volume"].where(
+                (df["volume"] >= 0) & (df["volume"] < float("inf")), 0.0
+            )
         else:
             df["volume"] = 0.0
 
-        # Sanitize quote_volume: non-negative numeric, default to volume * close
+        # Sanitize quote_volume: non-negative numeric, default to volume * close, strictly finite
+        default_qvol = (df["volume"] * df["close"]).clip(lower=0.0)
         if "quote_volume" in df.columns:
-            default_qvol = df["volume"] * df["close"]
-            df["quote_volume"] = (
-                pd.to_numeric(df["quote_volume"], errors="coerce")
-                .fillna(default_qvol)
-                .clip(lower=0.0)
+            df["quote_volume"] = pd.to_numeric(df["quote_volume"], errors="coerce").fillna(
+                default_qvol
+            )
+            df["quote_volume"] = df["quote_volume"].where(
+                (df["quote_volume"] >= 0) & (df["quote_volume"] < float("inf")),
+                default_qvol,
             )
         else:
-            df["quote_volume"] = (df["volume"] * df["close"]).clip(lower=0.0)
+            df["quote_volume"] = default_qvol
 
-        # Sanitize trades: non-negative integer
+        # Sanitize trades: non-negative integer, finite
         if "trades" in df.columns:
             df["trades"] = (
-                pd.to_numeric(df["trades"], errors="coerce").fillna(0).astype(int).clip(lower=0)
+                pd.to_numeric(df["trades"], errors="coerce")
+                .replace([float("inf"), float("-inf")], 0.0)
+                .fillna(0.0)
+                .clip(lower=0.0)
+                .astype(int)
             )
         else:
             df["trades"] = 0
 
-        # Sanitize taker_buy_base: non-negative and <= volume
+        # Sanitize taker_buy_base: non-negative and <= volume, strictly finite
         if "taker_buy_base" in df.columns:
-            df["taker_buy_base"] = (
-                pd.to_numeric(df["taker_buy_base"], errors="coerce").fillna(0.0).clip(lower=0.0)
+            df["taker_buy_base"] = pd.to_numeric(df["taker_buy_base"], errors="coerce").fillna(0.0)
+            df["taker_buy_base"] = df["taker_buy_base"].where(
+                (df["taker_buy_base"] >= 0) & (df["taker_buy_base"] < float("inf")),
+                0.0,
             )
             df["taker_buy_base"] = df[["taker_buy_base", "volume"]].min(axis=1)
         else:
             df["taker_buy_base"] = 0.0
 
-        # Sanitize taker_buy_quote: non-negative and <= quote_volume
+        # Sanitize taker_buy_quote: non-negative and <= quote_volume, strictly finite
         if "taker_buy_quote" in df.columns:
-            df["taker_buy_quote"] = (
-                pd.to_numeric(df["taker_buy_quote"], errors="coerce").fillna(0.0).clip(lower=0.0)
+            df["taker_buy_quote"] = pd.to_numeric(df["taker_buy_quote"], errors="coerce").fillna(
+                0.0
+            )
+            df["taker_buy_quote"] = df["taker_buy_quote"].where(
+                (df["taker_buy_quote"] >= 0) & (df["taker_buy_quote"] < float("inf")),
+                0.0,
             )
             df["taker_buy_quote"] = df[["taker_buy_quote", "quote_volume"]].min(axis=1)
         else:
@@ -403,7 +430,7 @@ def _load_canonical_df(parquet_file: Path, tail_rows: int | None = None) -> pd.D
 
         # Sanitize close_time: ensure UTC datetime and strictly close_time > timestamp
         if "close_time" in df.columns:
-            df["close_time"] = pd.to_datetime(df["close_time"], utc=True)
+            df["close_time"] = pd.to_datetime(df["close_time"], utc=True, errors="coerce")
             invalid_mask = df["close_time"].isna() | (df["close_time"] <= df["timestamp"])
             if invalid_mask.any():
                 df.loc[invalid_mask, "close_time"] = (
@@ -438,9 +465,9 @@ def seed_engine_history_from_canonical(
     offset_ticks: int = 0,
 ) -> None:
     """Seed causal historical bars for dynamic feature calculation warmup from parquet data."""
-    if warmup_bars <= 0:
+    if isinstance(warmup_bars, bool) or warmup_bars <= 0:
         return
-    if offset_ticks < 0:
+    if isinstance(offset_ticks, bool) or offset_ticks < 0:
         offset_ticks = 0
     resolved_history_dir = history_dir if history_dir.is_dir() else _REPO_ROOT / history_dir
     for symbol in symbols:
@@ -508,7 +535,7 @@ async def replay_long_horizon_cohort_observations(
     Enforces 6-hour fixed-slot observation marks, unified multi-symbol timeline alignment,
     and single-position invariants across symbols.
     """
-    if max_ticks <= 0:
+    if isinstance(max_ticks, bool) or max_ticks <= 0:
         return 0
 
     resolved_history_dir = history_dir if history_dir.is_dir() else _REPO_ROOT / history_dir
@@ -763,9 +790,11 @@ async def run_phase_268_long_horizon_maturation(
         raise DomainViolation("Taker fee rate must be non-negative")
     if not slippage_bps.is_finite() or slippage_bps < Decimal("0"):
         raise DomainViolation("Slippage bps must be non-negative")
-    if duration is not None and (not math.isfinite(duration) or duration <= 0):
+    if duration is not None and (
+        isinstance(duration, bool) or not math.isfinite(duration) or duration <= 0
+    ):
         raise DomainViolation("Session duration must be strictly positive")
-    if days is not None and (not math.isfinite(days) or days <= 0):
+    if days is not None and (isinstance(days, bool) or not math.isfinite(days) or days <= 0):
         raise DomainViolation("Observation replay days must be strictly positive")
     if ticks is not None and (isinstance(ticks, bool) or ticks <= 0):
         raise DomainViolation("Replay ticks must be strictly positive")
