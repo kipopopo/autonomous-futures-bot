@@ -105,16 +105,28 @@ def canonical_json_bytes(payload: Any) -> bytes:
 
 
 def safe_decimal(val: Any, default: Decimal = Decimal("0")) -> Decimal:
-    """Parse a value into Decimal safely without raising exceptions."""
+    """Parse a value into Decimal safely without raising or returning non-finite values."""
     if val is None:
         return default
     if isinstance(val, Decimal):
-        return val
+        try:
+            return val if val.is_finite() else default
+        except InvalidOperation, ValueError, TypeError:
+            return default
     try:
         clean = str(val).strip()
-        if not clean:
+        if not clean or clean.lower() in (
+            "nan",
+            "inf",
+            "-inf",
+            "+inf",
+            "infinity",
+            "-infinity",
+            "snan",
+        ):
             return default
-        return Decimal(clean)
+        d = Decimal(clean)
+        return d if d.is_finite() else default
     except InvalidOperation, ValueError, TypeError:
         return default
 
@@ -213,6 +225,7 @@ class PrerequisiteChecklist(DomainModel):
     zero_circuit_breaker_flags: bool = False
     zero_api_keys_loaded: bool = False
     upstream_integrity_verified: bool = False
+    upstream_safety_invariants_valid: bool = False
     all_gates_passed: bool = False
     failure_reasons: list[str] = Field(default_factory=list)
 
@@ -272,21 +285,23 @@ def compute_decision_hash(decision: HumanReviewDecision) -> str:
 class CandidatePerformanceBreakdown(DomainModel):
     """Detailed performance metrics for an evaluated paper trading candidate."""
 
-    symbol: str
-    candidate_id: str
-    family: str
-    timeframe: str
-    total_trades: int
-    winning_trades: int
-    losing_trades: int
-    win_rate_pct: float
+    symbol: str = Field(pattern=r"^[A-Z0-9]+$")
+    candidate_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
+    family: str = Field(min_length=1)
+    timeframe: str = Field(min_length=1)
+    total_trades: int = Field(default=0, ge=0)
+    winning_trades: int = Field(default=0, ge=0)
+    losing_trades: int = Field(default=0, ge=0)
+    win_rate_pct: float = Field(default=0.0, ge=0.0, le=100.0)
     realized_pnl_usdt: Decimal
-    observed_slots: int
-    margin_utilization: Decimal
-    cumulative_fees_usdt: Decimal
-    cumulative_slippage_usdt: Decimal
-    health_status: str
-    maturity_status: str
+    observed_slots: int = Field(default=0, ge=0)
+    margin_utilization: Decimal = Field(
+        default=DEFAULT_BASE_POSITION_FRACTION, ge=Decimal("0.01"), le=Decimal("1.0")
+    )
+    cumulative_fees_usdt: Decimal = Field(default=Decimal("0.0"), ge=Decimal("0.0"))
+    cumulative_slippage_usdt: Decimal = Field(default=Decimal("0.0"), ge=Decimal("0.0"))
+    health_status: str = Field(min_length=1)
+    maturity_status: str = Field(min_length=1)
     accounting_complete: bool
 
     @field_validator(
@@ -299,6 +314,31 @@ class CandidatePerformanceBreakdown(DomainModel):
     @classmethod
     def coerce_decimals(cls, v: Any) -> Decimal:
         return safe_decimal(v)
+
+    @field_validator("win_rate_pct", mode="before")
+    @classmethod
+    def coerce_win_rate(cls, v: Any) -> float:
+        try:
+            f = float(v)
+            if not (0.0 <= f <= 100.0) or f != f:
+                return 0.0
+            return f
+        except ValueError, TypeError:
+            return 0.0
+
+    @field_validator(
+        "total_trades",
+        "winning_trades",
+        "losing_trades",
+        "observed_slots",
+        mode="before",
+    )
+    @classmethod
+    def coerce_ints(cls, v: Any) -> int:
+        try:
+            return max(0, int(v))
+        except ValueError, TypeError:
+            return 0
 
 
 class CohortInspectionResult(DomainModel):
@@ -448,11 +488,19 @@ def inspect_cohort(
     ledger_path = c_dir / "paper-ledger.sqlite3"
     obs_path = c_dir / "paper-observations.sqlite3"
 
+    db_open_positions = 0
     ledger_stats: dict[str, dict[str, Any]] = {}
     if ledger_path.is_file():
         try:
             with sqlite3.connect(f"{ledger_path.resolve().as_uri()}?mode=ro", uri=True) as conn:
                 cursor = conn.cursor()
+                has_pos_state = cursor.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='paper_position_state'"
+                ).fetchone()
+                if has_pos_state:
+                    pos_row = cursor.execute("SELECT COUNT(*) FROM paper_position_state").fetchone()
+                    db_open_positions = int(pos_row[0] if pos_row else 0)
+
                 # Check for paper_ledger_events table
                 has_events = cursor.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='paper_ledger_events'"
@@ -534,6 +582,16 @@ def inspect_cohort(
         fees = ls.get("fees", safe_decimal("0.0"))
         slippage = ls.get("slippage", safe_decimal("0.0"))
 
+        cand_margin_util = safe_decimal(
+            sym_cand_info.get("margin_utilization")
+            or sym_cand_info.get("position_fraction")
+            or mat_info.get("margin_utilization")
+            or base_pos_fraction,
+            default=base_pos_fraction,
+        )
+        if cand_margin_util <= Decimal("0") or cand_margin_util > Decimal("1.0"):
+            cand_margin_util = base_pos_fraction
+
         health = sym_cand_info.get("health_status", mat_info.get("health_status", "unknown"))
         maturity = sym_cand_info.get("maturity_status", mat_info.get("maturity_status", "unknown"))
         acc_comp = bool(
@@ -551,7 +609,7 @@ def inspect_cohort(
             win_rate_pct=round(win_rate_pct, 2),
             realized_pnl_usdt=pnl,
             observed_slots=int(observed_slots),
-            margin_utilization=base_pos_fraction,
+            margin_utilization=cand_margin_util,
             cumulative_fees_usdt=fees,
             cumulative_slippage_usdt=slippage,
             health_status=health,
@@ -575,6 +633,7 @@ def inspect_cohort(
         upstream_integrity_verified=upstream_integrity_verified,
         tampered_files=tampered_files,
         base_position_fraction=base_pos_fraction,
+        db_open_positions=db_open_positions,
     )
 
     return CohortInspectionResult(
@@ -611,6 +670,7 @@ def verify_prerequisite_gates(
     upstream_integrity_verified: bool = True,
     tampered_files: list[str] | None = None,
     base_position_fraction: Decimal = DEFAULT_BASE_POSITION_FRACTION,
+    db_open_positions: int = 0,
 ) -> PrerequisiteChecklist:
     """Verify all prerequisite gates for Phase 269 human review staging."""
     failure_reasons: list[str] = []
@@ -681,9 +741,11 @@ def verify_prerequisite_gates(
     open_pos_cnt = int(port_sum.get("open_positions_count", 0))
     pos_rec = bool(port_sum.get("positions_reconciled", True))
     port_acc_rec = bool(port_sum.get("accounting_reconciled", True))
-    positions_closed = (open_pos_cnt == 0) and pos_rec
+    positions_closed = (open_pos_cnt == 0) and (db_open_positions == 0) and pos_rec
     if open_pos_cnt > 0:
         failure_reasons.append(f"unclosed_positions_detected:{open_pos_cnt}")
+    if db_open_positions > 0:
+        failure_reasons.append(f"unclosed_db_positions_detected:{db_open_positions}")
     if not pos_rec:
         failure_reasons.append("positions_unreconciled")
     if not port_acc_rec:
@@ -691,27 +753,58 @@ def verify_prerequisite_gates(
         accounting_comp = False
 
     # 5. Margin guardrails compliance (<= 80% utilization, >= 20% reserve)
-    # Check both historical observed and staged aggregate limits
-    staged_util = Decimal(len(expected_candidates)) * base_position_fraction
+    # Aggregate staged utilization is the sum of candidate margin utilizations
+    if candidate_breakdowns:
+        staged_util = sum(
+            (cb.margin_utilization for cb in candidate_breakdowns.values()),
+            Decimal("0"),
+        )
+    else:
+        staged_util = Decimal(len(expected_candidates)) * base_position_fraction
     staged_buf = Decimal("1.00") - staged_util
+
+    cand_margins_ok = (
+        all(
+            (
+                cb.margin_utilization > Decimal("0")
+                and cb.margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
+            )
+            for cb in candidate_breakdowns.values()
+        )
+        if candidate_breakdowns
+        else True
+    )
+
     margin_compliant = (
         max_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
         and min_reserve_buffer >= DEFAULT_MIN_RESERVE_BUFFER
         and staged_util <= DEFAULT_MAX_MARGIN_UTILIZATION
         and staged_buf >= DEFAULT_MIN_RESERVE_BUFFER
+        and cand_margins_ok
     )
     if not margin_compliant:
         failure_reasons.append(
             f"margin_guardrails_violated:util={max_margin_utilization:.2f} "
             f"(max {DEFAULT_MAX_MARGIN_UTILIZATION:.2f}), "
-            f"buf={min_reserve_buffer:.2f} (min {DEFAULT_MIN_RESERVE_BUFFER:.2f})"
+            f"buf={min_reserve_buffer:.2f} (min {DEFAULT_MIN_RESERVE_BUFFER:.2f}), "
+            f"staged_util={staged_util:.2f}"
         )
 
     # 6. Positive terminal equity
-    positive_equity = starting_equity > Decimal("0") and final_cash > Decimal("0")
+    current_equity = safe_decimal(
+        (raw_summary or {})
+        .get("shared_portfolio_margin", {})
+        .get("current_equity_usdt", final_cash),
+        default=final_cash,
+    )
+    positive_equity = (
+        starting_equity > Decimal("0")
+        and final_cash > Decimal("0")
+        and current_equity > Decimal("0")
+    )
     if not positive_equity:
         failure_reasons.append(
-            f"negative_terminal_equity:cash={final_cash},equity={starting_equity}"
+            f"negative_terminal_equity:cash={final_cash},equity={starting_equity},curr={current_equity}"
         )
 
     # 7. Zero circuit breaker flags
@@ -722,11 +815,45 @@ def verify_prerequisite_gates(
             zero_cb_flags = False
             failure_reasons.append(f"unresolved_circuit_breaker:{code}")
 
-    # 8. Zero credentials in environment
+    # 8. Zero credentials in environment & upstream safety invariants
     api_keys_count = check_fail_closed_safety_invariants()["api_keys_loaded"]
     zero_api_keys = api_keys_count == 0
     if not zero_api_keys:
         failure_reasons.append(f"credential_contamination_detected:{api_keys_count}")
+
+    upstream_safety_ok = True
+    upstream_safety = (raw_summary or {}).get("safety_invariants", {})
+    if upstream_safety:
+        up_keys = int(upstream_safety.get("api_keys_loaded", 0))
+        up_orders = int(upstream_safety.get("orders", 0))
+        up_orders_sub = int(upstream_safety.get("orders_submitted", 0))
+        up_exec = bool(upstream_safety.get("execution_authority", False))
+        up_exch = bool(upstream_safety.get("exchange_access", False))
+        up_paper = bool(upstream_safety.get("paper_activation", False))
+        up_live = bool(upstream_safety.get("live_trading_activation", False))
+
+        if up_keys > 0:
+            upstream_safety_ok = False
+            failure_reasons.append(f"upstream_safety_invariant_violation:api_keys_loaded={up_keys}")
+        if up_orders > 0 or up_orders_sub > 0:
+            upstream_safety_ok = False
+            failure_reasons.append(
+                f"upstream_safety_invariant_violation:orders={up_orders or up_orders_sub}"
+            )
+        if up_exec:
+            upstream_safety_ok = False
+            failure_reasons.append("upstream_safety_invariant_violation:execution_authority=True")
+        if up_exch:
+            upstream_safety_ok = False
+            failure_reasons.append("upstream_safety_invariant_violation:exchange_access=True")
+        if up_live:
+            upstream_safety_ok = False
+            failure_reasons.append(
+                "upstream_safety_invariant_violation:live_trading_activation=True"
+            )
+        if up_paper:
+            upstream_safety_ok = False
+            failure_reasons.append("upstream_safety_invariant_violation:paper_activation=True")
 
     # 9. Upstream cohort file integrity
     if not upstream_integrity_verified:
@@ -749,6 +876,7 @@ def verify_prerequisite_gates(
         and zero_cb_flags
         and zero_api_keys
         and upstream_integrity_verified
+        and upstream_safety_ok
     )
 
     return PrerequisiteChecklist(
@@ -766,6 +894,7 @@ def verify_prerequisite_gates(
         zero_circuit_breaker_flags=zero_cb_flags,
         zero_api_keys_loaded=zero_api_keys,
         upstream_integrity_verified=upstream_integrity_verified,
+        upstream_safety_invariants_valid=upstream_safety_ok,
         all_gates_passed=all_passed,
         failure_reasons=failure_reasons,
     )
@@ -807,6 +936,12 @@ def stage_canary_candidates(
         reasons = ", ".join(checklist.failure_reasons)
         raise DomainViolation(
             f"Cannot approve for canary staging: prerequisite gates failed: {reasons}"
+        )
+
+    if registry_manifest is not None and registry_manifest.registry_version < 2:
+        raise DomainViolation(
+            f"Candidate registry manifest version must be >= 2 for Phase 269, "
+            f"got {registry_manifest.registry_version}"
         )
 
     now_dt = (timestamp or datetime.now(UTC)).astimezone(UTC)
@@ -914,7 +1049,7 @@ def stage_canary_candidates(
     # 1. Build CanaryStagingManifest
     provisional_manifest = CanaryStagingManifest(
         manifest_version=2,
-        registry_version=2,
+        registry_version=registry_manifest.registry_version if registry_manifest else 2,
         staged_at=now_iso,
         operator_id=operator_clean,
         decision_id=decision_id,
@@ -1007,7 +1142,11 @@ def stage_canary_candidates(
             "realized_pnl_usdt": str(inspection.realized_pnl),
             "drift_amount": str(inspection.drift),
             "zero_balance_drift": inspection.zero_drift,
-            "accounting_reconciled": inspection.zero_drift,
+            "accounting_reconciled": (
+                inspection.zero_drift
+                and checklist.candidate_accounting_reconciled
+                and checklist.accounting_complete
+            ),
             "max_observed_margin_utilization": str(inspection.max_margin_utilization),
             "min_observed_reserve_buffer": str(inspection.min_reserve_buffer),
         },
@@ -1126,6 +1265,36 @@ def format_performance_table(inspection: CohortInspectionResult) -> str:
     return "\n".join(lines)
 
 
+def verify_staging_manifest_integrity(manifest: CanaryStagingManifest) -> tuple[bool, list[str]]:
+    """Cryptographically verify CanaryStagingManifest hash and HMAC signature."""
+    errors: list[str] = []
+    expected_hash = compute_manifest_hash(manifest)
+    if not hmac.compare_digest(manifest.manifest_hash, expected_hash):
+        errors.append(
+            f"manifest_hash_mismatch: computed {expected_hash} != manifest {manifest.manifest_hash}"
+        )
+    expected_sig = compute_staging_signature(
+        manifest.operator_id, manifest.decision_id, manifest.manifest_hash
+    )
+    if not hmac.compare_digest(manifest.cryptographic_signature, expected_sig):
+        errors.append(
+            f"cryptographic_signature_mismatch: computed {expected_sig} != "
+            f"signature {manifest.cryptographic_signature}"
+        )
+    return len(errors) == 0, errors
+
+
+def verify_decision_integrity(decision: HumanReviewDecision) -> tuple[bool, list[str]]:
+    """Cryptographically verify HumanReviewDecision hash."""
+    errors: list[str] = []
+    expected_hash = compute_decision_hash(decision)
+    if not hmac.compare_digest(decision.decision_hash, expected_hash):
+        errors.append(
+            f"decision_hash_mismatch: computed {expected_hash} != decision {decision.decision_hash}"
+        )
+    return len(errors) == 0, errors
+
+
 __all__ = [
     "AllocatedRiskLimits",
     "CandidatePerformanceBreakdown",
@@ -1155,5 +1324,7 @@ __all__ = [
     "safe_decimal",
     "save_staging_artifacts",
     "stage_canary_candidates",
+    "verify_decision_integrity",
     "verify_prerequisite_gates",
+    "verify_staging_manifest_integrity",
 ]

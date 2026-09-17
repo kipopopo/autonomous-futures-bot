@@ -38,7 +38,9 @@ from autonomous_futures.paper.staging import (  # noqa: E402
     safe_decimal,
     save_staging_artifacts,
     stage_canary_candidates,
+    verify_decision_integrity,
     verify_prerequisite_gates,
+    verify_staging_manifest_integrity,
 )
 from scripts.run_phase_269_human_review_staging import (  # noqa: E402
     build_arg_parser,
@@ -1078,3 +1080,310 @@ class TestPhase269AdversarialRound2Hardening:
         # Candidate rows
         for i in range(header_idx + 2, header_idx + 2 + len(inspection.candidate_breakdowns)):
             assert len(lines[i]) == 108
+
+
+class TestPhase269AdversarialRound3Hardening:
+    """Adversarial Round 3: Stress-test accounting, cryptographic integrity, and safety."""
+
+    def test_safe_decimal_extreme_non_finite_values_sanitized(self) -> None:
+        """Verify that safe_decimal sanitizes all non-finite, NaN, and Infinity variants."""
+        for evil in (
+            "NaN",
+            "nan",
+            "sNaN",
+            "Infinity",
+            "-Infinity",
+            "inf",
+            "-inf",
+            "+inf",
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            Decimal("NaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+            "",
+            "   ",
+            None,
+            "invalid_text",
+            [],
+            {},
+        ):
+            res = safe_decimal(evil, default=Decimal("0"))
+            assert isinstance(res, Decimal)
+            assert res.is_finite()
+            assert res == Decimal("0")
+            # Ensure comparison never raises InvalidOperation
+            assert (res > Decimal("0")) is False
+            assert (res == Decimal("0")) is True
+
+    def test_verify_prerequisite_gates_handles_non_finite_inputs_gracefully(self) -> None:
+        """Verify that gates do not crash on NaN or Inf representations, failing closed."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        chk = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=safe_decimal("NaN"),
+            starting_equity=safe_decimal("NaN"),
+            final_cash=safe_decimal("NaN"),
+            max_margin_utilization=safe_decimal("Infinity", default=Decimal("0.60")),
+            min_reserve_buffer=safe_decimal("-Infinity", default=Decimal("0.40")),
+            realized_pnl=safe_decimal("sNaN"),
+        )
+        assert chk.all_gates_passed is False
+        assert chk.positive_terminal_equity is False
+        assert any("negative_terminal_equity" in r for r in chk.failure_reasons)
+
+    def test_verify_prerequisite_gates_rejects_upstream_safety_invariant_violations(self) -> None:
+        """Verify that any fail-closed violation in upstream cohort summary blocks promotion."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+
+        # Test 1: execution_authority is True
+        chk1 = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+            raw_summary={"safety_invariants": {"execution_authority": True}},
+        )
+        assert chk1.all_gates_passed is False
+        assert chk1.upstream_safety_invariants_valid is False
+        assert any("execution_authority=True" in r for r in chk1.failure_reasons)
+
+        # Test 2: orders > 0
+        chk2 = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+            raw_summary={"safety_invariants": {"orders": 5}},
+        )
+        assert chk2.all_gates_passed is False
+        assert chk2.upstream_safety_invariants_valid is False
+        assert any("orders=5" in r for r in chk2.failure_reasons)
+
+        # Test 3: api_keys_loaded > 0
+        chk3 = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+            raw_summary={"safety_invariants": {"api_keys_loaded": 1}},
+        )
+        assert chk3.all_gates_passed is False
+        assert chk3.upstream_safety_invariants_valid is False
+        assert any("api_keys_loaded=1" in r for r in chk3.failure_reasons)
+
+    def test_verify_prerequisite_gates_detects_unclosed_sqlite_ledger_db_positions(self) -> None:
+        """Verify that open positions directly in SQLite ledger paper_position_state fail gates."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        chk = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+            db_open_positions=2,
+        )
+        assert chk.all_gates_passed is False
+        assert chk.all_positions_closed is False
+        assert any("unclosed_db_positions_detected:2" in r for r in chk.failure_reasons)
+
+    def test_verify_prerequisite_gates_rejects_excessive_candidate_margin_sum(self) -> None:
+        """Verify that candidate margin utilizations summing to > 0.80 fail margin compliance."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        high_margin_breakdowns = dict(inspection.candidate_breakdowns)
+        high_margin_breakdowns["BTCUSDT"] = high_margin_breakdowns["BTCUSDT"].model_copy(
+            update={"margin_utilization": Decimal("0.35")}
+        )
+        high_margin_breakdowns["ETHUSDT"] = high_margin_breakdowns["ETHUSDT"].model_copy(
+            update={"margin_utilization": Decimal("0.35")}
+        )
+        high_margin_breakdowns["SOLUSDT"] = high_margin_breakdowns["SOLUSDT"].model_copy(
+            update={"margin_utilization": Decimal("0.20")}
+        )
+        # Sum = 0.35 + 0.35 + 0.20 = 0.90 > 0.80
+
+        chk = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=high_margin_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+        )
+        assert chk.all_gates_passed is False
+        assert chk.margin_guardrails_compliant is False
+        assert any("margin_guardrails_violated" in r for r in chk.failure_reasons)
+
+    def test_cryptographic_manifest_and_decision_verification_detects_tampering(self) -> None:
+        """Verify that manifest and decision integrity checkers catch all tampering."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        dec, man, _ = stage_canary_candidates(
+            decision="approved_for_canary",
+            operator_id="operator-crypto-audit",
+            rationale="Cryptographic signature and hash reproducibility audit",
+            inspection=inspection,
+        )
+
+        # Baseline: legitimate artifacts must pass
+        man_ok, man_errs = verify_staging_manifest_integrity(man)
+        assert man_ok is True
+        assert len(man_errs) == 0
+
+        dec_ok, dec_errs = verify_decision_integrity(dec)
+        assert dec_ok is True
+        assert len(dec_errs) == 0
+
+        # Tampering 1: manifest operator changed
+        tampered_man_op = man.model_copy(update={"operator_id": "operator-impostor"})
+        ok, errs = verify_staging_manifest_integrity(tampered_man_op)
+        assert ok is False
+        assert any("manifest_hash_mismatch" in e for e in errs)
+
+        # Tampering 2: manifest candidate risk changed
+        tampered_cands = dict(man.candidates)
+        btc_cand = tampered_cands["BTCUSDT"]
+        tampered_limits = btc_cand.allocated_risk_limits.model_copy(
+            update={"max_margin_utilization": Decimal("0.99")}
+        )
+        tampered_cands["BTCUSDT"] = btc_cand.model_copy(
+            update={"allocated_risk_limits": tampered_limits}
+        )
+        tampered_man_cands = man.model_copy(update={"candidates": tampered_cands})
+        ok, errs = verify_staging_manifest_integrity(tampered_man_cands)
+        assert ok is False
+        assert any("manifest_hash_mismatch" in e for e in errs)
+
+        # Tampering 3: manifest signature changed
+        tampered_sig = man.model_copy(update={"cryptographic_signature": "f" * 64})
+        ok, errs = verify_staging_manifest_integrity(tampered_sig)
+        assert ok is False
+        assert any("cryptographic_signature_mismatch" in e for e in errs)
+
+        # Tampering 4: decision rationale changed
+        tampered_dec = dec.model_copy(update={"review_rationale": "Tampered rationale"})
+        ok, errs = verify_decision_integrity(tampered_dec)
+        assert ok is False
+        assert any("decision_hash_mismatch" in e for e in errs)
+
+    def test_stage_canary_candidates_rejects_registry_manifest_version_less_than_2(self) -> None:
+        """Verify that stage_canary_candidates enforces Candidate Registry Manifest Version >= 2."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        v1_manifest = manifest.model_copy(update={"registry_version": 1})
+
+        with pytest.raises(DomainViolation, match="registry manifest version must be >= 2"):
+            stage_canary_candidates(
+                decision="approved_for_canary",
+                operator_id="operator-lead-001",
+                rationale="Manifest version check test",
+                inspection=inspection,
+                registry_manifest=v1_manifest,
+            )
+
+    def test_review_cli_fails_closed_on_registry_version_less_than_2(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Verify CLI fails closed with exit code 2 when registry manifest version < 2."""
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        v1_manifest = manifest.model_copy(update={"registry_version": 1})
+        v1_path = tmp_path / "candidate_registry_v1.json"
+        v1_path.write_text(v1_manifest.model_dump_json(), encoding="utf-8")
+
+        ret = review_cli_main(
+            [
+                "--cohort-dir",
+                str(DEFAULT_PHASE268_COHORT_DIR),
+                "--registry-path",
+                str(v1_path),
+                "--decision",
+                "approved_for_canary",
+                "--json",
+            ]
+        )
+        assert ret == 2
+        captured = json.loads(capsys.readouterr().out)
+        assert captured["status"] == "error"
+        assert "registry" in captured["error"].lower()
+
+    def test_runner_script_accepts_case_insensitive_decision_and_review_path(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Verify runner script parses uppercase decisions and passes --review-path."""
+        out_dir = tmp_path / "script_out"
+        db_path = tmp_path / "test_reviews.sqlite3"
+
+        ret = run_phase_269_human_review_staging(
+            cohort_dir=DEFAULT_PHASE268_COHORT_DIR,
+            output_dir=out_dir,
+            decision="APPROVED_FOR_CANARY",
+            operator="operator-script-001",
+            rationale="Runner script full integration test",
+            json_output=True,
+            review_path=db_path,
+        )
+        assert ret == 0
+        captured = json.loads(capsys.readouterr().out)
+        assert captured["status"] == "success"
+        assert captured["decision"] == "approved_for_canary"
+        assert (out_dir / "canary-staging-manifest.json").is_file()
+        assert db_path.is_file()
+        assert SqlitePaperReviews(db_path).get(captured["decision_id"]) is not None
+
+    def test_runner_script_keyboard_interrupt_exits_with_code_1(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify main() in runner script exits with status 1 on KeyboardInterrupt, never 0."""
+        import scripts.run_phase_269_human_review_staging as script_mod
+
+        def mock_run(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        monkeypatch.setattr(script_mod, "run_phase_269_human_review_staging", mock_run)
+        ret = script_mod.main(["--decision", "approved_for_canary"])
+        assert ret == 1
+
+    def test_audit_summary_accounting_reconciled_requires_all_reconciliation_gates(self) -> None:
+        """Verify accounting_reconciled requires zero drift, candidate drift, and complete flag."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        # Create an inspection where zero_drift is True but candidate accounting is unreconciled
+        tampered_checklist = inspection.prerequisite_checklist.model_copy(
+            update={"candidate_accounting_reconciled": False}
+        )
+        tampered_inspection = inspection.model_copy(
+            update={"prerequisite_checklist": tampered_checklist}
+        )
+
+        _, _, summary = stage_canary_candidates(
+            decision="held",
+            operator_id="operator-rec-check",
+            rationale="Reconciliation strictness check",
+            inspection=tampered_inspection,
+        )
+        assert summary["portfolio_summary"]["zero_balance_drift"] is True
+        assert summary["portfolio_summary"]["accounting_reconciled"] is False

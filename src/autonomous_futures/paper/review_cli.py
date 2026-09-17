@@ -292,6 +292,11 @@ def _run_operator_staging_cli(argv: list[str]) -> int:
         if p_reg.is_file():
             try:
                 reg_manifest = read_candidate_registry(p_reg, verify_hash=True)
+                if reg_manifest.registry_version < 2:
+                    raise DomainViolation(
+                        f"Candidate registry manifest version must be >= 2 for Phase 269, "
+                        f"got {reg_manifest.registry_version}"
+                    )
             except Exception as exc:
                 err_msg = f"Candidate registry validation failed at {args.registry_path}: {exc}"
                 if args.json:
@@ -461,4 +466,4 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["main"]
+__all__ = ["_normalize_decision", "main"]

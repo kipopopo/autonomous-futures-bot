@@ -25,6 +25,7 @@ if str(_SRC_DIR) not in sys.path:
 from autonomous_futures.paper.candidate_registry import (  # noqa: E402
     DEFAULT_CANDIDATE_REGISTRY_PATH,
 )
+from autonomous_futures.paper.review_cli import _normalize_decision  # noqa: E402
 from autonomous_futures.paper.review_cli import main as review_cli_main  # noqa: E402
 from autonomous_futures.paper.staging import (  # noqa: E402
     DEFAULT_PHASE268_COHORT_DIR,
@@ -59,7 +60,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--decision",
-        type=str,
+        type=_normalize_decision,
         choices=("approved_for_canary", "rejected", "held"),
         default=None,
         help="Review decision code (approved_for_canary, rejected, held)",
@@ -92,6 +93,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Output JSON summary to stdout",
     )
     parser.add_argument(
+        "--review-path",
+        type=Path,
+        default=None,
+        help="Optional path to SQLite database to record review checkpoint",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -110,6 +117,7 @@ def run_phase_269_human_review_staging(
     rationale: str | None = None,
     interactive: bool = False,
     json_output: bool = False,
+    review_path: Path | str | None = None,
 ) -> int:
     """Execute deterministic Phase 269 review staging workflow."""
     argv: list[str] = [
@@ -130,6 +138,8 @@ def run_phase_269_human_review_staging(
         argv.append("--interactive")
     if json_output:
         argv.append("--json")
+    if review_path:
+        argv.extend(["--review-path", str(review_path)])
 
     return review_cli_main(argv)
 
@@ -154,10 +164,11 @@ def main(argv: list[str] | None = None) -> int:
             rationale=args.rationale,
             interactive=args.interactive,
             json_output=args.json,
+            review_path=args.review_path,
         )
     except KeyboardInterrupt:
         logger.info("Human review staging cancelled by operator")
-        return 0
+        return 1
     except Exception as exc:
         logger.error("Human review staging failed: %s", exc, exc_info=True)
         return 1
