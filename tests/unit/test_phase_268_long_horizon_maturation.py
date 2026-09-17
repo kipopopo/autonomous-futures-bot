@@ -1545,3 +1545,201 @@ class TestPhase268AdversarialDataRobustnessAndEdgeCases:
                 offline=True,
                 required_days=-3,
             )
+
+    def test_seed_history_with_corrupt_open_high_low_volume(self, tmp_path: Path) -> None:
+        clear_parquet_cache()
+        manifest = validate_manifest_v2(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        symbols = tuple(s.upper() for s in manifest.symbols.keys())
+
+        data_dir = tmp_path / "corrupt_warmup_data"
+        data_dir.mkdir()
+
+        base_t = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+        for sym in symbols:
+            df = pd.DataFrame(
+                {
+                    "timestamp": [base_t + timedelta(minutes=5 * i) for i in range(10)],
+                    "close": [100.0 + i for i in range(10)],
+                    "open": ["not_a_num" if i % 2 == 0 else str(100.0 + i) for i in range(10)],
+                    "high": ["invalid_high" if i % 3 == 0 else str(105.0 + i) for i in range(10)],
+                    "low": ["bad_low" if i % 2 == 1 else str(95.0 + i) for i in range(10)],
+                    "volume": ["corrupt_vol" if i == 0 else "10.0" for i in range(10)],
+                }
+            )
+            df.to_parquet(data_dir / f"{sym}-5m.parquet")
+
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        engine = LivePaperTradingEngine(
+            registry_manifest=manifest,
+            ledger_db=tmp_path / "warmup-corrupt-ledger.sqlite3",
+            lifecycle_db=tmp_path / "warmup-corrupt-lifecycle.sqlite3",
+            observations_db=tmp_path / "warmup-corrupt-obs.sqlite3",
+            require_flat=False,
+        )
+
+        seed_engine_history_from_canonical(
+            engine=engine,
+            history_dir=data_dir,
+            symbols=symbols,
+            warmup_bars=10,
+        )
+        for sym in symbols:
+            assert len(engine._bar_history.get(sym, [])) == 10
+
+    @pytest.mark.anyio
+    async def test_parquet_taker_volume_exceeds_total_volume_sanitization(
+        self, tmp_path: Path
+    ) -> None:
+        clear_parquet_cache()
+        manifest = validate_manifest_v2(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        symbols = tuple(s.upper() for s in manifest.symbols.keys())
+
+        data_dir = tmp_path / "excess_taker_data"
+        data_dir.mkdir()
+
+        base_t = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+        for sym in symbols:
+            df = pd.DataFrame(
+                {
+                    "timestamp": [
+                        base_t,
+                        base_t + timedelta(minutes=5),
+                        base_t + timedelta(minutes=10),
+                    ],
+                    "close": ["100.0", "101.0", "102.0"],
+                    "open": ["100.0", "101.0", "102.0"],
+                    "high": ["105.0", "106.0", "107.0"],
+                    "low": ["95.0", "96.0", "97.0"],
+                    "volume": ["10.0", "10.0", "10.0"],
+                    "quote_volume": ["1000.0", "1010.0", "1020.0"],
+                    "trades": ["5", "5", "5"],
+                    "taker_buy_base": ["25.0", "50.0", "100.0"],  # Exceeds volume 10.0!
+                    "taker_buy_quote": ["2500.0", "5000.0", "10000.0"],  # Exceeds quote_volume!
+                }
+            )
+            df.to_parquet(data_dir / f"{sym}-5m.parquet")
+
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        engine = LivePaperTradingEngine(
+            registry_manifest=manifest,
+            ledger_db=tmp_path / "excess-taker-ledger.sqlite3",
+            lifecycle_db=tmp_path / "excess-taker-lifecycle.sqlite3",
+            observations_db=tmp_path / "excess-taker-obs.sqlite3",
+            require_flat=False,
+        )
+
+        ticks = await replay_long_horizon_cohort_observations(
+            engine=engine,
+            history_dir=data_dir,
+            symbols=symbols,
+            max_ticks=3,
+        )
+        await engine.stop()
+        assert ticks == 3
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_nan_and_inf_numeric_parameters(self, tmp_path: Path) -> None:
+        with pytest.raises(
+            DomainViolation, match="Observation replay days must be strictly positive"
+        ):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "days_nan",
+                days=float("nan"),
+                offline=True,
+            )
+
+        with pytest.raises(
+            DomainViolation, match="Observation replay days must be strictly positive"
+        ):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "days_inf",
+                days=float("inf"),
+                offline=True,
+            )
+
+        with pytest.raises(DomainViolation, match="Session duration must be strictly positive"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "dur_nan",
+                duration=float("nan"),
+                ticks=5,
+                offline=True,
+            )
+
+        with pytest.raises(DomainViolation, match="Starting capital must be strictly positive"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "cap_nan",
+                starting_capital=Decimal("NaN"),
+                ticks=5,
+                offline=True,
+            )
+
+        with pytest.raises(DomainViolation, match="Starting capital must be strictly positive"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "cap_inf",
+                starting_capital=Decimal("Infinity"),
+                ticks=5,
+                offline=True,
+            )
+
+        with pytest.raises(DomainViolation, match="Max margin utilization must be in"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "util_nan",
+                max_margin_utilization=Decimal("NaN"),
+                ticks=5,
+                offline=True,
+            )
+
+        with pytest.raises(DomainViolation, match="Taker fee rate must be non-negative"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "fee_inf",
+                fee_rate=Decimal("Infinity"),
+                ticks=5,
+                offline=True,
+            )
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_invalid_mode(self, tmp_path: Path) -> None:
+        with pytest.raises(DomainViolation, match="Invalid mode 'bogus_mode'"):
+            await run_phase_268_long_horizon_maturation(
+                output_dir=tmp_path / "bad_mode",
+                mode="bogus_mode",
+                ticks=5,
+                offline=True,
+            )
+
+    def test_load_canonical_df_missing_close_column_returns_empty(self, tmp_path: Path) -> None:
+        clear_parquet_cache()
+        pfile = tmp_path / "no_close.parquet"
+        base_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        df = pd.DataFrame(
+            {
+                "timestamp": [base_t, base_t + timedelta(minutes=5)],
+                "volume": [10.0, 20.0],
+            }
+        )
+        df.to_parquet(pfile)
+
+        loaded = _load_canonical_df(pfile)
+        assert len(loaded) == 0
+        assert loaded.empty
+
+    def test_parquet_cache_bounded_size(self, tmp_path: Path) -> None:
+        from scripts.run_phase_268_long_horizon_maturation import _PARQUET_CACHE
+
+        clear_parquet_cache()
+        base_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        df = pd.DataFrame(
+            {
+                "timestamp": [base_t],
+                "close": [100.0],
+            }
+        )
+
+        for i in range(70):
+            p = tmp_path / f"test_cache_{i}.parquet"
+            df.to_parquet(p)
+            _load_canonical_df(p)
+
+        assert len(_PARQUET_CACHE) <= 64

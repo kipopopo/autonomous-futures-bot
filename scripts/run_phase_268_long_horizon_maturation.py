@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import signal
@@ -103,9 +104,15 @@ _SECRET_PATTERN = re.compile(
 )
 
 
-def _assert_zero_secrets(text: str, source_label: str) -> None:
+def _assert_zero_secrets(text: Any, source_label: str) -> None:
     """Verify text contains zero sensitive tokens or API secrets."""
-    match = _SECRET_PATTERN.search(text)
+    if text is None:
+        return
+    if isinstance(text, bytes):
+        raw_text = text.decode("utf-8", errors="ignore")
+    else:
+        raw_text = str(text)
+    match = _SECRET_PATTERN.search(raw_text)
     if match:
         raise DomainViolation(f"Secret pattern matched in {source_label}: {match.group(0)[:8]}...")
 
@@ -306,11 +313,11 @@ def _load_canonical_df(parquet_file: Path, tail_rows: int | None = None) -> pd.D
             _PARQUET_CACHE[cache_key] = pd.DataFrame()
             return _PARQUET_CACHE[cache_key].copy()
 
-        if df.empty or "timestamp" not in df.columns:
+        if df.empty or "timestamp" not in df.columns or "close" not in df.columns:
             _PARQUET_CACHE[cache_key] = pd.DataFrame()
             return _PARQUET_CACHE[cache_key].copy()
 
-        # Sanitize timestamp
+        # Sanitize timestamp: enforce UTC datetime and drop nulls
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
         df = df.dropna(subset=["timestamp"])
         if df.empty:
@@ -321,13 +328,78 @@ def _load_canonical_df(parquet_file: Path, tail_rows: int | None = None) -> pd.D
         df = df.drop_duplicates(subset=["timestamp"], keep="last")
 
         # Sanitize close price: enforce positive numeric values
-        if "close" in df.columns:
-            df["close"] = pd.to_numeric(df["close"], errors="coerce")
-            df = df.dropna(subset=["close"])
-            df = df[df["close"] > 0]
+        df["close"] = pd.to_numeric(df["close"], errors="coerce")
+        df = df.dropna(subset=["close"])
+        df = df[df["close"] > 0]
         if df.empty:
             _PARQUET_CACHE[cache_key] = pd.DataFrame()
             return _PARQUET_CACHE[cache_key].copy()
+
+        # Sanitize open price: fallback to close price if missing, non-numeric, or non-positive
+        if "open" in df.columns:
+            df["open"] = pd.to_numeric(df["open"], errors="coerce").fillna(df["close"])
+            df["open"] = df["open"].where(df["open"] > 0, df["close"])
+        else:
+            df["open"] = df["close"]
+
+        # Sanitize high price: must be >= max(open, close)
+        max_oc = df[["open", "close"]].max(axis=1)
+        if "high" in df.columns:
+            df["high"] = pd.to_numeric(df["high"], errors="coerce").fillna(max_oc)
+            df["high"] = df[["high", "open", "close"]].max(axis=1)
+        else:
+            df["high"] = max_oc
+
+        # Sanitize low price: must be <= min(open, close) and strictly positive
+        min_oc = df[["open", "close"]].min(axis=1)
+        if "low" in df.columns:
+            df["low"] = pd.to_numeric(df["low"], errors="coerce").fillna(min_oc)
+            df["low"] = df[["low", "open", "close"]].min(axis=1).clip(lower=0.000001)
+        else:
+            df["low"] = min_oc.clip(lower=0.000001)
+
+        # Sanitize volume: non-negative numeric
+        if "volume" in df.columns:
+            df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0).clip(lower=0.0)
+        else:
+            df["volume"] = 0.0
+
+        # Sanitize quote_volume: non-negative numeric, default to volume * close
+        if "quote_volume" in df.columns:
+            default_qvol = df["volume"] * df["close"]
+            df["quote_volume"] = (
+                pd.to_numeric(df["quote_volume"], errors="coerce")
+                .fillna(default_qvol)
+                .clip(lower=0.0)
+            )
+        else:
+            df["quote_volume"] = (df["volume"] * df["close"]).clip(lower=0.0)
+
+        # Sanitize trades: non-negative integer
+        if "trades" in df.columns:
+            df["trades"] = (
+                pd.to_numeric(df["trades"], errors="coerce").fillna(0).astype(int).clip(lower=0)
+            )
+        else:
+            df["trades"] = 0
+
+        # Sanitize taker_buy_base: non-negative and <= volume
+        if "taker_buy_base" in df.columns:
+            df["taker_buy_base"] = (
+                pd.to_numeric(df["taker_buy_base"], errors="coerce").fillna(0.0).clip(lower=0.0)
+            )
+            df["taker_buy_base"] = df[["taker_buy_base", "volume"]].min(axis=1)
+        else:
+            df["taker_buy_base"] = 0.0
+
+        # Sanitize taker_buy_quote: non-negative and <= quote_volume
+        if "taker_buy_quote" in df.columns:
+            df["taker_buy_quote"] = (
+                pd.to_numeric(df["taker_buy_quote"], errors="coerce").fillna(0.0).clip(lower=0.0)
+            )
+            df["taker_buy_quote"] = df[["taker_buy_quote", "quote_volume"]].min(axis=1)
+        else:
+            df["taker_buy_quote"] = 0.0
 
         # Sanitize close_time: ensure UTC datetime and strictly close_time > timestamp
         if "close_time" in df.columns:
@@ -345,6 +417,8 @@ def _load_canonical_df(parquet_file: Path, tail_rows: int | None = None) -> pd.D
             )
 
         df_clean = df.sort_values("timestamp").reset_index(drop=True)
+        if len(_PARQUET_CACHE) >= 64:
+            _PARQUET_CACHE.pop(next(iter(_PARQUET_CACHE)))
         _PARQUET_CACHE[cache_key] = df_clean
 
     cached_df = _PARQUET_CACHE[cache_key]
@@ -386,6 +460,8 @@ def seed_engine_history_from_canonical(
                     df_warmup = df_sorted.iloc[start_idx:end_idx]
                 else:
                     df_warmup = df_sorted.tail(warmup_bars)
+                if len(df_warmup) == 0:
+                    continue
                 engine.seed_history(symbol, df_warmup)
                 logger.info(
                     "Seeded %d warmup bars for %s from %s",
@@ -567,11 +643,13 @@ async def replay_long_horizon_cohort_observations(
 
             trades = _safe_int(row.get("trades"), 0)
 
-            taker_buy_base = max(
-                Decimal("0"), _safe_decimal(row.get("taker_buy_base"), Decimal("0"))
+            taker_buy_base = min(
+                volume,
+                max(Decimal("0"), _safe_decimal(row.get("taker_buy_base"), Decimal("0"))),
             )
-            taker_buy_quote = max(
-                Decimal("0"), _safe_decimal(row.get("taker_buy_quote"), Decimal("0"))
+            taker_buy_quote = min(
+                quote_volume,
+                max(Decimal("0"), _safe_decimal(row.get("taker_buy_quote"), Decimal("0"))),
             )
 
             bar = CanonicalBar(
@@ -667,32 +745,38 @@ async def run_phase_268_long_horizon_maturation(
 
     # 1. Enforce strict safety invariants and risk parameter bounds prior to execution
     verify_strict_safety_invariants(orders_submitted=0)
-    if starting_capital <= Decimal("0"):
+    if not starting_capital.is_finite() or starting_capital <= Decimal("0"):
         raise DomainViolation("Starting capital must be strictly positive")
-    if not (Decimal("0") < max_margin_utilization <= Decimal("1.0")):
+    if not max_margin_utilization.is_finite() or not (
+        Decimal("0") < max_margin_utilization <= Decimal("1.0")
+    ):
         raise DomainViolation("Max margin utilization must be in (0, 1]")
-    if not (Decimal("0") <= min_reserve_buffer < Decimal("1.0")):
+    if not min_reserve_buffer.is_finite() or not (
+        Decimal("0") <= min_reserve_buffer < Decimal("1.0")
+    ):
         raise DomainViolation("Min reserve buffer must be in [0, 1)")
     if max_margin_utilization + min_reserve_buffer > Decimal("1.0"):
         raise DomainViolation(
             "Sum of max margin utilization and min reserve buffer cannot exceed 1.0"
         )
-    if fee_rate < Decimal("0"):
+    if not fee_rate.is_finite() or fee_rate < Decimal("0"):
         raise DomainViolation("Taker fee rate must be non-negative")
-    if slippage_bps < Decimal("0"):
+    if not slippage_bps.is_finite() or slippage_bps < Decimal("0"):
         raise DomainViolation("Slippage bps must be non-negative")
-    if duration is not None and duration <= 0:
+    if duration is not None and (not math.isfinite(duration) or duration <= 0):
         raise DomainViolation("Session duration must be strictly positive")
-    if days is not None and days <= 0:
+    if days is not None and (not math.isfinite(days) or days <= 0):
         raise DomainViolation("Observation replay days must be strictly positive")
-    if ticks is not None and ticks <= 0:
+    if ticks is not None and (isinstance(ticks, bool) or ticks <= 0):
         raise DomainViolation("Replay ticks must be strictly positive")
     if days is not None and ticks is not None:
         raise DomainViolation("Cannot specify both 'days' and 'ticks'")
-    if required_days <= 0:
+    if isinstance(required_days, bool) or required_days <= 0:
         raise DomainViolation("Required days for cohort evaluation must be positive")
     if not ws_url or not ws_url.strip():
         raise DomainViolation("ws_url must not be empty")
+    if mode not in ("auto", "live", "batch"):
+        raise DomainViolation(f"Invalid mode '{mode}', must be one of: auto, live, batch")
 
     # 2. Validate Candidate Registry Manifest Version 2
     manifest = validate_manifest_v2(registry_path)
