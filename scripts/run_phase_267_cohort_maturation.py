@@ -232,6 +232,19 @@ def _sqlite_row_count(
     return 0
 
 
+def _verify_sqlite_unlocked(db_path: Path) -> bool:
+    """Verify SQLite database has no dangling locks or unclosed write transactions."""
+    if not db_path.is_file():
+        return True
+    try:
+        with closing(sqlite3.connect(db_path, timeout=1.0)) as conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            conn.execute("COMMIT;")
+        return True
+    except Exception:
+        return False
+
+
 _PARQUET_CACHE: dict[tuple[Path, int, int], pd.DataFrame] = {}
 
 
@@ -385,6 +398,8 @@ async def replay_multi_day_cohort_observations(
         return 0
 
     resolved_history_dir = history_dir if history_dir.is_dir() else _REPO_ROOT / history_dir
+    if not resolved_history_dir.is_dir():
+        raise FileNotFoundError(f"Canonical history directory not found: {history_dir}")
     symbol_dfs: dict[str, pd.DataFrame] = {}
     tail_count = max(max_ticks * 2, max_ticks + 50) if max_ticks > 0 else None
     for sym in symbols:
@@ -653,6 +668,18 @@ async def run_phase_267_cohort_maturation(
         raise DomainViolation(
             "Sum of max margin utilization and min reserve buffer cannot exceed 1.0"
         )
+    if fee_rate < Decimal("0"):
+        raise DomainViolation("Taker fee rate must be non-negative")
+    if slippage_bps < Decimal("0"):
+        raise DomainViolation("Slippage bps must be non-negative")
+    if duration is not None and duration <= 0:
+        raise DomainViolation("Session duration must be strictly positive")
+    if days is not None and days <= 0:
+        raise DomainViolation("Observation replay days must be strictly positive")
+    if ticks is not None and ticks <= 0:
+        raise DomainViolation("Replay ticks must be strictly positive")
+    if days is not None and ticks is not None:
+        raise DomainViolation("Cannot specify both 'days' and 'ticks'")
 
     # 2. Validate Candidate Registry Manifest Version 2
     manifest = validate_manifest_v2(registry_path)
@@ -759,6 +786,10 @@ async def run_phase_267_cohort_maturation(
         )
         else mode
     )
+
+    resolved_history_dir = history_dir if history_dir.is_dir() else _REPO_ROOT / history_dir
+    if effective_mode == "batch" and not resolved_history_dir.is_dir():
+        raise FileNotFoundError(f"Canonical history directory not found: {history_dir}")
 
     # Determine replay bar count
     if ticks is not None:
@@ -1124,7 +1155,9 @@ async def run_phase_267_cohort_maturation(
         "resource_cleanup": {
             "feed_client_connected": bool(getattr(feed_client, "_running", False)),
             "websocket_closed": getattr(feed_client, "_ws", None) is None,
-            "sqlite_connections_closed": True,
+            "sqlite_connections_closed": all(
+                _verify_sqlite_unlocked(db) for db in (ledger_db, lifecycle_db, observations_db)
+            ),
             "background_tasks_cleaned": bool(
                 monitor._worker_task is None or monitor._worker_task.done()
             ),

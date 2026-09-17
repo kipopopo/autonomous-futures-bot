@@ -36,6 +36,7 @@ from scripts.run_phase_267_cohort_maturation import (  # noqa: E402
     _assert_zero_secrets,
     _load_canonical_df,
     _sqlite_row_count,
+    _verify_sqlite_unlocked,
     build_arg_parser,
     clear_parquet_cache,
     main,
@@ -1236,3 +1237,147 @@ class TestPhase267AdversarialRound2StressAndSafety:
         ledger.clear_position_update("trade-1234")
         # Now require_no_position_update_intents passes cleanly
         ledger.require_no_position_update_intents()
+
+
+class TestPhase267AdversarialRound3VerificationAndBounds:
+    """Round 3 adversarial tests for parameter boundaries, lock detection, and CLI errors."""
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_negative_and_zero_ticks(self, tmp_path: Path) -> None:
+        with pytest.raises(DomainViolation, match="Replay ticks must be strictly positive"):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "zero_ticks",
+                ticks=0,
+                offline=True,
+            )
+
+        with pytest.raises(DomainViolation, match="Replay ticks must be strictly positive"):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "neg_ticks",
+                ticks=-5,
+                offline=True,
+            )
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_negative_and_zero_days(self, tmp_path: Path) -> None:
+        with pytest.raises(
+            DomainViolation, match="Observation replay days must be strictly positive"
+        ):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "zero_days",
+                days=0.0,
+                offline=True,
+            )
+
+        with pytest.raises(
+            DomainViolation, match="Observation replay days must be strictly positive"
+        ):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "neg_days",
+                days=-2.5,
+                offline=True,
+            )
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_conflicting_days_and_ticks(self, tmp_path: Path) -> None:
+        with pytest.raises(DomainViolation, match="Cannot specify both 'days' and 'ticks'"):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "both_days_ticks",
+                days=1.0,
+                ticks=100,
+                offline=True,
+            )
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_negative_fee_rate_and_slippage_and_duration(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(DomainViolation, match="Taker fee rate must be non-negative"):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "neg_fee",
+                ticks=5,
+                offline=True,
+                fee_rate=Decimal("-0.0001"),
+            )
+
+        with pytest.raises(DomainViolation, match="Slippage bps must be non-negative"):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "neg_slip",
+                ticks=5,
+                offline=True,
+                slippage_bps=Decimal("-1.0"),
+            )
+
+        with pytest.raises(DomainViolation, match="Session duration must be strictly positive"):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "neg_dur",
+                ticks=5,
+                offline=True,
+                duration=-5.0,
+            )
+
+        with pytest.raises(DomainViolation, match="Session duration must be strictly positive"):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "zero_dur",
+                ticks=5,
+                offline=True,
+                duration=0.0,
+            )
+
+    @pytest.mark.anyio
+    async def test_runner_rejects_nonexistent_history_directory_in_batch_mode(
+        self, tmp_path: Path
+    ) -> None:
+        missing_dir = tmp_path / "completely_nonexistent_history_directory"
+        with pytest.raises(FileNotFoundError, match="Canonical history directory not found"):
+            await run_phase_267_cohort_maturation(
+                output_dir=tmp_path / "missing_hist",
+                history_dir=missing_dir,
+                ticks=5,
+                offline=True,
+            )
+
+    def test_sqlite_unlocked_verification_detects_exclusive_locks(self, tmp_path: Path) -> None:
+        import sqlite3
+        from contextlib import closing
+
+        db_file = tmp_path / "lock_test.sqlite3"
+        with closing(sqlite3.connect(db_file)) as conn:
+            conn.execute("CREATE TABLE t (x INT)")
+            conn.commit()
+
+        # Non-existent file passes
+        assert _verify_sqlite_unlocked(tmp_path / "nonexistent.sqlite3") is True
+
+        # Unlocked DB passes
+        assert _verify_sqlite_unlocked(db_file) is True
+
+        # When locked exclusively by another connection, _verify_sqlite_unlocked returns False
+        holder = sqlite3.connect(db_file)
+        holder.execute("BEGIN EXCLUSIVE;")
+        try:
+            assert _verify_sqlite_unlocked(db_file) is False
+        finally:
+            holder.rollback()
+            holder.close()
+
+        # After releasing lock, passes again
+        assert _verify_sqlite_unlocked(db_file) is True
+
+    def test_cli_rejects_conflicting_days_and_ticks_exit_code_1(self, tmp_path: Path) -> None:
+        ret = main(
+            [
+                "--output-dir",
+                str(tmp_path / "cli_conflict"),
+                "--days",
+                "1.0",
+                "--ticks",
+                "10",
+                "--offline",
+            ]
+        )
+        assert ret == 1
+
+    def test_cli_rejects_negative_ticks_exit_code_1(self, tmp_path: Path) -> None:
+        ret = main(["--output-dir", str(tmp_path / "cli_neg_ticks"), "--ticks", "-5", "--offline"])
+        assert ret == 1
