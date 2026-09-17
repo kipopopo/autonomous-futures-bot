@@ -651,3 +651,62 @@ Enforce autonomous operations safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-17T05:24:56Z
+
+Execute multi-week paper trading cohort observation scaling, long-horizon telemetry accumulation, and maturation evaluation under Candidate Registry Manifest Version 2 (Phase 268) to assess strategy progression towards human review readiness while maintaining strict fail-closed invariants and exact double-entry accounting.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Multi-Week Cohort Observation Horizon Scaling Runner
+Implement and execute the deterministic Phase 268 long-horizon maturation runner (`scripts/run_phase_268_long_horizon_maturation.py`):
+- Couple `LivePaperTradingEngine` with active Candidate Registry Manifest Version 2 (`BTCUSDT` cand-btcusdt-dcb-002, `ETHUSDT` cand-ethusdt-dcb-003, `SOLUSDT` cand-solusdt-rgb-001).
+- Scale observation replay horizon from nominal 3-day window to multi-week canonical window (14 canonical days / 1,344 15m bars / 4,032 5m bars) from canonical Parquet data (`research/immutable-data/5m/canonical/`).
+- Enforce periodic 6-hour fixed-slot observation marks into `paper-observations.sqlite3` with strict deduplication guards across the multi-week timeline.
+- Maintain single-position invariants per symbol across shared 100.00 USDT margin portfolio.
+
+### R2. Long-Horizon Maturation Telemetry & Readiness Transition Reporting
+Wire automated long-horizon maturation reporting into `artifacts/research/phase268/`:
+- Record complete lifecycle, order, and transaction marks into isolated SQLite databases: `paper-ledger.sqlite3`, `paper-lifecycle.sqlite3`, and `paper-observations.sqlite3`.
+- Generate snapshot and cumulative cohort readiness reports (`paper-cohort-maturation-report.json`, `paper-cohort-readiness-report.json`) using `evaluate_paper_cohort_snapshot`.
+- Track cohort readiness progression across status codes (`unavailable`, `not_ready`, `blocked`, `ready_for_human_review`) and candidate health transitions with accumulated trade counts and sample sizes.
+- Produce comprehensive maturation summary (`maturation-summary.json` / `paper-summary.json`) with deterministic SHA-256 artifact digests.
+
+### R3. Exact Double-Entry Accounting & Extended Horizon Margin Guardrails
+Enforce exact mathematical balance and risk invariants across extended observation horizons:
+- Verify exact double-entry accounting reconciliation: drift = |final_cash - (starting_equity + realized_pnl)| < 1e-15.
+- Enforce margin utilization ceiling <= 80.00% and preserve >= 20.00% unencumbered cash reserve buffer throughout all open positions.
+- Ensure clean resource cleanup: no dangling SQLite file handles, no thread leaks, and safe sidecar purges.
+
+### R4. Strict Fail-Closed Containment, Targeted Testing & Remote CI Polling
+Enforce autonomous operations safety:
+- Maintain strict fail-closed state: `paper_activation: false`, `execution_authority: false`, `exchange_access: false`, `orders: 0`, `api_keys_loaded: 0`.
+- Verify zero secret or API key leakage across code, logs, and generated JSON reports.
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_268_long_horizon_maturation.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full 2,350+ regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Execution & Telemetry Accumulation
+- [ ] Long-horizon maturation runner loads candidates dynamically from Manifest Version 2 and replays multi-week observation windows cleanly.
+- [ ] 6-hour fixed-slot observations accumulated in `paper-observations.sqlite3` across multi-week timeline without duplicate slot errors.
+- [ ] Single-position invariant per symbol maintained across shared margin.
+
+### Cohort Readiness & Artifact Packaging
+- [ ] Isolated SQLite stores (`paper-ledger.sqlite3`, `paper-lifecycle.sqlite3`, `paper-observations.sqlite3`) persisted in `artifacts/research/phase268/`.
+- [ ] Maturation readiness report accurately evaluates trade maturity, per-symbol health, and status codes.
+- [ ] Balance reconciliation confirms zero balance drift (< 1e-15) between cash, equity, and realized PnL across extended horizon.
+
+### Safety & Remote CI Verification
+- [ ] Strict fail-closed defaults verified (zero live exchange orders, zero API credentials).
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
