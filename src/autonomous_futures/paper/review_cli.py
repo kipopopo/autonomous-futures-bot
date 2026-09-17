@@ -38,6 +38,17 @@ from .staging import (
 
 logger = logging.getLogger(__name__)
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="backslashreplace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(errors="backslashreplace")
+    except Exception:
+        pass
+
 
 # --- Legacy Review Parser & Logic (for backward compatibility) ---
 def _legacy_parser() -> argparse.ArgumentParser:
@@ -101,6 +112,19 @@ def _run_legacy_review(argv: list[str]) -> int:
     return 0
 
 
+def _normalize_decision(val: str) -> str:
+    clean = val.strip().lower()
+    if clean in ("1", "approved_for_canary", "approved", "approve"):
+        return "approved_for_canary"
+    elif clean in ("2", "rejected", "reject"):
+        return "rejected"
+    elif clean in ("3", "held", "hold"):
+        return "held"
+    raise argparse.ArgumentTypeError(
+        f"Invalid decision '{val}'. Choose from: approved_for_canary, rejected, held"
+    )
+
+
 # --- Phase 269 Operator Governance & Staging CLI ---
 def _operator_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -126,7 +150,7 @@ def _operator_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--decision",
-        type=str,
+        type=_normalize_decision,
         choices=("approved_for_canary", "rejected", "held"),
         default=None,
         help="Review decision code (approved_for_canary, rejected, held)",
@@ -181,7 +205,10 @@ def _prompt_operator_interactive(
         while True:
             sys.stdout.write("Enter Operator ID: ")
             sys.stdout.flush()
-            val = sys.stdin.readline().strip()
+            line = sys.stdin.readline()
+            if not line:
+                raise EOFError("Unexpected EOF on stdin while reading Operator ID")
+            val = line.strip()
             if val:
                 operator = val
                 break
@@ -196,7 +223,10 @@ def _prompt_operator_interactive(
         while True:
             sys.stdout.write("Choice [1/2/3 or name]: ")
             sys.stdout.flush()
-            choice = sys.stdin.readline().strip()
+            line = sys.stdin.readline()
+            if not line:
+                raise EOFError("Unexpected EOF on stdin while reading Decision")
+            choice = line.strip()
             choice_clean = choice.lower()
             if choice_clean in ("1", "approved_for_canary", "approved", "approve"):
                 decision = "approved_for_canary"
@@ -225,7 +255,10 @@ def _prompt_operator_interactive(
         while True:
             sys.stdout.write("\nEnter Review Rationale / Notes: ")
             sys.stdout.flush()
-            val = sys.stdin.readline().strip()
+            line = sys.stdin.readline()
+            if not line:
+                raise EOFError("Unexpected EOF on stdin while reading Rationale")
+            val = line.strip()
             if val:
                 rationale = val
                 break
@@ -252,13 +285,39 @@ def _run_operator_staging_cli(argv: list[str]) -> int:
             sys.stderr.write(f"Error inspecting cohort at {args.cohort_dir}: {exc}\n")
         return 2
 
-    # Load registry manifest if present
+    # Load registry manifest if present (fail closed if corrupt or missing)
     reg_manifest = None
-    if args.registry_path and Path(args.registry_path).is_file():
-        try:
-            reg_manifest = read_candidate_registry(args.registry_path)
-        except Exception as exc:
-            logger.warning("Could not load registry manifest at %s: %s", args.registry_path, exc)
+    if args.registry_path:
+        p_reg = Path(args.registry_path)
+        if p_reg.is_file():
+            try:
+                reg_manifest = read_candidate_registry(p_reg, verify_hash=True)
+            except Exception as exc:
+                err_msg = f"Candidate registry validation failed at {args.registry_path}: {exc}"
+                if args.json:
+                    _print_json(
+                        {
+                            "status": "error",
+                            "error_code": "registry_manifest_invalid",
+                            "error": err_msg,
+                        }
+                    )
+                else:
+                    sys.stderr.write(f"Error: {err_msg}\n")
+                return 2
+        elif args.registry_path != DEFAULT_CANDIDATE_REGISTRY_PATH:
+            err_msg = f"Candidate registry manifest not found at {args.registry_path}"
+            if args.json:
+                _print_json(
+                    {
+                        "status": "error",
+                        "error_code": "registry_manifest_not_found",
+                        "error": err_msg,
+                    }
+                )
+            else:
+                sys.stderr.write(f"Error: {err_msg}\n")
+            return 2
 
     operator = args.operator
     decision = args.decision
@@ -344,7 +403,10 @@ def _run_operator_staging_cli(argv: list[str]) -> int:
     # Optional SQLite recording
     if args.review_path:
         try:
-            readiness_report = _load_report(args.cohort_dir / "paper-cohort-readiness-report.json")
+            report_p = args.cohort_dir / "paper-cohort-readiness-report.json"
+            if not report_p.is_file():
+                report_p = args.cohort_dir / "paper-cohort-maturation-report.json"
+            readiness_report = _load_report(report_p)
             legacy_checkpoint = create_paper_review_checkpoint(
                 readiness_report,
                 review_id=dec_art.decision_id,

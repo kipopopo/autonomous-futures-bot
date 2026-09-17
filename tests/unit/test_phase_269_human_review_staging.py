@@ -28,6 +28,7 @@ from autonomous_futures.paper.staging import (  # noqa: E402
     EXPECTED_MANIFEST_V2_CANDIDATES,
     CandidatePerformanceBreakdown,
     assert_zero_secrets,
+    check_fail_closed_safety_invariants,
     compute_decision_hash,
     compute_file_sha256,
     compute_manifest_hash,
@@ -827,3 +828,253 @@ class TestPhase269AdversarialHardening:
         captured = capsys.readouterr().out
         assert "Decision:               approved_for_canary" in captured
         assert (out_dir / "canary-staging-manifest.json").is_file()
+
+
+class TestPhase269AdversarialRound2Hardening:
+    """Adversarial Round 2: Probe edge cases in CLI, EOF loops, missing files, and table."""
+
+    def test_fails_when_upstream_artifact_deleted_on_disk(self, tmp_path: Path) -> None:
+        """Verify that missing artifact in artifact_hashes fails integrity check."""
+        import shutil
+
+        cohort_copy = tmp_path / "cohort_tampered"
+        shutil.copytree(DEFAULT_PHASE268_COHORT_DIR, cohort_copy)
+        # Delete paper-ledger.sqlite3
+        (cohort_copy / "paper-ledger.sqlite3").unlink()
+
+        inspection = inspect_cohort(cohort_copy)
+        assert inspection.prerequisite_checklist.upstream_integrity_verified is False
+        assert inspection.prerequisite_checklist.all_gates_passed is False
+        assert any(
+            "paper-ledger.sqlite3:missing_on_disk" in r
+            for r in inspection.prerequisite_checklist.failure_reasons
+        )
+
+    def test_interactive_cli_handles_eof_gracefully(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Verify that unexpected EOF raises EOFError and exits with code 1 instead of hanging."""
+        out_dir = tmp_path / "phase269_eof_out"
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+        ret = review_cli_main(
+            [
+                "--cohort-dir",
+                str(DEFAULT_PHASE268_COHORT_DIR),
+                "--output-dir",
+                str(out_dir),
+                "--interactive",
+            ]
+        )
+        assert ret == 1
+        captured = capsys.readouterr().out
+        assert "Review operation cancelled by operator." in captured
+
+    def test_cli_batch_decision_case_insensitivity_and_aliases(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Verify batch --decision handles uppercase and aliases cleanly."""
+        out_dir = tmp_path / "phase269_alias_out"
+        # Test 1: APPROVED_FOR_CANARY
+        ret = review_cli_main(
+            [
+                "--cohort-dir",
+                str(DEFAULT_PHASE268_COHORT_DIR),
+                "--output-dir",
+                str(out_dir),
+                "--decision",
+                "APPROVED_FOR_CANARY",
+                "--operator",
+                "operator-alias-001",
+                "--rationale",
+                "Case insensitive batch flag test",
+                "--json",
+            ]
+        )
+        assert ret == 0
+        captured = json.loads(capsys.readouterr().out)
+        assert captured["decision"] == "approved_for_canary"
+
+        # Test 2: 'rejected' alias 'REJECT'
+        ret_rej = review_cli_main(
+            [
+                "--cohort-dir",
+                str(DEFAULT_PHASE268_COHORT_DIR),
+                "--output-dir",
+                str(out_dir),
+                "--decision",
+                "REJECT",
+                "--operator",
+                "operator-alias-001",
+                "--rationale",
+                "Alias reject test",
+                "--json",
+            ]
+        )
+        assert ret_rej == 0
+        captured_rej = json.loads(capsys.readouterr().out)
+        assert captured_rej["decision"] == "rejected"
+
+    def test_cli_fails_closed_on_corrupt_registry_manifest(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Verify CLI fails closed if provided registry manifest has invalid schema or hash."""
+        corrupt_manifest = tmp_path / "corrupt_registry.json"
+        corrupt_manifest.write_text('{"invalid": "json_data"}', encoding="utf-8")
+
+        ret = review_cli_main(
+            [
+                "--cohort-dir",
+                str(DEFAULT_PHASE268_COHORT_DIR),
+                "--registry-path",
+                str(corrupt_manifest),
+                "--decision",
+                "approved_for_canary",
+                "--json",
+            ]
+        )
+        assert ret == 2
+        captured = json.loads(capsys.readouterr().out)
+        assert captured["status"] == "error"
+        assert captured["error_code"] in ("cohort_inspection_failed", "registry_manifest_invalid")
+        assert "registry" in captured["error"].lower()
+
+    def test_fails_when_registry_manifest_hash_mismatches_cohort(self, tmp_path: Path) -> None:
+        """Verify inspect_cohort rejects candidate registry whose hash mismatches cohort record."""
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        tampered_manifest = manifest.model_copy(update={"registry_hash": "b" * 64})
+        reg_file = tmp_path / "tampered_reg.json"
+        reg_file.write_text(tampered_manifest.model_dump_json(), encoding="utf-8")
+
+        with pytest.raises(DomainViolation, match="hash mismatch"):
+            inspect_cohort(DEFAULT_PHASE268_COHORT_DIR, registry_path=reg_file)
+
+    def test_fails_when_candidate_missing_from_registry_manifest(self) -> None:
+        """Verify stage_canary_candidates fails closed if an active symbol is missing."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        incomplete_symbols = dict(manifest.symbols)
+        del incomplete_symbols["SOLUSDT"]
+        incomplete_manifest = manifest.model_copy(update={"symbols": incomplete_symbols})
+
+        with pytest.raises(DomainViolation, match="not found in candidate registry manifest"):
+            stage_canary_candidates(
+                decision="approved_for_canary",
+                operator_id="operator-reg-test",
+                rationale="Incomplete registry test",
+                inspection=inspection,
+                registry_manifest=incomplete_manifest,
+            )
+
+    def test_fails_when_candidate_id_mismatches_registry_manifest(self) -> None:
+        """Verify stage_canary_candidates fails closed if candidate_id mismatches registry."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        mismatched_symbols = dict(manifest.symbols)
+        mismatched_symbols["BTCUSDT"] = mismatched_symbols["BTCUSDT"].model_copy(
+            update={"candidate_id": "cand-btcusdt-mismatch-999"}
+        )
+        mismatched_manifest = manifest.model_copy(update={"symbols": mismatched_symbols})
+
+        with pytest.raises(DomainViolation, match="Candidate ID mismatch"):
+            stage_canary_candidates(
+                decision="approved_for_canary",
+                operator_id="operator-reg-test",
+                rationale="Mismatched candidate id test",
+                inspection=inspection,
+                registry_manifest=mismatched_manifest,
+            )
+
+    def test_fails_when_portfolio_accounting_unreconciled(self) -> None:
+        """Verify prerequisite gates fail if portfolio accounting is flagged unreconciled."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        chk = verify_prerequisite_gates(
+            cohort_status="ready_for_human_review",
+            expected_candidates=EXPECTED_MANIFEST_V2_CANDIDATES,
+            candidate_breakdowns=inspection.candidate_breakdowns,
+            raw_readiness={"all_accounting_complete": True, "blocked_candidate_count": 0},
+            drift=Decimal("0.0"),
+            starting_equity=Decimal("100.00"),
+            final_cash=Decimal("96.76"),
+            max_margin_utilization=Decimal("0.60"),
+            min_reserve_buffer=Decimal("0.40"),
+            raw_summary={"portfolio_summary": {"accounting_reconciled": False}},
+        )
+        assert chk.all_gates_passed is False
+        assert any("portfolio_accounting_unreconciled" in r for r in chk.failure_reasons)
+
+    def test_fail_closed_detects_all_binance_credential_variants(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify dynamic safety invariant catches all variants of Binance credentials."""
+        for var in (
+            "BINANCE_KEY",
+            "BINANCE_SECRET_KEY",
+            "BINANCE_TESTNET_API_KEY",
+            "BINANCE_AUTH_TOKEN",
+        ):
+            monkeypatch.setenv(var, "secret_value_123")
+            invariants = check_fail_closed_safety_invariants()
+            assert invariants["api_keys_loaded"] > 0
+            assert invariants["zero_secret_leakage"] is False
+            monkeypatch.delenv(var)
+
+    def test_invalid_operator_id_format_rejected(self) -> None:
+        """Verify invalid operator IDs with spaces, colons, or traversal characters are rejected."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        for bad_op in ("operator:lead:1", "operator lead", "operator/lead", "operator..bad"):
+            with pytest.raises(DomainViolation, match="Invalid operator_id"):
+                stage_canary_candidates(
+                    decision="approved_for_canary",
+                    operator_id=bad_op,
+                    rationale="Bad operator id test",
+                    inspection=inspection,
+                )
+
+    def test_unicode_and_emojis_in_rationale_and_operator(self, tmp_path: Path) -> None:
+        """Verify Unicode and astral plane emojis in rationale are accepted and preserved."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        dec, man, summary = stage_canary_candidates(
+            decision="approved_for_canary",
+            operator_id="operator-lead-001",
+            rationale=(
+                "🚀 Approved for canary deployment! All 14-day tests pass 💯 and verified 🎯"
+            ),
+            inspection=inspection,
+        )
+        assert "🚀" in dec.review_rationale
+        assert "💯" in dec.review_rationale
+
+        hashes = save_staging_artifacts(tmp_path, dec, man, summary)
+        assert "canary-staging-manifest.json" in hashes
+
+        # Verify disk serialization
+        read_dec = json.loads((tmp_path / "human-review-decision.json").read_text(encoding="utf-8"))
+        assert "🚀" in read_dec["review_rationale"]
+
+    def test_table_formatting_columns_and_separators_exact_width(self) -> None:
+        """Verify that table headers, separators, and data rows have uniform 108 character width."""
+        inspection = inspect_cohort(DEFAULT_PHASE268_COHORT_DIR)
+        table = format_performance_table(inspection)
+        lines = table.splitlines()
+
+        # Separators and headers
+        assert len(lines[0]) == 108
+        assert lines[0] == "=" * 108
+        assert lines[1] == "PHASE 269: CANDIDATE PERFORMANCE & COHORT INSPECTION BREAKDOWN".center(
+            108
+        )
+        assert lines[2] == "=" * 108
+
+        # Find header and candidate rows
+        header_idx = -1
+        for i, line in enumerate(lines):
+            if line.startswith("Symbol"):
+                header_idx = i
+                break
+        assert header_idx > 0
+        assert len(lines[header_idx]) == 108
+
+        # Candidate rows
+        for i in range(header_idx + 2, header_idx + 2 + len(inspection.candidate_breakdowns)):
+            assert len(lines[i]) == 108

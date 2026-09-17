@@ -26,6 +26,7 @@ from ..domain.contracts import DomainModel
 from ..domain.errors import DomainViolation
 from .candidate_registry import (
     CandidateRegistryManifest,
+    read_candidate_registry,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,9 +56,14 @@ _SECRET_PATTERN = re.compile(
 
 def check_fail_closed_safety_invariants() -> dict[str, Any]:
     """Check runtime environment for credentials and return fail-closed safety state."""
-    api_key = os.environ.get("BINANCE_API_KEY")
-    api_secret = os.environ.get("BINANCE_API_SECRET") or os.environ.get("BINANCE_SECRET")
-    keys_loaded = int(bool(api_key)) + int(bool(api_secret))
+    detected_keys: list[str] = []
+    for k in os.environ:
+        k_upper = k.upper()
+        if "BINANCE" in k_upper and any(
+            t in k_upper for t in ("KEY", "SECRET", "TOKEN", "AUTH", "PASS", "CRED")
+        ):
+            detected_keys.append(k)
+    keys_loaded = len(detected_keys)
     return {
         "api_keys_loaded": keys_loaded,
         "exchange_access": False,
@@ -170,9 +176,13 @@ class CanaryStagedCandidate(DomainModel):
 class PortfolioRiskGuardrails(DomainModel):
     """Portfolio-wide safety constraints across shared margin."""
 
-    total_starting_capital_usdt: Decimal = Field(default=DEFAULT_STARTING_CAPITAL)
-    max_aggregate_margin_utilization: Decimal = Field(default=DEFAULT_MAX_MARGIN_UTILIZATION)
-    min_aggregate_reserve_buffer: Decimal = Field(default=DEFAULT_MIN_RESERVE_BUFFER)
+    total_starting_capital_usdt: Decimal = Field(default=DEFAULT_STARTING_CAPITAL, gt=Decimal("0"))
+    max_aggregate_margin_utilization: Decimal = Field(
+        default=DEFAULT_MAX_MARGIN_UTILIZATION, ge=Decimal("0.01"), le=Decimal("0.80")
+    )
+    min_aggregate_reserve_buffer: Decimal = Field(
+        default=DEFAULT_MIN_RESERVE_BUFFER, ge=Decimal("0.20"), le=Decimal("1.0")
+    )
     single_position_invariant: bool = True
 
     @field_validator(
@@ -362,13 +372,35 @@ def inspect_cohort(
     except Exception as exc:
         raise DomainViolation(f"Failed to parse summary JSON at {summary_path}: {exc}") from exc
 
+    # Optional candidate registry manifest verification
+    if registry_path is not None:
+        p_reg = Path(registry_path)
+        if not p_reg.is_file():
+            raise FileNotFoundError(f"Candidate registry manifest not found: {p_reg}")
+        reg_manifest = read_candidate_registry(p_reg, verify_hash=True)
+        recorded_reg_hash = raw_summary.get("registry_hash")
+        if recorded_reg_hash and reg_manifest.registry_hash != recorded_reg_hash:
+            raise DomainViolation(
+                f"Candidate registry manifest hash mismatch: "
+                f"registry={reg_manifest.registry_hash} vs cohort={recorded_reg_hash}"
+            )
+        recorded_reg_ver = raw_summary.get("registry_version")
+        if recorded_reg_ver and reg_manifest.registry_version != recorded_reg_ver:
+            raise DomainViolation(
+                f"Candidate registry version mismatch: "
+                f"registry={reg_manifest.registry_version} vs cohort={recorded_reg_ver}"
+            )
+
     # Verify upstream file integrity against recorded hashes in raw_summary
     recorded_hashes = raw_summary.get("artifact_hashes", {})
     upstream_integrity_verified = True
     tampered_files: list[str] = []
     for fname, exp_hash in recorded_hashes.items():
         computed_hash = upstream_hashes.get(fname)
-        if computed_hash is not None and computed_hash != exp_hash:
+        if computed_hash is None:
+            upstream_integrity_verified = False
+            tampered_files.append(f"{fname}:missing_on_disk")
+        elif computed_hash != exp_hash:
             upstream_integrity_verified = False
             tampered_files.append(f"{fname}:{computed_hash[:8]}!={exp_hash[:8]}")
 
@@ -419,7 +451,7 @@ def inspect_cohort(
     ledger_stats: dict[str, dict[str, Any]] = {}
     if ledger_path.is_file():
         try:
-            with sqlite3.connect(f"file:{ledger_path.resolve()}?mode=ro", uri=True) as conn:
+            with sqlite3.connect(f"{ledger_path.resolve().as_uri()}?mode=ro", uri=True) as conn:
                 cursor = conn.cursor()
                 # Check for paper_ledger_events table
                 has_events = cursor.execute(
@@ -461,7 +493,7 @@ def inspect_cohort(
     obs_stats: dict[str, int] = {}
     if obs_path.is_file():
         try:
-            with sqlite3.connect(f"file:{obs_path.resolve()}?mode=ro", uri=True) as conn:
+            with sqlite3.connect(f"{obs_path.resolve().as_uri()}?mode=ro", uri=True) as conn:
                 cursor = conn.cursor()
                 has_obs = cursor.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='paper_observations'"
@@ -648,11 +680,15 @@ def verify_prerequisite_gates(
     port_sum = (raw_summary or {}).get("portfolio_summary", {})
     open_pos_cnt = int(port_sum.get("open_positions_count", 0))
     pos_rec = bool(port_sum.get("positions_reconciled", True))
+    port_acc_rec = bool(port_sum.get("accounting_reconciled", True))
     positions_closed = (open_pos_cnt == 0) and pos_rec
     if open_pos_cnt > 0:
         failure_reasons.append(f"unclosed_positions_detected:{open_pos_cnt}")
     if not pos_rec:
         failure_reasons.append("positions_unreconciled")
+    if not port_acc_rec:
+        failure_reasons.append("portfolio_accounting_unreconciled")
+        accounting_comp = False
 
     # 5. Margin guardrails compliance (<= 80% utilization, >= 20% reserve)
     # Check both historical observed and staged aggregate limits
@@ -704,6 +740,7 @@ def verify_prerequisite_gates(
         and all_healthy
         and zero_blocked
         and accounting_comp
+        and port_acc_rec
         and zero_drift
         and zero_cand_drift
         and positions_closed
@@ -752,6 +789,10 @@ def stage_canary_candidates(
     operator_clean = operator_id.strip()
     if not operator_clean:
         raise DomainViolation("operator_id must be non-empty")
+    if not re.match(r"^[A-Za-z0-9._-]+$", operator_clean) or ".." in operator_clean:
+        raise DomainViolation(
+            f"Invalid operator_id '{operator_clean}': must match ^[A-Za-z0-9._-]+$ without '..'"
+        )
     rationale_clean = rationale.strip()
     if not rationale_clean:
         raise DomainViolation("rationale must be non-empty")
@@ -790,6 +831,17 @@ def stage_canary_candidates(
     for sym, breakdown in inspection.candidate_breakdowns.items():
         summary_cand = summary_cand_entries.get(sym, {})
         reg_entry = registry_manifest.symbols.get(sym) if registry_manifest else None
+
+        if registry_manifest is not None and reg_entry is None:
+            raise DomainViolation(
+                f"Candidate symbol {sym} not found in candidate registry manifest"
+            )
+
+        if reg_entry and reg_entry.candidate_id != breakdown.candidate_id:
+            raise DomainViolation(
+                f"Candidate ID mismatch for {sym}: "
+                f"registry={reg_entry.candidate_id} vs breakdown={breakdown.candidate_id}"
+            )
 
         # Cross-verify registry vs summary hashes if both present
         if reg_entry and summary_cand.get("artifact_hash"):
@@ -841,11 +893,11 @@ def stage_canary_candidates(
             family=breakdown.family,
             timeframe=breakdown.timeframe,
             allocated_risk_limits=AllocatedRiskLimits(
-                max_position_fraction=DEFAULT_BASE_POSITION_FRACTION,
+                max_position_fraction=breakdown.margin_utilization,
                 max_leverage=DEFAULT_MAX_LEVERAGE,
                 max_margin_utilization=DEFAULT_MAX_MARGIN_UTILIZATION,
                 min_reserve_buffer=DEFAULT_MIN_RESERVE_BUFFER,
-                allocated_margin_usdt=inspection.starting_equity * DEFAULT_BASE_POSITION_FRACTION,
+                allocated_margin_usdt=inspection.starting_equity * breakdown.margin_utilization,
             ),
             staging_promotion_state=staged_state,
             promotion_timestamp=now_iso,
@@ -1025,11 +1077,13 @@ def save_staging_artifacts(
 
 def format_performance_table(inspection: CohortInspectionResult) -> str:
     """Format an ASCII breakdown of candidate performance and portfolio metrics."""
-    sep = "=" * 98
-    sub_sep = "-" * 98
+    width = 108
+    sep = "=" * width
+    sub_sep = "-" * width
+    title = "PHASE 269: CANDIDATE PERFORMANCE & COHORT INSPECTION BREAKDOWN"
     lines: list[str] = [
         sep,
-        "           PHASE 269: CANDIDATE PERFORMANCE & COHORT INSPECTION BREAKDOWN         ",
+        title.center(width),
         sep,
         f"Cohort Directory:       {inspection.cohort_dir}",
         f"Cohort Status:          {inspection.cohort_status}",
@@ -1045,8 +1099,8 @@ def format_performance_table(inspection: CohortInspectionResult) -> str:
         (f"Min Reserve Buffer:     {inspection.min_reserve_buffer * 100:.2f}% (minimum >= 20.00%)"),
         sub_sep,
         (
-            f"{'Symbol':<8} {'Candidate ID':<20} {'Trades':<6} {'Win%':<5} {'PnL(USDT)':<10} "
-            f"{'Margin%':<7} {'Fees(USDT)':<10} {'Slip(USDT)':<10} {'Slots':<5} {'Health':<6} "
+            f"{'Symbol':<8} {'Candidate ID':<20} {'Trades':<6} {'Win%':<5} {'PnL(USDT)':<11} "
+            f"{'Margin%':<7} {'Fees(USDT)':<10} {'Slip(USDT)':<10} {'Slots':<5} {'Health':<8} "
             f"{'Maturity':<8}"
         ),
         sub_sep,
@@ -1055,10 +1109,10 @@ def format_performance_table(inspection: CohortInspectionResult) -> str:
     for sym, cb in sorted(inspection.candidate_breakdowns.items()):
         lines.append(
             f"{sym:<8} {cb.candidate_id:<20} {cb.total_trades:<6} "
-            f"{cb.win_rate_pct:>4.1f}% {float(cb.realized_pnl_usdt):>+10.4f} "
+            f"{cb.win_rate_pct:>4.1f}% {float(cb.realized_pnl_usdt):>+11.4f} "
             f"{float(cb.margin_utilization) * 100:>6.1f}% {float(cb.cumulative_fees_usdt):>10.4f} "
             f"{float(cb.cumulative_slippage_usdt):>10.4f} {cb.observed_slots:<5} "
-            f"{cb.health_status:<6} {cb.maturity_status:<8}"
+            f"{cb.health_status:<8} {cb.maturity_status:<8}"
         )
 
     lines.append(sub_sep)
