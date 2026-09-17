@@ -33,10 +33,13 @@ from scripts.run_phase_267_cohort_maturation import (  # noqa: E402
     DEFAULT_STARTING_CAPITAL,
     EXPECTED_MANIFEST_V2_CANDIDATES,
     _assert_zero_secrets,
+    _load_canonical_df,
     build_arg_parser,
+    clear_parquet_cache,
     main,
     replay_multi_day_cohort_observations,
     run_phase_267_cohort_maturation,
+    seed_engine_history_from_canonical,
     validate_manifest_v2,
     verify_strict_safety_invariants,
 )
@@ -385,7 +388,7 @@ class TestPhase267BoundedCohortExecution:
             max_ticks=5,
         )
         await engine.stop()
-        assert ticks > 0
+        assert ticks == 5
 
 
 class TestPhase267AccountingAndRiskInvariants:
@@ -748,3 +751,241 @@ class TestPhase267CLI:
         parser = build_arg_parser()
         args = parser.parse_args(["--days", "7.0"])
         assert args.days == 7.0
+
+
+class TestPhase267AdversarialDataRobustnessAndEdgeCases:
+    """Adversarial stress tests for parquet cache isolation, malformed data, and timeline gaps."""
+
+    def test_parquet_cache_invalidation_and_isolation(self, tmp_path: Path) -> None:
+        clear_parquet_cache()
+        pfile = tmp_path / "cache_test.parquet"
+        base_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+
+        # Initial DataFrame
+        df1 = pd.DataFrame(
+            {
+                "timestamp": [base_t, base_t + timedelta(minutes=5)],
+                "close": [Decimal("100.0"), Decimal("101.0")],
+            }
+        )
+        df1.to_parquet(pfile)
+
+        loaded1 = _load_canonical_df(pfile)
+        assert len(loaded1) == 2
+        assert loaded1["close"].iloc[0] == Decimal("100.0")
+
+        # Mutate the loaded copy in-place
+        loaded1["close"] = Decimal("999999.0")
+
+        # Load again: cache should NOT be mutated
+        loaded2 = _load_canonical_df(pfile)
+        assert loaded2["close"].iloc[0] == Decimal("100.0")
+
+        # Clear cache explicitly
+        clear_parquet_cache()
+
+        # Overwrite file with new data (different size/content)
+        df2 = pd.DataFrame(
+            {
+                "timestamp": [
+                    base_t,
+                    base_t + timedelta(minutes=5),
+                    base_t + timedelta(minutes=10),
+                ],
+                "close": [Decimal("200.0"), Decimal("201.0"), Decimal("202.0")],
+            }
+        )
+        df2.to_parquet(pfile)
+
+        loaded3 = _load_canonical_df(pfile)
+        assert len(loaded3) == 3
+        assert loaded3["close"].iloc[0] == Decimal("200.0")
+
+    def test_parquet_malformed_nat_and_null_timestamps_sanitization(self, tmp_path: Path) -> None:
+        clear_parquet_cache()
+        pfile = tmp_path / "nat_test.parquet"
+        base_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+
+        df = pd.DataFrame(
+            {
+                "timestamp": [pd.NaT, base_t, None],
+                "close": [Decimal("100.0"), Decimal("101.0"), Decimal("102.0")],
+            }
+        )
+        df.to_parquet(pfile)
+
+        loaded = _load_canonical_df(pfile)
+        assert len(loaded) == 1
+        assert loaded["timestamp"].iloc[0] == base_t
+
+    def test_parquet_missing_and_invalid_close_time_reconstruction(self, tmp_path: Path) -> None:
+        clear_parquet_cache()
+        pfile = tmp_path / "close_time_test.parquet"
+        base_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+
+        # Missing close_time column
+        df = pd.DataFrame(
+            {
+                "timestamp": [base_t],
+                "close": [Decimal("100.0")],
+            }
+        )
+        df.to_parquet(pfile)
+
+        loaded = _load_canonical_df(pfile)
+        assert "close_time" in loaded.columns
+        expected_close = base_t + timedelta(minutes=5, milliseconds=-1)
+        assert loaded["close_time"].iloc[0] == expected_close
+
+        # close_time before timestamp (invalid)
+        pfile_inv = tmp_path / "close_time_inv.parquet"
+        df_inv = pd.DataFrame(
+            {
+                "timestamp": [base_t],
+                "close_time": [base_t - timedelta(minutes=1)],
+                "close": [Decimal("100.0")],
+            }
+        )
+        df_inv.to_parquet(pfile_inv)
+
+        loaded_inv = _load_canonical_df(pfile_inv)
+        assert loaded_inv["close_time"].iloc[0] == expected_close
+
+    def test_parquet_duplicate_timestamps_deduplication(self, tmp_path: Path) -> None:
+        clear_parquet_cache()
+        pfile = tmp_path / "dedup_ts.parquet"
+        base_t = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+
+        df = pd.DataFrame(
+            {
+                "timestamp": [base_t, base_t],
+                "close": [Decimal("100.0"), Decimal("105.0")],
+            }
+        )
+        df.to_parquet(pfile)
+
+        loaded = _load_canonical_df(pfile)
+        assert len(loaded) == 1
+        # Should keep the last row
+        assert loaded["close"].iloc[0] == Decimal("105.0")
+
+    @pytest.mark.anyio
+    async def test_replay_with_asynchronous_timestamp_gaps_and_missing_partitions(
+        self, tmp_path: Path
+    ) -> None:
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        manifest = validate_manifest_v2(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        symbols = tuple(s.upper() for s in manifest.symbols.keys())
+
+        data_dir = tmp_path / "gap_data"
+        data_dir.mkdir()
+
+        base_t = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+        # Create asynchronous gaps: BTC starts at T+0, ETH at T+5m, SOL at T+10m
+        for i, sym in enumerate(symbols):
+            timestamps = [base_t + timedelta(minutes=5 * (j + i * 2)) for j in range(8)]
+            df = pd.DataFrame(
+                {
+                    "timestamp": timestamps,
+                    "open": [Decimal("100.0")] * 8,
+                    "high": [Decimal("105.0")] * 8,
+                    "low": [Decimal("95.0")] * 8,
+                    "close": [Decimal("102.0")] * 8,
+                    "volume": [Decimal("50.0")] * 8,
+                    "trades": [100] * 8,
+                }
+            )
+            df.to_parquet(data_dir / f"{sym}-5m.parquet")
+
+        engine = LivePaperTradingEngine(
+            registry_manifest=manifest,
+            ledger_db=tmp_path / "gap-ledger.sqlite3",
+            lifecycle_db=tmp_path / "gap-lifecycle.sqlite3",
+            observations_db=tmp_path / "gap-obs.sqlite3",
+            require_flat=False,
+        )
+
+        # Replay with max_ticks=4
+        ticks = await replay_multi_day_cohort_observations(
+            engine=engine,
+            history_dir=data_dir,
+            symbols=symbols,
+            max_ticks=4,
+        )
+        await engine.stop()
+        # Strictly bounded at max_ticks
+        assert ticks == 4
+
+    @pytest.mark.anyio
+    async def test_replay_zero_max_ticks_returns_zero(self, tmp_path: Path) -> None:
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        manifest = validate_manifest_v2(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        symbols = tuple(s.upper() for s in manifest.symbols.keys())
+
+        engine = LivePaperTradingEngine(
+            registry_manifest=manifest,
+            ledger_db=tmp_path / "zero-ledger.sqlite3",
+            lifecycle_db=tmp_path / "zero-lifecycle.sqlite3",
+            observations_db=tmp_path / "zero-obs.sqlite3",
+            require_flat=False,
+        )
+        ticks = await replay_multi_day_cohort_observations(
+            engine=engine,
+            history_dir=DEFAULT_CANONICAL_HISTORY_DIR,
+            symbols=symbols,
+            max_ticks=0,
+        )
+        await engine.stop()
+        assert ticks == 0
+
+    def test_seed_engine_history_edge_cases(self, tmp_path: Path) -> None:
+        from autonomous_futures.paper.live_engine import LivePaperTradingEngine
+
+        manifest = validate_manifest_v2(DEFAULT_CANDIDATE_REGISTRY_PATH)
+        symbols = tuple(s.upper() for s in manifest.symbols.keys())
+
+        data_dir = tmp_path / "seed_edge_data"
+        data_dir.mkdir()
+
+        base_t = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+        for sym in symbols:
+            # Only 3 bars
+            df = pd.DataFrame(
+                {
+                    "timestamp": [base_t + timedelta(minutes=5 * j) for j in range(3)],
+                    "open": [Decimal("100.0")] * 3,
+                    "high": [Decimal("105.0")] * 3,
+                    "low": [Decimal("95.0")] * 3,
+                    "close": [Decimal("102.0")] * 3,
+                    "volume": [Decimal("50.0")] * 3,
+                }
+            )
+            df.to_parquet(data_dir / f"{sym}-5m.parquet")
+
+        engine = LivePaperTradingEngine(
+            registry_manifest=manifest,
+            ledger_db=tmp_path / "seed-ledger.sqlite3",
+            lifecycle_db=tmp_path / "seed-lifecycle.sqlite3",
+            observations_db=tmp_path / "seed-obs.sqlite3",
+            require_flat=False,
+        )
+
+        # Seeding with offset_ticks (10) larger than total rows (3)
+        seed_engine_history_from_canonical(
+            engine=engine,
+            history_dir=data_dir,
+            symbols=symbols,
+            warmup_bars=300,
+            offset_ticks=10,
+        )
+        # Seeding with offset_ticks=1
+        seed_engine_history_from_canonical(
+            engine=engine,
+            history_dir=data_dir,
+            symbols=symbols,
+            warmup_bars=300,
+            offset_ticks=1,
+        )
+        assert True

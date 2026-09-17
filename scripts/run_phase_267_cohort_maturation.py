@@ -23,7 +23,7 @@ import time
 from collections.abc import Sequence
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -210,17 +210,66 @@ def validate_manifest_v2(manifest_path: Path) -> CandidateRegistryManifest:
     return manifest
 
 
-_PARQUET_CACHE: dict[Path, pd.DataFrame] = {}
+_PARQUET_CACHE: dict[tuple[Path, int, int], pd.DataFrame] = {}
 
 
-def _load_canonical_df(parquet_file: Path) -> pd.DataFrame:
-    """Load and cache canonical parquet bars dataframe in-memory."""
+def clear_parquet_cache() -> None:
+    """Clear the canonical parquet cache in memory."""
+    _PARQUET_CACHE.clear()
+
+
+def _load_canonical_df(parquet_file: Path, tail_rows: int | None = None) -> pd.DataFrame:
+    """Load, sanitize, and cache canonical parquet bars dataframe in-memory.
+
+    Enforces UTC timezone-aware timestamps, drops null/NaT timestamps, deduplicates
+    by timestamp, validates or reconstructs close_time, and sorts chronologically.
+    Returns an isolated copy to prevent caller in-place cache mutation.
+    """
     resolved = parquet_file.resolve()
-    if resolved not in _PARQUET_CACHE:
+    try:
+        stat = resolved.stat()
+        cache_key = (resolved, stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        cache_key = (resolved, 0, 0)
+
+    if cache_key not in _PARQUET_CACHE:
         df = pd.read_parquet(resolved)
+        if df.empty or "timestamp" not in df.columns:
+            _PARQUET_CACHE[cache_key] = pd.DataFrame()
+            return _PARQUET_CACHE[cache_key].copy()
+
+        # Sanitize timestamp
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-        _PARQUET_CACHE[resolved] = df.sort_values("timestamp")
-    return _PARQUET_CACHE[resolved]
+        df = df.dropna(subset=["timestamp"])
+        if df.empty:
+            _PARQUET_CACHE[cache_key] = pd.DataFrame()
+            return _PARQUET_CACHE[cache_key].copy()
+
+        # Deduplicate timestamps per symbol, keeping latest bar
+        df = df.drop_duplicates(subset=["timestamp"], keep="last")
+
+        # Sanitize close_time: ensure UTC datetime and close_time >= timestamp
+        if "close_time" in df.columns:
+            df["close_time"] = pd.to_datetime(df["close_time"], utc=True)
+            invalid_mask = df["close_time"].isna() | (df["close_time"] < df["timestamp"])
+            if invalid_mask.any():
+                df.loc[invalid_mask, "close_time"] = (
+                    df.loc[invalid_mask, "timestamp"]
+                    + pd.Timedelta(minutes=5)
+                    - pd.Timedelta(milliseconds=1)
+                )
+        else:
+            df["close_time"] = (
+                df["timestamp"] + pd.Timedelta(minutes=5) - pd.Timedelta(milliseconds=1)
+            )
+
+        df_clean = df.sort_values("timestamp").reset_index(drop=True)
+        _PARQUET_CACHE[cache_key] = df_clean
+
+    cached_df = _PARQUET_CACHE[cache_key]
+    if tail_rows is not None and tail_rows > 0 and len(cached_df) > tail_rows:
+        return cached_df.iloc[-tail_rows:].copy()
+    return cached_df.copy()
 
 
 def seed_engine_history_from_canonical(
@@ -236,9 +285,17 @@ def seed_engine_history_from_canonical(
         parquet_file = resolved_history_dir / f"{symbol}-5m.parquet"
         if parquet_file.is_file():
             try:
-                df_sorted = _load_canonical_df(parquet_file)
+                needed = (
+                    (warmup_bars + offset_ticks + 50) if offset_ticks > 0 else (warmup_bars + 50)
+                )
+                df_sorted = _load_canonical_df(parquet_file, tail_rows=needed)
+                n = len(df_sorted)
+                if n == 0:
+                    continue
                 if offset_ticks > 0:
-                    df_warmup = df_sorted.iloc[-warmup_bars - offset_ticks : -offset_ticks]
+                    end_idx = max(0, n - offset_ticks)
+                    start_idx = max(0, end_idx - warmup_bars)
+                    df_warmup = df_sorted.iloc[start_idx:end_idx]
                 else:
                     df_warmup = df_sorted.tail(warmup_bars)
                 engine.seed_history(symbol, df_warmup)
@@ -284,49 +341,98 @@ async def replay_multi_day_cohort_observations(
 ) -> int:
     """Replay deterministic multi-day bars and tickers sequentially from canonical parquet data.
 
-    Enforces 6-hour fixed-slot observation marks and single-position invariants across symbols.
+    Enforces 6-hour fixed-slot observation marks, unified multi-symbol timeline alignment,
+    and single-position invariants across symbols.
     """
+    if max_ticks <= 0:
+        return 0
+
     resolved_history_dir = history_dir if history_dir.is_dir() else _REPO_ROOT / history_dir
     symbol_dfs: dict[str, pd.DataFrame] = {}
+    tail_count = max(max_ticks * 2, max_ticks + 50) if max_ticks > 0 else None
     for sym in symbols:
         parquet_path = resolved_history_dir / f"{sym}-5m.parquet"
         if not parquet_path.is_file():
             logger.warning("Parquet file for %s not found in %s", sym, resolved_history_dir)
             continue
-        df_sorted = _load_canonical_df(parquet_path)
-        symbol_dfs[sym] = df_sorted.tail(max_ticks)
+        df = _load_canonical_df(parquet_path, tail_rows=tail_count)
+        if not df.empty:
+            symbol_dfs[sym] = df
 
     if not symbol_dfs:
         logger.warning("No canonical data found for multi-day observation replay")
         return 0
 
+    # Collect all unique valid timestamps across all symbols to form a unified cohort timeline
     all_timestamps: set[datetime] = set()
     for df in symbol_dfs.values():
-        all_timestamps.update(t.to_pydatetime().astimezone(UTC) for t in df["timestamp"])
-    timestamps = sorted(all_timestamps)
+        all_timestamps.update(
+            t.to_pydatetime().astimezone(UTC) for t in df["timestamp"] if pd.notna(t)
+        )
+
+    sorted_cohort_timestamps = sorted(all_timestamps)
+    if not sorted_cohort_timestamps:
+        logger.warning("No valid timestamps found in canonical data for observation replay")
+        return 0
+
+    # Determine target replay window (last max_ticks timestamps across cohort)
+    if len(sorted_cohort_timestamps) > max_ticks:
+        target_timestamps = sorted_cohort_timestamps[-max_ticks:]
+    else:
+        target_timestamps = sorted_cohort_timestamps
+
+    target_ts_set = set(target_timestamps)
+
+    # Pre-index each symbol's rows by UTC timestamp for fast O(1) synchronized lookup
+    symbol_indexed: dict[str, dict[datetime, dict[str, Any]]] = {}
+    for sym, df in symbol_dfs.items():
+        sym_rows: dict[datetime, dict[str, Any]] = {}
+        for rec in df.to_dict(orient="records"):
+            r_ts = rec["timestamp"]
+            if isinstance(r_ts, pd.Timestamp):
+                ts_utc = r_ts.to_pydatetime().astimezone(UTC)
+            elif isinstance(r_ts, datetime):
+                ts_utc = (
+                    r_ts.astimezone(UTC) if r_ts.tzinfo is not None else r_ts.replace(tzinfo=UTC)
+                )
+            else:
+                continue
+            if ts_utc in target_ts_set:
+                sym_rows[ts_utc] = rec
+        symbol_indexed[sym] = sym_rows
 
     ticks_processed = 0
-    for ts in timestamps:
+    for ts in target_timestamps:
         if stop_event is not None and stop_event.is_set():
             logger.info(
                 "Stop event set; terminating multi-day observation replay early at tick %d",
                 ticks_processed,
             )
             break
+        if ticks_processed >= max_ticks:
+            break
 
         # Process ticker and bar for each symbol in lockstep
         for sym in symbols:
-            df = symbol_dfs.get(sym)
-            if df is None:
+            rows_map = symbol_indexed.get(sym)
+            if rows_map is None or ts not in rows_map:
                 continue
-            rows = df[df["timestamp"] == ts]
-            if rows.empty:
-                continue
-            row = rows.iloc[0]
+            row = rows_map[ts]
 
             close_price = Decimal(str(row["close"]))
             spread_half = max(Decimal("0.01"), close_price * Decimal("0.0001"))
-            close_time = row["close_time"].to_pydatetime().astimezone(UTC)
+
+            r_close_time = row.get("close_time")
+            if isinstance(r_close_time, pd.Timestamp):
+                close_time = r_close_time.to_pydatetime().astimezone(UTC)
+            elif isinstance(r_close_time, datetime):
+                close_time = (
+                    r_close_time.astimezone(UTC)
+                    if r_close_time.tzinfo is not None
+                    else r_close_time.replace(tzinfo=UTC)
+                )
+            else:
+                close_time = ts + timedelta(minutes=5, milliseconds=-1)
 
             ticker = TickerSnapshot(
                 symbol=sym,
@@ -346,17 +452,24 @@ async def replay_multi_day_cohort_observations(
             bar = CanonicalBar(
                 symbol=sym,
                 interval="5m",
-                timestamp=row["timestamp"].to_pydatetime().astimezone(UTC),
+                timestamp=ts,
                 close_time=close_time,
                 open=Decimal(str(row["open"])),
                 high=Decimal(str(row["high"])),
                 low=Decimal(str(row["low"])),
                 close=close_price,
-                volume=Decimal(str(row["volume"])),
-                quote_volume=Decimal(str(row["quote_volume"])),
-                trades=int(row["trades"]),
-                taker_buy_base=Decimal(str(row["taker_buy_base"])),
-                taker_buy_quote=Decimal(str(row["taker_buy_quote"])),
+                volume=Decimal(str(row.get("volume", "0"))),
+                quote_volume=Decimal(
+                    str(
+                        row.get(
+                            "quote_volume",
+                            Decimal(str(row.get("volume", "0"))) * close_price,
+                        )
+                    )
+                ),
+                trades=int(row.get("trades", 0)),
+                taker_buy_base=Decimal(str(row.get("taker_buy_base", "0"))),
+                taker_buy_quote=Decimal(str(row.get("taker_buy_quote", "0"))),
                 is_closed=True,
             )
             await engine.handle_bar(bar)
@@ -447,6 +560,7 @@ async def run_phase_267_cohort_maturation(
     observations_db = output_dir / "paper-observations.sqlite3"
 
     if clean:
+        clear_parquet_cache()
         for db_file in (ledger_db, lifecycle_db, observations_db):
             if db_file.is_file():
                 try:
@@ -529,7 +643,15 @@ async def run_phase_267_cohort_maturation(
     session_duration = (
         5.0 if smoke_test and (duration is None or duration == 10.0) else (duration or 10.0)
     )
-    effective_mode = "batch" if (offline or mode == "batch") else mode
+    effective_mode = (
+        "batch"
+        if (
+            offline
+            or mode == "batch"
+            or (mode == "auto" and (days is not None or ticks is not None))
+        )
+        else mode
+    )
 
     # Determine replay bar count
     if ticks is not None:
@@ -674,6 +796,7 @@ async def run_phase_267_cohort_maturation(
         raise DomainViolation(
             f"Reconciliation zero_balance_drift is False: drift={reconciliation['drift']}"
         )
+    zero_drift_reconciled = bool(reconciliation["zero_balance_drift"] and drift < Decimal("1e-15"))
 
     # Single-position invariants per symbol across shared portfolio margin
     open_positions = engine.sqlite_ledger.load().open_positions()
@@ -822,7 +945,7 @@ async def run_phase_267_cohort_maturation(
                 (Decimal("1.0") - max_margin_utilization) * Decimal("100")
             ),
             "base_position_fraction": str(DEFAULT_BASE_ALLOCATION_FRACTION),
-            "zero_balance_drift": True,
+            "zero_balance_drift": zero_drift_reconciled,
             "drift_amount": str(drift),
         },
         "portfolio_summary": {
@@ -834,7 +957,7 @@ async def run_phase_267_cohort_maturation(
             "open_positions_count": len(open_positions),
             "positions_reconciled": True,
             "accounting_reconciled": True,
-            "zero_balance_drift": True,
+            "zero_balance_drift": zero_drift_reconciled,
         },
         "cohort_readiness": {
             "cohort_status": cohort_report.cohort_status,
@@ -948,7 +1071,7 @@ async def run_phase_267_cohort_maturation(
         min_reserve_buffer=account.min_observed_buffer,
         positions_reconciled=True,
         accounting_reconciled=True,
-        zero_balance_drift=True,
+        zero_balance_drift=zero_drift_reconciled,
         drift=drift,
         health_reports=health_reports,
         cohort_report=cohort_report,
