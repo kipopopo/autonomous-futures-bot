@@ -1,20 +1,46 @@
-"""Record one explicit human paper-review checkpoint."""
+"""Operator Human Review Governance CLI and Candidate Validation Staging (Phase 269).
+
+Provides both interactive and batch CLI execution to inspect paper trading cohorts,
+verify prerequisite gates, sign off on human review decisions, and package canary staging
+manifests under Candidate Registry Manifest Version 2.
+Also maintains backward compatibility for legacy single-report review checkpoints.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
+import sys
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from ..domain.errors import DomainViolation
+from .candidate_registry import (
+    DEFAULT_CANDIDATE_REGISTRY_PATH,
+    read_candidate_registry,
+)
 from .cohort import PaperCohortReadinessReport
 from .review import create_paper_review_checkpoint
 from .sqlite_review import SqlitePaperReviews
+from .staging import (
+    DEFAULT_PHASE268_COHORT_DIR,
+    DEFAULT_PHASE269_OUTPUT_DIR,
+    format_performance_table,
+    inspect_cohort,
+    save_staging_artifacts,
+    stage_canary_candidates,
+)
+
+logger = logging.getLogger(__name__)
 
 
-def _parser() -> argparse.ArgumentParser:
+# --- Legacy Review Parser & Logic (for backward compatibility) ---
+def _legacy_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Record a paper human-review checkpoint.")
     parser.add_argument("--report-path", type=Path, required=True)
     parser.add_argument("--review-path", type=Path, required=True)
@@ -47,12 +73,12 @@ def _load_report(path: Path) -> PaperCohortReadinessReport:
         raise ValueError("invalid cohort report") from exc
 
 
-def _print_json(payload: dict[str, object]) -> None:
+def _print_json(payload: Mapping[str, Any]) -> None:
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+def _run_legacy_review(argv: list[str]) -> int:
+    args = _legacy_parser().parse_args(argv)
     try:
         report = _load_report(args.report_path)
         decision = args.decision
@@ -73,6 +99,299 @@ def main(argv: list[str] | None = None) -> int:
     payload["status"] = "recorded"
     _print_json(payload)
     return 0
+
+
+# --- Phase 269 Operator Governance & Staging CLI ---
+def _operator_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Phase 269 Operator Human Review Governance & Canary Staging CLI."
+    )
+    parser.add_argument(
+        "--cohort-dir",
+        type=Path,
+        default=DEFAULT_PHASE268_COHORT_DIR,
+        help=f"Path to mature paper cohort directory (default: {DEFAULT_PHASE268_COHORT_DIR})",
+    )
+    parser.add_argument(
+        "--registry-path",
+        type=Path,
+        default=DEFAULT_CANDIDATE_REGISTRY_PATH,
+        help=f"Path to Candidate Registry Manifest (default: {DEFAULT_CANDIDATE_REGISTRY_PATH})",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_PHASE269_OUTPUT_DIR,
+        help=f"Path to output canary staging artifacts (default: {DEFAULT_PHASE269_OUTPUT_DIR})",
+    )
+    parser.add_argument(
+        "--decision",
+        type=str,
+        choices=("approved_for_canary", "rejected", "held"),
+        default=None,
+        help="Review decision code (approved_for_canary, rejected, held)",
+    )
+    parser.add_argument(
+        "--operator",
+        "--operator-id",
+        "--reviewer-id",
+        type=str,
+        default=None,
+        dest="operator",
+        help="Operator or reviewer identifier (e.g. operator-lead-001)",
+    )
+    parser.add_argument(
+        "--rationale",
+        "--review-notes",
+        type=str,
+        default=None,
+        dest="rationale",
+        help="Operator review notes or rationale for decision",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Force interactive prompts for operator inputs",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output JSON summary to stdout",
+    )
+    parser.add_argument(
+        "--review-path",
+        type=Path,
+        default=None,
+        help="Optional path to SQLite database to record review checkpoint",
+    )
+    return parser
+
+
+def _prompt_operator_interactive(
+    inspection: Any,
+    operator: str | None,
+    decision: str | None,
+    rationale: str | None,
+) -> tuple[str, Literal["approved_for_canary", "rejected", "held"], str]:
+    """Prompt operator interactively for missing fields."""
+    sys.stdout.write("\n" + format_performance_table(inspection) + "\n\n")
+
+    # Operator ID
+    if not operator:
+        while True:
+            sys.stdout.write("Enter Operator ID: ")
+            sys.stdout.flush()
+            val = sys.stdin.readline().strip()
+            if val:
+                operator = val
+                break
+            sys.stdout.write("Operator ID cannot be empty.\n")
+
+    # Decision
+    if not decision:
+        sys.stdout.write("\nSelect Human Review Decision:\n")
+        sys.stdout.write("  1) approved_for_canary\n")
+        sys.stdout.write("  2) rejected\n")
+        sys.stdout.write("  3) held\n")
+        while True:
+            sys.stdout.write("Choice [1/2/3 or name]: ")
+            sys.stdout.flush()
+            choice = sys.stdin.readline().strip()
+            if choice in ("1", "approved_for_canary"):
+                decision = "approved_for_canary"
+                break
+            elif choice in ("2", "rejected"):
+                decision = "rejected"
+                break
+            elif choice in ("3", "held"):
+                decision = "held"
+                break
+            sys.stdout.write(
+                "Invalid choice. Please select 1 (approved_for_canary), "
+                "2 (rejected), or 3 (held).\n"
+            )
+
+    typed_decision: Literal["approved_for_canary", "rejected", "held"] = (
+        "approved_for_canary"
+        if decision == "approved_for_canary"
+        else "rejected"
+        if decision == "rejected"
+        else "held"
+    )
+
+    # Rationale
+    if not rationale:
+        while True:
+            sys.stdout.write("\nEnter Review Rationale / Notes: ")
+            sys.stdout.flush()
+            val = sys.stdin.readline().strip()
+            if val:
+                rationale = val
+                break
+            sys.stdout.write("Rationale cannot be empty.\n")
+
+    return operator, typed_decision, rationale
+
+
+def _run_operator_staging_cli(argv: list[str]) -> int:
+    parser = _operator_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        inspection = inspect_cohort(
+            cohort_dir=args.cohort_dir,
+            registry_path=args.registry_path,
+        )
+    except (FileNotFoundError, DomainViolation, ValueError) as exc:
+        if args.json:
+            _print_json(
+                {"status": "error", "error_code": "cohort_inspection_failed", "error": str(exc)}
+            )
+        else:
+            sys.stderr.write(f"Error inspecting cohort at {args.cohort_dir}: {exc}\n")
+        return 2
+
+    # Load registry manifest if present
+    reg_manifest = None
+    if args.registry_path and Path(args.registry_path).is_file():
+        try:
+            reg_manifest = read_candidate_registry(args.registry_path)
+        except Exception as exc:
+            logger.warning("Could not load registry manifest at %s: %s", args.registry_path, exc)
+
+    operator = args.operator
+    decision = args.decision
+    rationale = args.rationale
+
+    is_interactive = args.interactive or (
+        decision is None and hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
+    )
+
+    if is_interactive:
+        try:
+            operator, typed_decision, rationale = _prompt_operator_interactive(
+                inspection, operator, decision, rationale
+            )
+        except KeyboardInterrupt, EOFError:
+            sys.stdout.write("\nReview operation cancelled by operator.\n")
+            return 1
+    else:
+        if decision is None:
+            err_payload = {
+                "status": "error",
+                "error_code": "decision_required_in_non_interactive_mode",
+                "message": "--decision is required in batch / non-interactive mode",
+            }
+            if args.json:
+                _print_json(err_payload)
+            else:
+                sys.stderr.write("Error: --decision is required in batch / non-interactive mode.\n")
+            return 2
+
+        typed_decision = (
+            "approved_for_canary"
+            if decision == "approved_for_canary"
+            else "rejected"
+            if decision == "rejected"
+            else "held"
+        )
+        if not operator:
+            operator = "operator-lead-001"
+        if not rationale:
+            rationale = (
+                f"Batch review sign-off ({typed_decision}) under Candidate Registry Manifest v2"
+            )
+
+    # If decision is approved_for_canary, prerequisite gates must pass
+    if (
+        typed_decision == "approved_for_canary"
+        and not inspection.prerequisite_checklist.all_gates_passed
+    ):
+        err_msg = "Cannot approve for canary staging: prerequisite gates failed: " + ", ".join(
+            inspection.prerequisite_checklist.failure_reasons
+        )
+        if args.json:
+            _print_json(
+                {
+                    "status": "error",
+                    "error_code": "prerequisite_gates_failed",
+                    "reasons": inspection.prerequisite_checklist.failure_reasons,
+                    "message": err_msg,
+                }
+            )
+        else:
+            sys.stderr.write(f"Error: {err_msg}\n")
+        return 2
+
+    try:
+        dec_art, man_art, summary = stage_canary_candidates(
+            decision=typed_decision,
+            operator_id=operator,
+            rationale=rationale,
+            inspection=inspection,
+            registry_manifest=reg_manifest,
+            output_dir=args.output_dir,
+        )
+        saved_hashes = save_staging_artifacts(args.output_dir, dec_art, man_art, summary)
+    except (DomainViolation, ValueError) as exc:
+        if args.json:
+            _print_json({"status": "error", "error_code": "staging_failed", "error": str(exc)})
+        else:
+            sys.stderr.write(f"Error executing canary staging: {exc}\n")
+        return 2
+
+    # Optional SQLite recording
+    if args.review_path:
+        try:
+            readiness_report = _load_report(args.cohort_dir / "paper-cohort-readiness-report.json")
+            legacy_checkpoint = create_paper_review_checkpoint(
+                readiness_report,
+                review_id=dec_art.decision_id,
+                reviewer_id=operator,
+                reviewed_at=datetime.now(UTC),
+                decision="accept_paper_observation"
+                if typed_decision == "approved_for_canary"
+                else "reject",
+                review_notes=rationale,
+            )
+            SqlitePaperReviews(args.review_path).append(legacy_checkpoint)
+        except Exception as exc:
+            logger.warning("Could not record review to sqlite at %s: %s", args.review_path, exc)
+
+    if args.json:
+        out_data = {
+            "status": "success",
+            "decision": typed_decision,
+            "operator_id": operator,
+            "decision_id": dec_art.decision_id,
+            "manifest_hash": man_art.manifest_hash,
+            "cryptographic_signature": man_art.cryptographic_signature,
+            "output_dir": str(args.output_dir),
+            "artifact_hashes": saved_hashes,
+        }
+        _print_json(out_data)
+        return 0
+
+    sys.stdout.write("\n=== PHASE 269 OPERATOR REVIEW & CANARY STAGING COMPLETED ===\n")
+    sys.stdout.write(f"Decision:               {typed_decision}\n")
+    sys.stdout.write(f"Operator ID:            {operator}\n")
+    sys.stdout.write(f"Decision ID:            {dec_art.decision_id}\n")
+    sys.stdout.write(f"Output Directory:       {args.output_dir}\n")
+    sys.stdout.write(f"Staged Manifest Hash:   {man_art.manifest_hash}\n")
+    sys.stdout.write(f"Cryptographic Sig:      {man_art.cryptographic_signature}\n\n")
+    sys.stdout.write("Generated Artifacts:\n")
+    for name, fhash in sorted(saved_hashes.items()):
+        sys.stdout.write(f"  {name:<32} {fhash}\n")
+    sys.stdout.write("\n")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Entry point for paper review CLI supporting both legacy and Phase 269 workflows."""
+    args_list = sys.argv[1:] if argv is None else list(argv)
+    if any(arg in args_list for arg in ("--report-path", "--review-id")):
+        return _run_legacy_review(args_list)
+    return _run_operator_staging_cli(args_list)
 
 
 if __name__ == "__main__":

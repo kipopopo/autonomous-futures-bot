@@ -710,3 +710,61 @@ Enforce autonomous operations safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-17T09:31:33Z
+
+Implement the operator human review governance CLI, candidate validation staging, and promotion decision workflow under Candidate Registry Manifest Version 2 (Phase 269) to transition verified mature paper trading candidates to canary-ready status while enforcing strict fail-closed invariants and cryptographic audit trails.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Operator Governance & Human Review CLI Runner
+Implement and execute the deterministic Phase 269 human review staging runner and operator CLI (`scripts/run_phase_269_human_review_staging.py` & `src/autonomous_futures/paper/review_cli.py`):
+- Inspect mature paper trading cohorts from Phase 268 (`artifacts/research/phase268/`) or custom cohort directories.
+- Verify that prerequisite gates are strictly satisfied: cohort status is `ready_for_human_review`, all active candidates (`BTCUSDT` cand-btcusdt-dcb-002, `ETHUSDT` cand-ethusdt-dcb-003, `SOLUSDT` cand-solusdt-rgb-001) are `mature` and `healthy`, zero candidates are `blocked`, and accounting is 100% complete.
+- Display detailed candidate performance breakdowns (total trades, win rate, realized PnL, observed slots, margin utilization, fee/slippage impact).
+- Support both interactive decision prompts and batch/scripted execution flags (`--decision approved_for_canary|rejected|held`, `--operator <id>`, `--rationale <text>`).
+
+### R2. Cryptographic Human Review Decision Sign-Off & Canary Staging Packaging
+Wire automated review sign-off and staging artifact generation into `artifacts/research/phase269/`:
+- `human-review-decision.json`: Record operator ID, decision code, timestamp, review rationale, prerequisite checklist, and upstream cohort SHA-256 hashes.
+- `canary-staging-manifest.json`: Stage approved candidates with their candidate artifact hashes, qualification hashes, allocated risk limits, and staging promotion state.
+- `operator-summary.json` / `paper-summary.json`: Comprehensive audit summary linking upstream Phase 268 artifacts with downstream canary staging hashes.
+- Generate deterministic SHA-256 digests and cryptographic integrity signatures for all staging manifests.
+
+### R3. Exact Double-Entry Accounting & Margin Guardrails Verification
+Enforce mathematical verification and portfolio safety:
+- Verify that the evaluated cohort maintains exact double-entry accounting reconciliation: drift = |final_cash - (starting_equity + realized_pnl)| < 1e-15.
+- Verify margin allocation and reserve buffer compliance (<= 80.00% max margin utilization, >= 20.00% minimum reserve buffer) for staged canary limits.
+- Ensure strict rejection of any candidate with unclosed balance discrepancies, negative terminal equity, or unresolved circuit breaker flags.
+
+### R4. Strict Fail-Closed Containment, Targeted Testing & Remote CI Polling
+Enforce autonomous operations safety:
+- Maintain strict fail-closed state: `paper_activation: false`, `execution_authority: false`, `exchange_access: false`, `orders: 0`, `api_keys_loaded: 0`.
+- Verify zero secret or API key leakage across code, logs, and generated JSON reports.
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_269_human_review_staging.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full 2,350+ regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Review Execution & Governance
+- [ ] Operator review runner inspects mature cohort and confirms prerequisite `ready_for_human_review` status.
+- [ ] Review decision and canary staging manifests generated in `artifacts/research/phase269/` with complete cryptographic digests.
+- [ ] Cohort with unclosed accounting drift or immature status is blocked from canary staging with descriptive error codes.
+
+### Accounting & Portfolio Guardrails
+- [ ] Balance reconciliation confirms zero balance drift (< 1e-15) and margin cap compliance across staged limits.
+- [ ] Single-position invariant per symbol maintained across shared margin.
+
+### Safety & Remote CI Verification
+- [ ] Strict fail-closed defaults verified (zero live exchange orders, zero API credentials).
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.

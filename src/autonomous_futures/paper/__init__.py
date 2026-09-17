@@ -70,6 +70,26 @@ from .safety import (
 from .sqlite_ledger import SqlitePaperLedger
 from .sqlite_lifecycle import SqlitePaperLifecycle
 from .sqlite_observation import SqlitePaperObservations
+from .staging import (
+    DEFAULT_PHASE268_COHORT_DIR,
+    DEFAULT_PHASE269_OUTPUT_DIR,
+    AllocatedRiskLimits,
+    CanaryStagedCandidate,
+    CanaryStagingManifest,
+    CandidatePerformanceBreakdown,
+    CohortInspectionResult,
+    HumanReviewDecision,
+    PortfolioRiskGuardrails,
+    PrerequisiteChecklist,
+    compute_decision_hash,
+    compute_manifest_hash,
+    compute_staging_signature,
+    format_performance_table,
+    inspect_cohort,
+    save_staging_artifacts,
+    stage_canary_candidates,
+    verify_prerequisite_gates,
+)
 
 __all__ = [
     "ActivePaperTrade",
@@ -138,4 +158,22 @@ __all__ = [
     "write_paper_resume_request",
     "build_paper_resume_request",
     "capture_paper_recovery_preflight",
+    "AllocatedRiskLimits",
+    "CanaryStagedCandidate",
+    "CanaryStagingManifest",
+    "CandidatePerformanceBreakdown",
+    "CohortInspectionResult",
+    "DEFAULT_PHASE268_COHORT_DIR",
+    "DEFAULT_PHASE269_OUTPUT_DIR",
+    "HumanReviewDecision",
+    "PortfolioRiskGuardrails",
+    "PrerequisiteChecklist",
+    "compute_decision_hash",
+    "compute_manifest_hash",
+    "compute_staging_signature",
+    "format_performance_table",
+    "inspect_cohort",
+    "save_staging_artifacts",
+    "stage_canary_candidates",
+    "verify_prerequisite_gates",
 ]
