@@ -1,5 +1,23 @@
 """Phase 257 & Phase 261: Binance Futures Feed Ingestion & REST Kline Client Module."""
 
+from autonomous_futures.feed.canary_probe import (
+    AccountingDriftError,
+    CanaryNetworkProbeRunner,
+    CanaryProbeConfig,
+    CanaryProbeError,
+    CanaryProbeSummary,
+    ClockSyncDriftError,
+    ClockSyncSample,
+    ConnectionEvent,
+    HeartbeatSample,
+    LatencyMark,
+    SafetyInvariantViolation,
+    SqliteCanaryNetworkTelemetryStore,
+    StreamJitterSample,
+    evaluate_server_time_sync,
+    run_canary_network_probe,
+    verify_strict_fail_closed_invariants,
+)
 from autonomous_futures.feed.client import BinancePublicFeedClient
 from autonomous_futures.feed.models import (
     CanonicalBar,
@@ -37,6 +55,7 @@ from autonomous_futures.feed.telemetry import (
 )
 
 __all__ = [
+    "AccountingDriftError",
     "BinanceDataQualityError",
     "BinanceHttpError",
     "BinanceNetworkError",
@@ -46,14 +65,27 @@ __all__ = [
     "BinanceRestError",
     "BinanceSecurityViolation",
     "BinanceTimeoutError",
+    "CanaryNetworkProbeRunner",
+    "CanaryProbeConfig",
+    "CanaryProbeError",
+    "CanaryProbeSummary",
     "CanonicalBar",
     "CircuitBreakerFeedMonitor",
+    "ClockSyncDriftError",
+    "ClockSyncSample",
+    "ConnectionEvent",
     "FeedTelemetryAccumulator",
     "FeedTelemetrySnapshot",
+    "HeartbeatSample",
+    "LatencyMark",
     "LatencyMetrics",
+    "SafetyInvariantViolation",
     "SpreadMetrics",
+    "SqliteCanaryNetworkTelemetryStore",
+    "StreamJitterSample",
     "TickerSnapshot",
     "calculate_closed_bar_boundary",
+    "evaluate_server_time_sync",
     "fetch_binance_futures_klines",
     "fetch_klines_with_fallback",
     "fetch_warmup_bars_with_fallback",
@@ -65,5 +97,7 @@ __all__ = [
     "parse_raw_kline_to_canonical_bar",
     "parse_raw_klines_to_canonical_bars",
     "parse_raw_klines_to_canonical_df",
+    "run_canary_network_probe",
     "validate_canonical_dataframe",
+    "verify_strict_fail_closed_invariants",
 ]

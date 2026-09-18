@@ -826,3 +826,60 @@ Enforce autonomous operations safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-18T05:18:28Z
+
+Implement the public network telemetry probe runner, live exchange WebSocket handshake monitor, and ingress latency profiler under Candidate Registry Manifest Version 2 (Phase 271) to evaluate network stability, server time synchronization, and stream latency across staged canary symbols while strictly enforcing read-only fail-closed safety and exact zero-drift accounting.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Canary Public Network Telemetry Probe & Handshake Runner
+Implement and execute the deterministic Phase 271 network probe runner (`scripts/run_phase_271_network_probe.py` & `src/autonomous_futures/feed/canary_probe.py`):
+- Connect dynamically to public market data streams for all 3 staged canary assets (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) under Candidate Registry Manifest Version 2 and Canary Staging Manifest (`artifacts/research/phase269/canary-staging-manifest.json`).
+- Profile end-to-end WebSocket connection establishment time, round-trip ping/pong heartbeat latency, and public ticker/kline arrival frequency.
+- Evaluate Binance server time synchronization drift ($|\Delta t_{\text{server}}| \le 1000\text{ ms}$) via public time API endpoint.
+- Support bounded execution modes (e.g. `--probe-seconds 30`, `--max-heartbeats 10`, `--offline-replay`) with graceful fallback when network access is restricted or mocked in CI.
+
+### R2. Persistent Telemetry Logging & Telemetry Artifact Packaging
+Record network probe metrics and lifecycle transitions into isolated stores in `artifacts/research/phase271/`:
+- Store detailed latency marks, connection state events, and jitter samples into an isolated SQLite database (`canary-network-telemetry.sqlite3`).
+- Generate structured audit reports: `canary-network-report.json`, `network-summary.json`, and `paper-summary.json`.
+- Document deterministic SHA-256 artifact digests and link upstream canary staging manifest hashes.
+
+### R3. Exact Double-Entry Accounting & Margin Guardrails Invariants
+Enforce portfolio safety during telemetry probing:
+- Reconcile portfolio balance: starting equity 100.00 USDT, final cash 100.00 USDT, realized PnL 0.00 USDT, verifying exact zero balance drift ($\text{drift} = |\text{final\_cash} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Enforce zero active margin commitment (0.00% utilization, 100.00% unencumbered reserve buffer) throughout network probing.
+- Ensure 100% clean resource cleanup: all WebSocket connections, background ping tasks, and SQLite file handles gracefully closed upon termination.
+
+### R4. Strict Read-Only Fail-Closed Containment, Targeted Testing & Remote CI Polling
+Enforce autonomous operations safety:
+- Maintain strict fail-closed read-only boundaries: `execution_authority: false`, `exchange_access: false`, `authenticated_endpoints_accessed: false`, `orders: 0`, `api_keys_loaded: 0`.
+- Verify zero secret or private API key leakage across code, logs, and generated JSON reports.
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_271_network_probe.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full 2,350+ regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Execution & Telemetry Probing
+- [ ] Network probe runner connects to public streams for all 3 staged canary assets (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- [ ] Ping/pong latency, server clock drift, and connection establishment times measured and recorded in `canary-network-telemetry.sqlite3`.
+- [ ] Bounded probe mode executes cleanly and terminates gracefully within specified duration.
+
+### Accounting & Safety Guardrails
+- [ ] Exact double-entry accounting reconciliation confirms zero balance drift ($< 10^{-15}\text{ USDT}$).
+- [ ] 0.00% margin utilization preserved; unencumbered reserve buffer remains 100.00%.
+- [ ] Strict read-only fail-closed containment verified (zero authenticated calls, zero private keys, zero orders).
+
+### Quality & Remote CI Verification
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
