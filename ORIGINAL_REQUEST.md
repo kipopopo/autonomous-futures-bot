@@ -1009,3 +1009,69 @@ Enforce portfolio safety and rigorous engineering hygiene:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-18T14:10:00Z
+
+Implement the unified canary micro-execution rehearsal runner, order lifecycle risk gates, and circuit-breaker-coupled order routing simulator under Candidate Registry Manifest Version 2 (Phase 274) to validate end-to-end order placement, post-only validation, margin cap adherence, and zero-drift balance integrity under coupled heartbeat and circuit breaker supervision.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Canary Micro Live Execution Rehearsal Runner
+Implement and execute the deterministic Phase 274 micro live execution rehearsal runner (`scripts/run_phase_274_micro_execution_drill.py` & `src/autonomous_futures/feed/micro_execution_drill.py`):
+- Couple active Candidate Registry Manifest Version 2 and Canary Staging Manifest (`artifacts/research/phase269/canary-staging-manifest.json`) across all 3 staged canary assets (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Simulate complete micro canary order lifecycles: order generation, pre-trade risk validation, post-only quote placement, mock fill matching with realistic slippage (2.0 bps) and fees (0.04% taker / 0.02% maker), position tracking, and bracket stop/take-profit cancellation.
+- Couple order execution directly with the Phase 273 circuit breaker state machine:
+  - When circuit breaker is `NORMAL`, micro orders ($\le 5.00$ USDT) are permitted subject to risk gates.
+  - When in `TIER_1_SOFT_FREEZE`, new order placement is strictly blocked; open non-filled orders are cancelled immediately.
+  - When in `TIER_2_HARD_ABORT`, execution halts permanently, open positions are liquidated to cash, and the system fails closed.
+
+### R2. Portfolio Solvency, Margin Ceiling & Risk Guardrails
+Enforce strict multi-asset risk boundaries across shared 100.00 USDT starting equity:
+- **Micro-Order Size Ceiling**: Maximum notional size per order $\le 5.00$ USDT.
+- **Per-Asset Margin Ceiling**: Maximum margin allocation per candidate symbol $\le 20.00\%$ of equity (20.00 USDT initial).
+- **Aggregate Margin Ceiling**: Total concurrent margin allocation across all 3 canary assets $\le 60.00\%$ of equity (60.00 USDT initial).
+- **Unencumbered Reserve Buffer**: Maintain at least $40.00\%$ unencumbered cash reserve buffer (40.00 USDT minimum) under all execution states.
+- **Single-Position Invariant**: At most one active open position per candidate symbol at any time.
+
+### R3. Multi-Scenario Execution Tracks & Telemetry Storage
+Execute deterministic micro-execution tracks in `artifacts/research/phase274/`:
+1. **Track 1: Nominal Micro Canary Orders** (Routine micro orders, maker/taker fills, stop bracket lifecycle under `NORMAL` circuit breaker state).
+2. **Track 2: In-Flight Soft-Freeze Order Cancellation** (Mid-execution feed timeout triggers Tier 1 Soft-Freeze -> open limit quotes cancelled instantly -> order placement blocked -> auto-recovery resumes execution).
+3. **Track 3: Emergency Hard-Abort Immediate Flattening** (Catastrophic anomaly triggers Tier 2 Hard-Abort -> instant cancellation of all active orders -> emergency position liquidation -> permanent halt).
+4. **Track 4: Margin Cap Breach Rejection** (Order attempting to breach the 20.00% symbol or 60.00% portfolio margin cap is rejected pre-trade fail-closed).
+- Store execution marks, fills, order lifecycle transitions, and circuit breaker events into isolated SQLite database (`artifacts/research/phase274/canary-execution-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-execution-report.json`, `execution-summary.json`, and `paper-summary.json` with cryptographic SHA-256 digests.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Remote CI Polling
+Enforce portfolio safety and rigorous engineering hygiene:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks ($\text{drift} = |\text{final\_cash} + \text{allocated\_margin} + \text{unrealized\_pnl} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Ensure strict read-only / paper containment: `execution_authority: false`, `exchange_access: false`, `api_keys_loaded: 0`, zero real external orders submitted.
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_274_micro_execution_drill.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Execution & Order Lifecycle
+- [ ] Micro canary order lifecycle (placement, fill, cancel) executes cleanly across `BTCUSDT`, `ETHUSDT`, and `SOLUSDT`.
+- [ ] Strict micro-order size ceiling ($\le 5.00$ USDT) and per-asset margin cap ($\le 20.00\%$) strictly enforced.
+- [ ] Aggregate margin utilization never exceeds 60.00%; unencumbered reserve buffer remains $\ge 40.00\%$.
+
+### Circuit Breaker Coupling
+- [ ] In-flight Tier 1 Soft-Freeze cancels open limit orders and blocks new entries.
+- [ ] Tier 2 Hard-Abort flattens positions and halts execution permanently fail-closed.
+- [ ] Pre-trade margin breach rejection validated without state contamination.
+
+### Accounting & Quality Verification
+- [ ] Exact zero balance drift ($< 10^{-15}\text{ USDT}$) confirmed across all execution tracks.
+- [ ] All required artifacts and isolated SQLite database generated in `artifacts/research/phase274/` with cryptographic SHA-256 digests.
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
