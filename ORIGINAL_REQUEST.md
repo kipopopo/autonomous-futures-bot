@@ -883,3 +883,67 @@ Enforce autonomous operations safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-18T08:11:27Z
+
+Implement the continuous canary heartbeat daemon, multi-tiered health monitor, and real-time alerting dispatcher under Candidate Registry Manifest Version 2 (Phase 272) to provide automated stream supervision, latency threshold monitoring, and fail-closed emergency event dispatching while strictly enforcing zero-drift double-entry accounting.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Canary Continuous Heartbeat Daemon Runner
+Implement and execute the deterministic Phase 272 continuous heartbeat daemon runner (`scripts/run_phase_272_heartbeat_daemon.py` & `src/autonomous_futures/feed/heartbeat_daemon.py`):
+- Connect continuously to public market streams for all 3 staged canary assets (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) under Candidate Registry Manifest Version 2 and Canary Staging Manifest (`artifacts/research/phase269/canary-staging-manifest.json`).
+- Continuously monitor stream health, round-trip ping/pong latency, server clock drift, and message arrival jitter against defined operational thresholds.
+- Support bounded testing modes (e.g. `--daemon-seconds 30`, `--max-heartbeats 10`, `--offline-replay`) and resilient long-running daemon loops with graceful signal handling (`SIGINT`, `SIGTERM`).
+- Enforce strict read-only containment: zero authenticated endpoints, zero orders submitted (`orders: 0`), zero private keys loaded (`api_keys_loaded: 0`).
+
+### R2. Multi-Tiered Alerting & Circuit Breaker Event Dispatcher
+Implement a real-time structured alerting dispatcher across defined operational severities:
+- `INFO`: Normal heartbeat ticks, clean connection re-establishment, routine health checks.
+- `WARNING`: High latency spikes (> 300 ms), clock drift nearing threshold (> 900 ms), transient packet drops.
+- `CRITICAL`: Feed connection timeout (>= 10.0s), clock drift violation (> 1000 ms), Tier 1 soft freeze triggered.
+- `EMERGENCY`: Tier 2 hard abort kill-switch triggered, persistent network partition, or detected accounting drift.
+- Provide structured event sinks: JSON line event logger (`canary-alerts.jsonl`), in-memory ring buffer, and console alert formatting.
+- Validate synthetic alert triggers via CLI anomaly injection flags (`--simulate-latency-spike`, `--simulate-feed-drop`, `--simulate-clock-drift-breach`).
+
+### R3. Persistent Telemetry, Health Stores & Artifact Packaging
+Persist continuous heartbeat marks, alert dispatches, and connection state transitions into isolated stores in `artifacts/research/phase272/`:
+- Store detailed heartbeat marks, alert event logs, and connection lifecycle transitions in an isolated SQLite database (`canary-heartbeat-telemetry.sqlite3`).
+- Generate structured audit reports: `canary-daemon-report.json`, `heartbeat-summary.json`, and `paper-summary.json` with deterministic cryptographic SHA-256 digests.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Remote CI Polling
+Enforce portfolio safety and rigorous engineering hygiene:
+- Reconcile portfolio balance: starting equity 100.00 USDT, final cash 100.00 USDT, realized PnL 0.00 USDT, verifying exact zero balance drift ($\text{drift} = |\text{final\_cash} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Preserve 0.00% active margin utilization and 100.00% unencumbered reserve buffer throughout daemon execution.
+- Ensure 100% clean resource cleanup: all WebSocket connections, periodic background asyncio tasks, and SQLite file handles gracefully disposed of upon shutdown.
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_272_heartbeat_daemon.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full 2,350+ regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Execution & Continuous Probing
+- [ ] Heartbeat daemon connects to public streams for all 3 staged canary assets (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- [ ] Continuous heartbeat ticks, latency metrics, and server clock drift evaluated against health thresholds.
+- [ ] Bounded daemon execution terminates cleanly with graceful resource cleanup on timeout or signals.
+
+### Multi-Tier Alerting
+- [ ] Structured alert events (`INFO`, `WARNING`, `CRITICAL`, `EMERGENCY`) dispatched and recorded to `canary-alerts.jsonl` and SQLite.
+- [ ] Synthetic anomaly injections trigger appropriate alert levels and circuit breaker actions.
+
+### Accounting & Safety Guardrails
+- [ ] Exact double-entry accounting reconciliation confirms zero balance drift ($< 10^{-15}\text{ USDT}$).
+- [ ] 0.00% margin utilization preserved; unencumbered reserve buffer remains 100.00%.
+- [ ] Strict read-only fail-closed containment verified (zero authenticated calls, zero private keys, zero orders).
+
+### Quality & Remote CI Verification
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
