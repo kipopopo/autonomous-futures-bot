@@ -72,6 +72,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Maximum synchronized bar ticks to replay (default: 500)",
     )
     parser.add_argument(
+        "--symbols",
+        nargs="+",
+        type=str,
+        default=None,
+        help="Optional filter to restrict simulation to specific canary symbols (e.g. BTCUSDT)",
+    )
+    parser.add_argument(
         "--trigger-kill-switch",
         action="store_true",
         help="Explicitly trigger Tier 2 emergency kill-switch and liquidate positions",
@@ -174,6 +181,7 @@ def run_phase_270_canary_staging(
     output_dir: Path | str = DEFAULT_PHASE270_OUTPUT_DIR,
     canonical_history_dir: Path | str = DEFAULT_CANONICAL_HISTORY_DIR,
     max_ticks: int = 500,
+    symbols: list[str] | None = None,
     trigger_kill_switch: bool = False,
     simulate_adverse_drift: bool = False,
     simulate_spread_expansion: bool = False,
@@ -189,6 +197,7 @@ def run_phase_270_canary_staging(
         output_dir=output_dir,
         canonical_history_dir=canonical_history_dir,
         max_ticks=max_ticks,
+        symbols=symbols,
         trigger_kill_switch=trigger_kill_switch,
         simulate_adverse_drift=simulate_adverse_drift,
         simulate_spread_expansion=simulate_spread_expansion,
@@ -222,6 +231,7 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.output_dir,
             canonical_history_dir=args.canonical_history_dir,
             max_ticks=args.max_ticks,
+            symbols=args.symbols,
             trigger_kill_switch=args.trigger_kill_switch,
             simulate_adverse_drift=args.simulate_adverse_drift,
             simulate_spread_expansion=args.simulate_spread_expansion,

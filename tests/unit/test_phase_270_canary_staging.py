@@ -115,6 +115,93 @@ class TestPhase270ManifestAndCandidateValidation:
         with pytest.raises(DomainViolation):
             load_and_validate_canary_staging_manifest(tampered_file)
 
+    def test_manifest_promotion_state_rejection(self, tmp_path: Path) -> None:
+        """Reject manifests where staging_promotion_state is not 'canary_staged'."""
+        with open(DEFAULT_CANARY_STAGING_MANIFEST_PATH, "rb") as f:
+            raw = json.loads(f.read())
+        raw["staging_promotion_state"] = "rejected"
+        tampered_file = tmp_path / "rejected-manifest.json"
+        with open(tampered_file, "w") as f:
+            json.dump(raw, f)
+
+        with pytest.raises(
+            DomainViolation, match="integrity check failed|expected 'canary_staged'"
+        ):
+            load_and_validate_canary_staging_manifest(tampered_file)
+
+    def test_candidate_promotion_state_rejection(self, tmp_path: Path) -> None:
+        """Reject candidates whose staging_promotion_state is not 'canary_staged'."""
+        with open(DEFAULT_CANARY_STAGING_MANIFEST_PATH, "rb") as f:
+            raw = json.loads(f.read())
+        raw["candidates"]["BTCUSDT"]["staging_promotion_state"] = "rejected"
+        tampered_file = tmp_path / "rejected-cand.json"
+        with open(tampered_file, "w") as f:
+            json.dump(raw, f)
+
+        with pytest.raises(
+            DomainViolation, match="integrity check failed|expected 'canary_staged'"
+        ):
+            load_and_validate_canary_staging_manifest(tampered_file)
+
+    def test_unexpected_candidate_rejection(self, tmp_path: Path) -> None:
+        """Reject manifests with unauthorized additional candidate symbols."""
+        with open(DEFAULT_CANARY_STAGING_MANIFEST_PATH, "rb") as f:
+            raw = json.loads(f.read())
+        # Copy BTCUSDT to DOGEUSDT
+        raw["candidates"]["DOGEUSDT"] = dict(raw["candidates"]["BTCUSDT"])
+        raw["candidates"]["DOGEUSDT"]["symbol"] = "DOGEUSDT"
+        raw["candidates"]["DOGEUSDT"]["candidate_id"] = "cand-dogeusdt-dcb-001"
+        tampered_file = tmp_path / "extra-cand.json"
+        with open(tampered_file, "w") as f:
+            json.dump(raw, f)
+
+        with pytest.raises(DomainViolation, match="integrity check failed|Unexpected candidate"):
+            load_and_validate_canary_staging_manifest(tampered_file)
+
+    def test_missing_registry_path_rejection(self, tmp_path: Path) -> None:
+        """Explicit nonexistent registry path raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError, match="Candidate Registry not found"):
+            load_and_validate_canary_staging_manifest(
+                DEFAULT_CANARY_STAGING_MANIFEST_PATH,
+                registry_path=tmp_path / "nonexistent-registry.json",
+            )
+
+    def test_candidate_qualification_hash_mismatch_rejection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Tampered qualification hash raises DomainViolation."""
+        from autonomous_futures.paper import canary_staging as cs_mod
+
+        original_fn = cs_mod.read_creator_candidate_qualification_artifact
+
+        def mock_read_qual(p: Any) -> Any:
+            orig = original_fn(p)
+            return orig.model_copy(update={"qualification_hash": "0" * 64})
+
+        monkeypatch.setattr(cs_mod, "read_creator_candidate_qualification_artifact", mock_read_qual)
+
+        with pytest.raises(DomainViolation, match="Qualification hash mismatch"):
+            load_and_validate_canary_staging_manifest(DEFAULT_CANARY_STAGING_MANIFEST_PATH)
+
+    def test_missing_candidate_artifact_rejection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Missing candidate artifact file raises FileNotFoundError."""
+        from autonomous_futures.paper import canary_staging as cs_mod
+
+        # Point artifact path to non-existent
+        with open(DEFAULT_CANARY_STAGING_MANIFEST_PATH, "rb") as f:
+            raw = json.loads(f.read())
+        raw["candidates"]["BTCUSDT"]["artifact_path"] = "nonexistent/candidate.json"
+        # Temporarily bypass manifest integrity to reach candidate file check
+        monkeypatch.setattr(cs_mod, "verify_staging_manifest_integrity", lambda m: (True, []))
+        tampered_file = tmp_path / "missing-art.json"
+        with open(tampered_file, "w") as f:
+            json.dump(raw, f)
+
+        with pytest.raises(FileNotFoundError, match="Candidate artifact file missing"):
+            load_and_validate_canary_staging_manifest(tampered_file)
+
 
 class TestPhase270MicroNotionalAndMarginGuardrails:
     """Validate micro notional sizing (<= 5.00 USDT) and aggregate margin guardrails."""
@@ -264,6 +351,76 @@ class TestPhase270MicroNotionalAndMarginGuardrails:
             limit_price=Decimal("60500.00"),
         )
         assert ok_after is True
+
+    def test_starting_equity_zero_or_negative_rejection(
+        self,
+        valid_manifest: CanaryStagingManifest,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Reject engines initialized with zero or negative equity."""
+        orders_store, ledger_store = isolated_stores
+        with pytest.raises(DomainViolation, match="Starting equity must be strictly positive"):
+            CanaryShadowExecutionEngine(
+                manifest=valid_manifest,
+                orders_store=orders_store,
+                ledger_store=ledger_store,
+                starting_equity=Decimal("0.00"),
+            )
+        with pytest.raises(DomainViolation, match="Starting equity must be strictly positive"):
+            CanaryShadowExecutionEngine(
+                manifest=valid_manifest,
+                orders_store=orders_store,
+                ledger_store=ledger_store,
+                starting_equity=Decimal("-50.00"),
+            )
+
+    def test_unauthorized_symbol_rejection(
+        self,
+        valid_manifest: CanaryStagingManifest,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Reject order submissions for unstaged symbols."""
+        orders_store, ledger_store = isolated_stores
+        engine = CanaryShadowExecutionEngine(
+            manifest=valid_manifest,
+            orders_store=orders_store,
+            ledger_store=ledger_store,
+        )
+        ok, msg, order = engine.submit_shadow_order(
+            candidate_id="cand-doge-001",
+            symbol="DOGEUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            quantity=Decimal("10.0"),
+            limit_price=Decimal("0.10"),
+        )
+        assert ok is False
+        assert "UNAUTHORIZED_SYMBOL" in msg
+        assert order is None
+
+    def test_mismatched_candidate_id_rejection(
+        self,
+        valid_manifest: CanaryStagingManifest,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Reject order submissions where candidate_id does not match manifest entry for symbol."""
+        orders_store, ledger_store = isolated_stores
+        engine = CanaryShadowExecutionEngine(
+            manifest=valid_manifest,
+            orders_store=orders_store,
+            ledger_store=ledger_store,
+        )
+        ok, msg, order = engine.submit_shadow_order(
+            candidate_id="cand-wrong-id",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            quantity=Decimal("0.00008"),
+            limit_price=Decimal("60000.00"),
+        )
+        assert ok is False
+        assert "CANDIDATE_ID_MISMATCH" in msg
+        assert order is None
 
 
 class TestPhase270SqliteStoresAndPersistence:
@@ -674,7 +831,94 @@ class TestPhase270CliRunnerAndSimulation:
         assert rc == 0
         with open(out_dir / "canary-summary.json") as f:
             data = json.load(f)
-        assert data["circuit_state"] in ("TIER1_SOFT_DEESCALATION", "NORMAL")
+        assert data["circuit_state"] == "TIER1_SOFT_DEESCALATION"
+        assert len(data["kill_switch_events"]) >= 1
+        assert data["kill_switch_events"][0]["trigger_type"] == "SPREAD_EXPANSION"
+
+    def test_cli_runner_simulate_volatility_surge(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "phase270_volatility"
+        rc = run_phase_270_canary_staging(
+            output_dir=out_dir,
+            max_ticks=30,
+            simulate_volatility_surge=True,
+        )
+        assert rc == 0
+        with open(out_dir / "canary-summary.json") as f:
+            data = json.load(f)
+        assert data["circuit_state"] == "TIER1_SOFT_DEESCALATION"
+        assert len(data["kill_switch_events"]) >= 1
+        assert data["kill_switch_events"][0]["trigger_type"] == "VOLATILITY_REGIME_SHIFT"
+
+    def test_cli_runner_simulate_feed_timeout(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "phase270_timeout"
+        rc = run_phase_270_canary_staging(
+            output_dir=out_dir,
+            max_ticks=30,
+            simulate_feed_timeout=True,
+        )
+        assert rc == 0
+        with open(out_dir / "canary-summary.json") as f:
+            data = json.load(f)
+        assert data["circuit_state"] == "TIER1_SOFT_DEESCALATION"
+        assert len(data["kill_switch_events"]) >= 1
+        assert data["kill_switch_events"][0]["trigger_type"] == "FEED_HEARTBEAT_TIMEOUT"
+
+    def test_cli_runner_simulate_drawdown_breach(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "phase270_drawdown"
+        rc = run_phase_270_canary_staging(
+            output_dir=out_dir,
+            max_ticks=30,
+            simulate_drawdown_breach=True,
+        )
+        assert rc == 0
+        with open(out_dir / "canary-summary.json") as f:
+            data = json.load(f)
+        assert data["circuit_state"] == "TIER2_HARD_ABORT"
+        assert len(data["kill_switch_events"]) >= 1
+        assert any(e["trigger_type"] == "DRAWDOWN_BREACH" for e in data["kill_switch_events"])
+
+    def test_cli_runner_symbols_filter_valid(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "phase270_symbols"
+        rc = run_phase_270_canary_staging(
+            output_dir=out_dir,
+            max_ticks=30,
+            symbols=["BTCUSDT"],
+        )
+        assert rc == 0
+        with open(out_dir / "canary-summary.json") as f:
+            data = json.load(f)
+        assert data["zero_balance_drift"] is True
+        assert data["orders_count"] > 0
+
+    def test_cli_runner_symbols_filter_invalid_rejection(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "phase270_invalid_sym"
+        with pytest.raises(DomainViolation, match="not among staged candidates"):
+            run_phase_270_canary_staging(
+                output_dir=out_dir,
+                max_ticks=10,
+                symbols=["DOGEUSDT"],
+            )
+
+    def test_cli_runner_zero_ticks_dry_run(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "phase270_zero_ticks"
+        rc = run_phase_270_canary_staging(
+            output_dir=out_dir,
+            max_ticks=0,
+        )
+        assert rc == 0
+        with open(out_dir / "canary-summary.json") as f:
+            data = json.load(f)
+        assert data["orders_count"] == 0
+        assert data["fills_count"] == 0
+        assert data["zero_balance_drift"] is True
+
+    def test_cli_runner_negative_ticks_rejection(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "phase270_neg_ticks"
+        with pytest.raises(DomainViolation, match="max_ticks must be non-negative"):
+            run_phase_270_canary_staging(
+                output_dir=out_dir,
+                max_ticks=-5,
+            )
 
     def test_cli_main_stdout_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         out_dir = tmp_path / "phase270_json"
@@ -941,3 +1185,92 @@ class TestPhase270AdversarialHardening:
         orders_store = SqliteCanaryOrdersStore(orders_db2)
         assert orders_store.count_orders() == summary2.orders_count
         assert orders_store.count_fills() == summary2.fills_count
+
+    def test_foreign_key_constraint_prevents_orphaned_fill(
+        self,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Verify SQLite foreign key enforcement rejects orphaned fills at the
+        database engine level.
+        """
+        import sqlite3
+
+        from autonomous_futures.paper.canary_staging import CanaryShadowFill
+
+        orders_store, _ = isolated_stores
+        orphaned_fill = CanaryShadowFill(
+            fill_id="fill-orphan-1",
+            order_id="ord-nonexistent",
+            client_order_id="c-orphan-1",
+            symbol="BTCUSDT",
+            side="BUY",
+            fill_price=Decimal("60000.00"),
+            fill_quantity=Decimal("0.00008"),
+            fee_usdt=Decimal("0.00192"),
+            slippage_usdt=Decimal("0.00096"),
+            realized_pnl=Decimal("-0.00192"),
+            filled_at="2026-09-18T00:00:00Z",
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY constraint failed"):
+            orders_store.insert_fill(orphaned_fill)
+
+    def test_concurrent_multithreaded_order_and_fill_insertion(
+        self,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Verify high concurrency multithreaded order and fill insertions without lock errors."""
+        import concurrent.futures
+
+        from autonomous_futures.paper.canary_staging import CanaryShadowFill
+
+        orders_store, _ = isolated_stores
+        num_threads = 6
+        orders_per_thread = 20
+
+        def worker(thread_idx: int) -> int:
+            for i in range(orders_per_thread):
+                oid = f"ord-th-{thread_idx}-{i}"
+                cid = f"cid-th-{thread_idx}-{i}"
+                order = CanaryShadowOrder(
+                    order_id=oid,
+                    client_order_id=cid,
+                    candidate_id="cand-btcusdt-dcb-002",
+                    symbol="BTCUSDT",
+                    side="BUY",
+                    order_type="LIMIT",
+                    quantity=Decimal("0.00008"),
+                    limit_price=Decimal("60000.00"),
+                    micro_notional=Decimal("4.80"),
+                    status="FILLED",
+                    created_at="2026-09-18T00:00:00Z",
+                    updated_at="2026-09-18T00:00:00Z",
+                )
+                orders_store.insert_order(order)
+                fill = CanaryShadowFill(
+                    fill_id=f"fill-th-{thread_idx}-{i}",
+                    order_id=oid,
+                    client_order_id=cid,
+                    symbol="BTCUSDT",
+                    side="BUY",
+                    fill_price=Decimal("60000.00"),
+                    fill_quantity=Decimal("0.00008"),
+                    fee_usdt=Decimal("0.00192"),
+                    slippage_usdt=Decimal("0.00096"),
+                    realized_pnl=Decimal("-0.00192"),
+                    filled_at="2026-09-18T00:00:00Z",
+                )
+                orders_store.insert_fill(fill)
+            return orders_per_thread
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [executor.submit(worker, t) for t in range(num_threads)]
+            results = [f.result() for f in futures]
+
+        total_expected = num_threads * orders_per_thread
+        assert sum(results) == total_expected
+        assert orders_store.count_orders() == total_expected
+        assert orders_store.count_fills() == total_expected
+        ref_ok, orphans = orders_store.verify_referential_integrity()
+        assert ref_ok is True
+        assert orphans == 0
+        assert orders_store.verify_unlocked() is True

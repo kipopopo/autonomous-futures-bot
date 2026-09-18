@@ -245,6 +245,7 @@ class SqliteCanaryOrdersStore:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=10.0)
         conn.execute("PRAGMA busy_timeout = 5000;")
+        conn.execute("PRAGMA foreign_keys = ON;")
         return conn
 
     def _init_db(self) -> None:
@@ -282,7 +283,8 @@ class SqliteCanaryOrdersStore:
                         fee_usdt TEXT NOT NULL,
                         slippage_usdt TEXT NOT NULL,
                         realized_pnl TEXT NOT NULL,
-                        filled_at TEXT NOT NULL
+                        filled_at TEXT NOT NULL,
+                        FOREIGN KEY (order_id) REFERENCES canary_shadow_orders(order_id)
                     );
                     """
                 )
@@ -498,9 +500,19 @@ class SqliteCanaryOrdersStore:
         except Exception:
             return False
 
+    def checkpoint(self) -> None:
+        """Flush database pages and optimize store."""
+        if not self.path.is_file():
+            return
+        try:
+            with closing(self._connect()) as conn:
+                conn.execute("PRAGMA optimize;")
+        except Exception:
+            pass
+
     def close(self) -> None:
         """Explicit safe cleanup."""
-        pass
+        self.checkpoint()
 
 
 class SqliteCanaryShadowLedger:
@@ -739,9 +751,19 @@ class SqliteCanaryShadowLedger:
         except Exception:
             return False
 
+    def checkpoint(self) -> None:
+        """Flush database pages and optimize store."""
+        if not self.path.is_file():
+            return
+        try:
+            with closing(self._connect()) as conn:
+                conn.execute("PRAGMA optimize;")
+        except Exception:
+            pass
+
     def close(self) -> None:
         """Explicit safe cleanup."""
-        pass
+        self.checkpoint()
 
 
 # =====================================================================
@@ -781,16 +803,38 @@ def load_and_validate_canary_staging_manifest(
             f"got manifest={manifest.manifest_version} registry={manifest.registry_version}"
         )
 
+    if manifest.staging_promotion_state != "canary_staged":
+        raise DomainViolation(
+            f"Canary staging manifest promotion state is '{manifest.staging_promotion_state}', "
+            "expected 'canary_staged'"
+        )
+
+    for s in manifest.candidates:
+        if s not in EXPECTED_MANIFEST_V2_CANDIDATES:
+            raise DomainViolation(
+                f"Unexpected candidate {s} in canary staging manifest; "
+                f"expected only {list(EXPECTED_MANIFEST_V2_CANDIDATES.keys())}"
+            )
+
     # Cross-reference with Candidate Registry if provided
     repo_root = Path(__file__).resolve().parents[3]
     if registry_path is not None:
         reg_p = Path(registry_path)
         if not reg_p.is_file():
             reg_p = repo_root / registry_path
-        if reg_p.is_file():
-            registry = read_candidate_registry(reg_p, verify_hash=True)
-            if not verify_candidate_registry_manifest(registry):
-                raise DomainViolation(f"Candidate registry manifest verification failed: {reg_p}")
+        if not reg_p.is_file():
+            raise FileNotFoundError(f"Candidate Registry not found at: {registry_path}")
+        registry = read_candidate_registry(reg_p, verify_hash=True)
+        if not verify_candidate_registry_manifest(registry):
+            raise DomainViolation(f"Candidate registry manifest verification failed: {reg_p}")
+        for sym, expected_cand_id in EXPECTED_MANIFEST_V2_CANDIDATES.items():
+            if sym not in registry.symbols:
+                raise DomainViolation(f"Symbol {sym} not found in candidate registry {reg_p}")
+            if registry.symbols[sym].candidate_id != expected_cand_id:
+                raise DomainViolation(
+                    f"Candidate ID mismatch in registry for {sym}: "
+                    f"expected {expected_cand_id}, got {registry.symbols[sym].candidate_id}"
+                )
 
     candidate_artifacts: dict[str, Any] = {}
     for sym, expected_cand_id in EXPECTED_MANIFEST_V2_CANDIDATES.items():
@@ -801,6 +845,11 @@ def load_and_validate_canary_staging_manifest(
             raise DomainViolation(
                 f"Candidate ID mismatch for {sym}: "
                 f"expected {expected_cand_id}, got {cand_entry.candidate_id}"
+            )
+        if cand_entry.staging_promotion_state != "canary_staged":
+            raise DomainViolation(
+                f"Candidate {sym} has staging_promotion_state "
+                f"'{cand_entry.staging_promotion_state}', expected 'canary_staged'"
             )
 
         art_p = Path(cand_entry.artifact_path)
@@ -890,7 +939,12 @@ class CanaryShadowExecutionEngine:
         self.manifest = manifest
         self.orders_store = orders_store
         self.ledger_store = ledger_store
-        self.starting_equity = safe_decimal(starting_equity, DEFAULT_STARTING_EQUITY)
+        start_eq = safe_decimal(starting_equity, DEFAULT_STARTING_EQUITY)
+        if start_eq <= Decimal("0"):
+            raise DomainViolation(
+                f"Starting equity must be strictly positive (> 0), got {start_eq}"
+            )
+        self.starting_equity = start_eq
         self.max_micro_notional = safe_decimal(max_micro_notional, MAX_MICRO_NOTIONAL_USDT)
         self.max_aggregate_margin_utilization = safe_decimal(
             max_aggregate_margin_utilization, MAX_CANARY_AGGREGATE_MARGIN_UTILIZATION
@@ -1337,16 +1391,30 @@ class CanaryShadowExecutionEngine:
                 None,
             )
 
-        # Gate 5: Candidate allocated margin check from manifest
-        cand_entry = self.manifest.candidates.get(symbol)
-        if cand_entry:
-            alloc_cap = cand_entry.allocated_risk_limits.allocated_margin_usdt
-            if required_margin > alloc_cap:
-                return (
-                    False,
-                    f"CANDIDATE_ALLOCATED_MARGIN_EXCEEDED: {required_margin} > {alloc_cap}",
-                    None,
-                )
+        # Gate 5: Candidate authorization and allocated margin check from manifest
+        if symbol not in self.manifest.candidates:
+            return (
+                False,
+                f"UNAUTHORIZED_SYMBOL: symbol {symbol} is not staged in canary manifest",
+                None,
+            )
+        cand_entry = self.manifest.candidates[symbol]
+        if candidate_id != cand_entry.candidate_id:
+            return (
+                False,
+                (
+                    f"CANDIDATE_ID_MISMATCH: candidate {candidate_id} does not match "
+                    f"staged candidate {cand_entry.candidate_id} for symbol {symbol}"
+                ),
+                None,
+            )
+        alloc_cap = cand_entry.allocated_risk_limits.allocated_margin_usdt
+        if required_margin > alloc_cap:
+            return (
+                False,
+                f"CANDIDATE_ALLOCATED_MARGIN_EXCEEDED: {required_margin} > {alloc_cap}",
+                None,
+            )
 
         order_id = f"ord-canary-{uuid4().hex[:10]}"
         cid = client_order_id or f"c-{symbol.lower()}-{uuid4().hex[:8]}"
@@ -1761,6 +1829,7 @@ def run_canary_staging_simulation(
     output_dir: Path | str = DEFAULT_PHASE270_OUTPUT_DIR,
     canonical_history_dir: Path | str = DEFAULT_CANONICAL_HISTORY_DIR,
     max_ticks: int = 500,
+    symbols: list[str] | None = None,
     trigger_kill_switch: bool = False,
     simulate_adverse_drift: bool = False,
     simulate_spread_expansion: bool = False,
@@ -1774,6 +1843,9 @@ def run_canary_staging_simulation(
     enforces mathematical double-entry zero drift, validates multi-tier kill-switch triggers,
     and packages audit artifacts into output directory.
     """
+    if max_ticks < 0:
+        raise DomainViolation(f"max_ticks must be non-negative, got {max_ticks}")
+
     out_p = Path(output_dir)
     out_p.mkdir(parents=True, exist_ok=True)
 
@@ -1794,6 +1866,16 @@ def run_canary_staging_simulation(
         manifest_path=manifest_path,
         registry_path=registry_path,
     )
+
+    target_symbols = list(manifest.candidates.keys())
+    if symbols:
+        for s in symbols:
+            if s not in manifest.candidates:
+                raise DomainViolation(
+                    f"Symbol '{s}' is not among staged candidates in canary manifest: "
+                    f"{list(manifest.candidates.keys())}"
+                )
+        target_symbols = [s for s in symbols if s in manifest.candidates]
 
     # 2. Instantiate isolated SQLite stores
     orders_store = SqliteCanaryOrdersStore(orders_db_path)
@@ -1827,7 +1909,7 @@ def run_canary_staging_simulation(
                 hist_dir = repo_root / canonical_history_dir
 
             bars_by_symbol: dict[str, pd.DataFrame] = {}
-            for sym in manifest.candidates.keys():
+            for sym in target_symbols:
                 pq_file = hist_dir / f"{sym}-5m.parquet"
                 df = _load_canonical_bars(pq_file, max_rows=max(max_ticks + 60, 200))
                 if not df.empty:
@@ -1837,7 +1919,7 @@ def run_canary_staging_simulation(
             all_ts: set[datetime] = set()
             for df in bars_by_symbol.values():
                 all_ts.update(df["timestamp"].dt.to_pydatetime())
-            sorted_timestamps = sorted(all_ts)[-max_ticks:] if max_ticks > 0 else sorted(all_ts)
+            sorted_timestamps = [] if max_ticks == 0 else sorted(all_ts)[-max_ticks:]
 
             # Map timestamps to row dicts per symbol
             indexed_bars: dict[str, dict[datetime, dict[str, Any]]] = {}
@@ -1882,7 +1964,7 @@ def run_canary_staging_simulation(
                 if simulate_adverse_drift and ticks_run == 10:
                     engine.simulate_adverse_drift(Decimal("0.05"), timestamp=ts_iso)
 
-                for sym in manifest.candidates.keys():
+                for sym in target_symbols:
                     sym_bars = indexed_bars.get(sym)
                     if not sym_bars or ts not in sym_bars:
                         continue
@@ -1891,7 +1973,7 @@ def run_canary_staging_simulation(
 
                     if simulate_drawdown_breach and ticks_run >= 15:
                         # Artificially depress price to cause > 2% portfolio drawdown
-                        close_px = close_px * Decimal("0.85")
+                        close_px = close_px * Decimal("0.50")
 
                     engine.update_mark_price(sym, close_px, timestamp=ts_iso)
 
