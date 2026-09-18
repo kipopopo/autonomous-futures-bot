@@ -768,3 +768,61 @@ Enforce autonomous operations safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-18T03:03:13Z
+
+Implement the canary deployment dry-run runner, micro-sized shadow order execution engine, and hardened emergency kill-switch verification under Candidate Registry Manifest Version 2 (Phase 270) to validate pre-live order generation, execution limits, and risk containment while strictly enforcing fail-closed boundaries and zero-drift double-entry accounting.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Canary Deployment Dry-Run & Micro-Sized Shadow Order Engine Runner
+Implement and execute the deterministic Phase 270 canary staging runner and shadow execution harness (`scripts/run_phase_270_canary_staging.py` & `src/autonomous_futures/paper/canary_staging.py`):
+- Dynamically ingest the verified Canary Staging Manifest (`artifacts/research/phase269/canary-staging-manifest.json`) and candidate qualification artifacts (`BTCUSDT` cand-btcusdt-dcb-002, `ETHUSDT` cand-ethusdt-dcb-003, `SOLUSDT` cand-solusdt-rgb-001).
+- Simulate transition from paper trading to micro-sized canary order generation with fractional micro notional sizing ($\le 5.00$ USDT per position) in an offline/dry-run sandbox.
+- Intercept, validate, and persist all shadow order intents (order ID, symbol, side, order type, quantity, limit price, client order ID, creation timestamp, simulated fills) into isolated SQLite database stores (`canary-shadow-ledger.sqlite3`, `canary-orders.sqlite3`).
+- Maintain strict offline containment: shadow orders exist solely within the internal shadow engine lifecycle with zero external network egress or real exchange order placement.
+
+### R2. Hardened Multi-Tiered Emergency Kill-Switch & De-escalation Mechanism
+Implement and rigorously test a multi-tiered emergency kill-switch and circuit breaker harness:
+- **Tier 1 (Soft De-escalation)**: Automatically freeze new order generation upon unexpected spread expansion, high volatility regime shifts, or feed heartbeat timeout.
+- **Tier 2 (Hard Abort / Immediate Liquidation)**: Immediately cancel all open shadow orders and close simulated positions upon drawdown breaching $\ge 2.00\%$ or detection of any accounting drift ($> 10^{-15}$ USDT).
+- Support explicit CLI triggers and synthetic anomaly injections (`--trigger-kill-switch`, `--simulate-adverse-drift`) to verify fail-safe shutdown response.
+
+### R3. Exact Double-Entry Accounting & Micro-Margin Guardrails
+Enforce exact mathematical reconciliation and risk containment:
+- Verify exact double-entry accounting reconciliation across all shadow transactions, simulated fees, and fills: drift = |final_cash - (starting_equity + realized_pnl)| < 1e-15 USDT.
+- Enforce aggregate canary margin allocation ceiling: total active canary exposure <= 60.00% (preserving >= 40.00% unencumbered reserve buffer), with per-symbol micro caps strictly adhering to the staged manifest.
+- Ensure 100% clean resource cleanup: no dangling SQLite file handles, no thread leaks, and safe sidecar purges upon shutdown.
+
+### R4. Strict Fail-Closed Containment, Targeted Testing & Remote CI Polling
+Enforce autonomous operations safety:
+- Maintain strict fail-closed state: `canary_activation: false`, `execution_authority: false`, `exchange_access: false`, `orders: 0`, `api_keys_loaded: 0`.
+- Verify zero secret or API key leakage across code, logs, and generated JSON reports.
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_270_canary_staging.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full 2,350+ regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Execution & Shadow Harness
+- [ ] Canary staging runner loads candidates from Manifest Version 2 and Canary Staging Manifest (`phase269`).
+- [ ] Micro-sized shadow orders generated, validated, and persisted into isolated SQLite stores without network calls.
+- [ ] Multi-tier emergency kill-switch triggers cleanly on simulated adverse events and cancels/flattens positions.
+
+### Accounting & Guardrails
+- [ ] Exact double-entry accounting reconciliation confirms zero balance drift (< 1e-15 USDT).
+- [ ] Maximum margin utilization strictly complies with <= 60.00% ceiling with >= 40.00% reserve buffer.
+- [ ] Single-position invariant per symbol maintained across shared margin account.
+
+### Safety & Remote CI Verification
+- [ ] Strict fail-closed defaults verified (zero live exchange orders, zero API credentials).
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
