@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
 import threading
 import time
@@ -18,6 +19,8 @@ from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+from pydantic import Field
 
 from autonomous_futures.domain.contracts import DomainModel
 from autonomous_futures.domain.errors import DomainViolation
@@ -123,12 +126,12 @@ class TelemetryTick(DomainModel):
     """Profiled stream telemetry mark evaluated against health criteria."""
 
     timestamp_utc: str
-    sequence_num: int
+    sequence_num: int = Field(ge=0)
     rtt_ms: float
     drift_ms: float
     jitter_ms: float
     is_healthy: bool
-    details: dict[str, Any] = {}
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class CanaryIncidentRecord(DomainModel):
@@ -147,9 +150,9 @@ class CanaryIncidentRecord(DomainModel):
     initial_state: CircuitBreakerState
     final_state: CircuitBreakerState
     transitions_count: int
-    transitions: list[CircuitBreakerTransition] = []
+    transitions: list[CircuitBreakerTransition] = Field(default_factory=list)
     telemetry_ticks_count: int = 0
-    details: dict[str, Any] = {}
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class DrillTrackResult(DomainModel):
@@ -303,6 +306,8 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         jitter_ms: float = 0.0,
     ) -> bool:
         """Evaluate whether a telemetry tick conforms to nominal health boundaries."""
+        if not (math.isfinite(rtt_ms) and math.isfinite(drift_ms) and math.isfinite(jitter_ms)):
+            return False
         return (
             0.0 <= rtt_ms < self.latency_warning_threshold_ms
             and abs(drift_ms) <= self.clock_drift_critical_threshold_ms
@@ -323,19 +328,36 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         Returns transition record if state changed, or None otherwise.
         """
         now_utc = timestamp_utc or datetime.now(UTC).isoformat()
+        is_non_finite = not (
+            math.isfinite(rtt_ms) and math.isfinite(drift_ms) and math.isfinite(jitter_ms)
+        )
         healthy = self.is_healthy_tick(rtt_ms, drift_ms, jitter_ms)
         perf_now = time.perf_counter()
 
         with self._lock:
             # 1. Catastrophic anomalies trigger immediate fail-closed hard abort
-            if is_catastrophic or abs(drift_ms) > (self.clock_drift_critical_threshold_ms * 2):
+            if (
+                is_catastrophic
+                or is_non_finite
+                or (
+                    not is_non_finite
+                    and abs(drift_ms) > (self.clock_drift_critical_threshold_ms * 2)
+                )
+            ):
                 if self._state != CircuitBreakerState.TIER_2_HARD_ABORT:
                     prev = self._state
                     self._state = CircuitBreakerState.TIER_2_HARD_ABORT
                     self._manual_freeze = False
-                    reason = anomaly_reason or (
-                        f"Catastrophic anomaly detected: drift={drift_ms:.1f}ms, rtt={rtt_ms:.1f}ms"
-                    )
+                    if is_non_finite:
+                        reason = anomaly_reason or (
+                            "Catastrophic anomaly detected: non-finite telemetry "
+                            f"(rtt={rtt_ms}, drift={drift_ms}, jitter={jitter_ms})"
+                        )
+                    else:
+                        reason = anomaly_reason or (
+                            f"Catastrophic anomaly detected: drift={drift_ms:.1f}ms, "
+                            f"rtt={rtt_ms:.1f}ms"
+                        )
                     trans = CircuitBreakerTransition(
                         timestamp_utc=now_utc,
                         previous_state=prev,
@@ -465,6 +487,12 @@ class CanaryCircuitBreakerRecoveryStateMachine:
                 self._transitions.append(trans)
                 return trans
 
+            if self._state == CircuitBreakerState.NORMAL:
+                raise DomainViolation(
+                    "Cannot escalate outage when circuit breaker is in NORMAL state; "
+                    "system must be in TIER_1_SOFT_FREEZE"
+                )
+
             prev = self._state
             self._state = CircuitBreakerState.TIER_2_HARD_ABORT
             self._manual_freeze = False
@@ -500,6 +528,21 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         """Trigger instantaneous Tier 2 Hard-Abort without intermediate soft freeze."""
         now_utc = timestamp_utc or datetime.now(UTC).isoformat()
         with self._lock:
+            if self._state == CircuitBreakerState.TIER_2_HARD_ABORT:
+                if self._transitions:
+                    return self._transitions[-1]
+                trans = CircuitBreakerTransition(
+                    timestamp_utc=now_utc,
+                    previous_state=CircuitBreakerState.TIER_2_HARD_ABORT,
+                    new_state=CircuitBreakerState.TIER_2_HARD_ABORT,
+                    reason=reason,
+                    trigger_severity=AlertSeverity.EMERGENCY,
+                    consecutive_healthy_ticks=0,
+                    is_manual_override=False,
+                )
+                self._transitions.append(trans)
+                return trans
+
             prev = self._state
             self._state = CircuitBreakerState.TIER_2_HARD_ABORT
             self._manual_freeze = False
@@ -603,6 +646,11 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         now_utc = timestamp_utc or datetime.now(UTC).isoformat()
         perf_now = time.perf_counter()
         with self._lock:
+            if self._state == CircuitBreakerState.NORMAL:
+                raise DomainViolation(
+                    "Cannot force recovery when system is already in NORMAL state"
+                )
+
             prev = self._state
             self._state = CircuitBreakerState.NORMAL
             self._manual_freeze = False
@@ -1092,7 +1140,7 @@ class CanaryCircuitBreakerDrillConfig:
     manifest_path: Path = DEFAULT_CANARY_STAGING_MANIFEST_PATH
     registry_path: Path = DEFAULT_CANDIDATE_REGISTRY_PATH
     output_dir: Path = DEFAULT_PHASE273_OUTPUT_DIR
-    target_track: str = "all"  # "track_1", "track_2", "track_3", "track_4", or "all"
+    target_track: str = "all"
     recovery_hysteresis_ticks: int = DEFAULT_RECOVERY_HYSTERESIS_TICKS
     max_reconnect_attempts: int = DEFAULT_MAX_RECONNECT_ATTEMPTS
     grace_timeout_seconds: float = DEFAULT_GRACE_TIMEOUT_SECONDS
@@ -1104,6 +1152,57 @@ class CanaryCircuitBreakerDrillConfig:
     operator_id: str = "operator-lead-001"
     override_rationale: str = "Operator manual override verification drill"
     simulate_adverse_drift: bool = False
+
+    def __post_init__(self) -> None:
+        if self.recovery_hysteresis_ticks <= 0:
+            raise DomainViolation(
+                f"recovery_hysteresis_ticks must be positive, got {self.recovery_hysteresis_ticks}"
+            )
+        if self.max_reconnect_attempts <= 0:
+            raise DomainViolation(
+                f"max_reconnect_attempts must be positive, got {self.max_reconnect_attempts}"
+            )
+        if self.grace_timeout_seconds <= 0:
+            raise DomainViolation(
+                f"grace_timeout_seconds must be positive, got {self.grace_timeout_seconds}"
+            )
+        if self.latency_warning_threshold_ms <= 0:
+            raise DomainViolation(
+                "latency_warning_threshold_ms must be positive, "
+                f"got {self.latency_warning_threshold_ms}"
+            )
+        if self.clock_drift_critical_threshold_ms <= 0:
+            raise DomainViolation(
+                "clock_drift_critical_threshold_ms must be positive, "
+                f"got {self.clock_drift_critical_threshold_ms}"
+            )
+        valid_tracks = {
+            "all",
+            "*",
+            "1",
+            "2",
+            "3",
+            "4",
+            "track_1",
+            "track_2",
+            "track_3",
+            "track_4",
+            "cli_override",
+        }
+        if self.target_track not in valid_tracks:
+            raise DomainViolation(
+                f"Unknown incident drill track ID: {self.target_track}. "
+                f"Must be one of {sorted(valid_tracks)}"
+            )
+        force_count = sum([self.force_freeze, self.force_abort, self.force_recover])
+        if force_count > 1:
+            raise DomainViolation(
+                "Cannot specify multiple conflicting force override flags "
+                f"(force_freeze={self.force_freeze}, force_abort={self.force_abort}, "
+                f"force_recover={self.force_recover})"
+            )
+        if not self.operator_id or not self.operator_id.strip():
+            raise DomainViolation("operator_id cannot be empty")
 
 
 class CanaryCircuitBreakerDrillRunner:
@@ -1922,6 +2021,48 @@ class CanaryCircuitBreakerDrillRunner:
         action_desc: list[str] = []
         now_str = datetime.now(UTC).isoformat()
 
+        has_explicit_action = (
+            self.config.force_freeze or self.config.force_abort or self.config.force_recover
+        )
+        if not has_explicit_action:
+            # Default CLI override sequence: manual soft freeze followed by manual recovery
+            tr_fr = sm.force_freeze(
+                operator_id=self.config.operator_id,
+                rationale="CLI override default drill: manual soft-freeze",
+                timestamp_utc=now_str,
+            )
+            assert self.store is not None
+            self.store.record_circuit_breaker_transition(incident_id, track_id, tr_fr)
+            timeline.append(
+                {
+                    "timestamp_utc": now_str,
+                    "event": "cli_operator_force_freeze",
+                    "operator_id": self.config.operator_id,
+                    "previous_state": tr_fr.previous_state.value,
+                    "new_state": tr_fr.new_state.value,
+                    "reason": tr_fr.reason,
+                }
+            )
+            action_desc.append("force-freeze")
+
+            tr_rec = sm.force_recover(
+                operator_id=self.config.operator_id,
+                rationale="CLI override default drill: manual recovery",
+                timestamp_utc=now_str,
+            )
+            self.store.record_circuit_breaker_transition(incident_id, track_id, tr_rec)
+            timeline.append(
+                {
+                    "timestamp_utc": now_str,
+                    "event": "cli_operator_force_recover",
+                    "operator_id": self.config.operator_id,
+                    "previous_state": tr_rec.previous_state.value,
+                    "new_state": tr_rec.new_state.value,
+                    "reason": tr_rec.reason,
+                }
+            )
+            action_desc.append("force-recover")
+
         if self.config.force_freeze:
             tr = sm.force_freeze(
                 operator_id=self.config.operator_id,
@@ -2070,12 +2211,12 @@ class CanaryCircuitBreakerDrillRunner:
         starting_equity = ACCOUNTING_STARTING_EQUITY
         final_cash = ACCOUNTING_FINAL_CASH
         realized_pnl = ACCOUNTING_REALIZED_PNL
-        unrealized_pnl = Decimal("0.00")
-        final_equity = final_cash + unrealized_pnl
-
         # If simulated adverse drift is injected, perturb cash balance to trigger violation
         if self.config.simulate_adverse_drift:
             final_cash = final_cash - Decimal("0.05")
+
+        unrealized_pnl = Decimal("0.00")
+        final_equity = final_cash + unrealized_pnl
 
         drift = abs(final_cash - (starting_equity + realized_pnl))
         zero_drift = drift < DOUBLE_ENTRY_MAX_DRIFT
@@ -2299,12 +2440,16 @@ class CanaryCircuitBreakerDrillRunner:
         cb_hash = compute_file_sha256(cb_summary_path)
         all_artifact_hashes["circuit-breaker-summary.json"] = cb_hash
 
-        # Determine terminal circuit state from the last executed track result
+        # Determine terminal circuit state and accounting metrics from track results
+        last_track = track_results[-1] if track_results else None
         final_circuit_state = (
-            track_results[-1].incident_record.final_state.value
-            if track_results
+            last_track.incident_record.final_state.value
+            if last_track
             else CircuitBreakerState.NORMAL.value
         )
+        final_cash_str = last_track.final_cash_usdt if last_track else "100.00"
+        drift_str = last_track.accounting_drift_usdt if last_track else "0"
+        final_equity_str = final_cash_str
 
         # 3. Write paper-summary.json
         paper_summary_path = self.config.output_dir / "paper-summary.json"
@@ -2314,20 +2459,20 @@ class CanaryCircuitBreakerDrillRunner:
             "timestamp_utc": datetime.now(UTC).isoformat(),
             "circuit_state": final_circuit_state,
             "starting_capital_usdt": "100.00",
-            "final_cash_usdt": "100.00",
-            "final_equity_usdt": "100.00",
+            "final_cash_usdt": final_cash_str,
+            "final_equity_usdt": final_equity_str,
             "realized_pnl_usdt": "0.00",
             "total_fees_usdt": "0.00",
             "total_slippage_usdt": "0.00",
-            "drift_usdt": "0",
-            "zero_balance_drift": True,
+            "drift_usdt": drift_str,
+            "zero_balance_drift": all_zero_drift,
             "orders_count": 0,
             "fills_count": 0,
             "cancelled_orders_count": 0,
             "liquidations_count": 0,
             "max_observed_margin_utilization": "0",
             "min_observed_reserve_buffer": "1",
-            "margin_guardrails_compliant": True,
+            "margin_guardrails_compliant": all_margin_ok,
             "single_position_invariant": True,
             "candidates": {
                 sym: {
@@ -2366,9 +2511,9 @@ class CanaryCircuitBreakerDrillRunner:
             candidates=candidates_summary,
             portfolio_accounting={
                 "starting_equity_usdt": "100.00",
-                "final_cash_usdt": "100.00",
+                "final_cash_usdt": final_cash_str,
                 "realized_pnl_usdt": "0.00",
-                "drift_usdt": "0",
+                "drift_usdt": drift_str,
                 "zero_balance_drift": all_zero_drift,
                 "margin_guardrails_compliant": all_margin_ok,
                 "max_observed_margin_utilization": "0",

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -766,3 +767,132 @@ class TestPhase273CliRunner:
         )
         assert IncidentTrackId.CLI_OVERRIDE.value in cb_summary["tracks_summary"]
         assert cb_summary["circuit_breaker_stats"]["manual_overrides_count"] >= 1
+
+    def test_cli_mutually_exclusive_force_flags(self) -> None:
+        parser = build_arg_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--force-freeze", "--force-abort"])
+
+    def test_cli_override_without_flags_runs_default_drill(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track="cli_override",
+            operator_id="test-op-default",
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, _, _, _, _, _ = runner.execute_drill()
+        assert "cli_override" in summary.tracks_executed
+        override_info = summary.tracks_summary["cli_override"]
+        assert override_info["status"] == "OPERATOR_MANUAL_RESOLVED"
+        assert override_info["transitions_count"] == 2
+
+
+class TestPhase273AdversarialHardening:
+    """Adversarial stress tests for edge cases, non-finite telemetry, and illegal transitions."""
+
+    def test_non_finite_telemetry_nan_triggers_catastrophic_abort(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        # Ingest NaN clock drift
+        tr = sm.process_tick(rtt_ms=25.0, drift_ms=float("nan"), jitter_ms=2.0)
+        assert tr is not None
+        assert tr.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert tr.trigger_severity == AlertSeverity.EMERGENCY
+        assert sm.is_hard_aborted()
+        assert "non-finite telemetry" in tr.reason
+
+    def test_non_finite_telemetry_inf_triggers_catastrophic_abort(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        tr = sm.process_tick(rtt_ms=float("inf"), drift_ms=10.0, jitter_ms=2.0)
+        assert tr is not None
+        assert tr.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert sm.is_hard_aborted()
+
+    def test_is_healthy_tick_rejects_nan_and_inf(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        assert sm.is_healthy_tick(rtt_ms=float("nan"), drift_ms=10.0) is False
+        assert sm.is_healthy_tick(rtt_ms=25.0, drift_ms=float("nan")) is False
+        assert sm.is_healthy_tick(rtt_ms=25.0, drift_ms=10.0, jitter_ms=float("inf")) is False
+
+    def test_force_recover_from_normal_raises_domain_violation(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        assert sm.is_normal()
+        with pytest.raises(DomainViolation, match="already in NORMAL state"):
+            sm.force_recover(operator_id="op-1")
+
+    def test_escalate_outage_from_normal_raises_domain_violation(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        assert sm.is_normal()
+        with pytest.raises(
+            DomainViolation,
+            match="Cannot escalate outage when circuit breaker is in NORMAL",
+        ):
+            sm.escalate_outage(reason="Invalid escalation")
+
+    def test_duplicate_trigger_catastrophic_abort_deduplication(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        sm.trigger_catastrophic_abort(reason="First catastrophic abort")
+        assert len(sm.transitions) == 1
+        # Second call returns existing transition without appending duplicates
+        tr2 = sm.trigger_catastrophic_abort(reason="Second catastrophic abort")
+        assert tr2.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert len(sm.transitions) == 1
+
+    def test_drill_config_validation_rejects_invalid_values(self) -> None:
+        with pytest.raises(DomainViolation, match="Unknown incident drill track ID"):
+            CanaryCircuitBreakerDrillConfig(target_track="invalid_track_name")
+        with pytest.raises(DomainViolation, match="recovery_hysteresis_ticks must be positive"):
+            CanaryCircuitBreakerDrillConfig(recovery_hysteresis_ticks=0)
+        with pytest.raises(DomainViolation, match="max_reconnect_attempts must be positive"):
+            CanaryCircuitBreakerDrillConfig(max_reconnect_attempts=-1)
+        with pytest.raises(DomainViolation, match="grace_timeout_seconds must be positive"):
+            CanaryCircuitBreakerDrillConfig(grace_timeout_seconds=0.0)
+        with pytest.raises(DomainViolation, match="latency_warning_threshold_ms must be positive"):
+            CanaryCircuitBreakerDrillConfig(latency_warning_threshold_ms=0.0)
+        with pytest.raises(
+            DomainViolation,
+            match="clock_drift_critical_threshold_ms must be positive",
+        ):
+            CanaryCircuitBreakerDrillConfig(clock_drift_critical_threshold_ms=-10.0)
+        with pytest.raises(DomainViolation, match="operator_id cannot be empty"):
+            CanaryCircuitBreakerDrillConfig(operator_id="   ")
+
+    def test_drill_config_validation_rejects_conflicting_force_flags(self) -> None:
+        with pytest.raises(
+            DomainViolation,
+            match="Cannot specify multiple conflicting force override flags",
+        ):
+            CanaryCircuitBreakerDrillConfig(force_freeze=True, force_abort=True)
+
+    def test_adverse_drift_propagates_faithfully_to_paper_summary(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track="track_1",
+            simulate_adverse_drift=True,
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, _, _, _, _, paper_path = runner.execute_drill()
+        assert summary.compliance["zero_balance_drift"] is False
+        assert summary.portfolio_accounting["final_cash_usdt"] == "99.95"
+        assert summary.portfolio_accounting["drift_usdt"] == "0.05"
+
+        paper_data = json.loads(paper_path.read_text(encoding="utf-8"))
+        assert paper_data["final_cash_usdt"] == "99.95"
+        assert paper_data["drift_usdt"] == "0.05"
+        assert paper_data["zero_balance_drift"] is False
+
+    def test_telemetry_tick_negative_sequence_num_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            TelemetryTick(
+                timestamp_utc="2026-09-18T10:00:00+00:00",
+                sequence_num=-1,
+                rtt_ms=25.0,
+                drift_ms=10.0,
+                jitter_ms=2.0,
+                is_healthy=True,
+            )

@@ -85,17 +85,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RECOVERY_HYSTERESIS_TICKS,
         help="Consecutive healthy stream ticks required for automated recovery (default: 5)",
     )
-    parser.add_argument(
+    override_group = parser.add_mutually_exclusive_group()
+    override_group.add_argument(
         "--force-freeze",
         action="store_true",
         help="Manual operator override: trigger Tier 1 Soft-Freeze",
     )
-    parser.add_argument(
+    override_group.add_argument(
         "--force-abort",
         action="store_true",
         help="Manual operator override: trigger Tier 2 Hard-Abort",
     )
-    parser.add_argument(
+    override_group.add_argument(
         "--force-recover",
         action="store_true",
         help="Manual operator override: trigger manual recovery to NORMAL",
