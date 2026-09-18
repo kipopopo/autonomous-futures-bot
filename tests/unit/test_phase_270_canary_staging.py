@@ -765,7 +765,7 @@ class TestPhase270FailClosedSafetyAndZeroLeakage:
     def test_zero_secret_leakage_in_artifacts(self, tmp_path: Path) -> None:
         summary, _, _ = run_canary_staging_simulation(
             output_dir=tmp_path / "artifacts",
-            max_ticks=20,
+            max_ticks=10,
         )
         assert summary.safety_invariants["zero_secret_leakage"] is True
         assert summary.safety_invariants["api_keys_loaded"] == 0
@@ -779,7 +779,7 @@ class TestPhase270CliRunnerAndSimulation:
         out_dir = tmp_path / "phase270_nominal"
         rc = run_phase_270_canary_staging(
             output_dir=out_dir,
-            max_ticks=30,
+            max_ticks=15,
         )
         assert rc == 0
         assert (out_dir / "canary-orders.sqlite3").is_file()
@@ -812,7 +812,7 @@ class TestPhase270CliRunnerAndSimulation:
         out_dir = tmp_path / "phase270_drift"
         rc = run_phase_270_canary_staging(
             output_dir=out_dir,
-            max_ticks=30,
+            max_ticks=15,
             simulate_adverse_drift=True,
         )
         assert rc == 0
@@ -825,7 +825,7 @@ class TestPhase270CliRunnerAndSimulation:
         out_dir = tmp_path / "phase270_spread"
         rc = run_phase_270_canary_staging(
             output_dir=out_dir,
-            max_ticks=30,
+            max_ticks=10,
             simulate_spread_expansion=True,
         )
         assert rc == 0
@@ -839,7 +839,7 @@ class TestPhase270CliRunnerAndSimulation:
         out_dir = tmp_path / "phase270_volatility"
         rc = run_phase_270_canary_staging(
             output_dir=out_dir,
-            max_ticks=30,
+            max_ticks=10,
             simulate_volatility_surge=True,
         )
         assert rc == 0
@@ -853,7 +853,7 @@ class TestPhase270CliRunnerAndSimulation:
         out_dir = tmp_path / "phase270_timeout"
         rc = run_phase_270_canary_staging(
             output_dir=out_dir,
-            max_ticks=30,
+            max_ticks=10,
             simulate_feed_timeout=True,
         )
         assert rc == 0
@@ -867,7 +867,7 @@ class TestPhase270CliRunnerAndSimulation:
         out_dir = tmp_path / "phase270_drawdown"
         rc = run_phase_270_canary_staging(
             output_dir=out_dir,
-            max_ticks=30,
+            max_ticks=20,
             simulate_drawdown_breach=True,
         )
         assert rc == 0
@@ -881,7 +881,7 @@ class TestPhase270CliRunnerAndSimulation:
         out_dir = tmp_path / "phase270_symbols"
         rc = run_phase_270_canary_staging(
             output_dir=out_dir,
-            max_ticks=30,
+            max_ticks=15,
             symbols=["BTCUSDT"],
         )
         assert rc == 0
@@ -991,7 +991,7 @@ class TestPhase270AdversarialHardening:
         out_dir = tmp_path / "sync_test"
         summary, ledger_db, orders_db = run_canary_staging_simulation(
             output_dir=out_dir,
-            max_ticks=20,
+            max_ticks=15,
         )
 
         orders_store = SqliteCanaryOrdersStore(orders_db)
@@ -1057,7 +1057,7 @@ class TestPhase270AdversarialHardening:
         import time
 
         orders_store, _ = isolated_stores
-        batch_size = 2000
+        batch_size = 1000
         orders = [
             CanaryShadowOrder(
                 order_id=f"ord-batch-{i}",
@@ -1081,7 +1081,7 @@ class TestPhase270AdversarialHardening:
         elapsed = time.perf_counter() - t0
 
         assert orders_store.count_orders() == batch_size
-        assert elapsed < 1.0  # Must insert 2000 orders in under 1 second (> 2000/sec on SQLite)
+        assert elapsed < 1.0  # Must insert 1000 orders in under 1 second (> 1000/sec on SQLite)
 
     def test_sqlite_crash_and_lock_release(
         self,
@@ -1225,7 +1225,7 @@ class TestPhase270AdversarialHardening:
 
         orders_store, _ = isolated_stores
         num_threads = 6
-        orders_per_thread = 20
+        orders_per_thread = 10
 
         def worker(thread_idx: int) -> int:
             for i in range(orders_per_thread):

@@ -246,6 +246,7 @@ class SqliteCanaryOrdersStore:
         conn = sqlite3.connect(self.path, timeout=10.0)
         conn.execute("PRAGMA busy_timeout = 5000;")
         conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
         return conn
 
     def _init_db(self) -> None:
@@ -526,6 +527,7 @@ class SqliteCanaryShadowLedger:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=10.0)
         conn.execute("PRAGMA busy_timeout = 5000;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
         return conn
 
     def _init_db(self) -> None:
@@ -1327,7 +1329,25 @@ class CanaryShadowExecutionEngine:
         if self.circuit_state == CanaryCircuitState.TIER1_SOFT_DEESCALATION:
             return False, "CIRCUIT_TIER1_SOFT_DEESCALATION_FREEZE", None
 
-        # Gate 2: Micro notional cap guardrail (<= 5.00 USDT)
+        # Gate 2: Candidate authorization against Canary Staging Manifest
+        if symbol not in self.manifest.candidates:
+            return (
+                False,
+                f"UNAUTHORIZED_SYMBOL: symbol {symbol} is not staged in canary manifest",
+                None,
+            )
+        cand_entry = self.manifest.candidates[symbol]
+        if candidate_id != cand_entry.candidate_id:
+            return (
+                False,
+                (
+                    f"CANDIDATE_ID_MISMATCH: candidate {candidate_id} does not match "
+                    f"staged candidate {cand_entry.candidate_id} for symbol {symbol}"
+                ),
+                None,
+            )
+
+        # Gate 3: Micro notional cap guardrail (<= 5.00 USDT)
         qty = safe_decimal(quantity)
         px = safe_decimal(limit_price)
         if qty <= Decimal("0") or px <= Decimal("0"):
@@ -1341,7 +1361,7 @@ class CanaryShadowExecutionEngine:
                 None,
             )
 
-        # Gate 3: Single-position invariant per symbol
+        # Gate 4: Single-position invariant per symbol
         if symbol in self.open_positions:
             return (
                 False,
@@ -1362,7 +1382,7 @@ class CanaryShadowExecutionEngine:
                     None,
                 )
 
-        # Gate 4: Margin utilization and reserve buffer guardrails
+        # Gate 5: Margin utilization, reserve buffer, and candidate allocated margin guardrails
         required_margin = micro_notional  # 1.0x leverage
         new_locked = self.margin_locked + required_margin
         cur_eq = self.current_equity
@@ -1391,23 +1411,6 @@ class CanaryShadowExecutionEngine:
                 None,
             )
 
-        # Gate 5: Candidate authorization and allocated margin check from manifest
-        if symbol not in self.manifest.candidates:
-            return (
-                False,
-                f"UNAUTHORIZED_SYMBOL: symbol {symbol} is not staged in canary manifest",
-                None,
-            )
-        cand_entry = self.manifest.candidates[symbol]
-        if candidate_id != cand_entry.candidate_id:
-            return (
-                False,
-                (
-                    f"CANDIDATE_ID_MISMATCH: candidate {candidate_id} does not match "
-                    f"staged candidate {cand_entry.candidate_id} for symbol {symbol}"
-                ),
-                None,
-            )
         alloc_cap = cand_entry.allocated_risk_limits.allocated_margin_usdt
         if required_margin > alloc_cap:
             return (
@@ -1806,7 +1809,10 @@ def _load_canonical_bars(parquet_path: Path, max_rows: int = 500) -> pd.DataFram
     if key not in _PARQUET_CACHE:
         if not p.is_file():
             return pd.DataFrame()
-        df = pd.read_parquet(p)
+        try:
+            df = pd.read_parquet(p, columns=["timestamp", "close"])
+        except Exception:
+            df = pd.read_parquet(p)
         if df.empty or "timestamp" not in df.columns or "close" not in df.columns:
             return pd.DataFrame()
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
@@ -1901,6 +1907,9 @@ def run_canary_staging_simulation(
             engine.trigger_emergency_kill_switch(
                 reason="CLI operator explicitly invoked --trigger-kill-switch"
             )
+        elif max_ticks == 0:
+            # 0-tick dry run: no bar replay needed
+            pass
         else:
             # 4. Load canonical bars for active candidates
             hist_dir = Path(canonical_history_dir)
@@ -1925,7 +1934,10 @@ def run_canary_staging_simulation(
             indexed_bars: dict[str, dict[datetime, dict[str, Any]]] = {}
             for sym, df in bars_by_symbol.items():
                 indexed_bars[sym] = {
-                    r["timestamp"].to_pydatetime(): r for r in df.to_dict(orient="records")
+                    t: {"close": c}
+                    for t, c in zip(
+                        df["timestamp"].dt.to_pydatetime(), df["close"].values, strict=False
+                    )
                 }
 
             ticks_run = 0
