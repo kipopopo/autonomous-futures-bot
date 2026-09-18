@@ -29,6 +29,7 @@ from autonomous_futures.feed.circuit_breaker_drill import (  # noqa: E402
     JsonlIncidentSink,
     SqliteCanaryIncidentTelemetryStore,
     TelemetryTick,
+    verify_phase_273_hash_chain,
 )
 from autonomous_futures.feed.heartbeat_daemon import (  # noqa: E402
     ACCOUNTING_FINAL_CASH,
@@ -44,6 +45,7 @@ from autonomous_futures.paper.staging import (  # noqa: E402
 )
 from scripts.run_phase_273_circuit_breaker_drill import (  # noqa: E402
     build_arg_parser,
+    execute_phase_273_runner,
     format_summary_table,
 )
 from scripts.run_phase_273_circuit_breaker_drill import (  # noqa: E402
@@ -896,3 +898,146 @@ class TestPhase273AdversarialHardening:
                 jitter_ms=2.0,
                 is_healthy=True,
             )
+
+    def test_state_machine_initial_state_constructor(self) -> None:
+        # Default is NORMAL
+        sm_norm = CanaryCircuitBreakerRecoveryStateMachine()
+        assert sm_norm.current_state == CircuitBreakerState.NORMAL
+        assert sm_norm.is_normal()
+        assert len(sm_norm.transitions) == 0
+
+        # Direct initialization into TIER_1_SOFT_FREEZE
+        sm_freeze = CanaryCircuitBreakerRecoveryStateMachine(
+            initial_state=CircuitBreakerState.TIER_1_SOFT_FREEZE
+        )
+        assert sm_freeze.current_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+        assert sm_freeze.is_soft_frozen()
+        assert sm_freeze.is_manual_freeze is True
+        assert len(sm_freeze.transitions) == 0
+
+        # Direct initialization into TIER_2_HARD_ABORT
+        sm_abort = CanaryCircuitBreakerRecoveryStateMachine(
+            initial_state=CircuitBreakerState.TIER_2_HARD_ABORT
+        )
+        assert sm_abort.current_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert sm_abort.is_hard_aborted()
+        assert len(sm_abort.transitions) == 0
+
+        # Rejection of invalid initial_state
+        with pytest.raises(
+            DomainViolation, match="initial_state must be a CircuitBreakerState enum"
+        ):
+            CanaryCircuitBreakerRecoveryStateMachine(initial_state="INVALID_STATE")  # type: ignore
+
+    def test_force_recover_from_hard_abort_raises_domain_violation(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        sm.force_abort(operator_id="op-1")
+        assert sm.is_hard_aborted()
+        with pytest.raises(
+            DomainViolation,
+            match="Cannot force recovery when system is in TIER_2_HARD_ABORT",
+        ):
+            sm.force_recover(operator_id="op-1")
+
+    def test_force_abort_idempotency_does_not_duplicate_transitions(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        tr1 = sm.force_abort(operator_id="op-1", rationale="First abort")
+        assert tr1.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert sm.is_hard_aborted()
+        assert len(sm.transitions) == 1
+
+        tr2 = sm.force_abort(operator_id="op-1", rationale="Second abort")
+        assert tr2.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert len(sm.transitions) == 1
+
+    def test_force_freeze_idempotency_when_already_manually_frozen(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        tr1 = sm.force_freeze(operator_id="op-1", rationale="First freeze")
+        assert tr1.new_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+        assert sm.is_soft_frozen()
+        assert len(sm.transitions) == 1
+
+        tr2 = sm.force_freeze(operator_id="op-1", rationale="Second freeze")
+        assert tr2.new_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+        assert len(sm.transitions) == 1
+
+    def test_freeze_timestamp_perf_cleared_on_all_abort_paths(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        # 1. escalate_outage cleans up _freeze_timestamp_perf
+        sm.force_freeze(operator_id="op-1")
+        assert sm._freeze_timestamp_perf is not None
+        sm.escalate_outage(reason="escalate")
+        assert sm._freeze_timestamp_perf is None
+        assert sm.escalation_latency_ms > 0
+
+        # 2. trigger_catastrophic_abort cleans up _freeze_timestamp_perf
+        sm.reset()
+        sm.force_freeze(operator_id="op-1")
+        assert sm._freeze_timestamp_perf is not None
+        sm.trigger_catastrophic_abort(reason="catastrophic")
+        assert sm._freeze_timestamp_perf is None
+        assert sm.escalation_latency_ms > 0
+
+        # 3. process_tick catastrophic tick cleans up _freeze_timestamp_perf
+        sm.reset()
+        sm.force_freeze(operator_id="op-1")
+        assert sm._freeze_timestamp_perf is not None
+        sm.process_tick(rtt_ms=25.0, drift_ms=3000.0, is_catastrophic=True)
+        assert sm._freeze_timestamp_perf is None
+        assert sm.escalation_latency_ms > 0
+
+        # 4. force_abort cleans up _freeze_timestamp_perf
+        sm.reset()
+        sm.force_freeze(operator_id="op-1")
+        assert sm._freeze_timestamp_perf is not None
+        sm.force_abort(operator_id="op-1")
+        assert sm._freeze_timestamp_perf is None
+        assert sm.escalation_latency_ms > 0
+
+    def test_cli_track_chained_with_force_freeze_succeeds_without_crash(
+        self, tmp_path: Path
+    ) -> None:
+        ret = execute_phase_273_runner(
+            output_dir=tmp_path,
+            track="track_2",
+            force_freeze=True,
+            operator_id="test-op-chain",
+        )
+        assert ret == 0
+        summary_path = tmp_path / "circuit-breaker-summary.json"
+        summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
+        assert "track_2" in summary_data["tracks_summary"]
+        assert "cli_override" in summary_data["tracks_summary"]
+        assert summary_data["tracks_summary"]["track_2"]["status"] == "ESCALATED_HARD_ABORT"
+        assert summary_data["tracks_summary"]["cli_override"]["status"] == "OPERATOR_MANUAL_FREEZE"
+
+    def test_verify_hash_chain_cli_and_function(self, tmp_path: Path) -> None:
+        # Run drill with verify_hash_chain=True
+        ret = execute_phase_273_runner(
+            output_dir=tmp_path,
+            track="all",
+            verify_hash_chain=True,
+        )
+        assert ret == 0
+
+        # Standalone verification function returns True
+        assert verify_phase_273_hash_chain(output_dir=tmp_path) is True
+
+        # Tampering with an artifact causes verification to fail
+        report_path = tmp_path / "canary-incident-report.json"
+        tampered = json.loads(report_path.read_text(encoding="utf-8"))
+        tampered["phase"] = "phase_tampered"
+        report_path.write_text(json.dumps(tampered), encoding="utf-8")
+        assert verify_phase_273_hash_chain(output_dir=tmp_path) is False
+
+    def test_paper_summary_included_in_summary_artifact_hashes(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(output_dir=tmp_path, target_track="1")
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, _, _, _, _, paper_path = runner.execute_drill()
+        assert "paper-summary.json" in summary.artifact_hashes
+        expected_hash = compute_file_sha256(paper_path)
+        assert summary.artifact_hashes["paper-summary.json"] == expected_hash

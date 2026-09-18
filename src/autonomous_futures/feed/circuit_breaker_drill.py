@@ -217,7 +217,12 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         latency_warning_threshold_ms: float = LATENCY_WARNING_THRESHOLD_MS,
         clock_drift_critical_threshold_ms: float = CLOCK_DRIFT_CRITICAL_THRESHOLD_MS,
         jitter_threshold_ms: float = DEFAULT_JITTER_THRESHOLD_MS,
+        initial_state: CircuitBreakerState = CircuitBreakerState.NORMAL,
     ) -> None:
+        if not isinstance(initial_state, CircuitBreakerState):
+            raise DomainViolation(
+                f"initial_state must be a CircuitBreakerState enum, got {initial_state}"
+            )
         if recovery_hysteresis_ticks <= 0:
             raise DomainViolation(
                 f"recovery_hysteresis_ticks must be positive, got {recovery_hysteresis_ticks}"
@@ -240,11 +245,13 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         self.clock_drift_critical_threshold_ms = clock_drift_critical_threshold_ms
         self.jitter_threshold_ms = jitter_threshold_ms
 
-        self._state: CircuitBreakerState = CircuitBreakerState.NORMAL
-        self._manual_freeze: bool = False
+        self._state: CircuitBreakerState = initial_state
+        self._manual_freeze: bool = initial_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
         self._consecutive_healthy_ticks: int = 0
         self._transitions: list[CircuitBreakerTransition] = []
-        self._freeze_timestamp_perf: float | None = None
+        self._freeze_timestamp_perf: float | None = (
+            time.perf_counter() if initial_state == CircuitBreakerState.TIER_1_SOFT_FREEZE else None
+        )
         self._last_escalation_latency_ms: float = 0.0
         self._last_recovery_duration_ms: float = 0.0
         self._lock = threading.Lock()
@@ -348,6 +355,11 @@ class CanaryCircuitBreakerRecoveryStateMachine:
                     prev = self._state
                     self._state = CircuitBreakerState.TIER_2_HARD_ABORT
                     self._manual_freeze = False
+                    if self._freeze_timestamp_perf is not None:
+                        self._last_escalation_latency_ms = (
+                            perf_now - self._freeze_timestamp_perf
+                        ) * 1000.0
+                    self._freeze_timestamp_perf = None
                     if is_non_finite:
                         reason = anomaly_reason or (
                             "Catastrophic anomaly detected: non-finite telemetry "
@@ -500,6 +512,7 @@ class CanaryCircuitBreakerRecoveryStateMachine:
                 self._last_escalation_latency_ms = (perf_now - self._freeze_timestamp_perf) * 1000.0
             else:
                 self._last_escalation_latency_ms = 0.0
+            self._freeze_timestamp_perf = None
 
             trans = CircuitBreakerTransition(
                 timestamp_utc=now_utc,
@@ -546,6 +559,11 @@ class CanaryCircuitBreakerRecoveryStateMachine:
             prev = self._state
             self._state = CircuitBreakerState.TIER_2_HARD_ABORT
             self._manual_freeze = False
+            if self._freeze_timestamp_perf is not None:
+                self._last_escalation_latency_ms = (
+                    time.perf_counter() - self._freeze_timestamp_perf
+                ) * 1000.0
+            self._freeze_timestamp_perf = None
             trans = CircuitBreakerTransition(
                 timestamp_utc=now_utc,
                 previous_state=prev,
@@ -579,12 +597,16 @@ class CanaryCircuitBreakerRecoveryStateMachine:
                 raise DomainViolation(
                     "Cannot force soft-freeze when system is in TIER_2_HARD_ABORT"
                 )
+            if self._state == CircuitBreakerState.TIER_1_SOFT_FREEZE and self._manual_freeze:
+                if self._transitions:
+                    return self._transitions[-1]
 
             prev = self._state
             self._state = CircuitBreakerState.TIER_1_SOFT_FREEZE
             self._manual_freeze = True
             self._consecutive_healthy_ticks = 0
-            self._freeze_timestamp_perf = perf_now
+            if self._freeze_timestamp_perf is None:
+                self._freeze_timestamp_perf = perf_now
             trans = CircuitBreakerTransition(
                 timestamp_utc=now_utc,
                 previous_state=prev,
@@ -612,11 +634,34 @@ class CanaryCircuitBreakerRecoveryStateMachine:
     ) -> CircuitBreakerTransition:
         """Manual operator override to force Tier 2 Hard-Abort."""
         now_utc = timestamp_utc or datetime.now(UTC).isoformat()
+        perf_now = time.perf_counter()
         with self._lock:
+            if self._state == CircuitBreakerState.TIER_2_HARD_ABORT:
+                if self._transitions:
+                    return self._transitions[-1]
+                trans = CircuitBreakerTransition(
+                    timestamp_utc=now_utc,
+                    previous_state=CircuitBreakerState.TIER_2_HARD_ABORT,
+                    new_state=CircuitBreakerState.TIER_2_HARD_ABORT,
+                    reason=(
+                        f"Operator emergency override [{operator_id}]: "
+                        f"{rationale} (already aborted)"
+                    ),
+                    trigger_severity=AlertSeverity.EMERGENCY,
+                    consecutive_healthy_ticks=0,
+                    is_manual_override=True,
+                    operator_id=operator_id,
+                )
+                self._transitions.append(trans)
+                return trans
+
             prev = self._state
             self._state = CircuitBreakerState.TIER_2_HARD_ABORT
             self._manual_freeze = False
             self._consecutive_healthy_ticks = 0
+            if self._freeze_timestamp_perf is not None:
+                self._last_escalation_latency_ms = (perf_now - self._freeze_timestamp_perf) * 1000.0
+            self._freeze_timestamp_perf = None
             trans = CircuitBreakerTransition(
                 timestamp_utc=now_utc,
                 previous_state=prev,
@@ -649,6 +694,11 @@ class CanaryCircuitBreakerRecoveryStateMachine:
             if self._state == CircuitBreakerState.NORMAL:
                 raise DomainViolation(
                     "Cannot force recovery when system is already in NORMAL state"
+                )
+            if self._state == CircuitBreakerState.TIER_2_HARD_ABORT:
+                raise DomainViolation(
+                    "Cannot force recovery when system is in TIER_2_HARD_ABORT; "
+                    "permanent fail-closed halt requires administrative reset"
                 )
 
             prev = self._state
@@ -1286,12 +1336,9 @@ class CanaryCircuitBreakerDrillRunner:
                 or self.config.force_recover
                 or target == "cli_override"
             ):
-                initial_st = (
-                    track_results[-1].incident_record.final_state
-                    if track_results
-                    else CircuitBreakerState.NORMAL
+                override_res = self._run_cli_operator_override_track(
+                    initial_state=CircuitBreakerState.NORMAL
                 )
-                override_res = self._run_cli_operator_override_track(initial_state=initial_st)
                 track_results.append(override_res)
 
         finally:
@@ -1499,7 +1546,7 @@ class CanaryCircuitBreakerDrillRunner:
             accounting_drift_usdt=drift_res["drift_usdt"],
             zero_balance_drift=drift_res["zero_drift"],
             margin_guardrails_compliant=drift_res["margin_compliant"],
-            success=True,
+            success=bool(drift_res["zero_drift"]) and bool(drift_res["margin_compliant"]),
         )
 
     def _run_track_2_sustained_outage(self) -> DrillTrackResult:
@@ -1686,7 +1733,7 @@ class CanaryCircuitBreakerDrillRunner:
             accounting_drift_usdt=drift_res["drift_usdt"],
             zero_balance_drift=drift_res["zero_drift"],
             margin_guardrails_compliant=drift_res["margin_compliant"],
-            success=True,
+            success=bool(drift_res["zero_drift"]) and bool(drift_res["margin_compliant"]),
         )
 
     def _run_track_3_catastrophic_drift(self) -> DrillTrackResult:
@@ -1826,7 +1873,7 @@ class CanaryCircuitBreakerDrillRunner:
             accounting_drift_usdt=drift_res["drift_usdt"],
             zero_balance_drift=drift_res["zero_drift"],
             margin_guardrails_compliant=drift_res["margin_compliant"],
-            success=True,
+            success=bool(drift_res["zero_drift"]) and bool(drift_res["margin_compliant"]),
         )
 
     def _run_track_4_operator_intervention(self) -> DrillTrackResult:
@@ -1987,7 +2034,7 @@ class CanaryCircuitBreakerDrillRunner:
             accounting_drift_usdt=drift_res["drift_usdt"],
             zero_balance_drift=drift_res["zero_drift"],
             margin_guardrails_compliant=drift_res["margin_compliant"],
-            success=True,
+            success=bool(drift_res["zero_drift"]) and bool(drift_res["margin_compliant"]),
         )
 
     def _run_cli_operator_override_track(
@@ -2005,17 +2052,8 @@ class CanaryCircuitBreakerDrillRunner:
             recovery_hysteresis_ticks=self.config.recovery_hysteresis_ticks,
             latency_warning_threshold_ms=self.config.latency_warning_threshold_ms,
             clock_drift_critical_threshold_ms=self.config.clock_drift_critical_threshold_ms,
+            initial_state=initial_state,
         )
-        if initial_state == CircuitBreakerState.TIER_1_SOFT_FREEZE:
-            sm.force_freeze(
-                operator_id=self.config.operator_id,
-                rationale="Prior state initialized to TIER_1_SOFT_FREEZE",
-            )
-        elif initial_state == CircuitBreakerState.TIER_2_HARD_ABORT:
-            sm.force_abort(
-                operator_id=self.config.operator_id,
-                rationale="Prior state initialized to TIER_2_HARD_ABORT",
-            )
 
         timeline: list[dict[str, Any]] = []
         action_desc: list[str] = []
@@ -2199,7 +2237,7 @@ class CanaryCircuitBreakerDrillRunner:
             accounting_drift_usdt=drift_res["drift_usdt"],
             zero_balance_drift=drift_res["zero_drift"],
             margin_guardrails_compliant=drift_res["margin_compliant"],
-            success=True,
+            success=bool(drift_res["zero_drift"]) and bool(drift_res["margin_compliant"]),
         )
 
     def _record_and_reconcile_accounting(
@@ -2370,23 +2408,50 @@ class CanaryCircuitBreakerDrillRunner:
 
         all_zero_drift = all(tr.zero_balance_drift for tr in track_results)
         all_margin_ok = all(tr.margin_guardrails_compliant for tr in track_results)
+        all_success = all(tr.success for tr in track_results)
+        executed_track_ids = {tr.track_id for tr in track_results}
+        full_suite = {
+            IncidentTrackId.TRACK_1.value,
+            IncidentTrackId.TRACK_2.value,
+            IncidentTrackId.TRACK_3.value,
+            IncidentTrackId.TRACK_4.value,
+        }.issubset(executed_track_ids)
+
+        auto_rec_verified = any(
+            tr.incident_record.status == "RESOLVED_AUTO_RECOVERY" for tr in track_results
+        )
+        outage_esc_verified = any(
+            tr.incident_record.status == "ESCALATED_HARD_ABORT" for tr in track_results
+        )
+        cat_abort_verified = any(
+            tr.incident_record.status == "FAIL_CLOSED_HARD_ABORT" for tr in track_results
+        )
+        manual_override_verified = any(
+            tr.incident_record.status.startswith("OPERATOR_MANUAL_") for tr in track_results
+        )
+
+        tracks_verified = (
+            (
+                auto_rec_verified
+                and outage_esc_verified
+                and cat_abort_verified
+                and manual_override_verified
+            )
+            if full_suite
+            else True
+        )
+
         compliance = {
             "zero_balance_drift": all_zero_drift,
             "margin_guardrails_compliant": all_margin_ok,
             "read_only_safety_compliant": True,
-            "auto_recovery_verified": any(
-                tr.incident_record.status == "RESOLVED_AUTO_RECOVERY" for tr in track_results
+            "auto_recovery_verified": auto_rec_verified,
+            "outage_escalation_verified": outage_esc_verified,
+            "catastrophic_abort_verified": cat_abort_verified,
+            "manual_override_verified": manual_override_verified,
+            "all_criteria_passed": (
+                all_zero_drift and all_margin_ok and all_success and tracks_verified
             ),
-            "outage_escalation_verified": any(
-                tr.incident_record.status == "ESCALATED_HARD_ABORT" for tr in track_results
-            ),
-            "catastrophic_abort_verified": any(
-                tr.incident_record.status == "FAIL_CLOSED_HARD_ABORT" for tr in track_results
-            ),
-            "manual_override_verified": any(
-                tr.incident_record.status.startswith("OPERATOR_MANUAL_") for tr in track_results
-            ),
-            "all_criteria_passed": all_zero_drift and all_margin_ok,
         }
 
         # 1. Write canary-incident-report.json
@@ -2498,6 +2563,10 @@ class CanaryCircuitBreakerDrillRunner:
         with open(paper_summary_path, "wb") as f:
             f.write(paper_bytes)
 
+        paper_hash = compute_file_sha256(paper_summary_path)
+        summary_artifact_hashes = dict(all_artifact_hashes)
+        summary_artifact_hashes["paper-summary.json"] = paper_hash
+
         summary = Phase273DrillSummary(
             phase="phase_273",
             description="Phase 273 Canary Circuit Breaker Recovery & Incident Drill Summary",
@@ -2521,7 +2590,7 @@ class CanaryCircuitBreakerDrillRunner:
             },
             safety_invariants=safety_invariants,
             compliance=compliance,
-            artifact_hashes=all_artifact_hashes,
+            artifact_hashes=summary_artifact_hashes,
         )
 
         return (
@@ -2532,3 +2601,106 @@ class CanaryCircuitBreakerDrillRunner:
             cb_summary_path,
             paper_summary_path,
         )
+
+
+def verify_phase_273_hash_chain(
+    output_dir: Path | str = DEFAULT_PHASE273_OUTPUT_DIR,
+    manifest_path: Path | str = DEFAULT_CANARY_STAGING_MANIFEST_PATH,
+    registry_path: Path | str = DEFAULT_CANDIDATE_REGISTRY_PATH,
+) -> bool:
+    """Verify cryptographic SHA-256 DAG hash chain across generated artifacts."""
+    out_dir = Path(output_dir)
+    m_path = Path(manifest_path)
+    r_path = Path(registry_path)
+
+    if not m_path.exists() or not r_path.exists():
+        logger.error("Missing manifest or registry at %s / %s", m_path, r_path)
+        return False
+
+    manifest, _ = load_and_validate_canary_staging_manifest(
+        manifest_path=m_path,
+        registry_path=r_path,
+    )
+
+    jsonl_path = out_dir / "canary-incidents.jsonl"
+    db_path = out_dir / "canary-incident-telemetry.sqlite3"
+    report_path = out_dir / "canary-incident-report.json"
+    cb_summary_path = out_dir / "circuit-breaker-summary.json"
+    paper_summary_path = out_dir / "paper-summary.json"
+
+    required_files = [jsonl_path, db_path, report_path, cb_summary_path, paper_summary_path]
+    for p in required_files:
+        if not p.exists():
+            logger.error("Required Phase 273 artifact missing: %s", p)
+            return False
+
+    actual_jsonl_hash = compute_file_sha256(jsonl_path)
+    actual_db_hash = compute_file_sha256(db_path)
+    actual_report_hash = compute_file_sha256(report_path)
+    actual_cb_hash = compute_file_sha256(cb_summary_path)
+
+    # 1. Verify canary-incident-report.json
+    try:
+        report_data = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.error("Failed to parse %s: %s", report_path, exc)
+        return False
+
+    if report_data.get("staged_manifest_hash") != manifest.manifest_hash:
+        logger.error("Report staged_manifest_hash mismatch")
+        return False
+    rep_hashes = report_data.get("artifact_hashes", {})
+    if rep_hashes.get("canary-incidents.jsonl") != actual_jsonl_hash:
+        logger.error("Report canary-incidents.jsonl hash mismatch")
+        return False
+    if rep_hashes.get("canary-incident-telemetry.sqlite3") != actual_db_hash:
+        logger.error("Report canary-incident-telemetry.sqlite3 hash mismatch")
+        return False
+
+    # 2. Verify circuit-breaker-summary.json
+    try:
+        cb_data = json.loads(cb_summary_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.error("Failed to parse %s: %s", cb_summary_path, exc)
+        return False
+
+    if cb_data.get("staged_manifest_hash") != manifest.manifest_hash:
+        logger.error("Circuit breaker summary staged_manifest_hash mismatch")
+        return False
+    cb_hashes = cb_data.get("artifact_hashes", {})
+    if cb_hashes.get("canary-incidents.jsonl") != actual_jsonl_hash:
+        logger.error("CB summary canary-incidents.jsonl hash mismatch")
+        return False
+    if cb_hashes.get("canary-incident-telemetry.sqlite3") != actual_db_hash:
+        logger.error("CB summary canary-incident-telemetry.sqlite3 hash mismatch")
+        return False
+    if cb_hashes.get("canary-incident-report.json") != actual_report_hash:
+        logger.error("CB summary canary-incident-report.json hash mismatch")
+        return False
+
+    # 3. Verify paper-summary.json
+    try:
+        paper_data = json.loads(paper_summary_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.error("Failed to parse %s: %s", paper_summary_path, exc)
+        return False
+
+    if paper_data.get("staged_manifest_hash") != manifest.manifest_hash:
+        logger.error("Paper summary staged_manifest_hash mismatch")
+        return False
+    p_hashes = paper_data.get("artifact_hashes", {})
+    if p_hashes.get("canary-incidents.jsonl") != actual_jsonl_hash:
+        logger.error("Paper summary canary-incidents.jsonl hash mismatch")
+        return False
+    if p_hashes.get("canary-incident-telemetry.sqlite3") != actual_db_hash:
+        logger.error("Paper summary canary-incident-telemetry.sqlite3 hash mismatch")
+        return False
+    if p_hashes.get("canary-incident-report.json") != actual_report_hash:
+        logger.error("Paper summary canary-incident-report.json hash mismatch")
+        return False
+    if p_hashes.get("circuit-breaker-summary.json") != actual_cb_hash:
+        logger.error("Paper summary circuit-breaker-summary.json hash mismatch")
+        return False
+
+    logger.info("Cryptographic SHA-256 DAG hash chain verified successfully.")
+    return True

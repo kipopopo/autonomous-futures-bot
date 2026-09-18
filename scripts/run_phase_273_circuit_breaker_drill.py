@@ -27,6 +27,7 @@ from autonomous_futures.feed.circuit_breaker_drill import (  # noqa: E402
     CanaryCircuitBreakerDrillConfig,
     CanaryCircuitBreakerDrillRunner,
     Phase273DrillSummary,
+    verify_phase_273_hash_chain,
 )
 from autonomous_futures.paper.canary_staging import (  # noqa: E402
     DEFAULT_CANARY_STAGING_MANIFEST_PATH,
@@ -117,6 +118,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--simulate-adverse-drift",
         action="store_true",
         help="Inject synthetic accounting drift (> 1e-15 USDT) to trigger catastrophic failure",
+    )
+    parser.add_argument(
+        "--verify-hash-chain",
+        action="store_true",
+        help=(
+            "Verify cryptographic SHA-256 DAG hash chain across generated "
+            "artifacts and staging manifest"
+        ),
     )
     parser.add_argument(
         "--json",
@@ -231,6 +240,7 @@ def execute_phase_273_runner(
     rationale: str = "Phase 273 manual operator intervention verification drill",
     simulate_adverse_drift: bool = False,
     json_output: bool = False,
+    verify_hash_chain: bool = False,
 ) -> int:
     """Execute deterministic Phase 273 circuit breaker drill workflow."""
     # Normalize track string (e.g. "1" -> "track_1")
@@ -255,6 +265,20 @@ def execute_phase_273_runner(
     runner = CanaryCircuitBreakerDrillRunner(cfg)
 
     summary, db_path, incidents_path, rep_path, cb_sum_path, paper_sum_path = runner.execute_drill()
+
+    if verify_hash_chain:
+        hash_ok = verify_phase_273_hash_chain(
+            output_dir=output_dir,
+            manifest_path=manifest_path,
+            registry_path=registry_path,
+        )
+        if not hash_ok:
+            logger.error("Cryptographic SHA-256 DAG hash chain verification failed.")
+            return 1
+        logger.info("Cryptographic SHA-256 DAG hash chain verified successfully.")
+        sys.stdout.write(
+            "[PASS] Cryptographic SHA-256 DAG hash chain verified across all Phase 273 artifacts.\n"
+        )
 
     if json_output:
         sys.stdout.write(json.dumps(summary.model_dump(mode="json"), indent=2) + "\n")
@@ -288,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
             rationale=args.rationale,
             simulate_adverse_drift=args.simulate_adverse_drift,
             json_output=args.json,
+            verify_hash_chain=args.verify_hash_chain,
         )
     except KeyboardInterrupt:
         logger.info("Circuit breaker incident drill cancelled by operator")
