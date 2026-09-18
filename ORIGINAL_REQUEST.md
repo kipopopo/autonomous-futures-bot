@@ -947,3 +947,65 @@ Enforce portfolio safety and rigorous engineering hygiene:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-18T11:55:18Z
+
+Implement the automated canary circuit breaker recovery state machine, dynamic soft-freeze de-escalation, and fail-closed incident response drill under Candidate Registry Manifest Version 2 (Phase 273) to validate automated incident recovery, tamper-evident post-mortem generation, and zero-drift balance integrity under adverse stream conditions.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Canary Circuit Breaker State Machine & Incident Response Runner
+Implement and execute the deterministic Phase 273 incident response and circuit breaker runner (`scripts/run_phase_273_circuit_breaker_drill.py` & `src/autonomous_futures/feed/circuit_breaker_drill.py`):
+- Expand the circuit breaker model into a full 3-state autonomous recovery state machine:
+  - `NORMAL`: Active public stream monitoring and health tick emission.
+  - `TIER_1_SOFT_FREEZE`: Transient freeze on stream timeout or latency/drift anomalies; suspends canary activity while preserving position safety and listening for stream recovery.
+  - `TIER_2_HARD_ABORT`: Permanent fail-closed emergency halt triggered by persistent partition, catastrophic drift, or accounting anomaly.
+- Implement an automated self-healing recovery transition (`TIER_1_SOFT_FREEZE -> NORMAL`) when healthy stream ticks (latency < 300ms, drift <= 1000ms, jitter nominal) are continuously observed for a configurable hysteresis threshold (e.g. $K=5$ consecutive healthy ticks).
+- Support manual operator overrides (`--force-freeze`, `--force-abort`, `--force-recover`).
+
+### R2. Deterministic Incident Simulation Tracks & Post-Mortem Logging
+Execute multi-scenario incident drills across defined adverse condition tracks:
+1. **Track 1: Transient Partition & Auto-Recovery Drill** (Simulate temporary feed drop -> trigger Tier 1 Soft-Freeze -> inject restored stream -> verify automated transition back to Normal).
+2. **Track 2: Sustained Outage Escalation Drill** (Feed silence exceeds maximum reconnect attempts or grace timeout -> escalate Tier 1 Soft-Freeze to Tier 2 Hard-Abort).
+3. **Track 3: Catastrophic Drift & Tamper Abort Drill** (Severe accounting or clock drift anomaly -> instantaneous Tier 2 Hard-Abort without intermediate soft freeze).
+4. **Track 4: Operator Manual Intervention Drill** (Operator CLI signal triggers manual soft-freeze and manual recovery).
+- Persist structured incident records into `canary-incidents.jsonl` and isolated SQLite database (`artifacts/research/phase273/canary-incident-telemetry.sqlite3`).
+
+### R3. Persistent Post-Mortem Reports & Cryptographic Packaging
+Generate comprehensive incident audit reports in `artifacts/research/phase273/`:
+- Produce detailed incident post-mortem report (`canary-incident-report.json`) detailing state transition timelines, incident root causes, escalation latencies, and recovery durations.
+- Generate structured summaries: `circuit-breaker-summary.json` and `paper-summary.json` with cryptographic SHA-256 digests.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Remote CI Polling
+Enforce portfolio safety and rigorous engineering hygiene:
+- Reconcile portfolio balance: starting equity 100.00 USDT, final cash 100.00 USDT, realized PnL 0.00 USDT, verifying exact zero balance drift ($\text{drift} = |\text{final\_cash} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Preserve 0.00% active margin utilization and 100.00% unencumbered reserve buffer throughout all drill tracks.
+- Ensure strict read-only containment: zero authenticated endpoints, zero real orders submitted (`orders: 0`), zero private keys loaded (`api_keys_loaded: 0`).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_273_circuit_breaker_drill.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### State Machine & Recovery
+- [ ] Circuit breaker correctly transitions between `NORMAL`, `TIER_1_SOFT_FREEZE`, and `TIER_2_HARD_ABORT`.
+- [ ] Automated recovery from `TIER_1_SOFT_FREEZE` to `NORMAL` verified after consecutive healthy telemetry ticks.
+- [ ] Manual operator overrides (`--force-freeze`, `--force-abort`, `--force-recover`) validated.
+
+### Incident Simulation & Post-Mortem
+- [ ] All 4 incident simulation tracks execute cleanly and generate structured logs in `canary-incidents.jsonl`.
+- [ ] Comprehensive post-mortem report (`canary-incident-report.json`) and isolated SQLite database generated in `artifacts/research/phase273/`.
+- [ ] SHA-256 cryptographic digests recorded for all generated artifacts.
+
+### Safety & Verification
+- [ ] Exact zero balance drift ($< 10^{-15}\text{ USDT}$) confirmed across all drill tracks.
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.

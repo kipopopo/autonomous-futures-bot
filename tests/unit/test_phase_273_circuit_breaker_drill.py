@@ -1,0 +1,567 @@
+"""Unit tests for Phase 273: Canary Circuit Breaker Drill & Recovery State Machine."""
+
+from __future__ import annotations
+
+import io
+import json
+import sys
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
+from autonomous_futures.feed.circuit_breaker_drill import (  # noqa: E402
+    CanaryCircuitBreakerDrillConfig,
+    CanaryCircuitBreakerDrillRunner,
+    CanaryCircuitBreakerRecoveryStateMachine,
+    CanaryIncidentRecord,
+    CircuitBreakerState,
+    CircuitBreakerTransition,
+    IncidentTrackId,
+    JsonlIncidentSink,
+    SqliteCanaryIncidentTelemetryStore,
+    TelemetryTick,
+)
+from autonomous_futures.feed.heartbeat_daemon import (  # noqa: E402
+    ACCOUNTING_FINAL_CASH,
+    ACCOUNTING_REALIZED_PNL,
+    ACCOUNTING_STARTING_EQUITY,
+    CLOCK_DRIFT_CRITICAL_THRESHOLD_MS,
+    DOUBLE_ENTRY_MAX_DRIFT,
+    AlertSeverity,
+)
+from autonomous_futures.paper.staging import (  # noqa: E402
+    assert_zero_secrets,
+    compute_file_sha256,
+)
+from scripts.run_phase_273_circuit_breaker_drill import (  # noqa: E402
+    build_arg_parser,
+    format_summary_table,
+)
+from scripts.run_phase_273_circuit_breaker_drill import (  # noqa: E402
+    main as cli_main,
+)
+
+
+@pytest.fixture
+def sm() -> CanaryCircuitBreakerRecoveryStateMachine:
+    """Provide clean recovery state machine with hysteresis K=5."""
+    return CanaryCircuitBreakerRecoveryStateMachine(recovery_hysteresis_ticks=5)
+
+
+@pytest.fixture
+def isolated_store(tmp_path: Path) -> SqliteCanaryIncidentTelemetryStore:
+    """Provide clean isolated SQLite store in a temporary directory."""
+    db_path = tmp_path / "test-canary-incident-telemetry.sqlite3"
+    return SqliteCanaryIncidentTelemetryStore(db_path)
+
+
+class TestPhase273RecoveryStateMachine:
+    """Validate 3-state autonomous recovery state machine and hysteresis de-escalation."""
+
+    def test_initial_state_is_normal(self, sm: CanaryCircuitBreakerRecoveryStateMachine) -> None:
+        assert sm.current_state == CircuitBreakerState.NORMAL
+        assert sm.is_normal()
+        assert not sm.is_soft_frozen()
+        assert not sm.is_hard_aborted()
+        assert sm.consecutive_healthy_ticks == 0
+        assert len(sm.transitions) == 0
+
+    def test_nominal_healthy_ticks_stay_normal(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        tr1 = sm.process_tick(rtt_ms=25.0, drift_ms=10.0, jitter_ms=3.0)
+        tr2 = sm.process_tick(rtt_ms=35.0, drift_ms=-12.0, jitter_ms=5.0)
+        assert tr1 is None
+        assert tr2 is None
+        assert sm.current_state == CircuitBreakerState.NORMAL
+
+    def test_transient_latency_spike_triggers_soft_freeze(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        tr = sm.process_tick(rtt_ms=350.0, drift_ms=10.0, jitter_ms=5.0)
+        assert tr is not None
+        assert tr.previous_state == CircuitBreakerState.NORMAL
+        assert tr.new_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+        assert tr.trigger_severity == AlertSeverity.CRITICAL
+        assert sm.is_soft_frozen()
+        assert not sm.is_hard_aborted()
+        assert len(sm.transitions) == 1
+
+    def test_clock_drift_breach_triggers_soft_freeze(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        tr = sm.process_tick(
+            rtt_ms=50.0,
+            drift_ms=CLOCK_DRIFT_CRITICAL_THRESHOLD_MS + 50.0,
+            jitter_ms=5.0,
+        )
+        assert tr is not None
+        assert tr.new_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+
+    def test_hysteresis_autonomous_recovery_after_k_healthy_ticks(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        # Trip to soft freeze
+        sm.process_tick(rtt_ms=400.0, drift_ms=10.0)
+        assert sm.current_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+
+        # Ingest 4 healthy ticks (sub-threshold, K=5)
+        for i in range(1, 5):
+            rec_tr = sm.process_tick(rtt_ms=25.0, drift_ms=10.0, jitter_ms=2.0)
+            assert rec_tr is None
+            assert sm.current_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+            assert sm.consecutive_healthy_ticks == i
+
+        # 5th healthy tick triggers automated self-healing recovery
+        final_tr = sm.process_tick(rtt_ms=25.0, drift_ms=10.0, jitter_ms=2.0)
+        assert final_tr is not None
+        assert final_tr.previous_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+        assert final_tr.new_state == CircuitBreakerState.NORMAL
+        assert final_tr.trigger_severity == AlertSeverity.INFO
+        assert final_tr.consecutive_healthy_ticks == 5
+        assert sm.current_state == CircuitBreakerState.NORMAL
+        assert sm.consecutive_healthy_ticks == 0
+
+    def test_unhealthy_tick_during_soft_freeze_resets_counter(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        sm.process_tick(rtt_ms=400.0, drift_ms=10.0)
+        # 3 healthy ticks
+        for _ in range(3):
+            sm.process_tick(rtt_ms=25.0, drift_ms=10.0)
+        assert sm.consecutive_healthy_ticks == 3
+
+        # Unhealthy tick (latency spike) resets counter to 0
+        sm.process_tick(rtt_ms=350.0, drift_ms=10.0)
+        assert sm.consecutive_healthy_ticks == 0
+        assert sm.current_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+
+        # Needs full 5 healthy ticks again to recover
+        for _ in range(4):
+            sm.process_tick(rtt_ms=25.0, drift_ms=10.0)
+        assert sm.current_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+
+        rec_tr = sm.process_tick(rtt_ms=25.0, drift_ms=10.0)
+        assert rec_tr is not None
+        assert sm.current_state == CircuitBreakerState.NORMAL
+
+    def test_escalate_outage_to_hard_abort(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        sm.process_tick(rtt_ms=400.0, drift_ms=10.0)
+        esc_tr = sm.escalate_outage(reason="Feed silence > 10s")
+        assert esc_tr.previous_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+        assert esc_tr.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert esc_tr.trigger_severity == AlertSeverity.EMERGENCY
+        assert sm.is_hard_aborted()
+
+    def test_fail_closed_invariant_under_hard_abort(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        sm.trigger_catastrophic_abort(reason="Emergency halt")
+        assert sm.is_hard_aborted()
+
+        # Healthy ticks do not cause auto-recovery under hard abort
+        for _ in range(10):
+            res = sm.process_tick(rtt_ms=15.0, drift_ms=5.0, jitter_ms=1.0)
+            assert res is None
+            assert sm.is_hard_aborted()
+
+    def test_catastrophic_drift_instantaneous_hard_abort(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        tr = sm.trigger_catastrophic_abort(reason="Catastrophic clock drift 5000ms")
+        assert tr.previous_state == CircuitBreakerState.NORMAL
+        assert tr.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert tr.trigger_severity == AlertSeverity.EMERGENCY
+        # Verify no intermediate soft freeze
+        states = [t.new_state for t in sm.transitions]
+        assert CircuitBreakerState.TIER_1_SOFT_FREEZE not in states
+
+    def test_manual_force_freeze(self, sm: CanaryCircuitBreakerRecoveryStateMachine) -> None:
+        tr = sm.force_freeze(operator_id="operator-001", rationale="Manual freeze test")
+        assert tr.previous_state == CircuitBreakerState.NORMAL
+        assert tr.new_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+        assert tr.is_manual_override is True
+        assert tr.operator_id == "operator-001"
+        assert sm.is_soft_frozen()
+
+    def test_manual_force_abort(self, sm: CanaryCircuitBreakerRecoveryStateMachine) -> None:
+        tr = sm.force_abort(operator_id="operator-001", rationale="Manual kill-switch")
+        assert tr.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert tr.is_manual_override is True
+        assert sm.is_hard_aborted()
+
+    def test_manual_force_recover(self, sm: CanaryCircuitBreakerRecoveryStateMachine) -> None:
+        sm.force_freeze(operator_id="operator-001")
+        tr = sm.force_recover(operator_id="operator-001", rationale="Manual unfreeze")
+        assert tr.previous_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+        assert tr.new_state == CircuitBreakerState.NORMAL
+        assert tr.is_manual_override is True
+        assert sm.is_normal()
+
+    def test_force_freeze_on_hard_abort_rejected(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        sm.force_abort(operator_id="operator-001")
+        with pytest.raises(DomainViolation, match="Cannot force soft-freeze"):
+            sm.force_freeze(operator_id="operator-001")
+
+    def test_invalid_hysteresis_ticks_rejected(self) -> None:
+        with pytest.raises(DomainViolation, match="must be positive"):
+            CanaryCircuitBreakerRecoveryStateMachine(recovery_hysteresis_ticks=0)
+
+    def test_state_machine_reset(self, sm: CanaryCircuitBreakerRecoveryStateMachine) -> None:
+        sm.force_abort(operator_id="operator-001")
+        assert sm.is_hard_aborted()
+        sm.reset()
+        assert sm.is_normal()
+        assert len(sm.transitions) == 0
+
+
+class TestPhase273SimulationTracks:
+    """Validate execution of multi-scenario incident drills across defined tracks."""
+
+    def test_track_1_transient_partition_and_auto_recovery(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track=IncidentTrackId.TRACK_1.value,
+            recovery_hysteresis_ticks=5,
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, db_path, jsonl_path, rep_path, cb_path, paper_path = runner.execute_drill()
+
+        assert summary.phase == "phase_273"
+        assert IncidentTrackId.TRACK_1.value in summary.tracks_executed
+        t1_info = summary.tracks_summary[IncidentTrackId.TRACK_1.value]
+        assert t1_info["status"] == "RESOLVED_AUTO_RECOVERY"
+        assert t1_info["initial_state"] == CircuitBreakerState.NORMAL.value
+        assert t1_info["final_state"] == CircuitBreakerState.NORMAL.value
+        assert t1_info["recovery_duration_ms"] > 0
+        assert summary.compliance["auto_recovery_verified"] is True
+        assert summary.compliance["zero_balance_drift"] is True
+
+    def test_track_2_sustained_outage_escalation(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track=IncidentTrackId.TRACK_2.value,
+            max_reconnect_attempts=5,
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, _, _, _, _, _ = runner.execute_drill()
+
+        assert IncidentTrackId.TRACK_2.value in summary.tracks_executed
+        t2_info = summary.tracks_summary[IncidentTrackId.TRACK_2.value]
+        assert t2_info["status"] == "ESCALATED_HARD_ABORT"
+        assert t2_info["final_state"] == CircuitBreakerState.TIER_2_HARD_ABORT.value
+        assert t2_info["escalation_latency_ms"] > 0
+        assert summary.compliance["outage_escalation_verified"] is True
+
+    def test_track_3_catastrophic_drift_instantaneous_abort(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track=IncidentTrackId.TRACK_3.value,
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, _, _, _, _, _ = runner.execute_drill()
+
+        assert IncidentTrackId.TRACK_3.value in summary.tracks_executed
+        t3_info = summary.tracks_summary[IncidentTrackId.TRACK_3.value]
+        assert t3_info["status"] == "FAIL_CLOSED_HARD_ABORT"
+        assert t3_info["final_state"] == CircuitBreakerState.TIER_2_HARD_ABORT.value
+        assert t3_info["transitions_count"] == 1
+        assert summary.compliance["catastrophic_abort_verified"] is True
+
+    def test_track_4_operator_manual_intervention(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track=IncidentTrackId.TRACK_4.value,
+            operator_id="operator-test-007",
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, _, _, _, _, _ = runner.execute_drill()
+
+        assert IncidentTrackId.TRACK_4.value in summary.tracks_executed
+        t4_info = summary.tracks_summary[IncidentTrackId.TRACK_4.value]
+        assert t4_info["status"] == "OPERATOR_MANUAL_RESOLVED"
+        assert t4_info["final_state"] == CircuitBreakerState.NORMAL.value
+        assert summary.compliance["manual_override_verified"] is True
+
+    def test_all_tracks_sequential_execution(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track="all",
+            recovery_hysteresis_ticks=5,
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, db_path, jsonl_path, rep_path, cb_path, paper_path = runner.execute_drill()
+
+        assert len(summary.tracks_executed) == 4
+        assert summary.compliance["all_criteria_passed"] is True
+        assert summary.circuit_breaker_stats["total_transitions"] >= 7
+        assert summary.circuit_breaker_stats["auto_recoveries_count"] == 1
+        assert summary.circuit_breaker_stats["escalations_count"] == 1
+        assert summary.circuit_breaker_stats["hard_aborts_count"] == 2
+        assert summary.circuit_breaker_stats["manual_overrides_count"] == 2
+
+
+class TestPhase273SqliteAndJsonlPersistence:
+    """Validate isolated SQLite store and JSON lines audit streaming."""
+
+    def test_sqlite_pragmas_and_schema_initialization(
+        self, isolated_store: SqliteCanaryIncidentTelemetryStore
+    ) -> None:
+        cur = isolated_store._conn.cursor()
+        cur.execute("PRAGMA journal_mode")
+        assert cur.fetchone()[0].upper() == "WAL"
+
+        cur.execute("PRAGMA synchronous")
+        assert cur.fetchone()[0] == 1  # NORMAL
+
+        cur.execute("PRAGMA foreign_keys")
+        assert cur.fetchone()[0] == 1
+
+        tables = [
+            r[0]
+            for r in cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).fetchall()
+        ]
+        assert "incidents" in tables
+        assert "circuit_breaker_events" in tables
+        assert "telemetry_ticks" in tables
+        assert "accounting_ledger" in tables
+        assert "post_mortem_records" in tables
+
+    def test_record_and_retrieve_incident(
+        self, isolated_store: SqliteCanaryIncidentTelemetryStore
+    ) -> None:
+        inc = CanaryIncidentRecord(
+            incident_id="inc-test-001",
+            track_id="track_1",
+            track_name="Test Drill",
+            status="RESOLVED_AUTO_RECOVERY",
+            root_cause="Transient test anomaly",
+            start_time_utc="2026-09-18T10:00:00+00:00",
+            end_time_utc="2026-09-18T10:00:05+00:00",
+            duration_seconds=5.0,
+            escalation_latency_ms=0.0,
+            recovery_duration_ms=125.0,
+            initial_state=CircuitBreakerState.NORMAL,
+            final_state=CircuitBreakerState.NORMAL,
+            transitions_count=2,
+            details={"test_key": "test_val"},
+        )
+        rowid = isolated_store.record_incident(inc)
+        assert rowid > 0
+
+        incidents = isolated_store.get_incidents()
+        assert len(incidents) == 1
+        assert incidents[0]["incident_id"] == "inc-test-001"
+        assert incidents[0]["status"] == "RESOLVED_AUTO_RECOVERY"
+
+    def test_record_and_retrieve_cb_events(
+        self, isolated_store: SqliteCanaryIncidentTelemetryStore
+    ) -> None:
+        tr = CircuitBreakerTransition(
+            timestamp_utc="2026-09-18T10:00:01+00:00",
+            previous_state=CircuitBreakerState.NORMAL,
+            new_state=CircuitBreakerState.TIER_1_SOFT_FREEZE,
+            reason="Test soft freeze",
+            trigger_severity=AlertSeverity.CRITICAL,
+            consecutive_healthy_ticks=0,
+            is_manual_override=False,
+        )
+        isolated_store.record_circuit_breaker_transition("inc-test-001", "track_1", tr)
+        events = isolated_store.get_circuit_breaker_events("inc-test-001")
+        assert len(events) == 1
+        assert events[0]["new_state"] == CircuitBreakerState.TIER_1_SOFT_FREEZE.value
+
+    def test_record_and_retrieve_ticks(
+        self, isolated_store: SqliteCanaryIncidentTelemetryStore
+    ) -> None:
+        tick = TelemetryTick(
+            timestamp_utc="2026-09-18T10:00:01+00:00",
+            sequence_num=1,
+            rtt_ms=28.5,
+            drift_ms=10.0,
+            jitter_ms=4.0,
+            is_healthy=True,
+        )
+        isolated_store.record_telemetry_tick("inc-test-001", "track_1", tick)
+        ticks = isolated_store.get_telemetry_ticks("inc-test-001")
+        assert len(ticks) == 1
+        assert ticks[0]["rtt_ms"] == 28.5
+        assert ticks[0]["is_healthy"] == 1
+
+    def test_jsonl_incident_sink(self, tmp_path: Path) -> None:
+        sink_path = tmp_path / "test-canary-incidents.jsonl"
+        inc = CanaryIncidentRecord(
+            incident_id="inc-jsonl-001",
+            track_id="track_1",
+            track_name="JSONL Test",
+            status="RESOLVED",
+            root_cause="Test",
+            start_time_utc="2026-09-18T10:00:00+00:00",
+            end_time_utc="2026-09-18T10:00:01+00:00",
+            duration_seconds=1.0,
+            escalation_latency_ms=0.0,
+            recovery_duration_ms=50.0,
+            initial_state=CircuitBreakerState.NORMAL,
+            final_state=CircuitBreakerState.NORMAL,
+            transitions_count=1,
+        )
+        with JsonlIncidentSink(sink_path) as sink:
+            sink.append(inc)
+
+        assert sink_path.exists()
+        lines = sink_path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 1
+        parsed = json.loads(lines[0])
+        assert parsed["incident_id"] == "inc-jsonl-001"
+        assert_zero_secrets(lines[0], "test-canary-incidents.jsonl")
+
+
+class TestPhase273AccountingAndSafetyInvariants:
+    """Validate portfolio balance reconciliation and fail-closed safety invariants."""
+
+    def test_exact_zero_balance_drift_calculation(self) -> None:
+        starting_equity = ACCOUNTING_STARTING_EQUITY
+        final_cash = ACCOUNTING_FINAL_CASH
+        realized_pnl = ACCOUNTING_REALIZED_PNL
+        drift = abs(final_cash - (starting_equity + realized_pnl))
+        assert drift < DOUBLE_ENTRY_MAX_DRIFT
+        assert drift == Decimal("0.00")
+
+    def test_adverse_drift_detection_and_rejection(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track=IncidentTrackId.TRACK_1.value,
+            simulate_adverse_drift=True,
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, _, _, _, _, _ = runner.execute_drill()
+
+        # Zero balance drift should fail when simulated adverse drift is injected
+        assert summary.compliance["zero_balance_drift"] is False
+        assert summary.compliance["all_criteria_passed"] is False
+
+    def test_strict_read_only_safety_invariants(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track=IncidentTrackId.TRACK_1.value,
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, _, _, _, _, _ = runner.execute_drill()
+
+        assert summary.safety_invariants["execution_authority"] is False
+        assert summary.safety_invariants["exchange_access"] is False
+        assert summary.safety_invariants["orders"] == 0
+        assert summary.safety_invariants["api_keys_loaded"] == 0
+        assert summary.safety_invariants["zero_secret_leakage"] is True
+
+
+class TestPhase273ReportsAndPackaging:
+    """Validate artifact persistence, post-mortem content, and cryptographic hashing."""
+
+    def test_all_reports_generated_with_valid_hashes(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(output_dir=tmp_path, target_track="all")
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, db_path, jsonl_path, rep_path, cb_path, paper_path = runner.execute_drill()
+
+        # Verify all files exist
+        assert db_path.exists()
+        assert jsonl_path.exists()
+        assert rep_path.exists()
+        assert cb_path.exists()
+        assert paper_path.exists()
+
+        # Verify SHA-256 hashes match files on disk
+        for fname, h in summary.artifact_hashes.items():
+            fpath = tmp_path / fname
+            if fpath.exists():
+                computed = compute_file_sha256(fpath)
+                assert computed == h
+
+        # Verify post-mortem report schema
+        rep_content = json.loads(rep_path.read_text(encoding="utf-8"))
+        assert rep_content["phase"] == "phase_273"
+        assert len(rep_content["incidents"]) == 4
+        assert rep_content["compliance"]["all_criteria_passed"] is True
+
+        # Verify circuit breaker summary schema
+        cb_content = json.loads(cb_path.read_text(encoding="utf-8"))
+        assert cb_content["recovery_hysteresis_k"] == 5
+        assert len(cb_content["tracks_summary"]) == 4
+
+        # Verify paper summary schema
+        paper_content = json.loads(paper_path.read_text(encoding="utf-8"))
+        assert paper_content["starting_capital_usdt"] == "100.00"
+        assert paper_content["final_cash_usdt"] == "100.00"
+        assert paper_content["drift_usdt"] == "0"
+        assert paper_content["zero_balance_drift"] is True
+
+
+class TestPhase273CliRunner:
+    """Validate CLI argument parsing, execution modes, and formatted summaries."""
+
+    def test_cli_parser_defaults(self) -> None:
+        parser = build_arg_parser()
+        args = parser.parse_args([])
+        assert args.track == "all"
+        assert args.recovery_hysteresis_ticks == 5
+        assert args.force_freeze is False
+        assert args.force_abort is False
+        assert args.force_recover is False
+        assert args.operator_id == "operator-lead-001"
+        assert args.json is False
+
+    def test_cli_parser_custom_args(self) -> None:
+        parser = build_arg_parser()
+        args = parser.parse_args(
+            [
+                "--track",
+                "1",
+                "--recovery-hysteresis-ticks",
+                "7",
+                "--force-freeze",
+                "--operator-id",
+                "operator-special",
+                "--json",
+            ]
+        )
+        assert args.track == "1"
+        assert args.recovery_hysteresis_ticks == 7
+        assert args.force_freeze is True
+        assert args.operator_id == "operator-special"
+        assert args.json is True
+
+    def test_cli_main_execution(self, tmp_path: Path) -> None:
+        ret = cli_main(["--output-dir", str(tmp_path), "--track", "1"])
+        assert ret == 0
+
+    def test_cli_main_json_output(self, tmp_path: Path, monkeypatch: Any) -> None:
+        buf = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", buf)
+        ret = cli_main(["--output-dir", str(tmp_path), "--track", "1", "--json"])
+        assert ret == 0
+        output = buf.getvalue().strip()
+        parsed = json.loads(output)
+        assert parsed["phase"] == "phase_273"
+        assert parsed["compliance"]["all_criteria_passed"] is True
+
+    def test_format_summary_table(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(output_dir=tmp_path, target_track="1")
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        summary, _, _, _, _, _ = runner.execute_drill()
+        table_str = format_summary_table(summary)
+        assert "PHASE 273: CANARY CIRCUIT BREAKER RECOVERY" in table_str
+        assert "Circuit Breaker State Machine & Transition Statistics:" in table_str
+        assert "Exact Double-Entry Accounting & Margin Guardrails:" in table_str
