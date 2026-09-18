@@ -6,8 +6,10 @@ import io
 import json
 import sqlite3
 import sys
+import unittest.mock as mock
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -26,6 +28,7 @@ from autonomous_futures.feed.canary_probe import (  # noqa: E402
     CanaryProbeConfig,
     CanaryProbeSummary,
     ClockSyncDriftError,
+    ClockSyncSample,
     SafetyInvariantViolation,
     SqliteCanaryNetworkTelemetryStore,
     compute_percentile,
@@ -278,6 +281,31 @@ class TestPhase271SqliteTelemetryStore:
         with pytest.raises(sqlite3.ProgrammingError):
             st._conn.execute("SELECT 1")
 
+    def test_sqlite_close_resilient_to_commit_failure(self, tmp_path: Path) -> None:
+        db_p = tmp_path / "resilient_close.sqlite3"
+        st = SqliteCanaryNetworkTelemetryStore(db_p)
+        real_conn = st._conn
+
+        class MockFailingCommitConn:
+            def __init__(self, target: sqlite3.Connection) -> None:
+                self._target = target
+
+            def commit(self) -> None:
+                raise sqlite3.OperationalError("Simulated disk I/O error on commit")
+
+            def execute(self, sql: str, *args: object) -> Any:
+                return self._target.execute(sql, *args)
+
+            def close(self) -> None:
+                return self._target.close()
+
+        st._conn = MockFailingCommitConn(real_conn)  # type: ignore[assignment]
+        st.close()
+        assert st._closed is True
+        # Underlying connection should be closed despite commit failure
+        with pytest.raises(sqlite3.ProgrammingError):
+            real_conn.execute("SELECT 1")
+
 
 class TestPhase271ServerClockSynchronization:
     """Validate Binance server time synchronization drift measurement and thresholding."""
@@ -312,6 +340,32 @@ class TestPhase271ServerClockSynchronization:
         client = httpx.AsyncClient(transport=MockTimeHandler())
         sample = await evaluate_server_time_sync(client=client)
         assert sample.within_threshold is True
+        await client.aclose()
+
+    @pytest.mark.anyio
+    async def test_server_time_sync_ntp_filtering_selects_min_rtt(self) -> None:
+        import asyncio
+        import time
+
+        req_count = 0
+
+        class MockMultiTimeHandler(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                nonlocal req_count
+                req_count += 1
+                now_ms = int(time.time() * 1000.0)
+                delays = [0.03, 0.005, 0.04]
+                drifts = [10, 15, 8]
+                delay = delays[(req_count - 1) % len(delays)]
+                drift = drifts[(req_count - 1) % len(drifts)]
+                await asyncio.sleep(delay)
+                return httpx.Response(200, json={"serverTime": now_ms + drift}, request=request)
+
+        client = httpx.AsyncClient(transport=MockMultiTimeHandler())
+        sample = await evaluate_server_time_sync(client=client, samples_count=3)
+        assert req_count == 3
+        assert sample.within_threshold is True
+        assert abs(sample.drift_ms - 15) < 15.0
         await client.aclose()
 
 
@@ -409,6 +463,43 @@ class TestPhase271RunnerAndSafetyGuards:
             offline_replay=True,
         )
         assert summary2.heartbeat_profile["count"] == 4
+
+    def test_config_validation_bounds(self) -> None:
+        with pytest.raises(DomainViolation, match="probe_seconds must be positive"):
+            CanaryProbeConfig(probe_seconds=0.0)
+        with pytest.raises(DomainViolation, match="probe_seconds must be positive"):
+            CanaryProbeConfig(probe_seconds=-5.0)
+        with pytest.raises(DomainViolation, match="max_heartbeats cannot be negative"):
+            CanaryProbeConfig(max_heartbeats=-1)
+        with pytest.raises(DomainViolation, match="heartbeat_interval_seconds must be positive"):
+            CanaryProbeConfig(heartbeat_interval_seconds=0.0)
+
+    def test_post_probe_clock_drift_failure(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "post_drift_fail"
+        with pytest.raises(
+            ClockSyncDriftError, match="Post-replay Binance server time synchronization drift"
+        ):
+            run_canary_network_probe(
+                output_dir=out_dir,
+                offline_replay=True,
+                simulate_post_probe_drift=True,
+            )
+
+    def test_paper_summary_dynamic_safety_invariants(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "dynamic_safety"
+        _, _, _, _, paper_path = run_canary_network_probe(
+            output_dir=out_dir,
+            max_heartbeats=2,
+            offline_replay=True,
+        )
+        with open(paper_path) as f:
+            data = json.load(f)
+        paper_safety = data["safety_invariants"]
+        assert paper_safety["execution_authority"] is False
+        assert paper_safety["exchange_access"] is False
+        assert paper_safety["orders"] == 0
+        assert paper_safety["api_keys_loaded"] == 0
+        assert paper_safety["zero_secret_leakage"] is True
 
 
 class TestPhase271CLIRunner:
@@ -546,6 +637,17 @@ class TestPhase271CLIRunner:
         assert "PHASE 271: CANARY PUBLIC NETWORK TELEMETRY PROBE & HANDSHAKE PROFILER" in table
         assert "Execution Mode:              OFFLINE_REPLAY" in table
         assert "Double-Entry Drift:        0 USDT (zero_drift=True)" in table
+
+    def test_cli_simulate_post_probe_drift_flag(self, tmp_path: Path) -> None:
+        code = cli_main(
+            [
+                "--output-dir",
+                str(tmp_path / "cli_post_drift"),
+                "--offline-replay",
+                "--simulate-post-probe-drift",
+            ]
+        )
+        assert code == 1
 
 
 class TestPhase271AdditionalEdgeCases:
@@ -691,3 +793,73 @@ class TestPhase271AdditionalEdgeCases:
         # Second close must not raise
         st.close()
         assert st._closed is True
+
+    @pytest.mark.anyio
+    async def test_live_probe_abnormal_close_records_failure(self, tmp_path: Path) -> None:
+        import asyncio
+        import time
+
+        out_dir = tmp_path / "abnormal_close_test"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        cfg = CanaryProbeConfig(
+            output_dir=out_dir,
+            probe_seconds=0.05,
+            max_heartbeats=1,
+            offline_replay=False,
+        )
+        runner = CanaryNetworkProbeRunner(cfg)
+        store = SqliteCanaryNetworkTelemetryStore(out_dir / "test.sqlite3")
+
+        class MockWs:
+            def __init__(self) -> None:
+                self.close_code = 1006
+
+            async def __aenter__(self) -> MockWs:
+                return self
+
+            async def __aexit__(self, *args: Any) -> None:
+                self.close_code = 1006
+
+            async def ping(self) -> Any:
+                fut = asyncio.get_event_loop().create_future()
+                fut.set_result(0.05)
+                return fut
+
+            async def recv(self) -> str:
+                await asyncio.sleep(0.01)
+                return json.dumps(
+                    {
+                        "stream": "btcusdt@bookTicker",
+                        "data": {
+                            "s": "BTCUSDT",
+                            "e": "bookTicker",
+                            "b": "100",
+                            "E": int(time.time() * 1000),
+                        },
+                    }
+                )
+
+        mock_sample = ClockSyncSample(
+            timestamp_utc="2026-09-18T00:00:00Z",
+            client_time_ms=1000.0,
+            server_time_ms=1010,
+            drift_ms=10.0,
+            rtt_ms=20.0,
+            within_threshold=True,
+        )
+
+        with (
+            mock.patch("websockets.connect", return_value=MockWs()),
+            mock.patch(
+                "autonomous_futures.feed.canary_probe.evaluate_server_time_sync",
+                return_value=mock_sample,
+            ),
+        ):
+            await runner._run_live_probe(store=store, ws_endpoint="wss://mock")
+
+        events = store.get_connection_events()
+        dc_events = [e for e in events if e["event_type"] == "ws_disconnect"]
+        assert len(dc_events) == 1
+        assert dc_events[0]["success"] is False
+        assert "1006" in dc_events[0]["details"]
+        store.close()

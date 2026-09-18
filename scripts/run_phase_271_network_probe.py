@@ -100,6 +100,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Inject simulated network timeout to test graceful offline fallback",
     )
     parser.add_argument(
+        "--simulate-post-probe-drift",
+        action="store_true",
+        help=(
+            "Inject synthetic server time drift (> 1000ms) at post-probe check "
+            "to test fail-safe threshold trip"
+        ),
+    )
+    parser.add_argument(
         "--ws-url",
         type=str,
         default=DEFAULT_WS_URL,
@@ -229,6 +237,7 @@ def run_phase_271_network_probe(
     simulate_clock_drift: bool = False,
     simulate_adverse_drift: bool = False,
     simulate_network_timeout: bool = False,
+    simulate_post_probe_drift: bool = False,
     ws_url: str = DEFAULT_WS_URL,
     rest_url: str = DEFAULT_REST_URL,
     json_output: bool = False,
@@ -245,6 +254,7 @@ def run_phase_271_network_probe(
         simulate_clock_drift=simulate_clock_drift,
         simulate_adverse_drift=simulate_adverse_drift,
         simulate_network_timeout=simulate_network_timeout,
+        simulate_post_probe_drift=simulate_post_probe_drift,
         ws_url=ws_url,
         rest_url=rest_url,
     )
@@ -279,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
             simulate_clock_drift=args.simulate_clock_drift,
             simulate_adverse_drift=args.simulate_adverse_drift,
             simulate_network_timeout=args.simulate_network_timeout,
+            simulate_post_probe_drift=args.simulate_post_probe_drift,
             ws_url=args.ws_url,
             rest_url=args.rest_url,
             json_output=args.json,

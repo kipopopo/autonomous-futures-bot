@@ -170,6 +170,18 @@ class CanaryProbeConfig:
     simulate_clock_drift: bool = False
     simulate_adverse_drift: bool = False
     simulate_network_timeout: bool = False
+    simulate_post_probe_drift: bool = False
+
+    def __post_init__(self) -> None:
+        if self.probe_seconds <= 0:
+            raise DomainViolation(f"probe_seconds must be positive, got {self.probe_seconds}")
+        if self.max_heartbeats < 0:
+            raise DomainViolation(f"max_heartbeats cannot be negative, got {self.max_heartbeats}")
+        if self.heartbeat_interval_seconds <= 0:
+            raise DomainViolation(
+                f"heartbeat_interval_seconds must be positive, "
+                f"got {self.heartbeat_interval_seconds}"
+            )
 
 
 # =====================================================================
@@ -612,9 +624,9 @@ class SqliteCanaryNetworkTelemetryStore:
         )
 
         for m in marks:
-            sym = m["symbol"]
-            lat = float(m["latency_ms"])
-            ev = m["event_type"]
+            sym = m[0]
+            ev = m[1]
+            lat = float(m[2])
             symbol_latencies[sym].append(lat)
             symbol_counts[sym]["messages"] += 1
             if "ticker" in ev.lower():
@@ -627,9 +639,9 @@ class SqliteCanaryNetworkTelemetryStore:
         symbol_intervals: dict[str, list[float]] = defaultdict(list)
         symbol_jitters: dict[str, list[float]] = defaultdict(list)
         for j in j_rows:
-            sym = j["symbol"]
-            symbol_intervals[sym].append(float(j["interval_ms"]))
-            symbol_jitters[sym].append(float(j["jitter_ms"]))
+            sym = j[0]
+            symbol_intervals[sym].append(float(j[1]))
+            symbol_jitters[sym].append(float(j[2]))
 
         symbol_stats: dict[str, Any] = {}
         total_msgs = len(marks)
@@ -684,15 +696,19 @@ class SqliteCanaryNetworkTelemetryStore:
             return
         if hasattr(self, "_conn") and self._conn is not None:
             try:
-                self._conn.commit()
+                try:
+                    self._conn.commit()
+                except Exception:
+                    pass
                 try:
                     self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 except Exception:
                     pass
-                self._conn.close()
-            except Exception as exc:
-                logger.debug("Error while closing SQLite connection: %s", exc)
             finally:
+                try:
+                    self._conn.close()
+                except Exception as exc:
+                    logger.debug("Error while closing SQLite connection: %s", exc)
                 self._closed = True
 
     def __enter__(self) -> SqliteCanaryNetworkTelemetryStore:
@@ -758,8 +774,14 @@ async def evaluate_server_time_sync(
     client: httpx.AsyncClient | None = None,
     timeout_seconds: float = 5.0,
     simulate_drift_ms: float | None = None,
+    samples_count: int = 3,
 ) -> ClockSyncSample:
-    """Evaluate Binance server time synchronization drift (|drift| <= 1000ms)."""
+    """Evaluate Binance server time synchronization drift (|drift| <= 1000ms).
+
+    Employs NTP-style minimum RTT sample selection across `samples_count` requests
+    over a persistent keep-alive connection to eliminate TCP/TLS negotiation overhead
+    and transient queueing jitter.
+    """
     now_utc = datetime.now(UTC).isoformat()
     if simulate_drift_ms is not None:
         client_ms = time.time() * 1000.0
@@ -782,24 +804,34 @@ async def evaluate_server_time_sync(
         owns_client = True
 
     try:
-        t0 = time.time() * 1000.0
-        response = await client.get(f"{rest_url.rstrip('/')}/fapi/v1/time")
-        t1 = time.time() * 1000.0
-        response.raise_for_status()
-        data = response.json()
-        if not isinstance(data, dict) or "serverTime" not in data:
-            raise DomainViolation("Invalid response from Binance /fapi/v1/time")
-        server_ms = int(data["serverTime"])
-        rtt_ms = max(0.1, t1 - t0)
-        client_est_ms = t0 + (rtt_ms / 2.0)
-        drift_ms = server_ms - client_est_ms
-        within_threshold = abs(drift_ms) <= MAX_SERVER_TIME_DRIFT_MS
+        url = f"{rest_url.rstrip('/')}/fapi/v1/time"
+        n_samples = max(1, samples_count)
+        samples: list[tuple[float, float, float, int]] = []
+
+        for _ in range(n_samples):
+            t0 = time.time() * 1000.0
+            response = await client.get(url)
+            t1 = time.time() * 1000.0
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict) or "serverTime" not in data:
+                raise DomainViolation("Invalid response from Binance /fapi/v1/time")
+            server_ms = int(data["serverTime"])
+            rtt_ms = max(0.1, t1 - t0)
+            client_est_ms = t0 + (rtt_ms / 2.0)
+            drift_ms = server_ms - client_est_ms
+            samples.append((rtt_ms, drift_ms, client_est_ms, server_ms))
+
+        # Select sample with minimum RTT (standard NTP RFC 5905 best-fit filtering)
+        best_rtt, best_drift, best_client_est, best_server_ms = min(samples, key=lambda s: s[0])
+        within_threshold = abs(best_drift) <= MAX_SERVER_TIME_DRIFT_MS
+
         return ClockSyncSample(
             timestamp_utc=now_utc,
-            client_time_ms=client_est_ms,
-            server_time_ms=server_ms,
-            drift_ms=drift_ms,
-            rtt_ms=rtt_ms,
+            client_time_ms=best_client_est,
+            server_time_ms=best_server_ms,
+            drift_ms=best_drift,
+            rtt_ms=best_rtt,
             within_threshold=within_threshold,
         )
     finally:
@@ -954,9 +986,10 @@ class CanaryNetworkProbeRunner:
         store.record_jitter_batch(jitter_batch)
 
         # Post-replay clock sync sample
+        post_drift_sim = 1500.0 if self.config.simulate_post_probe_drift else (drift_sim + 0.3)
         clock_sample_end = await evaluate_server_time_sync(
             rest_url=self.config.rest_url,
-            simulate_drift_ms=drift_sim + 0.3,
+            simulate_drift_ms=post_drift_sim,
         )
         store.record_clock_sync(
             client_time_ms=clock_sample_end.client_time_ms,
@@ -965,6 +998,12 @@ class CanaryNetworkProbeRunner:
             rtt_ms=clock_sample_end.rtt_ms,
             within_threshold=clock_sample_end.within_threshold,
         )
+        if not clock_sample_end.within_threshold:
+            raise ClockSyncDriftError(
+                f"Post-replay Binance server time synchronization drift "
+                f"{clock_sample_end.drift_ms:.1f} ms "
+                f"exceeds safety threshold of {MAX_SERVER_TIME_DRIFT_MS} ms"
+            )
 
         store.record_connection_event(
             event_type="ws_disconnect",
@@ -990,7 +1029,7 @@ class CanaryNetworkProbeRunner:
         logger.info("Connecting dynamically to Binance public stream: %s", ws_endpoint)
         t0 = time.perf_counter()
 
-        # 1. Server time clock sync evaluation
+        # 1. Server time clock sync evaluation via persistent REST client
         store.record_connection_event(
             event_type="clock_sync_query",
             endpoint=self.config.rest_url,
@@ -999,231 +1038,294 @@ class CanaryNetworkProbeRunner:
             details="Evaluating Binance REST server time synchronization",
         )
         drift_sim = 1500.0 if self.config.simulate_clock_drift else None
-        clock_sample = await evaluate_server_time_sync(
-            rest_url=self.config.rest_url,
-            simulate_drift_ms=drift_sim,
-        )
-        store.record_clock_sync(
-            client_time_ms=clock_sample.client_time_ms,
-            server_time_ms=clock_sample.server_time_ms,
-            drift_ms=clock_sample.drift_ms,
-            rtt_ms=clock_sample.rtt_ms,
-            within_threshold=clock_sample.within_threshold,
-        )
-        if not clock_sample.within_threshold:
-            raise ClockSyncDriftError(
-                f"Binance server time synchronization drift {clock_sample.drift_ms:.1f} ms "
-                f"exceeds safety threshold of {MAX_SERVER_TIME_DRIFT_MS} ms"
-            )
 
-        server_drift_ms = clock_sample.drift_ms
-
-        # 2. WebSocket Handshake Profiling
-        store.record_connection_event(
-            event_type="ws_handshake_started",
-            endpoint=ws_endpoint,
-            duration_ms=0.0,
-            success=True,
-            details="Starting public WebSocket connection establishment",
-        )
-
-        t_handshake_start = time.perf_counter()
-        async with websockets.connect(
-            ws_endpoint,
-            ping_interval=None,
-            close_timeout=10.0,
-            max_size=2**20,
-            open_timeout=10.0,
-        ) as ws:
-            handshake_duration_ms = (time.perf_counter() - t_handshake_start) * 1000.0
-            store.record_connection_event(
-                event_type="ws_handshake_success",
-                endpoint=ws_endpoint,
-                duration_ms=handshake_duration_ms,
-                success=True,
-                details=(
-                    f"WebSocket handshake and HTTP 101 upgrade completed in "
-                    f"{handshake_duration_ms:.1f}ms"
-                ),
-            )
-
-            # 3. Heartbeat Ping/Pong Loop
-            heartbeats_done = 0
-            self._stop_event.clear()
-
-            async def heartbeat_worker() -> None:
-                nonlocal heartbeats_done
-                for seq in range(1, self.config.max_heartbeats + 1):
-                    if self._stop_event.is_set():
-                        break
-                    try:
-                        t_ping_start = time.perf_counter()
-                        ping_sent_ms = time.time() * 1000.0
-                        pong_waiter = await ws.ping()
-                        await asyncio.wait_for(pong_waiter, timeout=5.0)
-                        t_ping_end = time.perf_counter()
-                        pong_recv_ms = time.time() * 1000.0
-                        rtt_ms = (t_ping_end - t_ping_start) * 1000.0
-                        store.record_heartbeat(
-                            sequence_num=seq,
-                            ping_sent_ms=ping_sent_ms,
-                            pong_recv_ms=pong_recv_ms,
-                            rtt_ms=rtt_ms,
-                        )
-                        heartbeats_done += 1
-                        if heartbeats_done >= self.config.max_heartbeats:
-                            logger.info(
-                                "Completed target heartbeat count (%d); finishing probe",
-                                heartbeats_done,
-                            )
-                            self._stop_event.set()
-                            break
-                    except Exception as ping_exc:
-                        logger.warning("Heartbeat ping %d failed: %s", seq, ping_exc)
-                        store.record_connection_event(
-                            event_type="ws_ping_error",
-                            endpoint=ws_endpoint,
-                            duration_ms=0.0,
-                            success=False,
-                            details=f"Ping {seq} failure: {ping_exc}",
-                        )
-                        if isinstance(ping_exc, websockets.ConnectionClosed):
-                            self._stop_event.set()
-                            break
-
-                    try:
-                        await asyncio.wait_for(
-                            self._stop_event.wait(),
-                            timeout=self.config.heartbeat_interval_seconds,
-                        )
-                        break
-                    except TimeoutError:
-                        pass
-
-            heartbeat_task = asyncio.create_task(heartbeat_worker())
-
-            # 4. Message Ingress Consumer Loop
-            last_recv_times: dict[tuple[str, str], float] = {}
-            last_intervals: dict[tuple[str, str], float] = {}
-            deadline = t0 + self.config.probe_seconds
-            latency_batch: list[tuple[str, str, str, str, int, float, float]] = []
-            jitter_batch: list[tuple[str, str, str, float, float, float, float]] = []
-
+        rest_client = httpx.AsyncClient(timeout=10.0)
+        try:
             try:
-                while not self._stop_event.is_set():
-                    remaining = deadline - time.perf_counter()
-                    if remaining <= 0:
-                        logger.info(
-                            "Probe duration deadline reached (%.1fs)", self.config.probe_seconds
-                        )
-                        self._stop_event.set()
-                        break
-                    timeout = min(1.0, remaining)
-                    try:
-                        raw_msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
-                    except TimeoutError:
-                        continue
-                    except websockets.ConnectionClosed:
-                        break
+                clock_sample = await evaluate_server_time_sync(
+                    rest_url=self.config.rest_url,
+                    client=rest_client,
+                    simulate_drift_ms=drift_sim,
+                )
+            except Exception as sync_exc:
+                store.record_connection_event(
+                    event_type="clock_sync_error",
+                    endpoint=self.config.rest_url,
+                    duration_ms=0.0,
+                    success=False,
+                    details=f"Clock sync query failed: {sync_exc}",
+                )
+                raise
 
-                    recv_ns = time.time_ns()
-                    recv_ms = recv_ns / 1_000_000.0
-                    now_utc = datetime.now(UTC).isoformat()
+            store.record_clock_sync(
+                client_time_ms=clock_sample.client_time_ms,
+                server_time_ms=clock_sample.server_time_ms,
+                drift_ms=clock_sample.drift_ms,
+                rtt_ms=clock_sample.rtt_ms,
+                within_threshold=clock_sample.within_threshold,
+            )
+            if not clock_sample.within_threshold:
+                raise ClockSyncDriftError(
+                    f"Binance server time synchronization drift {clock_sample.drift_ms:.1f} ms "
+                    f"exceeds safety threshold of {MAX_SERVER_TIME_DRIFT_MS} ms"
+                )
 
-                    try:
-                        payload = json.loads(raw_msg)
-                    except json.JSONDecodeError, TypeError:
-                        continue
+            server_drift_ms = clock_sample.drift_ms
 
-                    if not isinstance(payload, dict):
-                        continue
-
-                    stream_name = payload.get("stream", "")
-                    data_obj = (
-                        payload.get("data", payload)
-                        if isinstance(payload.get("data"), dict)
-                        else payload
-                    )
-                    symbol = data_obj.get("s", "").upper() if isinstance(data_obj, dict) else ""
-                    if not symbol or symbol not in self.config.symbols:
-                        continue
-
-                    event_type = (
-                        data_obj.get("e", "bookTicker" if "b" in data_obj else "kline")
-                        if isinstance(data_obj, dict)
-                        else ""
-                    )
-                    aligned_recv_ms = recv_ms + server_drift_ms
-                    event_time_ms = (
-                        int(data_obj.get("E") or data_obj.get("T") or aligned_recv_ms)
-                        if isinstance(data_obj, dict)
-                        else int(aligned_recv_ms)
-                    )
-
-                    lat_ms = max(0.0, aligned_recv_ms - event_time_ms)
-                    latency_batch.append(
-                        (now_utc, stream_name, symbol, event_type, event_time_ms, recv_ms, lat_ms)
-                    )
-
-                    key = (symbol, stream_name)
-                    prev_t = last_recv_times.get(key)
-                    prev_int = last_intervals.get(key)
-                    if prev_t is not None:
-                        interval_ms = max(0.0, recv_ms - prev_t)
-                        jitter_ms = abs(interval_ms - prev_int) if prev_int is not None else 0.0
-                        last_intervals[key] = interval_ms
-                        jitter_batch.append(
-                            (now_utc, symbol, stream_name, prev_t, recv_ms, interval_ms, jitter_ms)
-                        )
-                    last_recv_times[key] = recv_ms
-
-                    if len(latency_batch) >= 100:
-                        store.record_latency_marks_batch(latency_batch)
-                        latency_batch.clear()
-                    if len(jitter_batch) >= 100:
-                        store.record_jitter_batch(jitter_batch)
-                        jitter_batch.clear()
-
-            finally:
-                self._stop_event.set()
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
-                if latency_batch:
-                    store.record_latency_marks_batch(latency_batch)
-                    latency_batch.clear()
-                if jitter_batch:
-                    store.record_jitter_batch(jitter_batch)
-                    jitter_batch.clear()
-
-            close_code = getattr(ws, "close_code", 1000) or 1000
+            # 2. WebSocket Handshake Profiling
             store.record_connection_event(
-                event_type="ws_disconnect",
+                event_type="ws_handshake_started",
                 endpoint=ws_endpoint,
                 duration_ms=0.0,
-                success=(close_code == 1000),
-                details=f"Probe finished: websocket closed (code={close_code})",
+                success=True,
+                details="Starting public WebSocket connection establishment",
             )
 
-        # Safe post-probe clock sync evaluation
-        try:
-            clock_sample_end = await evaluate_server_time_sync(
-                rest_url=self.config.rest_url,
-                simulate_drift_ms=drift_sim,
-            )
-            store.record_clock_sync(
-                client_time_ms=clock_sample_end.client_time_ms,
-                server_time_ms=clock_sample_end.server_time_ms,
-                drift_ms=clock_sample_end.drift_ms,
-                rtt_ms=clock_sample_end.rtt_ms,
-                within_threshold=clock_sample_end.within_threshold,
-            )
-        except Exception as sync_exc:
-            logger.debug("Post-probe clock sync evaluation skipped: %s", sync_exc)
+            t_handshake_start = time.perf_counter()
+            ws_conn = None
+            try:
+                async with websockets.connect(
+                    ws_endpoint,
+                    ping_interval=None,
+                    close_timeout=10.0,
+                    max_size=2**20,
+                    open_timeout=10.0,
+                ) as ws:
+                    ws_conn = ws
+                    handshake_duration_ms = (time.perf_counter() - t_handshake_start) * 1000.0
+                    store.record_connection_event(
+                        event_type="ws_handshake_success",
+                        endpoint=ws_endpoint,
+                        duration_ms=handshake_duration_ms,
+                        success=True,
+                        details=(
+                            f"WebSocket handshake and HTTP 101 upgrade completed in "
+                            f"{handshake_duration_ms:.1f}ms"
+                        ),
+                    )
 
-        return time.perf_counter() - t0
+                    # 3. Heartbeat Ping/Pong Loop
+                    heartbeats_done = 0
+                    self._stop_event.clear()
+
+                    async def heartbeat_worker() -> None:
+                        nonlocal heartbeats_done
+                        for seq in range(1, self.config.max_heartbeats + 1):
+                            if self._stop_event.is_set():
+                                break
+                            try:
+                                t_ping_start = time.perf_counter()
+                                ping_sent_ms = time.time() * 1000.0
+                                pong_waiter = await ws.ping()
+                                await asyncio.wait_for(pong_waiter, timeout=5.0)
+                                t_ping_end = time.perf_counter()
+                                pong_recv_ms = time.time() * 1000.0
+                                rtt_ms = (t_ping_end - t_ping_start) * 1000.0
+                                store.record_heartbeat(
+                                    sequence_num=seq,
+                                    ping_sent_ms=ping_sent_ms,
+                                    pong_recv_ms=pong_recv_ms,
+                                    rtt_ms=rtt_ms,
+                                )
+                                heartbeats_done += 1
+                                if heartbeats_done >= self.config.max_heartbeats:
+                                    logger.info(
+                                        "Completed target heartbeat count (%d); finishing probe",
+                                        heartbeats_done,
+                                    )
+                                    self._stop_event.set()
+                                    break
+                            except Exception as ping_exc:
+                                logger.warning("Heartbeat ping %d failed: %s", seq, ping_exc)
+                                store.record_connection_event(
+                                    event_type="ws_ping_error",
+                                    endpoint=ws_endpoint,
+                                    duration_ms=0.0,
+                                    success=False,
+                                    details=f"Ping {seq} failure: {ping_exc}",
+                                )
+                                if isinstance(ping_exc, websockets.ConnectionClosed):
+                                    self._stop_event.set()
+                                    break
+
+                            try:
+                                await asyncio.wait_for(
+                                    self._stop_event.wait(),
+                                    timeout=self.config.heartbeat_interval_seconds,
+                                )
+                                break
+                            except TimeoutError:
+                                pass
+
+                    heartbeat_task = asyncio.create_task(heartbeat_worker())
+
+                    # 4. Message Ingress Consumer Loop
+                    last_recv_times: dict[tuple[str, str], float] = {}
+                    last_intervals: dict[tuple[str, str], float] = {}
+                    deadline = t0 + self.config.probe_seconds
+                    latency_batch: list[tuple[str, str, str, str, int, float, float]] = []
+                    jitter_batch: list[tuple[str, str, str, float, float, float, float]] = []
+
+                    try:
+                        while not self._stop_event.is_set():
+                            remaining = deadline - time.perf_counter()
+                            if remaining <= 0:
+                                logger.info(
+                                    "Probe duration deadline reached (%.1fs)",
+                                    self.config.probe_seconds,
+                                )
+                                self._stop_event.set()
+                                break
+                            timeout = min(1.0, remaining)
+                            try:
+                                raw_msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
+                            except TimeoutError:
+                                continue
+                            except websockets.ConnectionClosed:
+                                break
+
+                            recv_ns = time.time_ns()
+                            recv_ms = recv_ns / 1_000_000.0
+                            now_utc = datetime.now(UTC).isoformat()
+
+                            try:
+                                payload = json.loads(raw_msg)
+                            except json.JSONDecodeError, TypeError:
+                                continue
+
+                            if not isinstance(payload, dict):
+                                continue
+
+                            stream_name = payload.get("stream", "")
+                            data_obj = (
+                                payload.get("data", payload)
+                                if isinstance(payload.get("data"), dict)
+                                else payload
+                            )
+                            symbol = (
+                                data_obj.get("s", "").upper() if isinstance(data_obj, dict) else ""
+                            )
+                            if not symbol or symbol not in self.config.symbols:
+                                continue
+
+                            event_type = (
+                                data_obj.get("e", "bookTicker" if "b" in data_obj else "kline")
+                                if isinstance(data_obj, dict)
+                                else ""
+                            )
+                            aligned_recv_ms = recv_ms + server_drift_ms
+                            event_time_ms = (
+                                int(data_obj.get("E") or data_obj.get("T") or aligned_recv_ms)
+                                if isinstance(data_obj, dict)
+                                else int(aligned_recv_ms)
+                            )
+
+                            lat_ms = max(0.0, aligned_recv_ms - event_time_ms)
+                            latency_batch.append(
+                                (
+                                    now_utc,
+                                    stream_name,
+                                    symbol,
+                                    event_type,
+                                    event_time_ms,
+                                    recv_ms,
+                                    lat_ms,
+                                )
+                            )
+
+                            key = (symbol, stream_name)
+                            prev_t = last_recv_times.get(key)
+                            prev_int = last_intervals.get(key)
+                            if prev_t is not None:
+                                interval_ms = max(0.0, recv_ms - prev_t)
+                                jitter_ms = (
+                                    abs(interval_ms - prev_int) if prev_int is not None else 0.0
+                                )
+                                last_intervals[key] = interval_ms
+                                jitter_batch.append(
+                                    (
+                                        now_utc,
+                                        symbol,
+                                        stream_name,
+                                        prev_t,
+                                        recv_ms,
+                                        interval_ms,
+                                        jitter_ms,
+                                    )
+                                )
+                            last_recv_times[key] = recv_ms
+
+                            if len(latency_batch) >= 100:
+                                store.record_latency_marks_batch(latency_batch)
+                                latency_batch.clear()
+                            if len(jitter_batch) >= 100:
+                                store.record_jitter_batch(jitter_batch)
+                                jitter_batch.clear()
+
+                    finally:
+                        self._stop_event.set()
+                        heartbeat_task.cancel()
+                        try:
+                            await heartbeat_task
+                        except asyncio.CancelledError:
+                            pass
+                        if latency_batch:
+                            store.record_latency_marks_batch(latency_batch)
+                            latency_batch.clear()
+                        if jitter_batch:
+                            store.record_jitter_batch(jitter_batch)
+                            jitter_batch.clear()
+
+            except Exception as ws_err:
+                if ws_conn is None:
+                    handshake_duration_ms = (time.perf_counter() - t_handshake_start) * 1000.0
+                    store.record_connection_event(
+                        event_type="ws_handshake_error",
+                        endpoint=ws_endpoint,
+                        duration_ms=handshake_duration_ms,
+                        success=False,
+                        details=f"WebSocket connection failed: {ws_err}",
+                    )
+                raise
+            finally:
+                if ws_conn is not None:
+                    # WebSocket context manager has exited; ws_conn.close_code is now populated
+                    close_code = getattr(ws_conn, "close_code", 1000) or 1000
+                    store.record_connection_event(
+                        event_type="ws_disconnect",
+                        endpoint=ws_endpoint,
+                        duration_ms=0.0,
+                        success=(close_code == 1000),
+                        details=f"Probe finished: websocket closed (code={close_code})",
+                    )
+
+            # Safe post-probe clock sync evaluation
+            post_drift_sim = 1500.0 if self.config.simulate_post_probe_drift else drift_sim
+            try:
+                clock_sample_end = await evaluate_server_time_sync(
+                    rest_url=self.config.rest_url,
+                    client=rest_client,
+                    simulate_drift_ms=post_drift_sim,
+                )
+                store.record_clock_sync(
+                    client_time_ms=clock_sample_end.client_time_ms,
+                    server_time_ms=clock_sample_end.server_time_ms,
+                    drift_ms=clock_sample_end.drift_ms,
+                    rtt_ms=clock_sample_end.rtt_ms,
+                    within_threshold=clock_sample_end.within_threshold,
+                )
+                if not clock_sample_end.within_threshold:
+                    raise ClockSyncDriftError(
+                        f"Post-probe Binance server time synchronization drift "
+                        f"{clock_sample_end.drift_ms:.1f} ms exceeds safety threshold "
+                        f"of {MAX_SERVER_TIME_DRIFT_MS} ms"
+                    )
+            except (httpx.HTTPError, OSError, TimeoutError) as sync_exc:
+                logger.debug("Post-probe clock sync evaluation network skip: %s", sync_exc)
+
+            return time.perf_counter() - t0
+        finally:
+            await rest_client.aclose()
 
     def run(
         self,
@@ -1335,21 +1437,20 @@ class CanaryNetworkProbeRunner:
                     f"drift={drift} >= {DOUBLE_ENTRY_MAX_DRIFT}"
                 )
 
-        finally:
-            # 5. Clean resource cleanup: explicitly close SQLite handles
-            store.close()
-
-        # 6. Gather statistics for audit artifacts
-        with SqliteCanaryNetworkTelemetryStore(db_path) as read_store:
-            conn_events = read_store.get_connection_events()
-            hb_stats = read_store.get_heartbeat_stats()
-            clock_stats = read_store.get_clock_sync_stats()
-            stream_stats = read_store.get_stream_telemetry(
+            # 5. Gather statistics for audit artifacts directly from open store
+            conn_events = store.get_connection_events()
+            hb_stats = store.get_heartbeat_stats()
+            clock_stats = store.get_clock_sync_stats()
+            stream_stats = store.get_stream_telemetry(
                 elapsed_seconds=elapsed_seconds,
                 symbols=self.config.symbols,
             )
 
-        # 7. Compute deterministic SHA-256 digests
+        finally:
+            # 6. Explicitly checkpoint WAL and close database connection
+            store.close()
+
+        # 7. Compute deterministic SHA-256 digests on finalized file
         db_hash = compute_file_sha256(db_path)
         artifact_hashes = {
             "canary-network-telemetry.sqlite3": db_hash,
@@ -1512,13 +1613,13 @@ class CanaryNetworkProbeRunner:
                 for sym, cand in summary.candidates.items()
             },
             "safety_invariants": {
-                "execution_authority": False,
-                "exchange_access": False,
+                "execution_authority": safety_invariants["execution_authority"],
+                "exchange_access": safety_invariants["exchange_access"],
                 "paper_activation": False,
                 "canary_activation": False,
-                "orders": 0,
-                "api_keys_loaded": 0,
-                "zero_secret_leakage": True,
+                "orders": safety_invariants["orders"],
+                "api_keys_loaded": safety_invariants["api_keys_loaded"],
+                "zero_secret_leakage": safety_invariants["zero_secret_leakage"],
             },
             "staged_manifest_hash": summary.staged_manifest_hash,
             "cryptographic_signature": manifest.cryptographic_signature,
@@ -1545,6 +1646,7 @@ def run_canary_network_probe(
     simulate_clock_drift: bool = False,
     simulate_adverse_drift: bool = False,
     simulate_network_timeout: bool = False,
+    simulate_post_probe_drift: bool = False,
 ) -> tuple[CanaryProbeSummary, Path, Path, Path, Path]:
     """Execute Phase 271 canary network probe workflow."""
     cfg = CanaryProbeConfig(
@@ -1560,6 +1662,7 @@ def run_canary_network_probe(
         simulate_clock_drift=simulate_clock_drift,
         simulate_adverse_drift=simulate_adverse_drift,
         simulate_network_timeout=simulate_network_timeout,
+        simulate_post_probe_drift=simulate_post_probe_drift,
     )
     runner = CanaryNetworkProbeRunner(cfg)
     return runner.run()
