@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import io
 import json
 import sys
@@ -225,6 +226,65 @@ class TestPhase273RecoveryStateMachine:
         assert sm.is_normal()
         assert len(sm.transitions) == 0
 
+    def test_operator_manual_freeze_blocks_autonomous_recovery(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        tr = sm.force_freeze(operator_id="operator-001", rationale="Maintenance hold")
+        assert sm.is_soft_frozen()
+        assert sm.is_manual_freeze is True
+        assert tr.is_manual_override is True
+
+        # Ingest 10 healthy ticks (exceeding K=5)
+        for _ in range(10):
+            res = sm.process_tick(rtt_ms=25.0, drift_ms=10.0, jitter_ms=2.0)
+            assert res is None
+            assert sm.is_soft_frozen()
+            assert sm.is_manual_freeze is True
+
+        # Only manual recovery de-escalates manual freeze
+        rec_tr = sm.force_recover(operator_id="operator-001", rationale="Maintenance finished")
+        assert rec_tr.new_state == CircuitBreakerState.NORMAL
+        assert sm.is_normal()
+        assert sm.is_manual_freeze is False
+        assert sm.recovery_duration_ms > 0
+
+    def test_catastrophic_anomaly_escalates_from_manual_freeze(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        sm.force_freeze(operator_id="operator-001")
+        assert sm.is_soft_frozen()
+        assert sm.is_manual_freeze is True
+
+        # Catastrophic clock drift occurs while manually frozen -> must fail-closed to HARD_ABORT
+        cat_tr = sm.process_tick(rtt_ms=30.0, drift_ms=3000.0, is_catastrophic=True)
+        assert cat_tr is not None
+        assert cat_tr.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert sm.is_hard_aborted()
+        assert sm.is_manual_freeze is False
+
+    def test_negative_telemetry_marks_evaluated_unhealthy(
+        self, sm: CanaryCircuitBreakerRecoveryStateMachine
+    ) -> None:
+        assert sm.is_healthy_tick(rtt_ms=-1.0, drift_ms=10.0) is False
+        assert sm.is_healthy_tick(rtt_ms=25.0, drift_ms=10.0, jitter_ms=-0.1) is False
+        assert sm.is_healthy_tick(rtt_ms=25.0, drift_ms=10.0, jitter_ms=5.0) is True
+
+    def test_threshold_validation_rejects_non_positive(self) -> None:
+        with pytest.raises(DomainViolation, match="must be positive"):
+            CanaryCircuitBreakerRecoveryStateMachine(latency_warning_threshold_ms=0.0)
+        with pytest.raises(DomainViolation, match="must be positive"):
+            CanaryCircuitBreakerRecoveryStateMachine(clock_drift_critical_threshold_ms=-50.0)
+        with pytest.raises(DomainViolation, match="must be positive"):
+            CanaryCircuitBreakerRecoveryStateMachine(jitter_threshold_ms=0.0)
+
+    def test_escalate_outage_empty_transitions_guard(self) -> None:
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        with sm._lock:
+            sm._state = CircuitBreakerState.TIER_2_HARD_ABORT
+        # No transitions recorded yet; escalate_outage should handle safely without IndexError
+        tr = sm.escalate_outage(reason="Already aborted test")
+        assert tr.new_state == CircuitBreakerState.TIER_2_HARD_ABORT
+
 
 class TestPhase273SimulationTracks:
     """Validate execution of multi-scenario incident drills across defined tracks."""
@@ -310,6 +370,26 @@ class TestPhase273SimulationTracks:
         assert summary.circuit_breaker_stats["escalations_count"] == 1
         assert summary.circuit_breaker_stats["hard_aborts_count"] == 2
         assert summary.circuit_breaker_stats["manual_overrides_count"] == 2
+
+    def test_track_2_terminal_state_in_paper_summary(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track=IncidentTrackId.TRACK_2.value,
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        _, _, _, _, _, paper_path = runner.execute_drill()
+        paper_data = json.loads(paper_path.read_text(encoding="utf-8"))
+        assert paper_data["circuit_state"] == CircuitBreakerState.TIER_2_HARD_ABORT.value
+
+    def test_track_3_terminal_state_in_paper_summary(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(
+            output_dir=tmp_path,
+            target_track=IncidentTrackId.TRACK_3.value,
+        )
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        _, _, _, _, _, paper_path = runner.execute_drill()
+        paper_data = json.loads(paper_path.read_text(encoding="utf-8"))
+        assert paper_data["circuit_state"] == CircuitBreakerState.TIER_2_HARD_ABORT.value
 
 
 class TestPhase273SqliteAndJsonlPersistence:
@@ -428,6 +508,87 @@ class TestPhase273SqliteAndJsonlPersistence:
         assert parsed["incident_id"] == "inc-jsonl-001"
         assert_zero_secrets(lines[0], "test-canary-incidents.jsonl")
 
+    def test_sqlite_multithreaded_concurrent_writes(
+        self, isolated_store: SqliteCanaryIncidentTelemetryStore
+    ) -> None:
+        def worker(worker_id: int) -> None:
+            for i in range(10):
+                inc_id = f"inc-worker-{worker_id}-{i}"
+                isolated_store.record_incident(
+                    CanaryIncidentRecord(
+                        incident_id=inc_id,
+                        track_id="track_concurrent",
+                        track_name="Concurrent Test",
+                        status="RESOLVED",
+                        root_cause="Test",
+                        start_time_utc="2026-09-18T10:00:00+00:00",
+                        end_time_utc="2026-09-18T10:00:01+00:00",
+                        duration_seconds=1.0,
+                        escalation_latency_ms=0.0,
+                        recovery_duration_ms=10.0,
+                        initial_state=CircuitBreakerState.NORMAL,
+                        final_state=CircuitBreakerState.NORMAL,
+                        transitions_count=0,
+                    )
+                )
+                isolated_store.record_telemetry_tick(
+                    inc_id,
+                    "track_concurrent",
+                    TelemetryTick(
+                        timestamp_utc="2026-09-18T10:00:00+00:00",
+                        sequence_num=i,
+                        rtt_ms=25.0,
+                        drift_ms=10.0,
+                        jitter_ms=2.0,
+                        is_healthy=True,
+                    ),
+                )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(worker, w) for w in range(5)]
+            for f in concurrent.futures.as_completed(futures):
+                f.result()
+
+        incidents = isolated_store.get_incidents()
+        assert len(incidents) == 50
+        ticks = isolated_store.get_telemetry_ticks()
+        assert len(ticks) == 50
+
+    def test_jsonl_sink_multithreaded_concurrent_appends(self, tmp_path: Path) -> None:
+        sink_path = tmp_path / "concurrent-canary-incidents.jsonl"
+        sink = JsonlIncidentSink(sink_path)
+
+        def worker(worker_id: int) -> None:
+            for i in range(10):
+                inc = CanaryIncidentRecord(
+                    incident_id=f"inc-cjsonl-{worker_id}-{i}",
+                    track_id="track_concurrent",
+                    track_name="Concurrent JSONL",
+                    status="RESOLVED",
+                    root_cause="Test",
+                    start_time_utc="2026-09-18T10:00:00+00:00",
+                    end_time_utc="2026-09-18T10:00:01+00:00",
+                    duration_seconds=1.0,
+                    escalation_latency_ms=0.0,
+                    recovery_duration_ms=10.0,
+                    initial_state=CircuitBreakerState.NORMAL,
+                    final_state=CircuitBreakerState.NORMAL,
+                    transitions_count=0,
+                )
+                sink.append(inc)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(worker, w) for w in range(5)]
+            for f in concurrent.futures.as_completed(futures):
+                f.result()
+
+        sink.close()
+        lines = sink_path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 50
+        for line in lines:
+            parsed = json.loads(line)
+            assert "incident_id" in parsed
+
 
 class TestPhase273AccountingAndSafetyInvariants:
     """Validate portfolio balance reconciliation and fail-closed safety invariants."""
@@ -508,6 +669,16 @@ class TestPhase273ReportsAndPackaging:
         assert paper_content["drift_usdt"] == "0"
         assert paper_content["zero_balance_drift"] is True
 
+    def test_circuit_breaker_summary_in_paper_summary_artifact_hashes(self, tmp_path: Path) -> None:
+        cfg = CanaryCircuitBreakerDrillConfig(output_dir=tmp_path, target_track="1")
+        runner = CanaryCircuitBreakerDrillRunner(cfg)
+        _, _, _, rep_path, cb_path, paper_path = runner.execute_drill()
+
+        paper_data = json.loads(paper_path.read_text(encoding="utf-8"))
+        assert "circuit-breaker-summary.json" in paper_data["artifact_hashes"]
+        expected_hash = compute_file_sha256(cb_path)
+        assert paper_data["artifact_hashes"]["circuit-breaker-summary.json"] == expected_hash
+
 
 class TestPhase273CliRunner:
     """Validate CLI argument parsing, execution modes, and formatted summaries."""
@@ -565,3 +736,33 @@ class TestPhase273CliRunner:
         assert "PHASE 273: CANARY CIRCUIT BREAKER RECOVERY" in table_str
         assert "Circuit Breaker State Machine & Transition Statistics:" in table_str
         assert "Exact Double-Entry Accounting & Margin Guardrails:" in table_str
+
+    def test_cli_force_abort_override_track(self, tmp_path: Path) -> None:
+        ret = cli_main(
+            ["--output-dir", str(tmp_path), "--force-abort", "--operator-id", "test-op-abort"]
+        )
+        assert ret == 0
+        paper_path = tmp_path / "paper-summary.json"
+        assert paper_path.exists()
+        paper_data = json.loads(paper_path.read_text(encoding="utf-8"))
+        assert paper_data["circuit_state"] == CircuitBreakerState.TIER_2_HARD_ABORT.value
+        cb_summary = json.loads(
+            (tmp_path / "circuit-breaker-summary.json").read_text(encoding="utf-8")
+        )
+        assert IncidentTrackId.CLI_OVERRIDE.value in cb_summary["tracks_summary"]
+        assert cb_summary["circuit_breaker_stats"]["manual_overrides_count"] >= 1
+
+    def test_cli_force_freeze_override_track(self, tmp_path: Path) -> None:
+        ret = cli_main(
+            ["--output-dir", str(tmp_path), "--force-freeze", "--operator-id", "test-op-freeze"]
+        )
+        assert ret == 0
+        paper_path = tmp_path / "paper-summary.json"
+        assert paper_path.exists()
+        paper_data = json.loads(paper_path.read_text(encoding="utf-8"))
+        assert paper_data["circuit_state"] == CircuitBreakerState.TIER_1_SOFT_FREEZE.value
+        cb_summary = json.loads(
+            (tmp_path / "circuit-breaker-summary.json").read_text(encoding="utf-8")
+        )
+        assert IncidentTrackId.CLI_OVERRIDE.value in cb_summary["tracks_summary"]
+        assert cb_summary["circuit_breaker_stats"]["manual_overrides_count"] >= 1

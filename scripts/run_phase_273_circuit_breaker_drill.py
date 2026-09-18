@@ -65,7 +65,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--track",
         type=str,
         default="all",
-        choices=["1", "2", "3", "4", "track_1", "track_2", "track_3", "track_4", "all"],
+        choices=[
+            "1",
+            "2",
+            "3",
+            "4",
+            "track_1",
+            "track_2",
+            "track_3",
+            "track_4",
+            "cli_override",
+            "all",
+        ],
         help="Specific incident track to execute (default: all)",
     )
     parser.add_argument(

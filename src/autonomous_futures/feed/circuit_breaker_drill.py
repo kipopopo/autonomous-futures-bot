@@ -94,6 +94,7 @@ class IncidentTrackId(StrEnum):
     TRACK_2 = "track_2"
     TRACK_3 = "track_3"
     TRACK_4 = "track_4"
+    CLI_OVERRIDE = "cli_override"
 
 
 TRACK_DESCRIPTIONS: dict[str, str] = {
@@ -101,6 +102,7 @@ TRACK_DESCRIPTIONS: dict[str, str] = {
     IncidentTrackId.TRACK_2.value: "Sustained Outage Escalation Drill",
     IncidentTrackId.TRACK_3.value: "Catastrophic Drift & Tamper Abort Drill",
     IncidentTrackId.TRACK_4.value: "Operator Manual Intervention Drill",
+    IncidentTrackId.CLI_OVERRIDE.value: "Operator CLI Manual Override Track",
 }
 
 
@@ -217,12 +219,26 @@ class CanaryCircuitBreakerRecoveryStateMachine:
             raise DomainViolation(
                 f"recovery_hysteresis_ticks must be positive, got {recovery_hysteresis_ticks}"
             )
+        if latency_warning_threshold_ms <= 0:
+            raise DomainViolation(
+                f"latency_warning_threshold_ms must be positive, got {latency_warning_threshold_ms}"
+            )
+        if clock_drift_critical_threshold_ms <= 0:
+            raise DomainViolation(
+                "clock_drift_critical_threshold_ms must be positive, "
+                f"got {clock_drift_critical_threshold_ms}"
+            )
+        if jitter_threshold_ms <= 0:
+            raise DomainViolation(
+                f"jitter_threshold_ms must be positive, got {jitter_threshold_ms}"
+            )
         self.recovery_hysteresis_ticks = recovery_hysteresis_ticks
         self.latency_warning_threshold_ms = latency_warning_threshold_ms
         self.clock_drift_critical_threshold_ms = clock_drift_critical_threshold_ms
         self.jitter_threshold_ms = jitter_threshold_ms
 
         self._state: CircuitBreakerState = CircuitBreakerState.NORMAL
+        self._manual_freeze: bool = False
         self._consecutive_healthy_ticks: int = 0
         self._transitions: list[CircuitBreakerTransition] = []
         self._freeze_timestamp_perf: float | None = None
@@ -234,6 +250,11 @@ class CanaryCircuitBreakerRecoveryStateMachine:
     def current_state(self) -> CircuitBreakerState:
         with self._lock:
             return self._state
+
+    @property
+    def is_manual_freeze(self) -> bool:
+        with self._lock:
+            return self._manual_freeze
 
     def get_state(self) -> CircuitBreakerState:
         """Return current circuit breaker state without type narrowing."""
@@ -283,9 +304,9 @@ class CanaryCircuitBreakerRecoveryStateMachine:
     ) -> bool:
         """Evaluate whether a telemetry tick conforms to nominal health boundaries."""
         return (
-            rtt_ms < self.latency_warning_threshold_ms
+            0.0 <= rtt_ms < self.latency_warning_threshold_ms
             and abs(drift_ms) <= self.clock_drift_critical_threshold_ms
-            and jitter_ms <= self.jitter_threshold_ms
+            and 0.0 <= jitter_ms <= self.jitter_threshold_ms
         )
 
     def process_tick(
@@ -311,6 +332,7 @@ class CanaryCircuitBreakerRecoveryStateMachine:
                 if self._state != CircuitBreakerState.TIER_2_HARD_ABORT:
                     prev = self._state
                     self._state = CircuitBreakerState.TIER_2_HARD_ABORT
+                    self._manual_freeze = False
                     reason = anomaly_reason or (
                         f"Catastrophic anomaly detected: drift={drift_ms:.1f}ms, rtt={rtt_ms:.1f}ms"
                     )
@@ -338,6 +360,7 @@ class CanaryCircuitBreakerRecoveryStateMachine:
                 if not healthy:
                     prev = self._state
                     self._state = CircuitBreakerState.TIER_1_SOFT_FREEZE
+                    self._manual_freeze = False
                     self._consecutive_healthy_ticks = 0
                     self._freeze_timestamp_perf = perf_now
                     reason = anomaly_reason or (
@@ -369,6 +392,11 @@ class CanaryCircuitBreakerRecoveryStateMachine:
             # 3. State: TIER_1_SOFT_FREEZE (Autonomous Self-Healing Recovery)
             if self._state == CircuitBreakerState.TIER_1_SOFT_FREEZE:
                 if healthy:
+                    # An explicit operator manual freeze cannot be auto-cleared
+                    # by autonomous stream ticks
+                    if self._manual_freeze:
+                        return None
+
                     self._consecutive_healthy_ticks += 1
                     if self._consecutive_healthy_ticks >= self.recovery_hysteresis_ticks:
                         prev = self._state
@@ -423,10 +451,23 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         with self._lock:
             if self._state == CircuitBreakerState.TIER_2_HARD_ABORT:
                 # Already aborted; return existing transition or record noop
-                return self._transitions[-1]
+                if self._transitions:
+                    return self._transitions[-1]
+                trans = CircuitBreakerTransition(
+                    timestamp_utc=now_utc,
+                    previous_state=CircuitBreakerState.TIER_2_HARD_ABORT,
+                    new_state=CircuitBreakerState.TIER_2_HARD_ABORT,
+                    reason="System already in TIER_2_HARD_ABORT",
+                    trigger_severity=AlertSeverity.EMERGENCY,
+                    consecutive_healthy_ticks=0,
+                    is_manual_override=False,
+                )
+                self._transitions.append(trans)
+                return trans
 
             prev = self._state
             self._state = CircuitBreakerState.TIER_2_HARD_ABORT
+            self._manual_freeze = False
             if self._freeze_timestamp_perf is not None:
                 self._last_escalation_latency_ms = (perf_now - self._freeze_timestamp_perf) * 1000.0
             else:
@@ -461,6 +502,7 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         with self._lock:
             prev = self._state
             self._state = CircuitBreakerState.TIER_2_HARD_ABORT
+            self._manual_freeze = False
             trans = CircuitBreakerTransition(
                 timestamp_utc=now_utc,
                 previous_state=prev,
@@ -497,6 +539,7 @@ class CanaryCircuitBreakerRecoveryStateMachine:
 
             prev = self._state
             self._state = CircuitBreakerState.TIER_1_SOFT_FREEZE
+            self._manual_freeze = True
             self._consecutive_healthy_ticks = 0
             self._freeze_timestamp_perf = perf_now
             trans = CircuitBreakerTransition(
@@ -529,6 +572,7 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         with self._lock:
             prev = self._state
             self._state = CircuitBreakerState.TIER_2_HARD_ABORT
+            self._manual_freeze = False
             self._consecutive_healthy_ticks = 0
             trans = CircuitBreakerTransition(
                 timestamp_utc=now_utc,
@@ -557,10 +601,14 @@ class CanaryCircuitBreakerRecoveryStateMachine:
     ) -> CircuitBreakerTransition:
         """Manual operator override to force transition back to NORMAL."""
         now_utc = timestamp_utc or datetime.now(UTC).isoformat()
+        perf_now = time.perf_counter()
         with self._lock:
             prev = self._state
             self._state = CircuitBreakerState.NORMAL
+            self._manual_freeze = False
             self._consecutive_healthy_ticks = 0
+            if self._freeze_timestamp_perf is not None:
+                self._last_recovery_duration_ms = (perf_now - self._freeze_timestamp_perf) * 1000.0
             self._freeze_timestamp_perf = None
             trans = CircuitBreakerTransition(
                 timestamp_utc=now_utc,
@@ -585,6 +633,7 @@ class CanaryCircuitBreakerRecoveryStateMachine:
         """Reset state machine back to nominal NORMAL state."""
         with self._lock:
             self._state = CircuitBreakerState.NORMAL
+            self._manual_freeze = False
             self._consecutive_healthy_ticks = 0
             self._transitions.clear()
             self._freeze_timestamp_perf = None
@@ -603,14 +652,16 @@ class SqliteCanaryIncidentTelemetryStore:
     def __init__(self, db_path: Path | str) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(
-            str(self.db_path),
-            timeout=10.0,
-            check_same_thread=False,
-        )
-        self._conn.row_factory = sqlite3.Row
-        self._closed = False
-        self._init_pragmas_and_schema()
+        self._lock = threading.Lock()
+        with self._lock:
+            self._conn = sqlite3.connect(
+                str(self.db_path),
+                timeout=10.0,
+                check_same_thread=False,
+            )
+            self._conn.row_factory = sqlite3.Row
+            self._closed = False
+            self._init_pragmas_and_schema()
 
     def _init_pragmas_and_schema(self) -> None:
         """Apply performance and integrity pragmas and construct tables."""
@@ -744,34 +795,35 @@ class SqliteCanaryIncidentTelemetryStore:
             raise DomainViolation("Cannot operate on closed incident telemetry store")
 
     def record_incident(self, inc: CanaryIncidentRecord) -> int:
-        self._ensure_open()
-        cur = self._conn.cursor()
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO incidents
-            (incident_id, track_id, track_name, status, root_cause, start_time_utc, end_time_utc,
-             duration_seconds, escalation_latency_ms, recovery_duration_ms, initial_state,
-             final_state, details_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                inc.incident_id,
-                inc.track_id,
-                inc.track_name,
-                inc.status,
-                inc.root_cause,
-                inc.start_time_utc,
-                inc.end_time_utc,
-                float(inc.duration_seconds),
-                float(inc.escalation_latency_ms),
-                float(inc.recovery_duration_ms),
-                inc.initial_state.value,
-                inc.final_state.value,
-                json.dumps(inc.details, sort_keys=True, default=str),
-            ),
-        )
-        self._conn.commit()
-        return cur.lastrowid or 0
+        with self._lock:
+            self._ensure_open()
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO incidents
+                (incident_id, track_id, track_name, status, root_cause,
+                 start_time_utc, end_time_utc, duration_seconds, escalation_latency_ms,
+                 recovery_duration_ms, initial_state, final_state, details_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    inc.incident_id,
+                    inc.track_id,
+                    inc.track_name,
+                    inc.status,
+                    inc.root_cause,
+                    inc.start_time_utc,
+                    inc.end_time_utc,
+                    float(inc.duration_seconds),
+                    float(inc.escalation_latency_ms),
+                    float(inc.recovery_duration_ms),
+                    inc.initial_state.value,
+                    inc.final_state.value,
+                    json.dumps(inc.details, sort_keys=True, default=str),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid or 0
 
     def record_circuit_breaker_transition(
         self,
@@ -779,30 +831,31 @@ class SqliteCanaryIncidentTelemetryStore:
         track_id: str,
         transition: CircuitBreakerTransition,
     ) -> int:
-        self._ensure_open()
-        cur = self._conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO circuit_breaker_events
-            (timestamp_utc, incident_id, track_id, previous_state, new_state, reason,
-             trigger_severity, consecutive_healthy_ticks, is_manual_override, operator_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                transition.timestamp_utc,
-                incident_id,
-                track_id,
-                transition.previous_state.value,
-                transition.new_state.value,
-                transition.reason,
-                transition.trigger_severity.value,
-                transition.consecutive_healthy_ticks,
-                1 if transition.is_manual_override else 0,
-                transition.operator_id,
-            ),
-        )
-        self._conn.commit()
-        return cur.lastrowid or 0
+        with self._lock:
+            self._ensure_open()
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO circuit_breaker_events
+                (timestamp_utc, incident_id, track_id, previous_state, new_state, reason,
+                 trigger_severity, consecutive_healthy_ticks, is_manual_override, operator_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    transition.timestamp_utc,
+                    incident_id,
+                    track_id,
+                    transition.previous_state.value,
+                    transition.new_state.value,
+                    transition.reason,
+                    transition.trigger_severity.value,
+                    transition.consecutive_healthy_ticks,
+                    1 if transition.is_manual_override else 0,
+                    transition.operator_id,
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid or 0
 
     def record_telemetry_tick(
         self,
@@ -810,29 +863,30 @@ class SqliteCanaryIncidentTelemetryStore:
         track_id: str,
         tick: TelemetryTick,
     ) -> int:
-        self._ensure_open()
-        cur = self._conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO telemetry_ticks
-            (timestamp_utc, incident_id, track_id, sequence_num, rtt_ms, drift_ms,
-             jitter_ms, is_healthy, details_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                tick.timestamp_utc,
-                incident_id,
-                track_id,
-                int(tick.sequence_num),
-                float(tick.rtt_ms),
-                float(tick.drift_ms),
-                float(tick.jitter_ms),
-                1 if tick.is_healthy else 0,
-                json.dumps(tick.details, sort_keys=True, default=str),
-            ),
-        )
-        self._conn.commit()
-        return cur.lastrowid or 0
+        with self._lock:
+            self._ensure_open()
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO telemetry_ticks
+                (timestamp_utc, incident_id, track_id, sequence_num, rtt_ms, drift_ms,
+                 jitter_ms, is_healthy, details_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tick.timestamp_utc,
+                    incident_id,
+                    track_id,
+                    int(tick.sequence_num),
+                    float(tick.rtt_ms),
+                    float(tick.drift_ms),
+                    float(tick.jitter_ms),
+                    1 if tick.is_healthy else 0,
+                    json.dumps(tick.details, sort_keys=True, default=str),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid or 0
 
     def record_accounting_ledger(
         self,
@@ -850,35 +904,36 @@ class SqliteCanaryIncidentTelemetryStore:
         margin_compliant: bool,
         timestamp_utc: str | None = None,
     ) -> int:
-        self._ensure_open()
-        ts = timestamp_utc or datetime.now(UTC).isoformat()
-        cur = self._conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO accounting_ledger
-            (timestamp_utc, incident_id, track_id, starting_equity_usdt, final_cash_usdt,
-             realized_pnl_usdt, unrealized_pnl_usdt, final_equity_usdt, drift_usdt, zero_drift,
-             margin_utilization_pct, reserve_buffer_pct, margin_compliant)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                ts,
-                incident_id,
-                track_id,
-                str(starting_equity_usdt),
-                str(final_cash_usdt),
-                str(realized_pnl_usdt),
-                str(unrealized_pnl_usdt),
-                str(final_equity_usdt),
-                str(drift_usdt),
-                1 if zero_drift else 0,
-                float(margin_utilization_pct),
-                float(reserve_buffer_pct),
-                1 if margin_compliant else 0,
-            ),
-        )
-        self._conn.commit()
-        return cur.lastrowid or 0
+        with self._lock:
+            self._ensure_open()
+            ts = timestamp_utc or datetime.now(UTC).isoformat()
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO accounting_ledger
+                (timestamp_utc, incident_id, track_id, starting_equity_usdt, final_cash_usdt,
+                 realized_pnl_usdt, unrealized_pnl_usdt, final_equity_usdt, drift_usdt, zero_drift,
+                 margin_utilization_pct, reserve_buffer_pct, margin_compliant)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ts,
+                    incident_id,
+                    track_id,
+                    str(starting_equity_usdt),
+                    str(final_cash_usdt),
+                    str(realized_pnl_usdt),
+                    str(unrealized_pnl_usdt),
+                    str(final_equity_usdt),
+                    str(drift_usdt),
+                    1 if zero_drift else 0,
+                    float(margin_utilization_pct),
+                    float(reserve_buffer_pct),
+                    1 if margin_compliant else 0,
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid or 0
 
     def record_post_mortem(
         self,
@@ -891,79 +946,86 @@ class SqliteCanaryIncidentTelemetryStore:
         timeline: list[dict[str, Any]],
         timestamp_utc: str | None = None,
     ) -> int:
-        self._ensure_open()
-        ts = timestamp_utc or datetime.now(UTC).isoformat()
-        cur = self._conn.cursor()
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO post_mortem_records
-            (timestamp_utc, incident_id, track_id, root_cause, escalation_latency_ms,
-             recovery_duration_ms, summary_json, timeline_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                ts,
-                incident_id,
-                track_id,
-                root_cause,
-                float(escalation_latency_ms),
-                float(recovery_duration_ms),
-                json.dumps(summary, sort_keys=True, default=str),
-                json.dumps(timeline, sort_keys=True, default=str),
-            ),
-        )
-        self._conn.commit()
-        return cur.lastrowid or 0
+        with self._lock:
+            self._ensure_open()
+            ts = timestamp_utc or datetime.now(UTC).isoformat()
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO post_mortem_records
+                (timestamp_utc, incident_id, track_id, root_cause, escalation_latency_ms,
+                 recovery_duration_ms, summary_json, timeline_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ts,
+                    incident_id,
+                    track_id,
+                    root_cause,
+                    float(escalation_latency_ms),
+                    float(recovery_duration_ms),
+                    json.dumps(summary, sort_keys=True, default=str),
+                    json.dumps(timeline, sort_keys=True, default=str),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid or 0
 
     def get_incidents(self) -> list[dict[str, Any]]:
-        self._ensure_open()
-        cur = self._conn.cursor()
-        cur.execute("SELECT * FROM incidents ORDER BY id ASC")
-        return [dict(r) for r in cur.fetchall()]
+        with self._lock:
+            self._ensure_open()
+            cur = self._conn.cursor()
+            cur.execute("SELECT * FROM incidents ORDER BY id ASC")
+            return [dict(r) for r in cur.fetchall()]
 
     def get_circuit_breaker_events(self, incident_id: str | None = None) -> list[dict[str, Any]]:
-        self._ensure_open()
-        cur = self._conn.cursor()
-        if incident_id:
-            cur.execute(
-                "SELECT * FROM circuit_breaker_events WHERE incident_id = ? ORDER BY id ASC",
-                (incident_id,),
-            )
-        else:
-            cur.execute("SELECT * FROM circuit_breaker_events ORDER BY id ASC")
-        return [dict(r) for r in cur.fetchall()]
+        with self._lock:
+            self._ensure_open()
+            cur = self._conn.cursor()
+            if incident_id:
+                cur.execute(
+                    "SELECT * FROM circuit_breaker_events WHERE incident_id = ? ORDER BY id ASC",
+                    (incident_id,),
+                )
+            else:
+                cur.execute("SELECT * FROM circuit_breaker_events ORDER BY id ASC")
+            return [dict(r) for r in cur.fetchall()]
 
     def get_telemetry_ticks(self, incident_id: str | None = None) -> list[dict[str, Any]]:
-        self._ensure_open()
-        cur = self._conn.cursor()
-        if incident_id:
-            cur.execute(
-                "SELECT * FROM telemetry_ticks WHERE incident_id = ? ORDER BY id ASC",
-                (incident_id,),
-            )
-        else:
-            cur.execute("SELECT * FROM telemetry_ticks ORDER BY id ASC")
-        return [dict(r) for r in cur.fetchall()]
+        with self._lock:
+            self._ensure_open()
+            cur = self._conn.cursor()
+            if incident_id:
+                cur.execute(
+                    "SELECT * FROM telemetry_ticks WHERE incident_id = ? ORDER BY id ASC",
+                    (incident_id,),
+                )
+            else:
+                cur.execute("SELECT * FROM telemetry_ticks ORDER BY id ASC")
+            return [dict(r) for r in cur.fetchall()]
 
     def get_accounting_entries(self) -> list[dict[str, Any]]:
-        self._ensure_open()
-        cur = self._conn.cursor()
-        cur.execute("SELECT * FROM accounting_ledger ORDER BY id ASC")
-        return [dict(r) for r in cur.fetchall()]
+        with self._lock:
+            self._ensure_open()
+            cur = self._conn.cursor()
+            cur.execute("SELECT * FROM accounting_ledger ORDER BY id ASC")
+            return [dict(r) for r in cur.fetchall()]
 
     def get_post_mortems(self) -> list[dict[str, Any]]:
-        self._ensure_open()
-        cur = self._conn.cursor()
-        cur.execute("SELECT * FROM post_mortem_records ORDER BY id ASC")
-        return [dict(r) for r in cur.fetchall()]
+        with self._lock:
+            self._ensure_open()
+            cur = self._conn.cursor()
+            cur.execute("SELECT * FROM post_mortem_records ORDER BY id ASC")
+            return [dict(r) for r in cur.fetchall()]
 
     def close(self) -> None:
-        if not self._closed:
-            try:
-                self._conn.commit()
-                self._conn.close()
-            finally:
-                self._closed = True
+        with self._lock:
+            if not self._closed:
+                try:
+                    self._conn.commit()
+                    self._conn.close()
+                finally:
+                    self._closed = True
 
     def __enter__(self) -> SqliteCanaryIncidentTelemetryStore:
         return self
@@ -983,28 +1045,33 @@ class JsonlIncidentSink:
     def __init__(self, file_path: Path | str) -> None:
         self.file_path = Path(file_path)
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = open(self.file_path, "a", encoding="utf-8", newline="\n")  # noqa: SIM115
-        self._closed = False
+        self._lock = threading.Lock()
+        with self._lock:
+            self._file = open(self.file_path, "a", encoding="utf-8", newline="\n")  # noqa: SIM115
+            self._closed = False
 
     def append(self, incident: CanaryIncidentRecord) -> None:
-        if self._closed:
-            raise DomainViolation("Cannot append incident to closed JsonlIncidentSink")
-        line = json.dumps(incident.model_dump(mode="json"), sort_keys=True, default=str)
-        assert_zero_secrets(line, "canary-incidents.jsonl")
-        self._file.write(line + "\n")
-        self._file.flush()
-
-    def flush(self) -> None:
-        if not self._closed and self._file:
+        with self._lock:
+            if self._closed:
+                raise DomainViolation("Cannot append incident to closed JsonlIncidentSink")
+            line = json.dumps(incident.model_dump(mode="json"), sort_keys=True, default=str)
+            assert_zero_secrets(line, "canary-incidents.jsonl")
+            self._file.write(line + "\n")
             self._file.flush()
 
-    def close(self) -> None:
-        if not self._closed:
-            try:
+    def flush(self) -> None:
+        with self._lock:
+            if not self._closed and self._file:
                 self._file.flush()
-                self._file.close()
-            finally:
-                self._closed = True
+
+    def close(self) -> None:
+        with self._lock:
+            if not self._closed:
+                try:
+                    self._file.flush()
+                    self._file.close()
+                finally:
+                    self._closed = True
 
     def __enter__(self) -> JsonlIncidentSink:
         return self
@@ -1096,7 +1163,7 @@ class CanaryCircuitBreakerDrillRunner:
                 IncidentTrackId.TRACK_4.value,
             ]
             if target in ("all", "*")
-            else [target]
+            else ([target] if target != "cli_override" else [])
         )
 
         try:
@@ -1113,9 +1180,20 @@ class CanaryCircuitBreakerDrillRunner:
                     raise DomainViolation(f"Unknown incident drill track ID: {tid}")
                 track_results.append(res)
 
-            # Apply manual operator override flags if requested on CLI
-            if self.config.force_freeze or self.config.force_abort or self.config.force_recover:
-                self._apply_cli_operator_overrides()
+            # Apply manual operator override flags if requested on CLI or if target is cli_override
+            if (
+                self.config.force_freeze
+                or self.config.force_abort
+                or self.config.force_recover
+                or target == "cli_override"
+            ):
+                initial_st = (
+                    track_results[-1].incident_record.final_state
+                    if track_results
+                    else CircuitBreakerState.NORMAL
+                )
+                override_res = self._run_cli_operator_override_track(initial_state=initial_st)
+                track_results.append(override_res)
 
         finally:
             if self.jsonl_sink:
@@ -1813,51 +1891,175 @@ class CanaryCircuitBreakerDrillRunner:
             success=True,
         )
 
-    def _apply_cli_operator_overrides(self) -> None:
-        """Apply explicit CLI manual override flags to persistent incident store."""
-        incident_id = "inc-cli-override-001"
+    def _run_cli_operator_override_track(
+        self,
+        initial_state: CircuitBreakerState = CircuitBreakerState.NORMAL,
+    ) -> DrillTrackResult:
+        """Execute explicit CLI manual operator override action and persist incident record."""
         track_id = "cli_override"
-        assert self.store is not None
+        track_name = "Operator CLI Manual Override Track"
+        incident_id = "inc-cli-override-001"
+        start_ts = datetime.now(UTC).isoformat()
+        t0 = time.perf_counter()
+
+        sm = CanaryCircuitBreakerRecoveryStateMachine(
+            recovery_hysteresis_ticks=self.config.recovery_hysteresis_ticks,
+            latency_warning_threshold_ms=self.config.latency_warning_threshold_ms,
+            clock_drift_critical_threshold_ms=self.config.clock_drift_critical_threshold_ms,
+        )
+        if initial_state == CircuitBreakerState.TIER_1_SOFT_FREEZE:
+            sm.force_freeze(
+                operator_id=self.config.operator_id,
+                rationale="Prior state initialized to TIER_1_SOFT_FREEZE",
+            )
+        elif initial_state == CircuitBreakerState.TIER_2_HARD_ABORT:
+            sm.force_abort(
+                operator_id=self.config.operator_id,
+                rationale="Prior state initialized to TIER_2_HARD_ABORT",
+            )
+
+        timeline: list[dict[str, Any]] = []
+        action_desc: list[str] = []
         now_str = datetime.now(UTC).isoformat()
 
         if self.config.force_freeze:
-            tr = CircuitBreakerTransition(
-                timestamp_utc=now_str,
-                previous_state=CircuitBreakerState.NORMAL,
-                new_state=CircuitBreakerState.TIER_1_SOFT_FREEZE,
-                reason=f"CLI --force-freeze flag executed by {self.config.operator_id}",
-                trigger_severity=AlertSeverity.WARNING,
-                consecutive_healthy_ticks=0,
-                is_manual_override=True,
+            tr = sm.force_freeze(
                 operator_id=self.config.operator_id,
+                rationale=self.config.override_rationale,
+                timestamp_utc=now_str,
             )
+            assert self.store is not None
             self.store.record_circuit_breaker_transition(incident_id, track_id, tr)
+            timeline.append(
+                {
+                    "timestamp_utc": now_str,
+                    "event": "cli_operator_force_freeze",
+                    "operator_id": self.config.operator_id,
+                    "previous_state": tr.previous_state.value,
+                    "new_state": tr.new_state.value,
+                    "reason": tr.reason,
+                }
+            )
+            action_desc.append("force-freeze")
 
         if self.config.force_abort:
-            tr = CircuitBreakerTransition(
-                timestamp_utc=now_str,
-                previous_state=CircuitBreakerState.TIER_1_SOFT_FREEZE,
-                new_state=CircuitBreakerState.TIER_2_HARD_ABORT,
-                reason=f"CLI --force-abort flag executed by {self.config.operator_id}",
-                trigger_severity=AlertSeverity.EMERGENCY,
-                consecutive_healthy_ticks=0,
-                is_manual_override=True,
+            tr = sm.force_abort(
                 operator_id=self.config.operator_id,
+                rationale=self.config.override_rationale,
+                timestamp_utc=now_str,
             )
+            assert self.store is not None
             self.store.record_circuit_breaker_transition(incident_id, track_id, tr)
+            timeline.append(
+                {
+                    "timestamp_utc": now_str,
+                    "event": "cli_operator_force_abort",
+                    "operator_id": self.config.operator_id,
+                    "previous_state": tr.previous_state.value,
+                    "new_state": tr.new_state.value,
+                    "reason": tr.reason,
+                }
+            )
+            action_desc.append("force-abort")
 
         if self.config.force_recover:
-            tr = CircuitBreakerTransition(
-                timestamp_utc=now_str,
-                previous_state=CircuitBreakerState.TIER_1_SOFT_FREEZE,
-                new_state=CircuitBreakerState.NORMAL,
-                reason=f"CLI --force-recover flag executed by {self.config.operator_id}",
-                trigger_severity=AlertSeverity.INFO,
-                consecutive_healthy_ticks=0,
-                is_manual_override=True,
+            if sm.current_state == CircuitBreakerState.NORMAL:
+                pre_tr = sm.force_freeze(
+                    operator_id=self.config.operator_id,
+                    rationale="Prerequisite freeze for manual recovery override drill",
+                    timestamp_utc=now_str,
+                )
+                assert self.store is not None
+                self.store.record_circuit_breaker_transition(incident_id, track_id, pre_tr)
+
+            tr = sm.force_recover(
                 operator_id=self.config.operator_id,
+                rationale=self.config.override_rationale,
+                timestamp_utc=now_str,
             )
+            assert self.store is not None
             self.store.record_circuit_breaker_transition(incident_id, track_id, tr)
+            timeline.append(
+                {
+                    "timestamp_utc": now_str,
+                    "event": "cli_operator_force_recover",
+                    "operator_id": self.config.operator_id,
+                    "previous_state": tr.previous_state.value,
+                    "new_state": tr.new_state.value,
+                    "reason": tr.reason,
+                }
+            )
+            action_desc.append("force-recover")
+
+        end_ts = datetime.now(UTC).isoformat()
+        duration_s = time.perf_counter() - t0
+
+        final_st = sm.current_state
+        if final_st == CircuitBreakerState.TIER_2_HARD_ABORT:
+            status = "OPERATOR_MANUAL_ABORT"
+        elif final_st == CircuitBreakerState.TIER_1_SOFT_FREEZE:
+            status = "OPERATOR_MANUAL_FREEZE"
+        else:
+            status = "OPERATOR_MANUAL_RESOLVED"
+
+        action_label = ", ".join(action_desc) if action_desc else "manual-override"
+        inc_record = CanaryIncidentRecord(
+            incident_id=incident_id,
+            track_id=track_id,
+            track_name=track_name,
+            status=status,
+            root_cause=f"Operator CLI manual intervention: {action_label}",
+            start_time_utc=start_ts,
+            end_time_utc=end_ts,
+            duration_seconds=round(duration_s, 3),
+            escalation_latency_ms=0.0,
+            recovery_duration_ms=round(sm.recovery_duration_ms, 2),
+            initial_state=initial_state,
+            final_state=final_st,
+            transitions_count=len(sm.transitions),
+            transitions=sm.transitions,
+            telemetry_ticks_count=0,
+            details={
+                "operator_id": self.config.operator_id,
+                "actions": action_desc,
+                "rationale": self.config.override_rationale,
+                "manual_overrides_verified": True,
+            },
+        )
+        assert self.store is not None
+        self.store.record_incident(inc_record)
+        if self.jsonl_sink:
+            self.jsonl_sink.append(inc_record)
+
+        self.store.record_post_mortem(
+            incident_id=incident_id,
+            track_id=track_id,
+            root_cause=inc_record.root_cause,
+            escalation_latency_ms=0.0,
+            recovery_duration_ms=round(sm.recovery_duration_ms, 2),
+            summary={
+                "event": "operator_cli_override_drill",
+                "operator_id": self.config.operator_id,
+                "actions": action_desc,
+                "terminal_state": final_st.value,
+            },
+            timeline=timeline,
+        )
+
+        drift_res = self._record_and_reconcile_accounting(incident_id, track_id)
+
+        return DrillTrackResult(
+            track_id=track_id,
+            track_name=track_name,
+            incident_record=inc_record,
+            starting_equity_usdt=drift_res["starting_equity_usdt"],
+            final_cash_usdt=drift_res["final_cash_usdt"],
+            realized_pnl_usdt=drift_res["realized_pnl_usdt"],
+            accounting_drift_usdt=drift_res["drift_usdt"],
+            zero_balance_drift=drift_res["zero_drift"],
+            margin_guardrails_compliant=drift_res["margin_compliant"],
+            success=True,
+        )
 
     def _record_and_reconcile_accounting(
         self,
@@ -2041,7 +2243,7 @@ class CanaryCircuitBreakerDrillRunner:
                 tr.incident_record.status == "FAIL_CLOSED_HARD_ABORT" for tr in track_results
             ),
             "manual_override_verified": any(
-                tr.incident_record.status == "OPERATOR_MANUAL_RESOLVED" for tr in track_results
+                tr.incident_record.status.startswith("OPERATOR_MANUAL_") for tr in track_results
             ),
             "all_criteria_passed": all_zero_drift and all_margin_ok,
         }
@@ -2094,13 +2296,23 @@ class CanaryCircuitBreakerDrillRunner:
         with open(cb_summary_path, "wb") as f:
             f.write(cb_bytes)
 
+        cb_hash = compute_file_sha256(cb_summary_path)
+        all_artifact_hashes["circuit-breaker-summary.json"] = cb_hash
+
+        # Determine terminal circuit state from the last executed track result
+        final_circuit_state = (
+            track_results[-1].incident_record.final_state.value
+            if track_results
+            else CircuitBreakerState.NORMAL.value
+        )
+
         # 3. Write paper-summary.json
         paper_summary_path = self.config.output_dir / "paper-summary.json"
         paper_summary_payload = {
             "phase": "phase_273",
             "description": "Phase 273 Canary Circuit Breaker Drill & Zero-Drift Paper Summary",
             "timestamp_utc": datetime.now(UTC).isoformat(),
-            "circuit_state": CircuitBreakerState.NORMAL.value,
+            "circuit_state": final_circuit_state,
             "starting_capital_usdt": "100.00",
             "final_cash_usdt": "100.00",
             "final_equity_usdt": "100.00",
