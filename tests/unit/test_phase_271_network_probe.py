@@ -863,3 +863,188 @@ class TestPhase271AdditionalEdgeCases:
         assert dc_events[0]["success"] is False
         assert "1006" in dc_events[0]["details"]
         store.close()
+
+    def test_compute_percentile_clamping(self) -> None:
+        vals = [10.0, 20.0, 30.0]
+        assert compute_percentile(vals, -50.0) == 10.0
+        assert compute_percentile(vals, -0.01) == 10.0
+        assert compute_percentile(vals, 150.0) == 30.0
+
+    def test_closed_store_rejects_mutations(self, tmp_path: Path) -> None:
+        db_p = tmp_path / "closed_store_test.sqlite3"
+        st = SqliteCanaryNetworkTelemetryStore(db_p)
+        st.close()
+        with pytest.raises(DomainViolation, match="Cannot operate on closed telemetry store"):
+            st.record_connection_event("event_x", "endpoint_x", 1.0, True)
+        with pytest.raises(DomainViolation, match="Cannot operate on closed telemetry store"):
+            st.record_heartbeat(1, 100.0, 150.0, 50.0)
+        with pytest.raises(DomainViolation, match="Cannot operate on closed telemetry store"):
+            st.record_clock_sync(1000.0, 1010, 10.0, 20.0, True)
+        with pytest.raises(DomainViolation, match="Cannot operate on closed telemetry store"):
+            st.record_latency_mark("stream", "BTCUSDT", "ticker", 100, 105.0, 5.0)
+        with pytest.raises(DomainViolation, match="Cannot operate on closed telemetry store"):
+            st.record_latency_marks_batch([("ts", "s", "BTCUSDT", "t", 100, 105.0, 5.0)])
+        with pytest.raises(DomainViolation, match="Cannot operate on closed telemetry store"):
+            st.record_jitter("BTCUSDT", "stream", 100.0, 110.0, 10.0, 1.0)
+        with pytest.raises(DomainViolation, match="Cannot operate on closed telemetry store"):
+            st.record_jitter_batch([("ts", "BTCUSDT", "s", 100.0, 110.0, 10.0, 1.0)])
+        with pytest.raises(DomainViolation, match="Cannot operate on closed telemetry store"):
+            st.record_accounting_ledger(
+                starting_equity=Decimal("100.00"),
+                final_cash=Decimal("100.00"),
+                realized_pnl=Decimal("0.00"),
+                unrealized_pnl=Decimal("0.00"),
+                final_equity=Decimal("100.00"),
+                drift=Decimal("0.00"),
+                zero_drift=True,
+                margin_utilization_pct=0.0,
+                reserve_buffer_pct=100.0,
+                margin_compliant=True,
+            )
+
+    def test_fail_closed_rejects_broad_binance_credentials(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for var_name in (
+            "BINANCE_FUTURES_API_KEY",
+            "BINANCE_API_TOKEN",
+            "BINANCE_SECRET_KEY",
+            "BINANCE_TESTNET_AUTH",
+            "BINANCE_CREDENTIALS_PASS",
+        ):
+            monkeypatch.setenv(var_name, "detected_leak")
+            with pytest.raises(SafetyInvariantViolation, match="api_keys_loaded"):
+                verify_strict_fail_closed_invariants()
+            monkeypatch.delenv(var_name)
+
+    def test_offline_replay_respects_max_heartbeats_above_ten(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "replay_many_heartbeats"
+        summary, _, _, _, _ = run_canary_network_probe(
+            output_dir=out_dir,
+            max_heartbeats=15,
+            offline_replay=True,
+        )
+        assert summary.heartbeat_profile["count"] == 15
+
+    @pytest.mark.anyio
+    async def test_ntp_filtering_survives_transient_failure_if_one_succeeds(self) -> None:
+        req_count = 0
+
+        class MockTransientHandler(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                nonlocal req_count
+                req_count += 1
+                if req_count == 1:
+                    raise httpx.ReadTimeout("Transient TCP packet timeout")
+                import time
+
+                now_ms = int(time.time() * 1000.0)
+                return httpx.Response(200, json={"serverTime": now_ms + 12}, request=request)
+
+        client = httpx.AsyncClient(transport=MockTransientHandler())
+        sample = await evaluate_server_time_sync(client=client, samples_count=3)
+        assert sample.within_threshold is True
+        assert req_count == 3
+        await client.aclose()
+
+    def test_live_probe_fallback_on_json_decode_error(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "json_decode_fallback"
+
+        class MockHtmlHandler(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                return httpx.Response(
+                    200,
+                    text="<html><body>Captcha verification required</body></html>",
+                    headers={"content-type": "text/html"},
+                    request=request,
+                )
+
+        cfg = CanaryProbeConfig(
+            output_dir=out_dir,
+            probe_seconds=0.5,
+            max_heartbeats=1,
+            offline_replay=False,
+        )
+        runner = CanaryNetworkProbeRunner(cfg)
+
+        with mock.patch(
+            "httpx.AsyncClient", return_value=httpx.AsyncClient(transport=MockHtmlHandler())
+        ):
+            summary, db_path, rep_path, _, _ = runner.run()
+
+        assert summary.execution_mode == "network_fallback"
+        assert summary.portfolio_accounting["zero_balance_drift"] is True
+        assert db_path.is_file()
+
+    def test_live_probe_simulate_post_probe_drift_raises_fail_closed(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "live_post_drift_fail"
+        cfg = CanaryProbeConfig(
+            output_dir=out_dir,
+            probe_seconds=0.05,
+            max_heartbeats=1,
+            offline_replay=False,
+            simulate_post_probe_drift=True,
+        )
+        runner = CanaryNetworkProbeRunner(cfg)
+
+        class MockWs:
+            def __init__(self) -> None:
+                self.close_code = 1000
+
+            async def __aenter__(self) -> MockWs:
+                return self
+
+            async def __aexit__(self, *args: Any) -> None:
+                pass
+
+            async def ping(self) -> Any:
+                import asyncio
+
+                fut = asyncio.get_event_loop().create_future()
+                fut.set_result(0.05)
+                return fut
+
+            async def recv(self) -> str:
+                import asyncio
+
+                await asyncio.sleep(0.01)
+                return json.dumps(
+                    {
+                        "stream": "btcusdt@bookTicker",
+                        "data": {
+                            "s": "BTCUSDT",
+                            "e": "bookTicker",
+                            "b": "100",
+                            "E": 1726000000000,
+                        },
+                    }
+                )
+
+        mock_sample = ClockSyncSample(
+            timestamp_utc="2026-09-18T00:00:00Z",
+            client_time_ms=1000.0,
+            server_time_ms=1010,
+            drift_ms=10.0,
+            rtt_ms=20.0,
+            within_threshold=True,
+        )
+
+        with (
+            mock.patch("websockets.connect", return_value=MockWs()),
+            mock.patch(
+                "autonomous_futures.feed.canary_probe.evaluate_server_time_sync",
+                side_effect=[
+                    mock_sample,  # initial clock sync passes
+                    ClockSyncSample(  # post-probe clock sync fails threshold
+                        timestamp_utc="2026-09-18T00:00:01Z",
+                        client_time_ms=1000.0,
+                        server_time_ms=2500,
+                        drift_ms=1500.0,
+                        rtt_ms=20.0,
+                        within_threshold=False,
+                    ),
+                ],
+            ),
+        ):
+            with pytest.raises(ClockSyncDriftError, match="exceeds safety threshold"):
+                runner.run()

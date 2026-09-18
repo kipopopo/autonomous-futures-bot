@@ -87,7 +87,8 @@ def compute_percentile(sorted_vals: list[float], p: float) -> float:
         return 0.0
     if len(sorted_vals) == 1:
         return sorted_vals[0]
-    idx = (len(sorted_vals) - 1) * (p / 100.0)
+    p_clamped = max(0.0, min(100.0, float(p)))
+    idx = (len(sorted_vals) - 1) * (p_clamped / 100.0)
     low = int(idx)
     high = low + 1
     if high >= len(sorted_vals):
@@ -315,6 +316,11 @@ class SqliteCanaryNetworkTelemetryStore:
         )
         self._conn.commit()
 
+    def _ensure_open(self) -> None:
+        """Verify the store connection is open before mutating operations."""
+        if getattr(self, "_closed", False):
+            raise DomainViolation("Cannot operate on closed telemetry store")
+
     def record_connection_event(
         self,
         event_type: str,
@@ -325,6 +331,7 @@ class SqliteCanaryNetworkTelemetryStore:
         timestamp_utc: str | None = None,
     ) -> int:
         """Insert connection event into SQLite store."""
+        self._ensure_open()
         ts = timestamp_utc or datetime.now(UTC).isoformat()
         cur = self._conn.cursor()
         cur.execute(
@@ -347,6 +354,7 @@ class SqliteCanaryNetworkTelemetryStore:
         timestamp_utc: str | None = None,
     ) -> int:
         """Insert heartbeat measurement sample into SQLite store."""
+        self._ensure_open()
         ts = timestamp_utc or datetime.now(UTC).isoformat()
         cur = self._conn.cursor()
         cur.execute(
@@ -370,6 +378,7 @@ class SqliteCanaryNetworkTelemetryStore:
         timestamp_utc: str | None = None,
     ) -> int:
         """Insert server clock synchronization record into SQLite store."""
+        self._ensure_open()
         ts = timestamp_utc or datetime.now(UTC).isoformat()
         cur = self._conn.cursor()
         cur.execute(
@@ -401,6 +410,7 @@ class SqliteCanaryNetworkTelemetryStore:
         timestamp_utc: str | None = None,
     ) -> int:
         """Insert message ingress latency mark into SQLite store."""
+        self._ensure_open()
         ts = timestamp_utc or datetime.now(UTC).isoformat()
         cur = self._conn.cursor()
         cur.execute(
@@ -427,6 +437,7 @@ class SqliteCanaryNetworkTelemetryStore:
         marks: list[tuple[str, str, str, str, int, float, float]],
     ) -> int:
         """Insert a batch of latency marks in a single transaction."""
+        self._ensure_open()
         if not marks:
             return 0
         cur = self._conn.cursor()
@@ -452,6 +463,7 @@ class SqliteCanaryNetworkTelemetryStore:
         timestamp_utc: str | None = None,
     ) -> int:
         """Insert inter-arrival interval and jitter sample into SQLite store."""
+        self._ensure_open()
         ts = timestamp_utc or datetime.now(UTC).isoformat()
         cur = self._conn.cursor()
         cur.execute(
@@ -478,6 +490,7 @@ class SqliteCanaryNetworkTelemetryStore:
         samples: list[tuple[str, str, str, float, float, float, float]],
     ) -> int:
         """Insert a batch of jitter samples in a single transaction."""
+        self._ensure_open()
         if not samples:
             return 0
         cur = self._conn.cursor()
@@ -507,6 +520,7 @@ class SqliteCanaryNetworkTelemetryStore:
         timestamp_utc: str | None = None,
     ) -> int:
         """Insert double-entry reconciliation record into SQLite store."""
+        self._ensure_open()
         ts = timestamp_utc or datetime.now(UTC).isoformat()
         cur = self._conn.cursor()
         cur.execute(
@@ -731,9 +745,13 @@ def verify_strict_fail_closed_invariants(
     authenticated_endpoints_accessed: bool = False,
 ) -> dict[str, Any]:
     """Verify and assert non-negotiable read-only fail-closed safety invariants."""
-    api_key = os.environ.get("BINANCE_API_KEY")
-    api_secret = os.environ.get("BINANCE_API_SECRET")
-    private_keys_found = int(bool(api_key)) + int(bool(api_secret))
+    detected_keys = [
+        k
+        for k in os.environ
+        if "BINANCE" in k.upper()
+        and any(t in k.upper() for t in ("KEY", "SECRET", "TOKEN", "AUTH", "PASS", "CRED"))
+    ]
+    private_keys_found = len(detected_keys)
 
     invariants = {
         "execution_authority": execution_authority,
@@ -807,20 +825,33 @@ async def evaluate_server_time_sync(
         url = f"{rest_url.rstrip('/')}/fapi/v1/time"
         n_samples = max(1, samples_count)
         samples: list[tuple[float, float, float, int]] = []
+        last_exc: Exception | None = None
 
         for _ in range(n_samples):
-            t0 = time.time() * 1000.0
-            response = await client.get(url)
-            t1 = time.time() * 1000.0
-            response.raise_for_status()
-            data = response.json()
-            if not isinstance(data, dict) or "serverTime" not in data:
-                raise DomainViolation("Invalid response from Binance /fapi/v1/time")
-            server_ms = int(data["serverTime"])
-            rtt_ms = max(0.1, t1 - t0)
-            client_est_ms = t0 + (rtt_ms / 2.0)
-            drift_ms = server_ms - client_est_ms
-            samples.append((rtt_ms, drift_ms, client_est_ms, server_ms))
+            try:
+                t0_mono = time.perf_counter()
+                t0_wall = time.time() * 1000.0
+                response = await client.get(url)
+                t1_mono = time.perf_counter()
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, dict) or "serverTime" not in data:
+                    raise DomainViolation("Invalid response from Binance /fapi/v1/time")
+                server_ms = int(data["serverTime"])
+                rtt_ms = max(0.1, (t1_mono - t0_mono) * 1000.0)
+                client_est_ms = t0_wall + (rtt_ms / 2.0)
+                drift_ms = server_ms - client_est_ms
+                samples.append((rtt_ms, drift_ms, client_est_ms, server_ms))
+            except Exception as exc:
+                last_exc = exc
+                if isinstance(exc, DomainViolation):
+                    if not samples:
+                        raise
+
+        if not samples:
+            if last_exc is not None:
+                raise last_exc
+            raise DomainViolation("No server time samples collected")
 
         # Select sample with minimum RTT (standard NTP RFC 5905 best-fit filtering)
         best_rtt, best_drift, best_client_est, best_server_ms = min(samples, key=lambda s: s[0])
@@ -941,7 +972,7 @@ class CanaryNetworkProbeRunner:
             )
 
         # 3. Heartbeats
-        heartbeat_count = min(self.config.max_heartbeats, 10)
+        heartbeat_count = self.config.max_heartbeats
         synthetic_rtts = [45.2, 48.1, 52.3, 44.9, 49.0, 55.4, 46.8, 51.2, 47.6, 50.1]
         base_time_ms = time.time() * 1000.0
         for seq in range(1, heartbeat_count + 1):
@@ -1162,7 +1193,7 @@ class CanaryNetworkProbeRunner:
                     # 4. Message Ingress Consumer Loop
                     last_recv_times: dict[tuple[str, str], float] = {}
                     last_intervals: dict[tuple[str, str], float] = {}
-                    deadline = t0 + self.config.probe_seconds
+                    deadline = time.perf_counter() + self.config.probe_seconds
                     latency_batch: list[tuple[str, str, str, str, int, float, float]] = []
                     jitter_batch: list[tuple[str, str, str, float, float, float, float]] = []
 
@@ -1383,10 +1414,18 @@ class CanaryNetworkProbeRunner:
                         ws_endpoint=ws_endpoint,
                     )
                 except (
+                    ClockSyncDriftError,
+                    AccountingDriftError,
+                    SafetyInvariantViolation,
+                ):
+                    raise
+                except (
                     httpx.HTTPError,
                     websockets.WebSocketException,
                     OSError,
                     TimeoutError,
+                    json.JSONDecodeError,
+                    DomainViolation,
                 ) as net_err:
                     logger.warning(
                         "Public network probe encountered network restriction (%s); "
@@ -1497,7 +1536,10 @@ class CanaryNetworkProbeRunner:
                 "endpoint": ws_endpoint,
                 "handshake_time_ms": round(handshake_ms, 2),
                 "status": "CLOSED",
-                "reconnect_count": 0,
+                "reconnect_count": max(
+                    0,
+                    sum(1 for ev in conn_events if ev["event_type"] == "ws_handshake_started") - 1,
+                ),
                 "events_count": len(conn_events),
             },
             heartbeat_profile=hb_stats,
