@@ -26,10 +26,12 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 from autonomous_futures.feed.heartbeat_daemon import (  # noqa: E402
+    CLOCK_DRIFT_CRITICAL_THRESHOLD_MS,
     DEFAULT_CANARY_STAGING_MANIFEST_PATH,
     DEFAULT_PHASE272_OUTPUT_DIR,
     DEFAULT_REST_URL,
     DEFAULT_WS_URL,
+    FEED_TIMEOUT_CRITICAL_SECONDS,
     CanaryHeartbeatDaemonConfig,
     CanaryHeartbeatDaemonRunner,
     CanaryHeartbeatSummary,
@@ -106,6 +108,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--simulate-adverse-drift",
         action="store_true",
         help="Inject synthetic accounting drift (> 1e-15 USDT) to trigger EMERGENCY alert",
+    )
+    parser.add_argument(
+        "--feed-timeout-seconds",
+        type=float,
+        default=FEED_TIMEOUT_CRITICAL_SECONDS,
+        help="Inactivity seconds before feed timeout CRITICAL alert (default: 10.0)",
+    )
+    parser.add_argument(
+        "--clock-drift-threshold-ms",
+        type=float,
+        default=CLOCK_DRIFT_CRITICAL_THRESHOLD_MS,
+        help="Clock drift critical threshold in ms (default: 1000.0)",
+    )
+    parser.add_argument(
+        "--max-reconnect-attempts",
+        type=int,
+        default=10,
+        help="Maximum WebSocket reconnection attempts before aborting (default: 10)",
     )
     parser.add_argument(
         "--ws-url",
@@ -259,6 +279,9 @@ def execute_phase_272_runner(
     simulate_feed_drop: bool = False,
     simulate_clock_drift_breach: bool = False,
     simulate_adverse_drift: bool = False,
+    feed_timeout_seconds: float = FEED_TIMEOUT_CRITICAL_SECONDS,
+    clock_drift_threshold_ms: float = CLOCK_DRIFT_CRITICAL_THRESHOLD_MS,
+    max_reconnect_attempts: int = 10,
     ws_url: str = DEFAULT_WS_URL,
     rest_url: str = DEFAULT_REST_URL,
     json_output: bool = False,
@@ -276,6 +299,9 @@ def execute_phase_272_runner(
         simulate_feed_drop=simulate_feed_drop,
         simulate_clock_drift_breach=simulate_clock_drift_breach,
         simulate_adverse_drift=simulate_adverse_drift,
+        feed_timeout_seconds=feed_timeout_seconds,
+        clock_drift_threshold_ms=clock_drift_threshold_ms,
+        max_reconnect_attempts=max_reconnect_attempts,
         ws_url=ws_url,
         rest_url=rest_url,
     )
@@ -326,6 +352,9 @@ def main(argv: list[str] | None = None) -> int:
             simulate_feed_drop=args.simulate_feed_drop,
             simulate_clock_drift_breach=args.simulate_clock_drift_breach,
             simulate_adverse_drift=args.simulate_adverse_drift,
+            feed_timeout_seconds=args.feed_timeout_seconds,
+            clock_drift_threshold_ms=args.clock_drift_threshold_ms,
+            max_reconnect_attempts=args.max_reconnect_attempts,
             ws_url=args.ws_url,
             rest_url=args.rest_url,
             json_output=args.json,

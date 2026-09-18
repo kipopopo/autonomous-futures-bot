@@ -793,6 +793,7 @@ async def evaluate_server_time_sync(
     timeout_seconds: float = 5.0,
     simulate_drift_ms: float | None = None,
     samples_count: int = 3,
+    max_drift_ms: float = MAX_SERVER_TIME_DRIFT_MS,
 ) -> ClockSyncSample:
     """Evaluate Binance server time synchronization drift (|drift| <= 1000ms).
 
@@ -806,7 +807,7 @@ async def evaluate_server_time_sync(
         drift_ms = simulate_drift_ms
         server_ms = int(client_ms + drift_ms)
         rtt_ms = 45.0
-        within_threshold = abs(drift_ms) <= MAX_SERVER_TIME_DRIFT_MS
+        within_threshold = abs(drift_ms) <= max_drift_ms
         return ClockSyncSample(
             timestamp_utc=now_utc,
             client_time_ms=client_ms,
@@ -855,7 +856,7 @@ async def evaluate_server_time_sync(
 
         # Select sample with minimum RTT (standard NTP RFC 5905 best-fit filtering)
         best_rtt, best_drift, best_client_est, best_server_ms = min(samples, key=lambda s: s[0])
-        within_threshold = abs(best_drift) <= MAX_SERVER_TIME_DRIFT_MS
+        within_threshold = abs(best_drift) <= max_drift_ms
 
         return ClockSyncSample(
             timestamp_utc=now_utc,

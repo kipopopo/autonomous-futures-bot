@@ -7,6 +7,7 @@ import sys
 import unittest.mock as mock
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -299,10 +300,77 @@ class TestPhase272SqliteTelemetryStore:
         assert events[0]["new_state"] == "TIER_1_SOFT_FREEZE"
         assert events[0]["reason"] == "Feed timeout"
 
+    def test_get_recent_alerts_returns_newest_alerts_ordered(
+        self, isolated_store: SqliteCanaryHeartbeatTelemetryStore
+    ) -> None:
+        for i in range(1, 11):
+            isolated_store.record_alert_event(
+                AlertEvent(
+                    alert_id=f"alt-{i:05d}",
+                    timestamp_utc=f"2026-09-18T10:00:{i:02d}Z",
+                    severity=AlertSeverity.INFO,
+                    component="test",
+                    event_type="tick",
+                    message=f"msg-{i}",
+                )
+            )
+
+        recent = isolated_store.get_recent_alerts(limit=3)
+        assert len(recent) == 3
+        # Must return newest 3 alerts ordered ascending
+        assert [r["alert_id"] for r in recent] == ["alt-00008", "alt-00009", "alt-00010"]
+        assert [r["message"] for r in recent] == ["msg-8", "msg-9", "msg-10"]
+
+    def test_record_alert_event_with_decimal_and_path_details(
+        self, isolated_store: SqliteCanaryHeartbeatTelemetryStore
+    ) -> None:
+        alert = AlertEvent(
+            alert_id="alt-decimal-01",
+            timestamp_utc="2026-09-18T10:00:00Z",
+            severity=AlertSeverity.WARNING,
+            component="accounting",
+            event_type="drift_warning",
+            message="Drift detected",
+            details={
+                "drift_usdt": Decimal("0.05"),
+                "artifact_path": Path("artifacts/test.json"),
+            },
+        )
+        row_id = isolated_store.record_alert_event(alert)
+        assert row_id > 0
+        recent = isolated_store.get_recent_alerts(limit=1)
+        assert len(recent) == 1
+        assert recent[0]["details"]["drift_usdt"] == "0.05"
+        assert "artifacts" in recent[0]["details"]["artifact_path"]
+
     def test_closed_store_guards(self, isolated_store: SqliteCanaryHeartbeatTelemetryStore) -> None:
         isolated_store.close()
         with pytest.raises(DomainViolation, match="Cannot operate on closed"):
             isolated_store.record_connection_event("test", "endpoint", 1.0, True)
+
+        with pytest.raises(DomainViolation, match="Cannot operate on closed"):
+            isolated_store.get_connection_events()
+
+        with pytest.raises(DomainViolation, match="Cannot operate on closed"):
+            isolated_store.get_heartbeat_stats()
+
+        with pytest.raises(DomainViolation, match="Cannot operate on closed"):
+            isolated_store.get_clock_sync_stats()
+
+        with pytest.raises(DomainViolation, match="Cannot operate on closed"):
+            isolated_store.get_stream_telemetry(1.0)
+
+        with pytest.raises(DomainViolation, match="Cannot operate on closed"):
+            isolated_store.get_alert_counts()
+
+        with pytest.raises(DomainViolation, match="Cannot operate on closed"):
+            isolated_store.get_recent_alerts()
+
+        with pytest.raises(DomainViolation, match="Cannot operate on closed"):
+            isolated_store.get_circuit_breaker_events()
+
+        with pytest.raises(DomainViolation, match="Cannot operate on closed"):
+            isolated_store.get_accounting_ledger()
 
 
 class TestPhase272AlertRingBufferAndSinks:
@@ -435,6 +503,73 @@ class TestPhase272AlertRingBufferAndSinks:
         assert mock_logger.error.called
         assert mock_logger.critical.called
 
+    def test_jsonl_alert_sink_context_manager(self, tmp_path: Path) -> None:
+        sink_path = tmp_path / "ctx_alerts.jsonl"
+        with JsonlAlertSink(sink_path) as sink:
+            sink.append(
+                AlertEvent(
+                    alert_id="alt-ctx-1",
+                    timestamp_utc="2026-09-18T10:00:00Z",
+                    severity=AlertSeverity.INFO,
+                    component="ctx_test",
+                    event_type="test",
+                    message="context manager test",
+                )
+            )
+
+        with pytest.raises(DomainViolation, match="Cannot append alert to closed"):
+            sink.append(
+                AlertEvent(
+                    alert_id="alt-ctx-2",
+                    timestamp_utc="2026-09-18T10:00:01Z",
+                    severity=AlertSeverity.INFO,
+                    component="ctx_test",
+                    event_type="test",
+                    message="after close",
+                )
+            )
+
+    def test_alert_ring_buffer_thread_safety_concurrent_access(self) -> None:
+        import concurrent.futures
+
+        buf = AlertRingBuffer(capacity=50)
+        errors: list[Exception] = []
+
+        def writer(start_idx: int) -> None:
+            for j in range(50):
+                try:
+                    buf.append(
+                        AlertEvent(
+                            alert_id=f"alt-{start_idx + j}",
+                            timestamp_utc="2026-09-18T10:00:00Z",
+                            severity=AlertSeverity.INFO if j % 2 == 0 else AlertSeverity.WARNING,
+                            component="thread",
+                            event_type="tick",
+                            message=f"m-{start_idx + j}",
+                        )
+                    )
+                except Exception as ex:
+                    errors.append(ex)
+
+        def reader() -> None:
+            for _ in range(50):
+                try:
+                    _ = buf.get_recent(limit=10)
+                    _ = buf.get_counts()
+                    _ = buf.get_by_severity(AlertSeverity.WARNING)
+                    _ = len(buf)
+                except Exception as ex:
+                    errors.append(ex)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            writer_futures = [executor.submit(writer, i * 100) for i in range(4)]
+            reader_futures = [executor.submit(reader) for _ in range(4)]
+            for f in writer_futures + reader_futures:
+                f.result()
+
+        assert len(errors) == 0
+        assert len(buf) <= 50
+
 
 class TestPhase272CircuitBreakerManager:
     """Validate circuit breaker state machine, triggers, and fail-closed transitions."""
@@ -530,6 +665,29 @@ class TestPhase272AlertDispatcher:
         assert cb_events[0]["new_state"] == "TIER_1_SOFT_FREEZE"
 
         jsonl_sink.close()
+
+    def test_dispatcher_evaluates_circuit_breaker_on_emergency_even_if_store_closed(
+        self, isolated_store: SqliteCanaryHeartbeatTelemetryStore
+    ) -> None:
+        isolated_store.close()
+        cb = CircuitBreakerManager()
+        dispatcher = AlertDispatcher(
+            ring_buffer=AlertRingBuffer(),
+            store=isolated_store,
+            circuit_breaker=cb,
+        )
+
+        # Dispatch EMERGENCY alert with closed store
+        alert = dispatcher.dispatch(
+            severity=AlertSeverity.EMERGENCY,
+            component="accounting_engine",
+            event_type="accounting_drift_breach",
+            message="Drift violated ceiling",
+        )
+        assert alert.severity == AlertSeverity.EMERGENCY
+        # In-memory circuit breaker must transition regardless of store failure
+        assert cb.current_state == CircuitBreakerState.TIER_2_HARD_ABORT
+        assert cb.is_hard_aborted()
 
 
 class TestPhase272AnomalySimulationFlags:
@@ -773,3 +931,209 @@ class TestPhase272ConfigValidation:
     def test_invalid_heartbeat_interval(self) -> None:
         with pytest.raises(DomainViolation, match="heartbeat_interval_seconds must be positive"):
             CanaryHeartbeatDaemonConfig(heartbeat_interval_seconds=0.0)
+
+    def test_invalid_feed_timeout_seconds(self) -> None:
+        with pytest.raises(DomainViolation, match="feed_timeout_seconds must be positive"):
+            CanaryHeartbeatDaemonConfig(feed_timeout_seconds=0.0)
+
+    def test_negative_max_reconnect_attempts(self) -> None:
+        with pytest.raises(DomainViolation, match="max_reconnect_attempts cannot be negative"):
+            CanaryHeartbeatDaemonConfig(max_reconnect_attempts=-1)
+
+    def test_invalid_reconnect_backoff_base_seconds(self) -> None:
+        with pytest.raises(
+            DomainViolation, match="reconnect_backoff_base_seconds must be positive"
+        ):
+            CanaryHeartbeatDaemonConfig(reconnect_backoff_base_seconds=0.0)
+
+
+class TestPhase272LiveStreamSupervision:
+    """Validate in-flight feed silence supervision, half-open TCP detection,
+    and reconnection loop.
+    """
+
+    @pytest.mark.anyio
+    async def test_live_daemon_silence_feed_timeout_triggers_critical_alert(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import asyncio
+
+        from autonomous_futures.feed.canary_probe import ClockSyncSample
+
+        # Mock REST server time sync
+        async def mock_clock_sync(*args: Any, **kwargs: Any) -> ClockSyncSample:
+            return ClockSyncSample(
+                timestamp_utc="2026-09-18T10:00:00Z",
+                client_time_ms=1000.0,
+                server_time_ms=1010,
+                drift_ms=10.0,
+                rtt_ms=20.0,
+                within_threshold=True,
+            )
+
+        monkeypatch.setattr(
+            "autonomous_futures.feed.heartbeat_daemon.evaluate_server_time_sync",
+            mock_clock_sync,
+        )
+
+        # Mock silent WebSocket that hangs on recv
+        class SilentWebSocket:
+            async def ping(self) -> asyncio.Future[None]:
+                fut: asyncio.Future[None] = asyncio.Future()
+                fut.set_result(None)
+                return fut
+
+            async def recv(self) -> str:
+                # Hang indefinitely until timeout
+                await asyncio.sleep(10.0)
+                return ""
+
+            async def close(self) -> None:
+                pass
+
+        class MockConnectCtx:
+            async def __aenter__(self) -> SilentWebSocket:
+                return SilentWebSocket()
+
+            async def __aexit__(self, *args: Any) -> None:
+                pass
+
+        def mock_ws_connect(*args: Any, **kwargs: Any) -> MockConnectCtx:
+            return MockConnectCtx()
+
+        monkeypatch.setattr("websockets.connect", mock_ws_connect)
+
+        cfg = CanaryHeartbeatDaemonConfig(
+            output_dir=tmp_path,
+            offline_replay=False,
+            daemon_seconds=0.5,
+            max_heartbeats=0,
+            feed_timeout_seconds=0.1,  # Trip after 100ms of silence
+            max_reconnect_attempts=1,
+            reconnect_backoff_base_seconds=0.01,
+        )
+        runner = CanaryHeartbeatDaemonRunner(cfg)
+        summary, db_path, jsonl_path, _, _, _ = await runner.run_async()
+
+        # Silence must trip CRITICAL alert and TIER_1_SOFT_FREEZE
+        assert summary.circuit_breaker_state == "TIER_1_SOFT_FREEZE"
+        assert summary.alerts_summary["counts_by_severity"]["CRITICAL"] >= 1
+
+        with open(jsonl_path, encoding="utf-8") as f:
+            lines = [json.loads(line) for line in f]
+        feed_alerts = [
+            e for e in lines if e["severity"] == "CRITICAL" and e["event_type"] == "feed_timeout"
+        ]
+        assert len(feed_alerts) >= 1
+        assert "Feed connection timeout" in feed_alerts[0]["message"]
+
+    @pytest.mark.anyio
+    async def test_live_daemon_reconnection_backoff_jitter_and_recovery(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import asyncio
+
+        import websockets.exceptions
+
+        from autonomous_futures.feed.canary_probe import ClockSyncSample
+
+        async def mock_clock_sync(*args: Any, **kwargs: Any) -> ClockSyncSample:
+            return ClockSyncSample(
+                timestamp_utc="2026-09-18T10:00:00Z",
+                client_time_ms=1000.0,
+                server_time_ms=1010,
+                drift_ms=10.0,
+                rtt_ms=20.0,
+                within_threshold=True,
+            )
+
+        monkeypatch.setattr(
+            "autonomous_futures.feed.heartbeat_daemon.evaluate_server_time_sync",
+            mock_clock_sync,
+        )
+
+        attempts = 0
+
+        class FlappingWebSocket:
+            def __init__(self, attempt_num: int) -> None:
+                self.attempt_num = attempt_num
+                self._msg_count = 0
+
+            async def ping(self) -> asyncio.Future[None]:
+                fut: asyncio.Future[None] = asyncio.Future()
+                fut.set_result(None)
+                return fut
+
+            async def recv(self) -> str:
+                if self.attempt_num == 1:
+                    # Drop immediately on first connection
+                    raise websockets.exceptions.ConnectionClosed(None, None)
+                # Second connection yields a valid frame then sleeps
+                self._msg_count += 1
+                if self._msg_count == 1:
+                    return json.dumps(
+                        {
+                            "stream": "btcusdt@bookTicker",
+                            "data": {"s": "BTCUSDT", "e": "bookTicker", "b": "50000.0", "E": 1000},
+                        }
+                    )
+                await asyncio.sleep(5.0)
+                return ""
+
+            async def close(self) -> None:
+                pass
+
+        class MockConnectCtx:
+            def __init__(self, attempt: int) -> None:
+                self.attempt = attempt
+
+            async def __aenter__(self) -> FlappingWebSocket:
+                return FlappingWebSocket(self.attempt)
+
+            async def __aexit__(self, *args: Any) -> None:
+                pass
+
+        def mock_flapping_connect(*args: Any, **kwargs: Any) -> MockConnectCtx:
+            nonlocal attempts
+            attempts += 1
+            return MockConnectCtx(attempts)
+
+        monkeypatch.setattr("websockets.connect", mock_flapping_connect)
+
+        cfg = CanaryHeartbeatDaemonConfig(
+            output_dir=tmp_path,
+            offline_replay=False,
+            daemon_seconds=0.6,
+            max_heartbeats=1,
+            feed_timeout_seconds=5.0,
+            max_reconnect_attempts=5,
+            reconnect_backoff_base_seconds=0.01,
+        )
+        runner = CanaryHeartbeatDaemonRunner(cfg)
+        summary, _, jsonl_path, _, _, _ = await runner.run_async()
+
+        # Verify reconnection occurred
+        assert attempts >= 2
+        assert summary.connection_profile["reconnect_count"] >= 1
+
+        with open(jsonl_path, encoding="utf-8") as f:
+            lines = [json.loads(line) for line in f]
+
+        reestablished = [e for e in lines if e["event_type"] == "connection_reestablished"]
+        assert len(reestablished) >= 1
+        assert reestablished[0]["details"]["is_reconnect"] is True
+
+    def test_live_daemon_max_heartbeats_zero_bounded_by_daemon_seconds(
+        self, tmp_path: Path
+    ) -> None:
+        cfg = CanaryHeartbeatDaemonConfig(
+            output_dir=tmp_path,
+            offline_replay=True,
+            daemon_seconds=1.0,
+            max_heartbeats=0,
+        )
+        runner = CanaryHeartbeatDaemonRunner(cfg)
+        summary, _, _, _, _, _ = runner.run()
+
+        assert summary.heartbeat_profile["count"] == 0
+        assert summary.compliance["all_criteria_passed"] is True

@@ -12,7 +12,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import sqlite3
+import threading
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -152,36 +154,43 @@ class AlertRingBuffer:
             raise DomainViolation(f"AlertRingBuffer capacity must be positive, got {capacity}")
         self.capacity = capacity
         self._buffer: deque[AlertEvent] = deque(maxlen=capacity)
+        self._lock = threading.Lock()
 
     def append(self, alert: AlertEvent) -> None:
         """Insert alert into in-memory ring buffer."""
-        self._buffer.append(alert)
+        with self._lock:
+            self._buffer.append(alert)
 
     def get_recent(self, limit: int = 50) -> list[AlertEvent]:
         """Return the most recent alerts up to limit, ordered newest last."""
         if limit <= 0:
             return []
-        items = list(self._buffer)
+        with self._lock:
+            items = list(self._buffer)
         return items[-limit:]
 
     def get_by_severity(self, severity: AlertSeverity | str) -> list[AlertEvent]:
         """Filter ring buffer alerts by severity."""
         sev_str = severity.value if isinstance(severity, AlertSeverity) else str(severity)
-        return [a for a in self._buffer if a.severity.value == sev_str]
+        with self._lock:
+            return [a for a in self._buffer if a.severity.value == sev_str]
 
     def get_counts(self) -> dict[str, int]:
         """Count alerts grouped by severity."""
         counts = {s.value: 0 for s in AlertSeverity}
-        for a in self._buffer:
-            counts[a.severity.value] = counts.get(a.severity.value, 0) + 1
+        with self._lock:
+            for a in self._buffer:
+                counts[a.severity.value] = counts.get(a.severity.value, 0) + 1
         return counts
 
     def clear(self) -> None:
         """Clear all buffered alerts."""
-        self._buffer.clear()
+        with self._lock:
+            self._buffer.clear()
 
     def __len__(self) -> int:
-        return len(self._buffer)
+        with self._lock:
+            return len(self._buffer)
 
 
 class JsonlAlertSink:
@@ -197,7 +206,7 @@ class JsonlAlertSink:
         """Write single alert as a canonical JSON line and flush immediately."""
         if self._closed:
             raise DomainViolation("Cannot append alert to closed JsonlAlertSink")
-        line = json.dumps(alert.model_dump(mode="json"), sort_keys=True)
+        line = json.dumps(alert.model_dump(mode="json"), sort_keys=True, default=str)
         assert_zero_secrets(line, "canary-alerts.jsonl")
         self._file.write(line + "\n")
         self._file.flush()
@@ -215,6 +224,12 @@ class JsonlAlertSink:
                 self._file.close()
             finally:
                 self._closed = True
+
+    def __enter__(self) -> JsonlAlertSink:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
 
 
 class ConsoleAlertSink:
@@ -684,7 +699,7 @@ class SqliteCanaryHeartbeatTelemetryStore:
                 alert.component,
                 alert.event_type,
                 alert.message,
-                json.dumps(alert.details, sort_keys=True),
+                json.dumps(alert.details, sort_keys=True, default=str),
             ),
         )
         self._conn.commit()
@@ -753,6 +768,7 @@ class SqliteCanaryHeartbeatTelemetryStore:
         return cur.lastrowid or 0
 
     def get_connection_events(self) -> list[dict[str, Any]]:
+        self._ensure_open()
         cur = self._conn.cursor()
         cur.execute(
             "SELECT timestamp_utc, event_type, endpoint, duration_ms, success, details "
@@ -771,6 +787,7 @@ class SqliteCanaryHeartbeatTelemetryStore:
         ]
 
     def get_heartbeat_stats(self) -> dict[str, Any]:
+        self._ensure_open()
         cur = self._conn.cursor()
         cur.execute("SELECT rtt_ms FROM heartbeat_samples ORDER BY rtt_ms ASC")
         rows = cur.fetchall()
@@ -797,6 +814,7 @@ class SqliteCanaryHeartbeatTelemetryStore:
         }
 
     def get_clock_sync_stats(self) -> dict[str, Any]:
+        self._ensure_open()
         cur = self._conn.cursor()
         cur.execute(
             "SELECT drift_ms, rtt_ms, within_threshold FROM clock_sync_samples ORDER BY id ASC"
@@ -825,6 +843,7 @@ class SqliteCanaryHeartbeatTelemetryStore:
         elapsed_seconds: float,
         symbols: tuple[str, ...] | list[str] | None = None,
     ) -> dict[str, Any]:
+        self._ensure_open()
         cur = self._conn.cursor()
         cur.execute(
             "SELECT symbol, event_type, latency_ms FROM latency_marks ORDER BY latency_ms ASC"
@@ -886,6 +905,7 @@ class SqliteCanaryHeartbeatTelemetryStore:
         }
 
     def get_alert_counts(self) -> dict[str, int]:
+        self._ensure_open()
         cur = self._conn.cursor()
         cur.execute("SELECT severity, COUNT(*) as cnt FROM alert_events GROUP BY severity")
         rows = cur.fetchall()
@@ -895,10 +915,23 @@ class SqliteCanaryHeartbeatTelemetryStore:
         return res
 
     def get_recent_alerts(self, limit: int = 50) -> list[dict[str, Any]]:
+        self._ensure_open()
+        if limit <= 0:
+            return []
         cur = self._conn.cursor()
         cur.execute(
-            "SELECT alert_id, timestamp_utc, severity, component, event_type, message, "
-            "details_json FROM alert_events ORDER BY id ASC LIMIT ?",
+            """
+            SELECT alert_id, timestamp_utc, severity, component, event_type, message, details_json
+            FROM (
+                SELECT
+                    id, alert_id, timestamp_utc, severity, component, event_type, message,
+                    details_json
+                FROM alert_events
+                ORDER BY id DESC
+                LIMIT ?
+            )
+            ORDER BY id ASC
+            """,
             (limit,),
         )
         rows = cur.fetchall()
@@ -918,6 +951,7 @@ class SqliteCanaryHeartbeatTelemetryStore:
         return res
 
     def get_circuit_breaker_events(self) -> list[dict[str, Any]]:
+        self._ensure_open()
         cur = self._conn.cursor()
         cur.execute(
             "SELECT timestamp_utc, previous_state, new_state, reason, trigger_severity "
@@ -926,6 +960,7 @@ class SqliteCanaryHeartbeatTelemetryStore:
         return [dict(r) for r in cur.fetchall()]
 
     def get_accounting_ledger(self) -> dict[str, Any] | None:
+        self._ensure_open()
         cur = self._conn.cursor()
         cur.execute("SELECT * FROM accounting_ledger ORDER BY id DESC LIMIT 1")
         row = cur.fetchone()
@@ -1005,25 +1040,33 @@ class AlertDispatcher:
             details=details or {},
         )
 
-        # 1. Append to ring buffer
-        self.ring_buffer.append(alert)
-
-        # 2. Append to JSONL sink
-        if self.jsonl_sink:
-            self.jsonl_sink.append(alert)
-
-        # 3. Emit via console sink
-        self.console_sink.emit(alert)
-
-        # 4. Record to SQLite store
-        if self.store:
-            self.store.record_alert_event(alert)
-
-        # 5. Evaluate circuit breaker trigger
+        # 1. Evaluate circuit breaker trigger FIRST so in-memory fail-closed protection
+        # is guaranteed even if sink / store persistence throws an I/O error
+        transition: CircuitBreakerTransition | None = None
         if self.circuit_breaker:
             transition = self.circuit_breaker.evaluate_alert(alert)
-            if transition and self.store:
-                self.store.record_circuit_breaker_transition(transition)
+
+        # 2. Append to ring buffer
+        self.ring_buffer.append(alert)
+
+        # 3. Append to JSONL sink
+        if self.jsonl_sink:
+            try:
+                self.jsonl_sink.append(alert)
+            except Exception as jsonl_exc:
+                logger.warning("Failed to append alert to JSONL sink: %s", jsonl_exc)
+
+        # 4. Emit via console sink
+        self.console_sink.emit(alert)
+
+        # 5. Record to SQLite store
+        if self.store:
+            try:
+                self.store.record_alert_event(alert)
+                if transition:
+                    self.store.record_circuit_breaker_transition(transition)
+            except Exception as store_exc:
+                logger.warning("Failed to record alert/transition to SQLite store: %s", store_exc)
 
         return alert
 
@@ -1052,6 +1095,10 @@ class CanaryHeartbeatDaemonConfig:
     simulate_feed_drop: bool = False
     simulate_clock_drift_breach: bool = False
     simulate_adverse_drift: bool = False
+    feed_timeout_seconds: float = FEED_TIMEOUT_CRITICAL_SECONDS
+    clock_drift_threshold_ms: float = CLOCK_DRIFT_CRITICAL_THRESHOLD_MS
+    max_reconnect_attempts: int = 10
+    reconnect_backoff_base_seconds: float = 0.5
 
     def __post_init__(self) -> None:
         if self.daemon_seconds <= 0:
@@ -1062,6 +1109,23 @@ class CanaryHeartbeatDaemonConfig:
             raise DomainViolation(
                 f"heartbeat_interval_seconds must be positive, "
                 f"got {self.heartbeat_interval_seconds}"
+            )
+        if self.feed_timeout_seconds <= 0:
+            raise DomainViolation(
+                f"feed_timeout_seconds must be positive, got {self.feed_timeout_seconds}"
+            )
+        if self.clock_drift_threshold_ms <= 0:
+            raise DomainViolation(
+                f"clock_drift_threshold_ms must be positive, got {self.clock_drift_threshold_ms}"
+            )
+        if self.max_reconnect_attempts < 0:
+            raise DomainViolation(
+                f"max_reconnect_attempts cannot be negative, got {self.max_reconnect_attempts}"
+            )
+        if self.reconnect_backoff_base_seconds <= 0:
+            raise DomainViolation(
+                f"reconnect_backoff_base_seconds must be positive, "
+                f"got {self.reconnect_backoff_base_seconds}"
             )
 
 
@@ -1169,10 +1233,14 @@ class CanaryHeartbeatDaemonRunner:
         )
 
         # 2. Server time clock sync evaluation
-        clock_drift = 1250.0 if self.config.simulate_clock_drift_breach else 14.2
+        clock_drift = (
+            (self.config.clock_drift_threshold_ms + 250.0)
+            if self.config.simulate_clock_drift_breach
+            else 14.2
+        )
         rtt_clock = 38.6
         now_ms = time.time() * 1000.0
-        clock_ok = abs(clock_drift) <= CLOCK_DRIFT_CRITICAL_THRESHOLD_MS
+        clock_ok = abs(clock_drift) <= self.config.clock_drift_threshold_ms
 
         self.store.record_clock_sync(
             client_time_ms=now_ms,
@@ -1189,11 +1257,11 @@ class CanaryHeartbeatDaemonRunner:
                 event_type="clock_drift_breach",
                 message=(
                     f"Server clock drift {clock_drift:.1f}ms violates critical threshold "
-                    f"({CLOCK_DRIFT_CRITICAL_THRESHOLD_MS}ms)"
+                    f"({self.config.clock_drift_threshold_ms:.1f}ms)"
                 ),
                 details={
                     "drift_ms": clock_drift,
-                    "threshold_ms": CLOCK_DRIFT_CRITICAL_THRESHOLD_MS,
+                    "threshold_ms": self.config.clock_drift_threshold_ms,
                 },
             )
         elif abs(clock_drift) > CLOCK_DRIFT_WARNING_THRESHOLD_MS:
@@ -1331,7 +1399,11 @@ class CanaryHeartbeatDaemonRunner:
             success=True,
             details="Evaluating Binance REST server time synchronization",
         )
-        drift_sim = 1250.0 if self.config.simulate_clock_drift_breach else None
+        drift_sim = (
+            (self.config.clock_drift_threshold_ms + 250.0)
+            if self.config.simulate_clock_drift_breach
+            else None
+        )
 
         rest_client = httpx.AsyncClient(timeout=10.0)
         server_drift_ms = 0.0
@@ -1341,6 +1413,7 @@ class CanaryHeartbeatDaemonRunner:
                     rest_url=self.config.rest_url,
                     client=rest_client,
                     simulate_drift_ms=drift_sim,
+                    max_drift_ms=self.config.clock_drift_threshold_ms,
                 )
             except Exception as sync_exc:
                 self.store.record_connection_event(
@@ -1368,11 +1441,11 @@ class CanaryHeartbeatDaemonRunner:
                     event_type="clock_drift_breach",
                     message=(
                         f"Server clock drift {clock_sample.drift_ms:.1f}ms exceeds threshold "
-                        f"({CLOCK_DRIFT_CRITICAL_THRESHOLD_MS}ms)"
+                        f"({self.config.clock_drift_threshold_ms:.1f}ms)"
                     ),
                     details={
                         "drift_ms": clock_sample.drift_ms,
-                        "threshold_ms": CLOCK_DRIFT_CRITICAL_THRESHOLD_MS,
+                        "threshold_ms": self.config.clock_drift_threshold_ms,
                     },
                 )
                 if not self.config.simulate_clock_drift_breach:
@@ -1398,229 +1471,427 @@ class CanaryHeartbeatDaemonRunner:
                     message=f"Server clock sync verified (drift={clock_sample.drift_ms:.1f}ms)",
                     details={"drift_ms": clock_sample.drift_ms},
                 )
+        finally:
+            await rest_client.aclose()
 
-            # 2. WebSocket Handshake & Heartbeat Loop
+        # 2. WebSocket Handshake & Heartbeat Supervision Loop with Reconnection
+        if self.config.simulate_feed_drop:
             self.store.record_connection_event(
-                event_type="ws_handshake_started",
+                event_type="ws_feed_timeout",
+                endpoint=ws_endpoint,
+                duration_ms=self.config.feed_timeout_seconds * 1000.0,
+                success=False,
+                details=(
+                    f"Synthetic feed silence >={self.config.feed_timeout_seconds:.1f}s injected"
+                ),
+            )
+            self.dispatcher.dispatch(
+                severity=AlertSeverity.CRITICAL,
+                component="stream_supervisor",
+                event_type="feed_timeout",
+                message=(
+                    f"Feed connection timeout: no stream frame for "
+                    f">={self.config.feed_timeout_seconds:.1f}s"
+                ),
+                details={"inactivity_seconds": self.config.feed_timeout_seconds},
+            )
+
+        heartbeats_done = 0
+        reconnect_attempts = 0
+        connection_established_count = 0
+        last_recv_times: dict[tuple[str, str], float] = {}
+        last_intervals: dict[tuple[str, str], float] = {}
+        latency_batch: list[tuple[str, str, str, str, int, float, float]] = []
+        jitter_batch: list[tuple[str, str, str, float, float, float, float]] = []
+        deadline = time.perf_counter() + self.config.daemon_seconds
+        last_frame_received_at = time.perf_counter()
+        feed_timeout_dispatched = bool(self.config.simulate_feed_drop)
+
+        self._stop_event.clear()
+
+        while (
+            not self._stop_event.is_set()
+            and not self.circuit_breaker.is_hard_aborted()
+            and time.perf_counter() < deadline
+        ):
+            if self.config.max_heartbeats > 0 and heartbeats_done >= self.config.max_heartbeats:
+                self._stop_event.set()
+                break
+
+            connection_established_count += 1
+            is_reconnect = connection_established_count > 1
+            t_handshake_start = time.perf_counter()
+
+            event_type_start = "ws_reconnect_started" if is_reconnect else "ws_handshake_started"
+            self.store.record_connection_event(
+                event_type=event_type_start,
                 endpoint=ws_endpoint,
                 duration_ms=0.0,
                 success=True,
-                details="Starting public WebSocket connection establishment",
+                details="Starting WebSocket connection attempt",
             )
 
-            t_handshake_start = time.perf_counter()
-            async with websockets.connect(
-                ws_endpoint,
-                ping_interval=None,
-                close_timeout=10.0,
-                max_size=2**20,
-                open_timeout=10.0,
-            ) as ws:
+            try:
+                async with websockets.connect(
+                    ws_endpoint,
+                    ping_interval=None,
+                    close_timeout=10.0,
+                    max_size=2**20,
+                    open_timeout=10.0,
+                ) as ws:
+                    handshake_ms = (time.perf_counter() - t_handshake_start) * 1000.0
+                    event_type_success = (
+                        "ws_reconnect_success" if is_reconnect else "ws_handshake_success"
+                    )
+                    self.store.record_connection_event(
+                        event_type=event_type_success,
+                        endpoint=ws_endpoint,
+                        duration_ms=handshake_ms,
+                        success=True,
+                        details=(
+                            f"WebSocket re-establishment completed in {handshake_ms:.1f}ms"
+                            if is_reconnect
+                            else f"WebSocket upgrade 101 completed in {handshake_ms:.1f}ms"
+                        ),
+                    )
+
+                    alert_event_type = (
+                        "connection_reestablished" if is_reconnect else "connection_established"
+                    )
+                    alert_msg = (
+                        f"WebSocket connection re-established in {handshake_ms:.1f}ms"
+                        if is_reconnect
+                        else f"WebSocket connection established in {handshake_ms:.1f}ms"
+                    )
+                    self.dispatcher.dispatch(
+                        severity=AlertSeverity.INFO,
+                        component="stream_supervisor",
+                        event_type=alert_event_type,
+                        message=alert_msg,
+                        details={
+                            "endpoint": ws_endpoint,
+                            "handshake_ms": handshake_ms,
+                            "is_reconnect": is_reconnect,
+                            "reconnect_attempt": reconnect_attempts,
+                        },
+                    )
+
+                    reconnect_attempts = 0
+                    last_frame_received_at = time.perf_counter()
+                    feed_timeout_dispatched = False
+
+                    conn_stop_event = asyncio.Event()
+
+                    async def heartbeat_worker(
+                        stop_event: asyncio.Event = conn_stop_event,
+                    ) -> None:
+                        nonlocal heartbeats_done
+                        assert self.store is not None
+                        if self.config.max_heartbeats <= 0:
+                            return
+
+                        while (
+                            not self._stop_event.is_set()
+                            and not stop_event.is_set()
+                            and not self.circuit_breaker.is_hard_aborted()
+                            and heartbeats_done < self.config.max_heartbeats
+                        ):
+                            seq = heartbeats_done + 1
+                            try:
+                                t_ping_start = time.perf_counter()
+                                ping_sent_ms = time.time() * 1000.0
+                                pong_waiter = await ws.ping()
+                                await asyncio.wait_for(pong_waiter, timeout=5.0)
+                                t_ping_end = time.perf_counter()
+                                pong_recv_ms = time.time() * 1000.0
+                                rtt_ms = (t_ping_end - t_ping_start) * 1000.0
+
+                                if self.config.simulate_latency_spike and seq == 1:
+                                    rtt_ms = 420.0
+
+                                self.store.record_heartbeat(
+                                    sequence_num=seq,
+                                    ping_sent_ms=ping_sent_ms,
+                                    pong_recv_ms=pong_recv_ms,
+                                    rtt_ms=rtt_ms,
+                                )
+                                heartbeats_done += 1
+
+                                if rtt_ms > LATENCY_WARNING_THRESHOLD_MS:
+                                    self.dispatcher.dispatch(
+                                        severity=AlertSeverity.WARNING,
+                                        component="heartbeat_daemon",
+                                        event_type="latency_spike",
+                                        message=f"High latency spike detected: {rtt_ms:.1f}ms",
+                                        details={
+                                            "sequence": seq,
+                                            "rtt_ms": rtt_ms,
+                                            "threshold_ms": LATENCY_WARNING_THRESHOLD_MS,
+                                        },
+                                    )
+                                else:
+                                    self.dispatcher.dispatch(
+                                        severity=AlertSeverity.INFO,
+                                        component="heartbeat_daemon",
+                                        event_type="heartbeat_tick",
+                                        message=(
+                                            f"Heartbeat tick {seq}/{self.config.max_heartbeats} "
+                                            f"(rtt={rtt_ms:.1f}ms)"
+                                        ),
+                                        details={"sequence": seq, "rtt_ms": rtt_ms},
+                                    )
+
+                                if heartbeats_done >= self.config.max_heartbeats:
+                                    self._stop_event.set()
+                                    stop_event.set()
+                                    break
+                            except Exception as ping_exc:
+                                self.dispatcher.dispatch(
+                                    severity=AlertSeverity.WARNING,
+                                    component="heartbeat_daemon",
+                                    event_type="heartbeat_error",
+                                    message=f"Heartbeat ping {seq} failed: {ping_exc}",
+                                    details={"sequence": seq, "error": str(ping_exc)},
+                                )
+                                if isinstance(ping_exc, websockets.ConnectionClosed):
+                                    stop_event.set()
+                                    break
+
+                            try:
+                                await asyncio.wait_for(
+                                    self._stop_event.wait(),
+                                    timeout=self.config.heartbeat_interval_seconds,
+                                )
+                                break
+                            except TimeoutError:
+                                pass
+
+                    hb_task = asyncio.create_task(heartbeat_worker())
+
+                    try:
+                        while (
+                            not self._stop_event.is_set()
+                            and not conn_stop_event.is_set()
+                            and not self.circuit_breaker.is_hard_aborted()
+                        ):
+                            rem = deadline - time.perf_counter()
+                            if rem <= 0:
+                                self._stop_event.set()
+                                break
+                            timeout = min(1.0, rem)
+
+                            try:
+                                raw_msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
+                            except TimeoutError:
+                                silence = time.perf_counter() - last_frame_received_at
+                                if (
+                                    silence >= self.config.feed_timeout_seconds
+                                    and not feed_timeout_dispatched
+                                ):
+                                    feed_timeout_dispatched = True
+                                    self.store.record_connection_event(
+                                        event_type="ws_feed_timeout",
+                                        endpoint=ws_endpoint,
+                                        duration_ms=silence * 1000.0,
+                                        success=False,
+                                        details=(
+                                            f"Feed silence "
+                                            f">={self.config.feed_timeout_seconds:.1f}s "
+                                            f"detected on open connection"
+                                        ),
+                                    )
+                                    self.dispatcher.dispatch(
+                                        severity=AlertSeverity.CRITICAL,
+                                        component="stream_supervisor",
+                                        event_type="feed_timeout",
+                                        message=(
+                                            f"Feed connection timeout: no stream frame for "
+                                            f">={self.config.feed_timeout_seconds:.1f}s"
+                                        ),
+                                        details={"inactivity_seconds": round(silence, 2)},
+                                    )
+                                    conn_stop_event.set()
+                                    break
+                                continue
+                            except websockets.ConnectionClosed as close_exc:
+                                logger.warning("WebSocket connection closed: %s", close_exc)
+                                self.store.record_connection_event(
+                                    event_type="ws_disconnected",
+                                    endpoint=ws_endpoint,
+                                    duration_ms=0.0,
+                                    success=False,
+                                    details=f"Remote closed: {close_exc}",
+                                )
+                                self.dispatcher.dispatch(
+                                    severity=AlertSeverity.WARNING,
+                                    component="stream_supervisor",
+                                    event_type="connection_lost",
+                                    message=(
+                                        f"WebSocket connection lost: {close_exc}; "
+                                        f"preparing reconnect"
+                                    ),
+                                    details={"endpoint": ws_endpoint, "error": str(close_exc)},
+                                )
+                                conn_stop_event.set()
+                                break
+
+                            recv_ms = time.time() * 1000.0
+                            now_utc = datetime.now(UTC).isoformat()
+                            last_frame_received_at = time.perf_counter()
+
+                            try:
+                                payload = json.loads(raw_msg)
+                            except Exception:
+                                continue
+
+                            if not isinstance(payload, dict):
+                                continue
+
+                            stream_name = payload.get("stream", "")
+                            data_obj = payload.get("data", payload)
+                            if not isinstance(data_obj, dict):
+                                continue
+
+                            symbol = data_obj.get("s", "").upper()
+                            if not symbol or symbol not in self.config.symbols:
+                                continue
+
+                            event_type = data_obj.get(
+                                "e", "bookTicker" if "b" in data_obj else "kline"
+                            )
+                            aligned_recv_ms = recv_ms + server_drift_ms
+                            event_time_ms = int(
+                                data_obj.get("E") or data_obj.get("T") or aligned_recv_ms
+                            )
+                            latency_ms = max(0.0, aligned_recv_ms - float(event_time_ms))
+
+                            latency_batch.append(
+                                (
+                                    now_utc,
+                                    stream_name,
+                                    symbol,
+                                    event_type,
+                                    event_time_ms,
+                                    recv_ms,
+                                    latency_ms,
+                                )
+                            )
+
+                            key = (symbol, stream_name)
+                            if key in last_recv_times:
+                                prev_t = last_recv_times[key]
+                                interval_ms = max(0.0, recv_ms - prev_t)
+                                prev_interval = last_intervals.get(key, interval_ms)
+                                jitter_ms = abs(interval_ms - prev_interval)
+                                jitter_batch.append(
+                                    (
+                                        now_utc,
+                                        symbol,
+                                        stream_name,
+                                        prev_t,
+                                        recv_ms,
+                                        interval_ms,
+                                        jitter_ms,
+                                    )
+                                )
+                                last_intervals[key] = interval_ms
+                            last_recv_times[key] = recv_ms
+
+                            if len(latency_batch) >= 100:
+                                self.store.record_latency_marks_batch(latency_batch)
+                                latency_batch.clear()
+                            if len(jitter_batch) >= 100:
+                                self.store.record_jitter_samples_batch(jitter_batch)
+                                jitter_batch.clear()
+
+                    finally:
+                        conn_stop_event.set()
+                        hb_task.cancel()
+                        try:
+                            await asyncio.wait_for(hb_task, timeout=2.0)
+                        except TimeoutError, asyncio.CancelledError:
+                            pass
+
+            except (
+                websockets.WebSocketException,
+                OSError,
+                TimeoutError,
+            ) as conn_exc:
                 handshake_ms = (time.perf_counter() - t_handshake_start) * 1000.0
+                reconnect_attempts += 1
+                logger.warning(
+                    "WebSocket connection/reconnect failure (%d/%d) in %.1fms: %s",
+                    reconnect_attempts,
+                    self.config.max_reconnect_attempts,
+                    handshake_ms,
+                    conn_exc,
+                )
                 self.store.record_connection_event(
-                    event_type="ws_handshake_success",
+                    event_type=("ws_reconnect_failure" if is_reconnect else "ws_handshake_failure"),
                     endpoint=ws_endpoint,
                     duration_ms=handshake_ms,
-                    success=True,
-                    details=f"WebSocket upgrade 101 completed in {handshake_ms:.1f}ms",
-                )
-                self.dispatcher.dispatch(
-                    severity=AlertSeverity.INFO,
-                    component="stream_supervisor",
-                    event_type="connection_established",
-                    message=f"WebSocket connection established in {handshake_ms:.1f}ms",
-                    details={"endpoint": ws_endpoint, "handshake_ms": handshake_ms},
+                    success=False,
+                    details=f"Connect failed: {conn_exc}",
                 )
 
-                if self.config.simulate_feed_drop:
+                silence = time.perf_counter() - last_frame_received_at
+                if silence >= self.config.feed_timeout_seconds and not feed_timeout_dispatched:
+                    feed_timeout_dispatched = True
+                    self.store.record_connection_event(
+                        event_type="ws_feed_timeout",
+                        endpoint=ws_endpoint,
+                        duration_ms=silence * 1000.0,
+                        success=False,
+                        details=(
+                            f"Feed disconnected silence >={self.config.feed_timeout_seconds:.1f}s "
+                            f"during reconnect attempts"
+                        ),
+                    )
                     self.dispatcher.dispatch(
                         severity=AlertSeverity.CRITICAL,
                         component="stream_supervisor",
                         event_type="feed_timeout",
                         message=(
-                            f"Feed connection timeout: no stream frame for "
-                            f">={FEED_TIMEOUT_CRITICAL_SECONDS:.1f}s"
+                            f"Feed connection timeout: disconnected for "
+                            f">={self.config.feed_timeout_seconds:.1f}s"
                         ),
-                        details={"inactivity_seconds": FEED_TIMEOUT_CRITICAL_SECONDS},
+                        details={"inactivity_seconds": round(silence, 2)},
                     )
 
-                heartbeats_done = 0
-                self._stop_event.clear()
+                if (
+                    reconnect_attempts >= self.config.max_reconnect_attempts
+                    or self.circuit_breaker.is_hard_aborted()
+                    or self._stop_event.is_set()
+                ):
+                    logger.error(
+                        "Max reconnect attempts (%d) reached or hard aborted; stopping live daemon",
+                        self.config.max_reconnect_attempts,
+                    )
+                    break
 
-                async def heartbeat_worker() -> None:
-                    nonlocal heartbeats_done
-                    assert self.store is not None
-                    for seq in range(1, self.config.max_heartbeats + 1):
-                        if self._stop_event.is_set() or self.circuit_breaker.is_hard_aborted():
-                            break
-                        try:
-                            t_ping_start = time.perf_counter()
-                            ping_sent_ms = time.time() * 1000.0
-                            pong_waiter = await ws.ping()
-                            await asyncio.wait_for(pong_waiter, timeout=5.0)
-                            t_ping_end = time.perf_counter()
-                            pong_recv_ms = time.time() * 1000.0
-                            rtt_ms = (t_ping_end - t_ping_start) * 1000.0
-
-                            if self.config.simulate_latency_spike and seq == 1:
-                                rtt_ms = 420.0
-
-                            self.store.record_heartbeat(
-                                sequence_num=seq,
-                                ping_sent_ms=ping_sent_ms,
-                                pong_recv_ms=pong_recv_ms,
-                                rtt_ms=rtt_ms,
-                            )
-                            heartbeats_done += 1
-
-                            if rtt_ms > LATENCY_WARNING_THRESHOLD_MS:
-                                self.dispatcher.dispatch(
-                                    severity=AlertSeverity.WARNING,
-                                    component="heartbeat_daemon",
-                                    event_type="latency_spike",
-                                    message=f"High latency spike detected: {rtt_ms:.1f}ms",
-                                    details={
-                                        "sequence": seq,
-                                        "rtt_ms": rtt_ms,
-                                        "threshold_ms": LATENCY_WARNING_THRESHOLD_MS,
-                                    },
-                                )
-                            else:
-                                self.dispatcher.dispatch(
-                                    severity=AlertSeverity.INFO,
-                                    component="heartbeat_daemon",
-                                    event_type="heartbeat_tick",
-                                    message=(
-                                        f"Heartbeat tick {seq}/{self.config.max_heartbeats} "
-                                        f"(rtt={rtt_ms:.1f}ms)"
-                                    ),
-                                    details={"sequence": seq, "rtt_ms": rtt_ms},
-                                )
-
-                            if heartbeats_done >= self.config.max_heartbeats:
-                                self._stop_event.set()
-                                break
-                        except Exception as ping_exc:
-                            self.dispatcher.dispatch(
-                                severity=AlertSeverity.WARNING,
-                                component="heartbeat_daemon",
-                                event_type="heartbeat_error",
-                                message=f"Heartbeat ping {seq} failed: {ping_exc}",
-                                details={"sequence": seq, "error": str(ping_exc)},
-                            )
-                            if isinstance(ping_exc, websockets.ConnectionClosed):
-                                self._stop_event.set()
-                                break
-
-                        try:
-                            await asyncio.wait_for(
-                                self._stop_event.wait(),
-                                timeout=self.config.heartbeat_interval_seconds,
-                            )
-                            break
-                        except TimeoutError:
-                            pass
-
-                hb_task = asyncio.create_task(heartbeat_worker())
-
-                # 3. Message Ingress Loop
-                last_recv_times: dict[tuple[str, str], float] = {}
-                last_intervals: dict[tuple[str, str], float] = {}
-                deadline = time.perf_counter() + self.config.daemon_seconds
-                latency_batch: list[tuple[str, str, str, str, int, float, float]] = []
-                jitter_batch: list[tuple[str, str, str, float, float, float, float]] = []
-
+                backoff_exp = min(reconnect_attempts - 1, 5)
+                base_backoff = min(
+                    8.0, self.config.reconnect_backoff_base_seconds * (2**backoff_exp)
+                )
+                jitter = random.uniform(0.1, 0.4)
+                backoff_delay = base_backoff + jitter
+                rem = deadline - time.perf_counter()
+                if rem <= 0:
+                    break
+                sleep_duration = min(backoff_delay, rem)
+                logger.info(
+                    "Backoff jitter delay %.2fs before reconnect attempt...", sleep_duration
+                )
                 try:
-                    while (
-                        not self._stop_event.is_set() and not self.circuit_breaker.is_hard_aborted()
-                    ):
-                        rem = deadline - time.perf_counter()
-                        if rem <= 0:
-                            self._stop_event.set()
-                            break
-                        timeout = min(1.0, rem)
-                        try:
-                            raw_msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
-                        except TimeoutError:
-                            continue
-                        except websockets.ConnectionClosed:
-                            break
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=sleep_duration)
+                    break
+                except TimeoutError:
+                    pass
 
-                        recv_ms = time.time() * 1000.0
-                        now_utc = datetime.now(UTC).isoformat()
-
-                        try:
-                            payload = json.loads(raw_msg)
-                        except Exception:
-                            continue
-
-                        if not isinstance(payload, dict):
-                            continue
-
-                        stream_name = payload.get("stream", "")
-                        data_obj = payload.get("data", payload)
-                        if not isinstance(data_obj, dict):
-                            continue
-
-                        symbol = data_obj.get("s", "").upper()
-                        if not symbol or symbol not in self.config.symbols:
-                            continue
-
-                        event_type = data_obj.get("e", "bookTicker" if "b" in data_obj else "kline")
-                        aligned_recv_ms = recv_ms + server_drift_ms
-                        event_time_ms = int(
-                            data_obj.get("E") or data_obj.get("T") or aligned_recv_ms
-                        )
-                        latency_ms = max(0.0, aligned_recv_ms - float(event_time_ms))
-
-                        latency_batch.append(
-                            (
-                                now_utc,
-                                stream_name,
-                                symbol,
-                                event_type,
-                                event_time_ms,
-                                recv_ms,
-                                latency_ms,
-                            )
-                        )
-
-                        key = (symbol, stream_name)
-                        if key in last_recv_times:
-                            prev_t = last_recv_times[key]
-                            interval_ms = max(0.0, recv_ms - prev_t)
-                            prev_interval = last_intervals.get(key, interval_ms)
-                            jitter_ms = abs(interval_ms - prev_interval)
-                            jitter_batch.append(
-                                (
-                                    now_utc,
-                                    symbol,
-                                    stream_name,
-                                    prev_t,
-                                    recv_ms,
-                                    interval_ms,
-                                    jitter_ms,
-                                )
-                            )
-                            last_intervals[key] = interval_ms
-                        last_recv_times[key] = recv_ms
-
-                        if len(latency_batch) >= 100:
-                            self.store.record_latency_marks_batch(latency_batch)
-                            latency_batch.clear()
-                        if len(jitter_batch) >= 100:
-                            self.store.record_jitter_samples_batch(jitter_batch)
-                            jitter_batch.clear()
-
-                finally:
-                    self._stop_event.set()
-                    await asyncio.wait_for(hb_task, timeout=5.0)
-                    if latency_batch:
-                        self.store.record_latency_marks_batch(latency_batch)
-                    if jitter_batch:
-                        self.store.record_jitter_samples_batch(jitter_batch)
-        finally:
-            await rest_client.aclose()
+        if latency_batch:
+            self.store.record_latency_marks_batch(latency_batch)
+        if jitter_batch:
+            self.store.record_jitter_samples_batch(jitter_batch)
 
         return time.perf_counter() - t0
 
@@ -1868,7 +2139,12 @@ class CanaryHeartbeatDaemonRunner:
                 "status": "CLOSED",
                 "reconnect_count": max(
                     0,
-                    sum(1 for ev in conn_events if ev["event_type"] == "ws_handshake_started") - 1,
+                    sum(
+                        1
+                        for ev in conn_events
+                        if ev["event_type"] in ("ws_handshake_started", "ws_reconnect_started")
+                    )
+                    - 1,
                 ),
                 "events_count": len(conn_events),
             },
@@ -2045,6 +2321,10 @@ def run_canary_heartbeat_daemon(
     simulate_feed_drop: bool = False,
     simulate_clock_drift_breach: bool = False,
     simulate_adverse_drift: bool = False,
+    feed_timeout_seconds: float = FEED_TIMEOUT_CRITICAL_SECONDS,
+    clock_drift_threshold_ms: float = CLOCK_DRIFT_CRITICAL_THRESHOLD_MS,
+    max_reconnect_attempts: int = 10,
+    reconnect_backoff_base_seconds: float = 0.5,
 ) -> tuple[CanaryHeartbeatSummary, Path, Path, Path, Path, Path]:
     """Functional entrypoint for Phase 272 canary heartbeat daemon execution."""
     cfg = CanaryHeartbeatDaemonConfig(
@@ -2061,6 +2341,10 @@ def run_canary_heartbeat_daemon(
         simulate_feed_drop=simulate_feed_drop,
         simulate_clock_drift_breach=simulate_clock_drift_breach,
         simulate_adverse_drift=simulate_adverse_drift,
+        feed_timeout_seconds=feed_timeout_seconds,
+        clock_drift_threshold_ms=clock_drift_threshold_ms,
+        max_reconnect_attempts=max_reconnect_attempts,
+        reconnect_backoff_base_seconds=reconnect_backoff_base_seconds,
     )
     runner = CanaryHeartbeatDaemonRunner(cfg)
     return runner.run()
