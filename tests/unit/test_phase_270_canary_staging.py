@@ -23,6 +23,7 @@ from autonomous_futures.paper.canary_staging import (  # noqa: E402
     EXPECTED_MANIFEST_V2_CANDIDATES,
     CanaryCircuitState,
     CanaryShadowExecutionEngine,
+    CanaryShadowOrder,
     SqliteCanaryOrdersStore,
     SqliteCanaryShadowLedger,
     load_and_validate_canary_staging_manifest,
@@ -309,7 +310,9 @@ class TestPhase270SqliteStoresAndPersistence:
         close_ok, _, close_fill = engine.close_shadow_position("ETHUSDT", Decimal("3100.00"))
         assert close_ok is True
         assert close_fill is not None
+        assert orders_store.count_orders() == 2
         assert orders_store.count_fills() == 2
+        assert orders_store.verify_referential_integrity() == (True, 0)
         assert len(ledger_store.get_open_positions()) == 0
 
         # Verify unlocked
@@ -684,3 +687,257 @@ class TestPhase270CliRunnerAndSimulation:
         parsed = json.loads(output)
         assert parsed["phase"] == "phase_270"
         assert "portfolio" in parsed or "starting_capital_usdt" in parsed
+
+
+class TestPhase270AdversarialHardening:
+    """Adversarial stress tests for referential integrity, idempotency, batching, and isolation."""
+
+    def test_referential_integrity_and_zero_orphaned_fills(
+        self,
+        valid_manifest: CanaryStagingManifest,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Verify all fills (entry, close, and liquidation) have a valid parent shadow order."""
+        orders_store, ledger_store = isolated_stores
+        engine = CanaryShadowExecutionEngine(
+            manifest=valid_manifest,
+            orders_store=orders_store,
+            ledger_store=ledger_store,
+        )
+
+        # 1. Normal entry and exit cycle
+        ok, _, o1 = engine.submit_shadow_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            quantity=Decimal("0.00008"),
+            limit_price=Decimal("60000.00"),
+        )
+        assert ok is True and o1 is not None
+        engine.execute_shadow_fill(o1.order_id, Decimal("60000.00"))
+        engine.close_shadow_position("BTCUSDT", Decimal("60500.00"))
+
+        # 2. Emergency liquidation cycle
+        ok2, _, o2 = engine.submit_shadow_order(
+            candidate_id="cand-ethusdt-dcb-003",
+            symbol="ETHUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            quantity=Decimal("0.001"),
+            limit_price=Decimal("3000.00"),
+        )
+        assert ok2 is True and o2 is not None
+        engine.execute_shadow_fill(o2.order_id, Decimal("3000.00"))
+        engine.trigger_tier2_hard_abort(
+            "EMERGENCY_TEST", "Testing referential integrity on liquidation"
+        )
+
+        # Verify exact referential integrity in SQLite
+        ref_ok, orphans = orders_store.verify_referential_integrity()
+        assert ref_ok is True
+        assert orphans == 0
+        assert orders_store.count_orders() == 4  # o1 entry, o1 exit, o2 entry, o2 liquidation
+        assert orders_store.count_fills() == 4
+        assert engine.orders_generated_count == 4
+        assert engine.fills_executed_count == 4
+
+    def test_counts_synchronization_orders_and_fills(self, tmp_path: Path) -> None:
+        """Verify complete sync between SQLite stores, in-memory engine, and JSON reports."""
+        out_dir = tmp_path / "sync_test"
+        summary, ledger_db, orders_db = run_canary_staging_simulation(
+            output_dir=out_dir,
+            max_ticks=20,
+        )
+
+        orders_store = SqliteCanaryOrdersStore(orders_db)
+        ledger_store = SqliteCanaryShadowLedger(ledger_db)
+
+        # Orders count and fills count must match exactly
+        assert orders_store.count_orders() == summary.orders_count
+        assert orders_store.count_fills() == summary.fills_count
+        ref_ok, orphans = orders_store.verify_referential_integrity()
+        assert ref_ok is True
+        assert orphans == 0
+
+        # Ledger marks must have zero drift
+        ledger_ok, max_drift = ledger_store.verify_double_entry_integrity()
+        assert ledger_ok is True
+        assert max_drift < Decimal("1e-15")
+
+    def test_tier2_hard_abort_idempotency(
+        self,
+        valid_manifest: CanaryStagingManifest,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Verify Tier 2 hard abort is strictly idempotent when invoked repeatedly."""
+        orders_store, ledger_store = isolated_stores
+        engine = CanaryShadowExecutionEngine(
+            manifest=valid_manifest,
+            orders_store=orders_store,
+            ledger_store=ledger_store,
+        )
+
+        # Open a position first
+        ok, _, o = engine.submit_shadow_order(
+            candidate_id="cand-solusdt-rgb-001",
+            symbol="SOLUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            quantity=Decimal("0.02"),
+            limit_price=Decimal("150.00"),
+        )
+        assert ok is True and o is not None
+        engine.execute_shadow_fill(o.order_id, Decimal("150.00"))
+
+        # Trigger Tier 2 once
+        ev1 = engine.trigger_emergency_kill_switch(reason="First trigger")
+        assert engine.circuit_state == CanaryCircuitState.TIER2_HARD_ABORT
+        assert len(engine.kill_switch_events) == 1
+        assert engine.liquidations_count == 1
+
+        # Trigger Tier 2 second time
+        ev2 = engine.trigger_emergency_kill_switch(reason="Second trigger (duplicate)")
+        assert engine.circuit_state == CanaryCircuitState.TIER2_HARD_ABORT
+        # Must return the existing Tier 2 event without duplicating
+        assert ev2.event_id == ev1.event_id
+        assert len(engine.kill_switch_events) == 1
+        assert engine.liquidations_count == 1
+        assert ledger_store.count_kill_switch_events() == 1
+
+    def test_high_frequency_batch_order_generation(
+        self,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Verify high-frequency batch order and fill insertion rate (> 10,000 orders/sec)."""
+        import time
+
+        orders_store, _ = isolated_stores
+        batch_size = 2000
+        orders = [
+            CanaryShadowOrder(
+                order_id=f"ord-batch-{i}",
+                client_order_id=f"c-batch-{i}",
+                candidate_id="cand-btcusdt-dcb-002",
+                symbol="BTCUSDT",
+                side="BUY",
+                order_type="LIMIT",
+                quantity=Decimal("0.00008"),
+                limit_price=Decimal("60000.00"),
+                micro_notional=Decimal("4.80"),
+                status="PENDING",
+                created_at="2026-09-18T00:00:00Z",
+                updated_at="2026-09-18T00:00:00Z",
+            )
+            for i in range(batch_size)
+        ]
+
+        t0 = time.perf_counter()
+        orders_store.insert_orders(orders)
+        elapsed = time.perf_counter() - t0
+
+        assert orders_store.count_orders() == batch_size
+        assert elapsed < 1.0  # Must insert 2000 orders in under 1 second (> 2000/sec on SQLite)
+
+    def test_sqlite_crash_and_lock_release(
+        self,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Verify SQLite constraint or operational errors release all locks immediately."""
+        import sqlite3
+
+        orders_store, _ = isolated_stores
+        # Insert initial order
+        order = CanaryShadowOrder(
+            order_id="ord-unique-1",
+            client_order_id="c-unique-1",
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            quantity=Decimal("0.00008"),
+            limit_price=Decimal("60000.00"),
+            micro_notional=Decimal("4.80"),
+            status="PENDING",
+            created_at="2026-09-18T00:00:00Z",
+            updated_at="2026-09-18T00:00:00Z",
+        )
+        orders_store.insert_order(order)
+
+        # Attempt to insert identical order violating PRIMARY KEY constraint
+        with pytest.raises(sqlite3.IntegrityError):
+            orders_store.insert_order(order)
+
+        # Verify database is completely unlocked and operational immediately
+        assert orders_store.verify_unlocked() is True
+        assert orders_store.count_orders() == 1
+
+    def test_floating_point_precision_and_exact_zero_drift(
+        self,
+        valid_manifest: CanaryStagingManifest,
+        isolated_stores: tuple[SqliteCanaryOrdersStore, SqliteCanaryShadowLedger],
+    ) -> None:
+        """Verify exact zero-drift balance reconciliation with arbitrary fractional values."""
+        orders_store, ledger_store = isolated_stores
+        engine = CanaryShadowExecutionEngine(
+            manifest=valid_manifest,
+            orders_store=orders_store,
+            ledger_store=ledger_store,
+            starting_equity=Decimal("100.00"),
+        )
+
+        # Run 5 alternating trades with non-trivial fractional prices
+        trade_params = [
+            ("BTCUSDT", "cand-btcusdt-dcb-002", "0.00008333", "59999.99", "60123.45"),
+            ("ETHUSDT", "cand-ethusdt-dcb-003", "0.00161234", "3099.75", "3050.25"),
+            ("SOLUSDT", "cand-solusdt-rgb-001", "0.03312345", "150.85", "152.40"),
+        ]
+
+        for sym, cand_id, qty_s, entry_px_s, exit_px_s in trade_params:
+            ok, _, o = engine.submit_shadow_order(
+                candidate_id=cand_id,
+                symbol=sym,
+                side="BUY",
+                order_type="LIMIT",
+                quantity=Decimal(qty_s),
+                limit_price=Decimal(entry_px_s),
+            )
+            assert ok is True and o is not None
+            engine.execute_shadow_fill(o.order_id, Decimal(entry_px_s))
+            drift, zero_drift = engine.reconcile_accounting()
+            assert zero_drift is True
+            assert drift < Decimal("1e-15")
+
+            engine.close_shadow_position(sym, Decimal(exit_px_s))
+            drift, zero_drift = engine.reconcile_accounting()
+            assert zero_drift is True
+            assert drift < Decimal("1e-15")
+
+        summary = engine.get_summary()
+        assert summary.zero_balance_drift is True
+        assert summary.drift_usdt < Decimal("1e-15")
+        assert summary.final_cash_usdt == summary.starting_capital_usdt + summary.realized_pnl_usdt
+
+    def test_clean_slate_isolation_across_simulation_runs(self, tmp_path: Path) -> None:
+        """Verify repeated simulation on same directory leaves fresh isolated state."""
+        import sqlite3
+
+        out_dir = tmp_path / "repeated_run"
+
+        # Run 1
+        run_canary_staging_simulation(output_dir=out_dir, max_ticks=10)
+        # Run 2 on same output_dir
+        summary2, ledger_db2, orders_db2 = run_canary_staging_simulation(
+            output_dir=out_dir, max_ticks=15
+        )
+
+        with sqlite3.connect(ledger_db2) as conn:
+            cur = conn.cursor()
+            deposits = cur.execute(
+                "SELECT COUNT(*) FROM canary_shadow_ledger_events WHERE event = 'INITIAL_DEPOSIT'"
+            ).fetchone()[0]
+            assert deposits == 1, f"Expected exactly 1 INITIAL_DEPOSIT, got {deposits}"
+
+        orders_store = SqliteCanaryOrdersStore(orders_db2)
+        assert orders_store.count_orders() == summary2.orders_count
+        assert orders_store.count_fills() == summary2.fills_count

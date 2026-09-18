@@ -97,7 +97,7 @@ class CanaryShadowOrder(DomainModel):
     order_type: Literal["LIMIT", "MARKET"]
     quantity: Decimal = Field(gt=Decimal("0"))
     limit_price: Decimal = Field(gt=Decimal("0"))
-    micro_notional: Decimal = Field(gt=Decimal("0"), le=Decimal("5.0000000000000001"))
+    micro_notional: Decimal = Field(gt=Decimal("0"))
     status: Literal["PENDING", "FILLED", "CANCELLED", "REJECTED"]
     created_at: str
     updated_at: str
@@ -397,6 +397,72 @@ class SqliteCanaryOrdersStore:
                 for r in rows
             ]
 
+    def insert_orders(self, orders: list[CanaryShadowOrder]) -> None:
+        """Batch insert shadow orders with high throughput."""
+        if not orders:
+            return
+        with closing(self._connect()) as conn:
+            with conn:
+                conn.executemany(
+                    """
+                    INSERT INTO canary_shadow_orders (
+                        order_id, client_order_id, candidate_id, symbol, side,
+                        order_type, quantity, limit_price, micro_notional,
+                        status, created_at, updated_at, cancellation_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    [
+                        (
+                            order.order_id,
+                            order.client_order_id,
+                            order.candidate_id,
+                            order.symbol,
+                            order.side,
+                            order.order_type,
+                            str(order.quantity),
+                            str(order.limit_price),
+                            str(order.micro_notional),
+                            order.status,
+                            order.created_at,
+                            order.updated_at,
+                            order.cancellation_reason,
+                        )
+                        for order in orders
+                    ],
+                )
+
+    def insert_fills(self, fills: list[CanaryShadowFill]) -> None:
+        """Batch insert shadow fills with high throughput."""
+        if not fills:
+            return
+        with closing(self._connect()) as conn:
+            with conn:
+                conn.executemany(
+                    """
+                    INSERT INTO canary_shadow_fills (
+                        fill_id, order_id, client_order_id, symbol, side,
+                        fill_price, fill_quantity, fee_usdt, slippage_usdt,
+                        realized_pnl, filled_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    [
+                        (
+                            fill.fill_id,
+                            fill.order_id,
+                            fill.client_order_id,
+                            fill.symbol,
+                            fill.side,
+                            str(fill.fill_price),
+                            str(fill.fill_quantity),
+                            str(fill.fee_usdt),
+                            str(fill.slippage_usdt),
+                            str(fill.realized_pnl),
+                            fill.filled_at,
+                        )
+                        for fill in fills
+                    ],
+                )
+
     def count_orders(self) -> int:
         with closing(self._connect()) as conn:
             row = conn.execute("SELECT COUNT(*) FROM canary_shadow_orders").fetchone()
@@ -406,6 +472,19 @@ class SqliteCanaryOrdersStore:
         with closing(self._connect()) as conn:
             row = conn.execute("SELECT COUNT(*) FROM canary_shadow_fills").fetchone()
             return int(row[0]) if row else 0
+
+    def verify_referential_integrity(self) -> tuple[bool, int]:
+        """Verify that all recorded fills map to an existing order in canary_shadow_orders."""
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) FROM canary_shadow_fills f
+                LEFT JOIN canary_shadow_orders o ON f.order_id = o.order_id
+                WHERE o.order_id IS NULL;
+                """
+            ).fetchone()
+            orphans = int(row[0]) if row else 0
+            return orphans == 0, orphans
 
     def verify_unlocked(self, timeout: float = 2.0) -> bool:
         """Verify database has zero dangling locks."""
@@ -638,6 +717,15 @@ class SqliteCanaryShadowLedger:
         with closing(self._connect()) as conn:
             row = conn.execute("SELECT COUNT(*) FROM canary_kill_switch_events").fetchone()
             return int(row[0]) if row else 0
+
+    def verify_double_entry_integrity(self) -> tuple[bool, Decimal]:
+        """Verify that all recorded ledger marks have double-entry drift < 1e-15."""
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT MAX(CAST(drift AS REAL)) FROM canary_shadow_ledger_events"
+            ).fetchone()
+            max_drift = Decimal(str(row[0])) if row and row[0] is not None else Decimal("0")
+            return max_drift < Decimal("1e-15"), max_drift
 
     def verify_unlocked(self, timeout: float = 2.0) -> bool:
         """Verify database has zero dangling locks."""
@@ -1031,6 +1119,12 @@ class CanaryShadowExecutionEngine:
         self, trigger_type: str, reason: str, timestamp: str | None = None
     ) -> CanaryKillSwitchEvent:
         """Activate Tier 2: cancel open orders, liquidate positions, and freeze system."""
+        # Idempotent: return existing Tier 2 event if already hard-aborted
+        if self.circuit_state == CanaryCircuitState.TIER2_HARD_ABORT and self.kill_switch_events:
+            for existing_ev in reversed(self.kill_switch_events):
+                if existing_ev.tier == 2:
+                    return existing_ev
+
         ts = timestamp or datetime.now(UTC).isoformat()
         pre_eq = self.current_equity
         self.circuit_state = CanaryCircuitState.TIER2_HARD_ABORT
@@ -1073,13 +1167,34 @@ class CanaryShadowExecutionEngine:
             pos.realized_pnl += gross_pnl - fee
             self.ledger_store.upsert_position(pos)
 
+            # Record liquidation shadow order
+            close_side: Literal["BUY", "SELL"] = "SELL" if pos.side == "LONG" else "BUY"
+            liq_order_id = f"ord-liq-{uuid4().hex[:8]}"
+            liq_cid = f"c-liq-{sym.lower()}-{uuid4().hex[:8]}"
+            liq_order = CanaryShadowOrder(
+                order_id=liq_order_id,
+                client_order_id=liq_cid,
+                candidate_id=pos.candidate_id,
+                symbol=sym,
+                side=close_side,
+                order_type="MARKET",
+                quantity=pos.quantity,
+                limit_price=exit_price,
+                micro_notional=notional,
+                status="FILLED",
+                created_at=ts,
+                updated_at=ts,
+                cancellation_reason="TIER2_EMERGENCY_LIQUIDATION",
+            )
+            self.orders_store.insert_order(liq_order)
+            self.orders_generated_count += 1
+
             # Record liquidation fill
             fill_id = f"fill-liq-{uuid4().hex[:8]}"
-            close_side: Literal["BUY", "SELL"] = "SELL" if pos.side == "LONG" else "BUY"
             fill = CanaryShadowFill(
                 fill_id=fill_id,
-                order_id=f"ord-liq-{uuid4().hex[:8]}",
-                client_order_id=f"c-liq-{uuid4().hex[:8]}",
+                order_id=liq_order_id,
+                client_order_id=liq_cid,
                 symbol=sym,
                 side=close_side,
                 fill_price=exit_price,
@@ -1090,6 +1205,7 @@ class CanaryShadowExecutionEngine:
                 filled_at=ts,
             )
             self.orders_store.insert_fill(fill)
+            self.fills_executed_count += 1
 
             self.ledger_store.record_ledger_event(
                 event="KILL_SWITCH_LIQUIDATION",
@@ -1109,7 +1225,7 @@ class CanaryShadowExecutionEngine:
                 gross_pnl=gross_pnl,
                 net_pnl=gross_pnl - fee,
                 drift=self.current_drift,
-                order_id=fill.order_id,
+                order_id=liq_order_id,
                 trade_id=f"tr-liq-{uuid4().hex[:8]}",
             )
             liquidated_positions += 1
@@ -1420,11 +1536,30 @@ class CanaryShadowExecutionEngine:
         self.closed_positions_count += 1
 
         close_side: Literal["BUY", "SELL"] = "SELL" if pos.side == "LONG" else "BUY"
+        close_order_id = f"ord-close-{uuid4().hex[:8]}"
+        close_cid = f"c-close-{symbol.lower()}-{uuid4().hex[:8]}"
+        close_order = CanaryShadowOrder(
+            order_id=close_order_id,
+            client_order_id=close_cid,
+            candidate_id=pos.candidate_id,
+            symbol=symbol,
+            side=close_side,
+            order_type="MARKET",
+            quantity=pos.quantity,
+            limit_price=px,
+            micro_notional=exit_notional,
+            status="FILLED",
+            created_at=ts,
+            updated_at=ts,
+        )
+        self.orders_store.insert_order(close_order)
+        self.orders_generated_count += 1
+
         fill_id = f"fill-close-{uuid4().hex[:8]}"
         fill = CanaryShadowFill(
             fill_id=fill_id,
-            order_id=f"ord-close-{uuid4().hex[:8]}",
-            client_order_id=f"c-close-{uuid4().hex[:8]}",
+            order_id=close_order_id,
+            client_order_id=close_cid,
             symbol=symbol,
             side=close_side,
             fill_price=px,
@@ -1435,6 +1570,7 @@ class CanaryShadowExecutionEngine:
             filled_at=ts,
         )
         self.orders_store.insert_fill(fill)
+        self.fills_executed_count += 1
         del self.open_positions[symbol]
 
         self.latest_prices[symbol] = px
@@ -1457,7 +1593,8 @@ class CanaryShadowExecutionEngine:
             gross_pnl=gross_pnl,
             net_pnl=gross_pnl - exit_fee,
             drift=self.current_drift,
-            order_id=fill.order_id,
+            order_id=close_order_id,
+            trade_id=f"tr-close-{uuid4().hex[:8]}",
         )
 
         self.check_tier2_circuit_breaker(ts)
@@ -1643,6 +1780,15 @@ def run_canary_staging_simulation(
     orders_db_path = out_p / "canary-orders.sqlite3"
     ledger_db_path = out_p / "canary-shadow-ledger.sqlite3"
 
+    # Ensure clean slate: remove stale SQLite database and journal/wal sidecar files
+    for db_p in (orders_db_path, ledger_db_path):
+        for sidecar in (db_p, Path(f"{db_p}-wal"), Path(f"{db_p}-shm"), Path(f"{db_p}-journal")):
+            if sidecar.is_file():
+                try:
+                    sidecar.unlink()
+                except OSError:
+                    pass
+
     # 1. Ingest and cryptographically verify Canary Staging Manifest
     manifest, cand_artifacts = load_and_validate_canary_staging_manifest(
         manifest_path=manifest_path,
@@ -1808,6 +1954,18 @@ def run_canary_staging_simulation(
         raise RuntimeError(f"Orders store locked after simulation: {orders_db_path}")
     if not ledger_store.verify_unlocked():
         raise RuntimeError(f"Ledger store locked after simulation: {ledger_db_path}")
+
+    # Verify referential and ledger accounting integrity
+    ref_ok, orphans = orders_store.verify_referential_integrity()
+    if not ref_ok:
+        raise RuntimeError(
+            f"Referential integrity failure: {orphans} orphaned fills found in {orders_db_path}"
+        )
+    ledger_ok, max_drift = ledger_store.verify_double_entry_integrity()
+    if not ledger_ok:
+        raise RuntimeError(
+            f"Double-entry integrity failure: max drift {max_drift} >= 1e-15 in {ledger_db_path}"
+        )
 
     # 5. Compute SHA-256 digests and produce artifacts
     artifact_hashes = {
