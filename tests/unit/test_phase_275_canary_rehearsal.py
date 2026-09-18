@@ -750,7 +750,7 @@ class TestPhase275CliExecution:
         assert verify_exit == 0
 
     def test_format_summary_table_renders(self, tmp_path: Path) -> None:
-        cfg = CanaryRehearsalConfig(output_dir=tmp_path, track="1")
+        cfg = CanaryRehearsalConfig(output_dir=tmp_path, track="all")
         runner = CanaryRehearsalRunner(cfg)
         report = runner.execute_all_tracks()
         rendered = format_summary_table(report)
@@ -771,7 +771,7 @@ class TestPhase275CliExecution:
     def test_cli_json_output_mode(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         exit_code = execute_phase_275_runner(
             output_dir=tmp_path,
-            track="1",
+            track="all",
             json_output=True,
         )
         assert exit_code == 0
@@ -889,7 +889,7 @@ class TestPhase275EdgeCasesAndInvariants:
             )
 
     def test_daemon_lifecycle_and_run(self, tmp_path: Path) -> None:
-        cfg = CanaryRehearsalConfig(output_dir=tmp_path, track="1")
+        cfg = CanaryRehearsalConfig(output_dir=tmp_path, track="all")
         daemon = CanaryRehearsalDaemon(cfg)
         report = daemon.run()
         assert report.promotion_assessment.promotion_authorized is True
@@ -1362,3 +1362,85 @@ class TestPhase275EdgeCasesAndInvariants:
         hb = daemon.create_heartbeat_daemon()
         assert hb is not None
         assert hb.config.output_dir == tmp_path
+
+    def test_single_track_drill_does_not_certify_full_promotion(self, tmp_path: Path) -> None:
+        """Verify that running a single drill track does NOT grant full canary certification."""
+        cfg = CanaryRehearsalConfig(output_dir=tmp_path, track="1")
+        runner = CanaryRehearsalRunner(cfg)
+        report = runner.execute_all_tracks()
+
+        assert report.promotion_assessment.promotion_authorized is False
+        assert report.promotion_assessment.promotion_state == "PARTIAL_REHEARSAL_NOT_CERTIFIED"
+        assert report.compliance["all_criteria_passed"] is False
+        assert report.compliance["soft_freeze_cancellation_verified"] is False
+        assert "partial rehearsal completed" in report.promotion_assessment.decision_rationale
+
+    def test_closing_order_cancelled_when_position_closed_by_bracket(
+        self, fresh_runner_env: tuple[CanaryMicroExecutionRunner, Any, Any]
+    ) -> None:
+        """Verify discretionary closing order is cancelled upon bracket exit to prevent flip."""
+        sim, _, _ = fresh_runner_env
+        sim.execute_taker_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+        tp, sl = sim.attach_bracket_orders(
+            symbol="BTCUSDT",
+            stop_price=Decimal("59000.00"),
+            take_profit_price=Decimal("61000.00"),
+        )
+        disc_sell = sim.place_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("61500.00"),
+        )
+        assert disc_sell.status == OrderStatus.OPEN
+
+        # TP triggers and fills -> closes position
+        sim.match_maker_fill(tp.order_id)
+        assert "BTCUSDT" not in sim.active_positions
+        assert sim.orders[tp.order_id].status == OrderStatus.FILLED
+        assert sim.orders[sl.order_id].status == OrderStatus.CANCELLED
+        # Discretionary sell order must also be cancelled to prevent flip into short!
+        assert sim.orders[disc_sell.order_id].status == OrderStatus.CANCELLED
+
+    def test_discretionary_closing_order_resized_on_partial_fill(
+        self, fresh_runner_env: tuple[CanaryMicroExecutionRunner, Any, Any]
+    ) -> None:
+        """Verify discretionary closing order is capped to remaining position size."""
+        sim, _, _ = fresh_runner_env
+        sim.execute_taker_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+        tp, sl = sim.attach_bracket_orders(
+            symbol="BTCUSDT",
+            stop_price=Decimal("59000.00"),
+            take_profit_price=Decimal("61000.00"),
+        )
+        disc_sell = sim.place_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("61500.00"),
+        )
+        # Partial maker fill of 0.00006 on TP leaves position with 0.00002
+        sim.match_maker_fill(tp.order_id, fill_quantity=Decimal("0.00006"))
+        assert sim.active_positions["BTCUSDT"].quantity == Decimal("0.00002")
+        # Resting discretionary sell quantity must be capped down to 0.00002!
+        assert sim.orders[disc_sell.order_id].quantity == Decimal("0.00002")
+        # Attached SL must also be resized to 0.00002!
+        assert sim.orders[sl.order_id].quantity == Decimal("0.00002")

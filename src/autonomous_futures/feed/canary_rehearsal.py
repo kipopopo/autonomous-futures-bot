@@ -508,7 +508,12 @@ class SqliteCanaryRehearsalTelemetryStore:
             )
             self._conn.row_factory = sqlite3.Row
             self._closed = False
-            self._init_pragmas_and_schema()
+            try:
+                self._init_pragmas_and_schema()
+            except Exception:
+                self._conn.close()
+                self._closed = True
+                raise
 
     def _init_pragmas_and_schema(self) -> None:
         """Apply performance and integrity pragmas and construct tables."""
@@ -1824,24 +1829,22 @@ class CanaryMicroExecutionRunner:
                         del self.active_positions[order.symbol]
                         self.store.record_position(pos)
 
-                        # Bracket OCO logic: cancel opposite bracket orders
-                        self._cancel_bracket_siblings(order, position_id=pos.position_id)
+                        # Cancel bracket siblings and any remaining open closing orders
+                        # for this symbol upon position closure
+                        self._cancel_remaining_symbol_orders(
+                            symbol=order.symbol,
+                            exclude_order_id=order.order_id,
+                            reason=f"Position closed upon {order.order_id} fill",
+                        )
                     else:
                         pos.quantity -= close_qty
                         pos.allocated_margin_usdt -= margin_to_release
                         pos.realized_pnl_usdt += net_pnl
                         pos.current_price = price
                         self.store.record_position(pos)
-                        for ord_item in self.orders.values():
-                            if (
-                                ord_item.bracket_parent_id == pos.position_id
-                                and ord_item.status
-                                in (OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED)
-                            ):
-                                ord_item.quantity = pos.quantity
-                                ord_item.notional_usdt = ord_item.price * ord_item.quantity
-                                ord_item.updated_at_utc = now_utc
-                                self.store.record_order(ord_item)
+                        self._synchronize_closing_orders(
+                            pos, exclude_order_id=order.order_id, now_utc=now_utc
+                        )
 
             fill = MicroCanaryFill(
                 fill_id=fid,
@@ -2019,23 +2022,22 @@ class CanaryMicroExecutionRunner:
                         del self.active_positions[symbol]
                         self.store.record_position(pos)
 
-                        self._cancel_bracket_siblings(dummy_order, position_id=pos.position_id)
+                        # Cancel bracket siblings and any remaining open closing orders
+                        # for this symbol upon position closure
+                        self._cancel_remaining_symbol_orders(
+                            symbol=symbol,
+                            exclude_order_id=dummy_order.order_id,
+                            reason=f"Position closed upon {dummy_order.order_id} fill",
+                        )
                     else:
                         pos.quantity -= close_qty
                         pos.allocated_margin_usdt -= margin_to_release
                         pos.realized_pnl_usdt += net_pnl
                         pos.current_price = fill_price
                         self.store.record_position(pos)
-                        for ord_item in self.orders.values():
-                            if (
-                                ord_item.bracket_parent_id == pos.position_id
-                                and ord_item.status
-                                in (OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED)
-                            ):
-                                ord_item.quantity = pos.quantity
-                                ord_item.notional_usdt = ord_item.price * ord_item.quantity
-                                ord_item.updated_at_utc = now_utc
-                                self.store.record_order(ord_item)
+                        self._synchronize_closing_orders(
+                            pos, exclude_order_id=dummy_order.order_id, now_utc=now_utc
+                        )
 
             fill = MicroCanaryFill(
                 fill_id=fid,
@@ -2171,6 +2173,55 @@ class CanaryMicroExecutionRunner:
                 self.orders_cancelled_count += 1
                 self.store.record_order(ord_item)
                 self.sink.write_record("ORDER_CANCELLED_OCO", ord_item.model_dump(mode="json"))
+
+    def _cancel_remaining_symbol_orders(
+        self,
+        symbol: str,
+        exclude_order_id: str | None = None,
+        reason: str = "Position closed; remaining orders cancelled",
+    ) -> None:
+        """Cancel all remaining open orders for a symbol upon position closure."""
+        now_utc = datetime.now(UTC).isoformat()
+        for ord_item in self.orders.values():
+            if (
+                ord_item.symbol == symbol
+                and ord_item.order_id != exclude_order_id
+                and ord_item.status in (OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED)
+            ):
+                ord_item.status = OrderStatus.CANCELLED
+                ord_item.rejection_reason = reason
+                ord_item.updated_at_utc = now_utc
+                self.orders_cancelled_count += 1
+                self.store.record_order(ord_item)
+                self.sink.write_record("ORDER_CANCELLED_ON_CLOSE", ord_item.model_dump(mode="json"))
+
+    def _synchronize_closing_orders(
+        self,
+        pos: MicroCanaryPosition,
+        exclude_order_id: str | None = None,
+        now_utc: str | None = None,
+    ) -> None:
+        """Synchronize attached brackets and cap open exit orders to remaining position size."""
+        timestamp = now_utc or datetime.now(UTC).isoformat()
+        for ord_item in self.orders.values():
+            if (
+                ord_item.symbol == pos.symbol
+                and ord_item.order_id != exclude_order_id
+                and ord_item.status in (OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED)
+            ):
+                if ord_item.bracket_parent_id == pos.position_id:
+                    ord_item.quantity = pos.quantity
+                    ord_item.notional_usdt = ord_item.price * ord_item.quantity
+                    ord_item.updated_at_utc = timestamp
+                    self.store.record_order(ord_item)
+                elif (
+                    (pos.side == PositionSide.LONG and ord_item.side == OrderSide.SELL)
+                    or (pos.side == PositionSide.SHORT and ord_item.side == OrderSide.BUY)
+                ) and ord_item.quantity > pos.quantity:
+                    ord_item.quantity = pos.quantity
+                    ord_item.notional_usdt = ord_item.price * ord_item.quantity
+                    ord_item.updated_at_utc = timestamp
+                    self.store.record_order(ord_item)
 
     def cancel_order(
         self,
@@ -3223,6 +3274,10 @@ class CanaryRehearsalRunner:
         zero_drift_all = all(t.zero_balance_drift for t in track_results)
 
         # Promotion Readiness Evaluation
+        required_tracks = {"track_1", "track_2", "track_3", "track_4"}
+        executed_tracks = {t.track_id for t in track_results}
+        all_tracks_executed = required_tracks.issubset(executed_tracks)
+
         checks = {
             "read_only_safety_compliant": True,
             "zero_balance_drift": zero_drift_all,
@@ -3240,25 +3295,42 @@ class CanaryRehearsalRunner:
             ),
             "stream_ingress_verified": True,
             "heartbeat_supervision_verified": True,
-            "all_criteria_passed": all_passed and zero_drift_all,
         }
+        all_checks_passed = (
+            all_passed and zero_drift_all and all_tracks_executed and all(checks.values())
+        )
+        checks["all_criteria_passed"] = all_checks_passed
+
+        if not zero_drift_all or not all_passed:
+            promo_state = "BLOCKED"
+            promo_auth = False
+            rationale = "Canary live promotion blocked due to invariant or gate failure."
+        elif not all_tracks_executed:
+            promo_state = "PARTIAL_REHEARSAL_NOT_CERTIFIED"
+            promo_auth = False
+            rationale = (
+                f"Phase 275 partial rehearsal completed ({', '.join(sorted(executed_tracks))}); "
+                f"production canary certification requires all 4 integrated rehearsal tracks."
+            )
+        elif all_checks_passed:
+            promo_state = "CERTIFIED_FOR_PRODUCTION_CANARY"
+            promo_auth = True
+            rationale = (
+                "All 4 Phase 275 integrated rehearsal tracks passed with 0 balance drift "
+                "(< 1e-15 USDT), risk guardrails strictly enforced, coupled circuit breaker "
+                "recovery validated, and read-only containment preserved."
+            )
+        else:
+            promo_state = "BLOCKED"
+            promo_auth = False
+            rationale = "Canary live promotion blocked due to unverified circuit breaker criteria."
 
         assessment = PromotionReadinessAssessment(
-            promotion_state=(
-                "CERTIFIED_FOR_PRODUCTION_CANARY" if checks["all_criteria_passed"] else "BLOCKED"
-            ),
-            promotion_authorized=checks["all_criteria_passed"],
-            decision_rationale=(
-                (
-                    "All 4 Phase 275 integrated rehearsal tracks passed with 0 balance drift "
-                    "(< 1e-15 USDT), risk guardrails strictly enforced, coupled circuit breaker "
-                    "recovery validated, and read-only containment preserved."
-                )
-                if checks["all_criteria_passed"]
-                else "Canary live promotion blocked due to invariant or gate failure."
-            ),
+            promotion_state=promo_state,
+            promotion_authorized=promo_auth,
+            decision_rationale=rationale,
             evaluated_at_utc=now_utc,
-            all_criteria_passed=checks["all_criteria_passed"],
+            all_criteria_passed=all_checks_passed,
             checks=checks,
         )
 
@@ -3599,8 +3671,8 @@ class CanaryRehearsalDaemon:
                                 continue
                             except Exception as exc:
                                 logger.warning("Stream ingestion warning: %s", exc)
-                                break
-                except (OSError, websockets.WebSocketException, httpx.HTTPError) as net_err:
+                                continue
+                except Exception as net_err:
                     logger.warning(
                         "Live stream connection failed (%s); degrading to deterministic replay",
                         net_err,

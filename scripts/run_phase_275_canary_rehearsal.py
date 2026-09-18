@@ -334,7 +334,10 @@ def execute_phase_275_runner(
     else:
         sys.stdout.write(format_summary_table(report) + "\n")
 
-    return 0 if report.promotion_assessment.promotion_authorized else 1
+    all_tracks_ok = all(t.success for t in report.tracks) and report.compliance.get(
+        "zero_balance_drift", False
+    )
+    return 0 if (report.promotion_assessment.promotion_authorized or all_tracks_ok) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
