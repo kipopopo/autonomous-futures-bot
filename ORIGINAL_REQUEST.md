@@ -1075,3 +1075,74 @@ Enforce portfolio safety and rigorous engineering hygiene:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-18T16:54:04Z
+
+Implement the unified end-to-end canary integration runner, real-time market depth ingress, coupled heartbeat-circuit breaker micro-execution rehearsal, and canary live-readiness promotion assessment under Candidate Registry Manifest Version 2 (Phase 275) to certify the system for production canary authorization while maintaining strict fail-closed boundaries and zero-drift double-entry balance integrity.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Unified End-to-End Canary Rehearsal Daemon & Real-Time Ingress Runner
+Implement and execute the deterministic Phase 275 end-to-end canary rehearsal runner (`scripts/run_phase_275_canary_rehearsal.py` & `src/autonomous_futures/feed/canary_rehearsal.py`):
+- Unify all prior canary subsystems into a single cohesive end-to-end execution daemon:
+  - Real-time multiplexed public WebSocket stream ingestion across all 3 staged canary assets (`BTCUSDT` cand-btcusdt-dcb-002, `ETHUSDT` cand-ethusdt-dcb-003, `SOLUSDT` cand-solusdt-rgb-001) under Candidate Registry Manifest Version 2 and Canary Staging Manifest (`artifacts/research/phase269/canary-staging-manifest.json`).
+  - Active stream supervision, ping/pong heartbeat monitoring, and NTP clock drift verification (`CanaryHeartbeatDaemon`).
+  - Automated 3-state circuit breaker recovery state machine (`NORMAL` $\leftrightarrow$ `TIER_1_SOFT_FREEZE` $\rightarrow$ `TIER_2_HARD_ABORT`) with $K=5$ auto-recovery hysteresis.
+  - Micro-order lifecycle management, post-only validation, bracket OCO cancellation, and fill matching (`CanaryMicroExecutionRunner`).
+- Support bounded rehearsal durations (e.g. `--rehearsal-seconds 30`, `--max-ticks 50`), offline replay mode (`--offline-replay`), and robust signal handling (`SIGINT`, `SIGTERM`).
+
+### R2. Dynamic Cross-Asset Margin Rebalancing & Portfolio Solvency Guardrails
+Enforce portfolio solvency and multi-asset risk invariants across shared 100.00 USDT margin equity:
+- **Micro-Order Size Ceiling**: Maximum notional size per order $\le 5.00$ USDT.
+- **Per-Asset Margin Ceiling**: Active margin per symbol $\le 20.00\%$ of total equity.
+- **Aggregate Margin Ceiling**: Total concurrent margin across all assets $\le 60.00\%$ of equity.
+- **Unencumbered Reserve Buffer**: Maintain $\ge 40.00\%$ unencumbered cash reserve buffer under all market conditions and mark price updates.
+- **Single-Position Invariant**: Strictly at most one active position per symbol at any time.
+- **Dynamic Mark Price Revaluation**: Continuously revalue open positions and unrealized PnL using real-time ingress ticks without balance drift.
+
+### R3. Deterministic Integrated Rehearsal Tracks & Promotion Readiness Reporting
+Execute multi-scenario integrated rehearsal tracks in `artifacts/research/phase275/`:
+1. **Track 1: End-to-End Nominal Live Rehearsal** (Simultaneous stream ingestion, routine micro order placement, bracket execution, and nominal mark-to-market updates under `NORMAL` circuit breaker state).
+2. **Track 2: Stream Jitter & Hysteresis Auto-Recovery Rehearsal** (Injected latency spike/stream timeout triggers Tier 1 Soft-Freeze -> cancels open maker quotes -> blocks new entries -> verifies stream stabilization and auto-recovery to `NORMAL`).
+3. **Track 3: Emergency Circuit Breaker Liquidation & Fail-Closed Halt** (Catastrophic anomaly triggers Tier 2 Hard-Abort -> instant cancellation of all active orders -> emergency market liquidation of open positions -> fail-closed permanent halt).
+4. **Track 4: Pre-Trade Margin & Exposure Breach Rejection** (Order attempting to violate micro limits or portfolio margin caps rejected pre-trade without state corruption).
+- Store execution marks, orders, lifecycle transitions, and circuit breaker telemetry in isolated SQLite database (`artifacts/research/phase275/canary-rehearsal-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-live-readiness-report.json`, `rehearsal-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Remote CI Polling
+Enforce mathematical precision and rigorous engineering hygiene:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks ($\text{drift} = |\text{final\_cash} + \text{allocated\_margin} + \text{unrealized\_pnl} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Ensure strict read-only / paper containment: `execution_authority: false`, `exchange_access: false`, `api_keys_loaded: 0`, `orders: 0` (zero live exchange orders submitted).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_275_canary_rehearsal.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Integrated Execution & Stream Ingress
+- [ ] Unified canary rehearsal daemon connects to real-time streams and ingests market depth ticks across all 3 staged assets.
+- [ ] End-to-end coupling of stream monitoring, circuit breaker state machine, and micro-order execution verified.
+- [ ] Bounded rehearsal runs terminate cleanly with zero dangling connections, background threads, or unclosed database handles.
+
+### Risk Guardrails & Solvency
+- [ ] Micro-order ceiling ($\le 5.00$ USDT) and per-asset margin cap ($\le 20.00\%$) strictly enforced.
+- [ ] Aggregate margin utilization never exceeds 60.00%; unencumbered reserve buffer remains $\ge 40.00\%$.
+- [ ] Single-position invariant maintained per symbol.
+
+### Circuit Breaker & Incident Handling
+- [ ] Stream interruption triggers Tier 1 Soft-Freeze and order cancellation; auto-recovery resumes execution upon stable feed.
+- [ ] Catastrophic anomaly triggers Tier 2 Hard-Abort, flattens positions, and halts execution fail-closed.
+
+### Accounting, Telemetry & Remote CI Verification
+- [ ] Exact mathematical balance reconciliation confirms zero drift ($< 10^{-15}\text{ USDT}$) across all rehearsal tracks.
+- [ ] Complete artifact bundle and isolated SQLite database generated in `artifacts/research/phase275/` with cryptographic SHA-256 digests.
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
