@@ -600,3 +600,94 @@ class TestPhase271AdditionalEdgeCases:
         assert summary.portfolio_accounting["zero_balance_drift"] is True
         assert db_path.is_file()
         assert rep_path.is_file()
+
+    def test_simulate_network_timeout_triggers_fallback(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "timeout_fallback_test"
+        cfg = CanaryProbeConfig(
+            output_dir=out_dir,
+            probe_seconds=1.0,
+            max_heartbeats=2,
+            offline_replay=False,
+            simulate_network_timeout=True,
+        )
+        runner = CanaryNetworkProbeRunner(cfg)
+        summary, db_path, rep_path, net_path, paper_path = runner.run()
+        assert summary.execution_mode == "network_fallback"
+        assert summary.portfolio_accounting["zero_balance_drift"] is True
+        assert db_path.is_file()
+
+    def test_simulate_clock_drift_live_failure(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "live_drift_fail"
+        cfg = CanaryProbeConfig(
+            output_dir=out_dir,
+            probe_seconds=1.0,
+            max_heartbeats=2,
+            offline_replay=False,
+            simulate_clock_drift=True,
+        )
+        runner = CanaryNetworkProbeRunner(cfg)
+        with pytest.raises(ClockSyncDriftError, match="exceeds safety threshold"):
+            runner.run()
+
+    def test_fail_closed_rejects_api_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("BINANCE_API_SECRET", "prohibited_secret_key")
+        with pytest.raises(SafetyInvariantViolation, match="api_keys_loaded"):
+            verify_strict_fail_closed_invariants()
+
+    def test_fail_closed_rejects_execution_authority(self) -> None:
+        with pytest.raises(SafetyInvariantViolation, match="execution_authority"):
+            verify_strict_fail_closed_invariants(execution_authority=True)
+
+    def test_fail_closed_rejects_exchange_access(self) -> None:
+        with pytest.raises(SafetyInvariantViolation, match="exchange_access"):
+            verify_strict_fail_closed_invariants(exchange_access=True)
+
+    def test_fail_closed_rejects_authenticated_endpoints(self) -> None:
+        with pytest.raises(SafetyInvariantViolation, match="authenticated_endpoints_accessed"):
+            verify_strict_fail_closed_invariants(authenticated_endpoints_accessed=True)
+
+    def test_batch_persistence_in_sqlite(
+        self, isolated_store: SqliteCanaryNetworkTelemetryStore
+    ) -> None:
+        marks = [
+            (
+                "2026-09-18T00:00:00Z",
+                "btcusdt@bookTicker",
+                "BTCUSDT",
+                "bookTicker",
+                1000 + i,
+                1050.0 + i,
+                50.0,
+            )
+            for i in range(25)
+        ]
+        count = isolated_store.record_latency_marks_batch(marks)
+        assert count == 25
+        tel = isolated_store.get_stream_telemetry(elapsed_seconds=1.0, symbols=("BTCUSDT",))
+        assert tel["total_messages_received"] == 25
+        assert tel["symbol_stats"]["BTCUSDT"]["messages"] == 25
+        assert tel["symbol_stats"]["BTCUSDT"]["mean_latency_ms"] == 50.0
+
+        jitters = [
+            (
+                "2026-09-18T00:00:00Z",
+                "BTCUSDT",
+                "btcusdt@bookTicker",
+                1000.0 + i * 10,
+                1010.0 + i * 10,
+                10.0,
+                1.0,
+            )
+            for i in range(10)
+        ]
+        j_count = isolated_store.record_jitter_batch(jitters)
+        assert j_count == 10
+
+    def test_idempotent_sqlite_close(self, tmp_path: Path) -> None:
+        db_p = tmp_path / "idempotent_close.sqlite3"
+        st = SqliteCanaryNetworkTelemetryStore(db_p)
+        st.record_connection_event("test_ev", "endpoint", 5.0, True)
+        st.close()
+        # Second close must not raise
+        st.close()
+        assert st._closed is True

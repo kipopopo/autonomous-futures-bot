@@ -254,7 +254,7 @@ def run_phase_271_network_probe(
     else:
         sys.stdout.write(format_summary_table(summary) + "\n")
 
-    return 0
+    return 0 if summary.compliance.get("all_criteria_passed", True) else 1
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -410,6 +410,25 @@ class SqliteCanaryNetworkTelemetryStore:
         self._conn.commit()
         return cur.lastrowid or 0
 
+    def record_latency_marks_batch(
+        self,
+        marks: list[tuple[str, str, str, str, int, float, float]],
+    ) -> int:
+        """Insert a batch of latency marks in a single transaction."""
+        if not marks:
+            return 0
+        cur = self._conn.cursor()
+        cur.executemany(
+            """
+            INSERT INTO latency_marks
+            (timestamp_utc, stream, symbol, event_type, event_time_ms, local_recv_ms, latency_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            marks,
+        )
+        self._conn.commit()
+        return len(marks)
+
     def record_jitter(
         self,
         symbol: str,
@@ -441,6 +460,25 @@ class SqliteCanaryNetworkTelemetryStore:
         )
         self._conn.commit()
         return cur.lastrowid or 0
+
+    def record_jitter_batch(
+        self,
+        samples: list[tuple[str, str, str, float, float, float, float]],
+    ) -> int:
+        """Insert a batch of jitter samples in a single transaction."""
+        if not samples:
+            return 0
+        cur = self._conn.cursor()
+        cur.executemany(
+            """
+            INSERT INTO jitter_samples
+            (timestamp_utc, symbol, stream, prev_recv_ms, curr_recv_ms, interval_ms, jitter_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            samples,
+        )
+        self._conn.commit()
+        return len(samples)
 
     def record_accounting_ledger(
         self,
@@ -556,7 +594,11 @@ class SqliteCanaryNetworkTelemetryStore:
             "within_threshold": all_within,
         }
 
-    def get_stream_telemetry(self, elapsed_seconds: float) -> dict[str, Any]:
+    def get_stream_telemetry(
+        self,
+        elapsed_seconds: float,
+        symbols: tuple[str, ...] | list[str] | None = None,
+    ) -> dict[str, Any]:
         """Aggregate stream latency and jitter statistics grouped by symbol."""
         cur = self._conn.cursor()
         cur.execute(
@@ -591,7 +633,8 @@ class SqliteCanaryNetworkTelemetryStore:
 
         symbol_stats: dict[str, Any] = {}
         total_msgs = len(marks)
-        for sym in DEFAULT_CANARY_SYMBOLS:
+        target_symbols = tuple(symbols) if symbols else DEFAULT_CANARY_SYMBOLS
+        for sym in target_symbols:
             lats = symbol_latencies.get(sym, [])
             ints = symbol_intervals.get(sym, [])
             jits = symbol_jitters.get(sym, [])
@@ -636,13 +679,21 @@ class SqliteCanaryNetworkTelemetryStore:
         return dict(row)
 
     def close(self) -> None:
-        """Commit all pending writes and gracefully close database connection."""
+        """Commit all pending writes, checkpoint WAL, and gracefully close database connection."""
+        if getattr(self, "_closed", False):
+            return
         if hasattr(self, "_conn") and self._conn is not None:
             try:
                 self._conn.commit()
+                try:
+                    self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                except Exception:
+                    pass
                 self._conn.close()
             except Exception as exc:
                 logger.debug("Error while closing SQLite connection: %s", exc)
+            finally:
+                self._closed = True
 
     def __enter__(self) -> SqliteCanaryNetworkTelemetryStore:
         return self
@@ -656,16 +707,22 @@ class SqliteCanaryNetworkTelemetryStore:
 # =====================================================================
 
 
-def verify_strict_fail_closed_invariants(*, orders_submitted: int = 0) -> dict[str, Any]:
+def verify_strict_fail_closed_invariants(
+    *,
+    orders_submitted: int = 0,
+    execution_authority: bool = False,
+    exchange_access: bool = False,
+    authenticated_endpoints_accessed: bool = False,
+) -> dict[str, Any]:
     """Verify and assert non-negotiable read-only fail-closed safety invariants."""
     api_key = os.environ.get("BINANCE_API_KEY")
     api_secret = os.environ.get("BINANCE_API_SECRET")
     private_keys_found = int(bool(api_key)) + int(bool(api_secret))
 
     invariants = {
-        "execution_authority": False,
-        "exchange_access": False,
-        "authenticated_endpoints_accessed": False,
+        "execution_authority": execution_authority,
+        "exchange_access": exchange_access,
+        "authenticated_endpoints_accessed": authenticated_endpoints_accessed,
         "orders": orders_submitted,
         "api_keys_loaded": private_keys_found,
         "zero_secret_leakage": private_keys_found == 0,
@@ -832,7 +889,7 @@ class CanaryNetworkProbeRunner:
             ),
         )
 
-        # 2. Server time clock sync
+        # 2. Server time clock sync (initial sample)
         drift_sim = 1500.0 if self.config.simulate_clock_drift else 14.2
         clock_sample = await evaluate_server_time_sync(
             rest_url=self.config.rest_url,
@@ -866,8 +923,11 @@ class CanaryNetworkProbeRunner:
                 rtt_ms=rtt,
             )
 
-        # 4. Stream message replay for all 3 canary assets
+        # 4. Stream message replay for all staged canary assets with drift alignment
         frames_per_sym = 100
+        latency_batch: list[tuple[str, str, str, str, int, float, float]] = []
+        jitter_batch: list[tuple[str, str, str, float, float, float, float]] = []
+
         for sym in self.config.symbols:
             prev_recv = base_time_ms
             prev_interval = 25.0
@@ -875,31 +935,36 @@ class CanaryNetworkProbeRunner:
                 interval = 25.0 + ((i % 7) - 3) * 1.5
                 curr_recv = prev_recv + interval
                 jitter = abs(interval - prev_interval)
-                event_time_ms = int(curr_recv - (42.0 + (i % 5)))
-                lat_ms = curr_recv - event_time_ms
+                now_utc = datetime.now(UTC).isoformat()
+                event_time_ms = int(curr_recv + drift_sim - (42.0 + (i % 5)))
+                lat_ms = (curr_recv + drift_sim) - event_time_ms
 
                 is_kline = (i % 20) == 0
                 st_name = f"{sym.lower()}@{'kline_5m' if is_kline else 'bookTicker'}"
                 ev_type = "kline" if is_kline else "bookTicker"
 
-                store.record_latency_mark(
-                    stream=st_name,
-                    symbol=sym,
-                    event_type=ev_type,
-                    event_time_ms=event_time_ms,
-                    local_recv_ms=curr_recv,
-                    latency_ms=lat_ms,
+                latency_batch.append(
+                    (now_utc, st_name, sym, ev_type, event_time_ms, curr_recv, lat_ms)
                 )
-                store.record_jitter(
-                    symbol=sym,
-                    stream=st_name,
-                    prev_recv_ms=prev_recv,
-                    curr_recv_ms=curr_recv,
-                    interval_ms=interval,
-                    jitter_ms=jitter,
-                )
+                jitter_batch.append((now_utc, sym, st_name, prev_recv, curr_recv, interval, jitter))
                 prev_recv = curr_recv
                 prev_interval = interval
+
+        store.record_latency_marks_batch(latency_batch)
+        store.record_jitter_batch(jitter_batch)
+
+        # Post-replay clock sync sample
+        clock_sample_end = await evaluate_server_time_sync(
+            rest_url=self.config.rest_url,
+            simulate_drift_ms=drift_sim + 0.3,
+        )
+        store.record_clock_sync(
+            client_time_ms=clock_sample_end.client_time_ms,
+            server_time_ms=clock_sample_end.server_time_ms,
+            drift_ms=clock_sample_end.drift_ms,
+            rtt_ms=clock_sample_end.rtt_ms,
+            within_threshold=clock_sample_end.within_threshold,
+        )
 
         store.record_connection_event(
             event_type="ws_disconnect",
@@ -917,6 +982,11 @@ class CanaryNetworkProbeRunner:
         ws_endpoint: str,
     ) -> float:
         """Run live WebSocket telemetry probe against Binance Futures public stream."""
+        if self.config.simulate_network_timeout:
+            raise TimeoutError(
+                "Simulated network timeout triggered by operator (--simulate-network-timeout)"
+            )
+
         logger.info("Connecting dynamically to Binance public stream: %s", ws_endpoint)
         t0 = time.perf_counter()
 
@@ -928,7 +998,11 @@ class CanaryNetworkProbeRunner:
             success=True,
             details="Evaluating Binance REST server time synchronization",
         )
-        clock_sample = await evaluate_server_time_sync(rest_url=self.config.rest_url)
+        drift_sim = 1500.0 if self.config.simulate_clock_drift else None
+        clock_sample = await evaluate_server_time_sync(
+            rest_url=self.config.rest_url,
+            simulate_drift_ms=drift_sim,
+        )
         store.record_clock_sync(
             client_time_ms=clock_sample.client_time_ms,
             server_time_ms=clock_sample.server_time_ms,
@@ -941,6 +1015,8 @@ class CanaryNetworkProbeRunner:
                 f"Binance server time synchronization drift {clock_sample.drift_ms:.1f} ms "
                 f"exceeds safety threshold of {MAX_SERVER_TIME_DRIFT_MS} ms"
             )
+
+        server_drift_ms = clock_sample.drift_ms
 
         # 2. WebSocket Handshake Profiling
         store.record_connection_event(
@@ -1011,6 +1087,9 @@ class CanaryNetworkProbeRunner:
                             success=False,
                             details=f"Ping {seq} failure: {ping_exc}",
                         )
+                        if isinstance(ping_exc, websockets.ConnectionClosed):
+                            self._stop_event.set()
+                            break
 
                     try:
                         await asyncio.wait_for(
@@ -1027,6 +1106,8 @@ class CanaryNetworkProbeRunner:
             last_recv_times: dict[tuple[str, str], float] = {}
             last_intervals: dict[tuple[str, str], float] = {}
             deadline = t0 + self.config.probe_seconds
+            latency_batch: list[tuple[str, str, str, str, int, float, float]] = []
+            jitter_batch: list[tuple[str, str, str, float, float, float, float]] = []
 
             try:
                 while not self._stop_event.is_set():
@@ -1064,26 +1145,24 @@ class CanaryNetworkProbeRunner:
                         else payload
                     )
                     symbol = data_obj.get("s", "").upper() if isinstance(data_obj, dict) else ""
+                    if not symbol or symbol not in self.config.symbols:
+                        continue
+
                     event_type = (
                         data_obj.get("e", "bookTicker" if "b" in data_obj else "kline")
                         if isinstance(data_obj, dict)
                         else ""
                     )
+                    aligned_recv_ms = recv_ms + server_drift_ms
                     event_time_ms = (
-                        int(data_obj.get("E") or data_obj.get("T") or recv_ms)
+                        int(data_obj.get("E") or data_obj.get("T") or aligned_recv_ms)
                         if isinstance(data_obj, dict)
-                        else int(recv_ms)
+                        else int(aligned_recv_ms)
                     )
 
-                    lat_ms = max(0.0, recv_ms - event_time_ms)
-                    store.record_latency_mark(
-                        stream=stream_name,
-                        symbol=symbol,
-                        event_type=event_type,
-                        event_time_ms=event_time_ms,
-                        local_recv_ms=recv_ms,
-                        latency_ms=lat_ms,
-                        timestamp_utc=now_utc,
+                    lat_ms = max(0.0, aligned_recv_ms - event_time_ms)
+                    latency_batch.append(
+                        (now_utc, stream_name, symbol, event_type, event_time_ms, recv_ms, lat_ms)
                     )
 
                     key = (symbol, stream_name)
@@ -1093,16 +1172,17 @@ class CanaryNetworkProbeRunner:
                         interval_ms = max(0.0, recv_ms - prev_t)
                         jitter_ms = abs(interval_ms - prev_int) if prev_int is not None else 0.0
                         last_intervals[key] = interval_ms
-                        store.record_jitter(
-                            symbol=symbol,
-                            stream=stream_name,
-                            prev_recv_ms=prev_t,
-                            curr_recv_ms=recv_ms,
-                            interval_ms=interval_ms,
-                            jitter_ms=jitter_ms,
-                            timestamp_utc=now_utc,
+                        jitter_batch.append(
+                            (now_utc, symbol, stream_name, prev_t, recv_ms, interval_ms, jitter_ms)
                         )
                     last_recv_times[key] = recv_ms
+
+                    if len(latency_batch) >= 100:
+                        store.record_latency_marks_batch(latency_batch)
+                        latency_batch.clear()
+                    if len(jitter_batch) >= 100:
+                        store.record_jitter_batch(jitter_batch)
+                        jitter_batch.clear()
 
             finally:
                 self._stop_event.set()
@@ -1111,14 +1191,38 @@ class CanaryNetworkProbeRunner:
                     await heartbeat_task
                 except asyncio.CancelledError:
                     pass
+                if latency_batch:
+                    store.record_latency_marks_batch(latency_batch)
+                    latency_batch.clear()
+                if jitter_batch:
+                    store.record_jitter_batch(jitter_batch)
+                    jitter_batch.clear()
 
-        store.record_connection_event(
-            event_type="ws_disconnect",
-            endpoint=ws_endpoint,
-            duration_ms=0.0,
-            success=True,
-            details="Probe finished: normal closure frame 1000 sent",
-        )
+            close_code = getattr(ws, "close_code", 1000) or 1000
+            store.record_connection_event(
+                event_type="ws_disconnect",
+                endpoint=ws_endpoint,
+                duration_ms=0.0,
+                success=(close_code == 1000),
+                details=f"Probe finished: websocket closed (code={close_code})",
+            )
+
+        # Safe post-probe clock sync evaluation
+        try:
+            clock_sample_end = await evaluate_server_time_sync(
+                rest_url=self.config.rest_url,
+                simulate_drift_ms=drift_sim,
+            )
+            store.record_clock_sync(
+                client_time_ms=clock_sample_end.client_time_ms,
+                server_time_ms=clock_sample_end.server_time_ms,
+                drift_ms=clock_sample_end.drift_ms,
+                rtt_ms=clock_sample_end.rtt_ms,
+                within_threshold=clock_sample_end.within_threshold,
+            )
+        except Exception as sync_exc:
+            logger.debug("Post-probe clock sync evaluation skipped: %s", sync_exc)
+
         return time.perf_counter() - t0
 
     def run(
@@ -1240,7 +1344,10 @@ class CanaryNetworkProbeRunner:
             conn_events = read_store.get_connection_events()
             hb_stats = read_store.get_heartbeat_stats()
             clock_stats = read_store.get_clock_sync_stats()
-            stream_stats = read_store.get_stream_telemetry(elapsed_seconds=elapsed_seconds)
+            stream_stats = read_store.get_stream_telemetry(
+                elapsed_seconds=elapsed_seconds,
+                symbols=self.config.symbols,
+            )
 
         # 7. Compute deterministic SHA-256 digests
         db_hash = compute_file_sha256(db_path)
@@ -1267,6 +1374,14 @@ class CanaryNetworkProbeRunner:
                 handshake_ms = ev["duration_ms"]
                 break
 
+        margin_util_str = (
+            str(int(margin_utilization))
+            if margin_utilization.is_integer()
+            else str(margin_utilization)
+        )
+        res_ratio = reserve_buffer / 100.0
+        res_buf_str = str(int(res_ratio)) if res_ratio.is_integer() else str(res_ratio)
+
         summary = CanaryProbeSummary(
             phase="phase_271",
             description="Phase 271 Canary Public Network Telemetry Probe & Handshake Summary",
@@ -1288,26 +1403,37 @@ class CanaryNetworkProbeRunner:
             clock_sync_profile=clock_stats,
             stream_telemetry=stream_stats,
             portfolio_accounting={
-                "starting_equity_usdt": str(ACCOUNTING_STARTING_EQUITY),
-                "final_cash_usdt": str(ACCOUNTING_FINAL_CASH),
-                "realized_pnl_usdt": str(ACCOUNTING_REALIZED_PNL),
-                "unrealized_pnl_usdt": "0.00",
-                "final_equity_usdt": str(ACCOUNTING_FINAL_CASH),
-                "drift_usdt": "0",
-                "zero_balance_drift": True,
+                "starting_equity_usdt": str(starting_equity),
+                "final_cash_usdt": str(final_cash),
+                "realized_pnl_usdt": str(realized_pnl),
+                "unrealized_pnl_usdt": str(unrealized_pnl),
+                "final_equity_usdt": str(final_equity),
+                "drift_usdt": str(drift.normalize()),
+                "zero_balance_drift": bool(zero_drift),
                 "active_margin_commitment_usdt": "0.00",
-                "max_observed_margin_utilization": "0",
-                "min_observed_reserve_buffer": "1",
-                "margin_guardrails_compliant": True,
+                "max_observed_margin_utilization": margin_util_str,
+                "min_observed_reserve_buffer": res_buf_str,
+                "margin_guardrails_compliant": bool(margin_compliant),
                 "single_position_invariant": True,
             },
             safety_invariants=safety_invariants,
             compliance={
-                "zero_balance_drift": True,
-                "margin_guardrails_compliant": True,
-                "clock_sync_compliant": clock_stats["within_threshold"],
-                "read_only_safety_compliant": True,
-                "all_criteria_passed": clock_stats["within_threshold"],
+                "zero_balance_drift": bool(zero_drift),
+                "margin_guardrails_compliant": bool(margin_compliant),
+                "clock_sync_compliant": bool(clock_stats["within_threshold"]),
+                "read_only_safety_compliant": bool(
+                    safety_invariants["execution_authority"] is False
+                    and safety_invariants["exchange_access"] is False
+                    and safety_invariants["orders"] == 0
+                    and safety_invariants["api_keys_loaded"] == 0
+                    and safety_invariants["zero_secret_leakage"] is True
+                ),
+                "all_criteria_passed": bool(
+                    zero_drift
+                    and margin_compliant
+                    and clock_stats["within_threshold"]
+                    and safety_invariants["zero_secret_leakage"] is True
+                ),
             },
             artifact_hashes=artifact_hashes,
         )
@@ -1355,17 +1481,17 @@ class CanaryNetworkProbeRunner:
             "description": "Phase 271 Canary Public Network Telemetry & Zero-Drift Paper Summary",
             "timestamp_utc": summary.timestamp_utc,
             "circuit_state": "NORMAL",
-            "starting_capital_usdt": str(ACCOUNTING_STARTING_EQUITY),
-            "final_cash_usdt": str(ACCOUNTING_FINAL_CASH),
-            "final_equity_usdt": str(ACCOUNTING_FINAL_CASH),
-            "realized_pnl_usdt": str(ACCOUNTING_REALIZED_PNL),
+            "starting_capital_usdt": str(starting_equity),
+            "final_cash_usdt": str(final_cash),
+            "final_equity_usdt": str(final_equity),
+            "realized_pnl_usdt": str(realized_pnl),
             "total_fees_usdt": "0.00",
             "total_slippage_usdt": "0.00",
-            "drift_usdt": "0",
-            "zero_balance_drift": True,
-            "max_observed_margin_utilization": "0",
-            "min_observed_reserve_buffer": "1",
-            "margin_guardrails_compliant": True,
+            "drift_usdt": str(drift.normalize()),
+            "zero_balance_drift": bool(zero_drift),
+            "max_observed_margin_utilization": margin_util_str,
+            "min_observed_reserve_buffer": res_buf_str,
+            "margin_guardrails_compliant": bool(margin_compliant),
             "single_position_invariant": True,
             "orders_count": 0,
             "fills_count": 0,
