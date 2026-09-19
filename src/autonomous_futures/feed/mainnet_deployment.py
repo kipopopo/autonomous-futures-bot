@@ -549,6 +549,7 @@ class JsonlCanaryOrderSink:
     def __init__(self, file_path: Path | str) -> None:
         self.file_path = Path(file_path)
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
 
     def append_event(self, event_type: str, data: Mapping[str, Any]) -> None:
         payload = {
@@ -558,7 +559,7 @@ class JsonlCanaryOrderSink:
         }
         line = json.dumps(payload, sort_keys=True)
         assert_zero_secrets(line, "canary-orders.jsonl")
-        with open(self.file_path, "a", encoding="utf-8", newline="\n") as f:
+        with self._lock, open(self.file_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(line + "\n")
 
 
@@ -950,6 +951,12 @@ class SqliteCanaryMainnetDeploymentTelemetryStore:
         with self._lock:
             self.conn.close()
 
+    def __enter__(self) -> SqliteCanaryMainnetDeploymentTelemetryStore:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
 
 # =====================================================================
 # Upstream Prerequisite Qualification Verification (Phase 280)
@@ -1136,11 +1143,20 @@ class MainnetStreamSequencer:
     """Monotonic user data stream sequencer and trade ID deduplicator."""
 
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self.processed_fingerprints: set[str] = set()
+        self.processed_order_fills: dict[str, Decimal] = {}
         self.highest_arrival_time_ms: int = 0
         self.highest_arrival_sequence: int = 0
         self.deduplicated_count: int = 0
         self.out_of_order_count: int = 0
+
+    def record_order_fill(self, client_order_id: str, cumulative_qty: Decimal) -> None:
+        """Register cumulative executed quantity for an order to deduplicate replayed fills."""
+        with self._lock:
+            prev = self.processed_order_fills.get(client_order_id, Decimal("0"))
+            if cumulative_qty > prev:
+                self.processed_order_fills[client_order_id] = cumulative_qty
 
     @staticmethod
     def compute_fingerprint(event: Mapping[str, Any]) -> str:
@@ -1194,38 +1210,50 @@ class MainnetStreamSequencer:
         raw_packets: list[dict[str, Any]],
     ) -> list[tuple[dict[str, Any], bool, bool]]:
         """Process incoming raw packets and return sorted (packet, is_dup, is_ooo) tuples."""
-        staged: list[tuple[int, int, int, tuple[int, int], dict[str, Any], bool, bool]] = []
+        with self._lock:
+            staged: list[tuple[int, int, int, tuple[int, int], dict[str, Any], bool, bool]] = []
 
-        for pkt in raw_packets:
-            fp = self.compute_fingerprint(pkt)
-            is_dup = fp in self.processed_fingerprints
+            for pkt in raw_packets:
+                fp = self.compute_fingerprint(pkt)
+                is_dup = fp in self.processed_fingerprints
 
-            t_time = int(pkt.get("T", pkt.get("E", 0)))
-            e_time = int(pkt.get("E", 0))
-            seq = int(pkt.get("_seq", 0))
-            priority = self._event_sort_priority(pkt)
+                # Deduplicate if execution report was already backfilled up to cumulative qty
+                e_type = pkt.get("e", "")
+                if not is_dup and e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
+                    o_data = pkt.get("o", {})
+                    cid = str(o_data.get("c", ""))
+                    exec_type = str(o_data.get("x", ""))
+                    if exec_type == "TRADE" and cid in self.processed_order_fills:
+                        cum_z = Decimal(str(o_data.get("z", "0")))
+                        if cum_z <= self.processed_order_fills[cid]:
+                            is_dup = True
 
-            is_ooo = False
-            if is_dup:
-                self.deduplicated_count += 1
-            else:
-                self.processed_fingerprints.add(fp)
-                if t_time < self.highest_arrival_time_ms:
-                    is_ooo = True
-                    self.out_of_order_count += 1
-                elif seq > 0 and seq < self.highest_arrival_sequence:
-                    is_ooo = True
-                    self.out_of_order_count += 1
+                t_time = int(pkt.get("T", pkt.get("E", 0)))
+                e_time = int(pkt.get("E", 0))
+                seq = int(pkt.get("_seq", 0))
+                priority = self._event_sort_priority(pkt)
+
+                is_ooo = False
+                if is_dup:
+                    self.deduplicated_count += 1
                 else:
-                    if t_time > self.highest_arrival_time_ms:
-                        self.highest_arrival_time_ms = t_time
-                    if seq > self.highest_arrival_sequence:
-                        self.highest_arrival_sequence = seq
+                    self.processed_fingerprints.add(fp)
+                    if t_time < self.highest_arrival_time_ms:
+                        is_ooo = True
+                        self.out_of_order_count += 1
+                    elif seq > 0 and seq < self.highest_arrival_sequence:
+                        is_ooo = True
+                        self.out_of_order_count += 1
+                    else:
+                        if t_time > self.highest_arrival_time_ms:
+                            self.highest_arrival_time_ms = t_time
+                        if seq > self.highest_arrival_sequence:
+                            self.highest_arrival_sequence = seq
 
-            staged.append((t_time, e_time, seq, priority, pkt, is_dup, is_ooo))
+                staged.append((t_time, e_time, seq, priority, pkt, is_dup, is_ooo))
 
-        staged.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
-        return [(pkt, is_dup, is_ooo) for _t, _e, _s, _p, pkt, is_dup, is_ooo in staged]
+            staged.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
+            return [(pkt, is_dup, is_ooo) for _t, _e, _s, _p, pkt, is_dup, is_ooo in staged]
 
 
 # =====================================================================
@@ -1249,6 +1277,7 @@ class MainnetUserDataStreamReconciler:
         track_id: str,
         starting_equity: Decimal = STARTING_EQUITY_USDT,
     ) -> None:
+        self._lock = threading.RLock()
         self.track_id = track_id
         self.starting_equity = starting_equity
         self.cash: Decimal = starting_equity
@@ -1263,115 +1292,132 @@ class MainnetUserDataStreamReconciler:
         self.cumulative_realized_loss: Decimal = Decimal("0")
         self.total_fees: Decimal = Decimal("0")
         self.total_slippage: Decimal = Decimal("0")
+        self.processed_trade_ids: set[str] = set()
 
     @property
     def allocated_margin(self) -> Decimal:
         """Total margin currently committed to open positions (1x leverage micro canary)."""
-        tot = Decimal("0")
-        for sym, pos in self.positions.items():
-            if pos != Decimal("0"):
-                px = self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
-                tot += abs(pos) * px
-        return tot.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+        with self._lock:
+            tot = Decimal("0")
+            for sym, pos in self.positions.items():
+                if pos != Decimal("0"):
+                    px = self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
+                    tot += abs(pos) * px
+            return tot.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
     @property
     def per_asset_margin(self) -> dict[str, Decimal]:
         """Margin committed per asset."""
-        return {
-            sym: (
-                abs(self.positions[sym])
-                * self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
-            ).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-            for sym in CANARY_STAGED_SYMBOLS
-        }
+        with self._lock:
+            return {
+                sym: (
+                    abs(self.positions[sym])
+                    * self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
+                ).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                for sym in CANARY_STAGED_SYMBOLS
+            }
 
     @property
     def unrealized_pnl(self) -> Decimal:
         """Unrealized PnL across active open positions."""
-        pnl = Decimal("0")
-        for sym, pos in self.positions.items():
-            if pos != Decimal("0"):
-                px = self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
-                entry = self.position_entry_prices[sym]
-                pnl += pos * (px - entry)
-        return pnl.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+        with self._lock:
+            pnl = Decimal("0")
+            for sym, pos in self.positions.items():
+                if pos != Decimal("0"):
+                    px = self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
+                    entry = self.position_entry_prices[sym]
+                    pnl += pos * (px - entry)
+            return pnl.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
     @property
     def total_equity(self) -> Decimal:
         """Total current equity = cash + allocated_margin + unrealized_pnl."""
-        return self.cash + self.allocated_margin + self.unrealized_pnl
+        with self._lock:
+            return self.cash + self.allocated_margin + self.unrealized_pnl
 
     @property
     def mathematical_drift(self) -> Decimal:
         """Mathematical double-entry balance reconciliation drift."""
-        left = self.cash + self.allocated_margin + self.unrealized_pnl
-        right = self.starting_equity + self.realized_pnl
-        return abs(left - right)
+        with self._lock:
+            left = self.cash + self.allocated_margin + self.unrealized_pnl
+            right = self.starting_equity + self.realized_pnl
+            return abs(left - right)
 
     def apply_trade_fill(self, mark: MainnetExecutionMark) -> None:
         """Update balance ledger, positions, and fees upon execution fill."""
-        sym = mark.symbol
-        side = mark.side
-        price = Decimal(mark.price)
-        qty = Decimal(mark.quantity)
-        fee = Decimal(mark.commission_usdt)
-        notional = price * qty
+        with self._lock:
+            if mark.trade_id in self.processed_trade_ids:
+                logger.warning(
+                    "Trade ID %s already applied to ledger; ignoring duplicate fill",
+                    mark.trade_id,
+                )
+                return
+            self.processed_trade_ids.add(mark.trade_id)
 
-        self.total_fees += fee
-        self.mark_prices[sym] = price
-        current_pos = self.positions.get(sym, Decimal("0"))
+            sym = mark.symbol
+            side = mark.side
+            price = Decimal(mark.price)
+            qty = Decimal(mark.quantity)
+            fee = Decimal(mark.commission_usdt)
+            notional = price * qty
 
-        if side == OrderSide.BUY.value:
-            if current_pos >= Decimal("0"):
-                # Increasing long position: commit cash to margin
-                new_pos = current_pos + qty
-                if new_pos > Decimal("0"):
-                    tot_notional = (current_pos * self.position_entry_prices[sym]) + (qty * price)
-                    self.position_entry_prices[sym] = (tot_notional / new_pos).quantize(
-                        Decimal("0.00000001"), rounding=ROUND_DOWN
-                    )
-                self.positions[sym] = new_pos
-                self.cash -= notional + fee
-                self.realized_pnl -= fee
+            self.total_fees += fee
+            self.mark_prices[sym] = price
+            current_pos = self.positions.get(sym, Decimal("0"))
+
+            if side == OrderSide.BUY.value:
+                if current_pos >= Decimal("0"):
+                    # Increasing long position: commit cash to margin
+                    new_pos = current_pos + qty
+                    if new_pos > Decimal("0"):
+                        tot_notional = (current_pos * self.position_entry_prices[sym]) + (
+                            qty * price
+                        )
+                        self.position_entry_prices[sym] = (tot_notional / new_pos).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
+                    self.positions[sym] = new_pos
+                    self.cash -= notional + fee
+                    self.realized_pnl -= fee
+                else:
+                    # Closing or reducing short position
+                    closing_qty = min(abs(current_pos), qty)
+                    short_pnl = closing_qty * (self.position_entry_prices[sym] - price)
+                    self.realized_pnl += short_pnl - fee
+                    if short_pnl < Decimal("0"):
+                        self.cumulative_realized_loss += abs(short_pnl)
+                    self.cash += (closing_qty * self.position_entry_prices[sym]) + short_pnl - fee
+                    new_pos = current_pos + qty
+                    self.positions[sym] = new_pos
+                    if new_pos == Decimal("0"):
+                        self.position_entry_prices[sym] = Decimal("0")
             else:
-                # Closing or reducing short position
-                closing_qty = min(abs(current_pos), qty)
-                short_pnl = closing_qty * (self.position_entry_prices[sym] - price)
-                self.realized_pnl += short_pnl - fee
-                if short_pnl < Decimal("0"):
-                    self.cumulative_realized_loss += abs(short_pnl)
-                self.cash += (closing_qty * self.position_entry_prices[sym]) + short_pnl - fee
-                new_pos = current_pos + qty
-                self.positions[sym] = new_pos
-                if new_pos == Decimal("0"):
-                    self.position_entry_prices[sym] = Decimal("0")
-        else:
-            # SELL
-            if current_pos > Decimal("0"):
-                # Closing or reducing long position: release margin back to cash + PnL
-                closing_qty = min(current_pos, qty)
-                long_pnl = closing_qty * (price - self.position_entry_prices[sym])
-                self.realized_pnl += long_pnl - fee
-                if long_pnl < Decimal("0"):
-                    self.cumulative_realized_loss += abs(long_pnl)
-                self.cash += (closing_qty * self.position_entry_prices[sym]) + long_pnl - fee
-                new_pos = current_pos - qty
-                self.positions[sym] = new_pos
-                if new_pos == Decimal("0"):
-                    self.position_entry_prices[sym] = Decimal("0")
-            else:
-                # Opening or increasing short position
-                new_pos = current_pos - qty
-                if new_pos < Decimal("0"):
-                    tot_notional = (abs(current_pos) * self.position_entry_prices[sym]) + (
-                        qty * price
-                    )
-                    self.position_entry_prices[sym] = (tot_notional / abs(new_pos)).quantize(
-                        Decimal("0.00000001"), rounding=ROUND_DOWN
-                    )
-                self.positions[sym] = new_pos
-                self.cash -= notional + fee
-                self.realized_pnl -= fee
+                # SELL
+                if current_pos > Decimal("0"):
+                    # Closing or reducing long position: release margin back to cash + PnL
+                    closing_qty = min(current_pos, qty)
+                    long_pnl = closing_qty * (price - self.position_entry_prices[sym])
+                    self.realized_pnl += long_pnl - fee
+                    if long_pnl < Decimal("0"):
+                        self.cumulative_realized_loss += abs(long_pnl)
+                    self.cash += (closing_qty * self.position_entry_prices[sym]) + long_pnl - fee
+                    new_pos = current_pos - qty
+                    self.positions[sym] = new_pos
+                    if new_pos == Decimal("0"):
+                        self.position_entry_prices[sym] = Decimal("0")
+                else:
+                    # Opening or increasing short position
+                    new_pos = current_pos - qty
+                    if new_pos < Decimal("0"):
+                        tot_notional = (abs(current_pos) * self.position_entry_prices[sym]) + (
+                            qty * price
+                        )
+                        self.position_entry_prices[sym] = (tot_notional / abs(new_pos)).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
+                    self.positions[sym] = new_pos
+                    self.cash -= notional + fee
+                    self.realized_pnl -= fee
 
     def reconcile_orders_via_rest(
         self,
@@ -1381,59 +1427,73 @@ class MainnetUserDataStreamReconciler:
     ) -> list[MainnetExecutionMark]:
         """Perform REST order state reconciliation after a stream flap."""
         backfilled_marks: list[MainnetExecutionMark] = []
-        for client_order_id, ord_rec in list(orders.items()):
-            if ord_rec.status in (
-                OrderLifecycleState.PENDING_SUBMIT,
-                OrderLifecycleState.NEW,
-                OrderLifecycleState.PARTIALLY_FILLED,
-            ):
-                remote = gateway.query_order(ord_rec.symbol, client_order_id)
-                if remote:
-                    remote_status = remote.get("status")
-                    remote_exec_qty = Decimal(str(remote.get("executedQty", "0")))
-                    local_exec_qty = Decimal(str(ord_rec.executed_quantity))
-                    delta_qty = remote_exec_qty - local_exec_qty
+        with self._lock:
+            for client_order_id, ord_rec in list(orders.items()):
+                if ord_rec.status in (
+                    OrderLifecycleState.PENDING_SUBMIT,
+                    OrderLifecycleState.NEW,
+                    OrderLifecycleState.PARTIALLY_FILLED,
+                ):
+                    remote = gateway.query_order(ord_rec.symbol, client_order_id)
+                    if remote:
+                        remote_status = remote.get("status")
+                        remote_exec_qty = Decimal(str(remote.get("executedQty", "0")))
+                        local_exec_qty = Decimal(str(ord_rec.executed_quantity))
+                        delta_qty = remote_exec_qty - local_exec_qty
 
-                    if delta_qty > Decimal("0"):
-                        # Backfill missing fill
-                        trade_id = str(remote.get("tradeId", f"tr-rest-{uuid4().hex[:6]}"))
-                        if sequencer is not None:
-                            up_time = remote.get("updateTime", 0)
-                            fp = f"OTU:{client_order_id}:{trade_id}:TRADE:FILLED:{up_time}"
-                            sequencer.processed_fingerprints.add(fp)
-                        price = Decimal(str(remote.get("price", ord_rec.price)))
-                        fee_rate = (
-                            DEFAULT_MAKER_FEE_RATE
-                            if remote.get("isMaker")
-                            else DEFAULT_TAKER_FEE_RATE
-                        )
-                        fee = (delta_qty * price * fee_rate).quantize(
-                            Decimal("0.00000001"), rounding=ROUND_DOWN
-                        )
-                        mark = MainnetExecutionMark(
-                            trade_id=trade_id,
-                            track_id=self.track_id,
-                            order_id=str(remote.get("orderId", ord_rec.order_id)),
-                            client_order_id=client_order_id,
-                            symbol=ord_rec.symbol,
-                            side=ord_rec.side,
-                            price=str(price),
-                            quantity=str(delta_qty),
-                            quote_quantity=str((delta_qty * price).quantize(Decimal("0.00000001"))),
-                            commission_usdt=str(fee),
-                            realized_pnl_usdt="0",
-                            trade_time_ms=int(remote.get("updateTime", time.time() * 1000)),
-                            timestamp_utc=datetime.now(UTC).isoformat(),
-                        )
-                        self.apply_trade_fill(mark)
-                        backfilled_marks.append(mark)
+                        if delta_qty > Decimal("0"):
+                            # Backfill missing fill
+                            raw_trade_id = remote.get("tradeId")
+                            trade_id = (
+                                str(raw_trade_id)
+                                if raw_trade_id is not None
+                                else f"tr-rest-{uuid4().hex[:6]}"
+                            )
+                            if sequencer is not None:
+                                sequencer.record_order_fill(client_order_id, remote_exec_qty)
+                                up_time = remote.get("updateTime", 0)
+                                if raw_trade_id is not None:
+                                    fp = (
+                                        f"OTU:{client_order_id}:{trade_id}:"
+                                        f"TRADE:{remote_status}:{up_time}"
+                                    )
+                                    sequencer.processed_fingerprints.add(fp)
 
-                        ord_rec.executed_quantity = str(remote_exec_qty)
-                        if remote_status == "FILLED":
-                            ord_rec.status = OrderLifecycleState.FILLED
-                        elif remote_status == "PARTIALLY_FILLED":
-                            ord_rec.status = OrderLifecycleState.PARTIALLY_FILLED
-                        ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                            price = Decimal(str(remote.get("price", ord_rec.price)))
+                            fee_rate = (
+                                DEFAULT_MAKER_FEE_RATE
+                                if remote.get("isMaker")
+                                else DEFAULT_TAKER_FEE_RATE
+                            )
+                            fee = (delta_qty * price * fee_rate).quantize(
+                                Decimal("0.00000001"), rounding=ROUND_DOWN
+                            )
+                            mark = MainnetExecutionMark(
+                                trade_id=trade_id,
+                                track_id=self.track_id,
+                                order_id=str(remote.get("orderId", ord_rec.order_id)),
+                                client_order_id=client_order_id,
+                                symbol=ord_rec.symbol,
+                                side=ord_rec.side,
+                                price=str(price),
+                                quantity=str(delta_qty),
+                                quote_quantity=str(
+                                    (delta_qty * price).quantize(Decimal("0.00000001"))
+                                ),
+                                commission_usdt=str(fee),
+                                realized_pnl_usdt="0",
+                                trade_time_ms=int(remote.get("updateTime", time.time() * 1000)),
+                                timestamp_utc=datetime.now(UTC).isoformat(),
+                            )
+                            self.apply_trade_fill(mark)
+                            backfilled_marks.append(mark)
+
+                            ord_rec.executed_quantity = str(remote_exec_qty)
+                            if remote_status == "FILLED":
+                                ord_rec.status = OrderLifecycleState.FILLED
+                            elif remote_status == "PARTIALLY_FILLED":
+                                ord_rec.status = OrderLifecycleState.PARTIALLY_FILLED
+                            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
         return backfilled_marks
 
 
@@ -1453,6 +1513,7 @@ class MockBinanceMainnetGateway:
         order_id_start: int = 100000,
         trade_id_start: int = 500000,
     ) -> None:
+        self._lock = threading.RLock()
         self.initial_balance = initial_balance_usdt
         self.taker_fee_rate = taker_fee_rate
         self.maker_fee_rate = maker_fee_rate
@@ -1473,104 +1534,110 @@ class MockBinanceMainnetGateway:
 
     def generate_heartbeat(self, latency_ms: float = 45.0) -> dict[str, Any]:
         """Produce a simulated server time heartbeat packet."""
-        if self.inject_service_unavailable_503:
-            self.inject_service_unavailable_503 = False
-            raise GatewayServiceUnavailableError("HTTP 503: Gateway heartbeat endpoint unavailable")
+        with self._lock:
+            if self.inject_service_unavailable_503:
+                self.inject_service_unavailable_503 = False
+                raise GatewayServiceUnavailableError(
+                    "HTTP 503: Gateway heartbeat endpoint unavailable"
+                )
 
-        server_time_ms = int(time.time() * 1000) - int(latency_ms)
-        return {
-            "serverTime": server_time_ms,
-            "latencyMs": latency_ms,
-        }
+            server_time_ms = int(time.time() * 1000) - int(latency_ms)
+            return {
+                "serverTime": server_time_ms,
+                "latencyMs": latency_ms,
+            }
 
     def disconnect_stream(self) -> None:
         """Simulate WebSocket stream disconnection (network flap)."""
-        self.stream_connected = False
+        with self._lock:
+            self.stream_connected = False
 
     def reconnect_stream(self) -> None:
         """Simulate WebSocket stream reconnection."""
-        self.stream_connected = True
+        with self._lock:
+            self.stream_connected = True
 
     def create_order(self, **params: Any) -> dict[str, Any]:
         """Simulate creating a new order on Binance Mainnet."""
-        if self.inject_rate_limit_429:
-            self.inject_rate_limit_429 = False
-            raise GatewayRateLimitError(
-                f"HTTP 429: Too Many Requests; retry after {self.rate_limit_retry_after_ms}ms"
-            )
-        if self.inject_service_unavailable_503:
-            self.inject_service_unavailable_503 = False
-            raise GatewayServiceUnavailableError(
-                "HTTP 503: Service Unavailable; Binance matching engine overloaded"
-            )
+        with self._lock:
+            if self.inject_rate_limit_429:
+                self.inject_rate_limit_429 = False
+                raise GatewayRateLimitError(
+                    f"HTTP 429: Too Many Requests; retry after {self.rate_limit_retry_after_ms}ms"
+                )
+            if self.inject_service_unavailable_503:
+                self.inject_service_unavailable_503 = False
+                raise GatewayServiceUnavailableError(
+                    "HTTP 503: Service Unavailable; Binance matching engine overloaded"
+                )
 
-        symbol = str(params.get("symbol"))
-        side = str(params.get("side"))
-        order_type = str(params.get("type", "LIMIT"))
-        time_in_force = str(params.get("timeInForce", "GTC"))
-        quantity = Decimal(str(params.get("quantity", "0")))
-        price = Decimal(str(params.get("price", "0")))
-        client_order_id = str(params.get("newClientOrderId"))
+            symbol = str(params.get("symbol"))
+            side = str(params.get("side"))
+            order_type = str(params.get("type", "LIMIT"))
+            time_in_force = str(params.get("timeInForce", "GTC"))
+            quantity = Decimal(str(params.get("quantity", "0")))
+            price = Decimal(str(params.get("price", "0")))
+            client_order_id = str(params.get("newClientOrderId"))
 
-        if client_order_id in self.orders:
-            raise OrderCorrelationError(f"Duplicate clientOrderId {client_order_id} on gateway")
+            if client_order_id in self.orders:
+                raise OrderCorrelationError(f"Duplicate clientOrderId {client_order_id} on gateway")
 
-        self.next_order_id += 1
-        order_id = self.next_order_id
-        now_ms = int(time.time() * 1000)
+            self.next_order_id += 1
+            order_id = self.next_order_id
+            now_ms = int(time.time() * 1000)
 
-        order_record = {
-            "orderId": order_id,
-            "clientOrderId": client_order_id,
-            "symbol": symbol,
-            "side": side,
-            "type": order_type,
-            "timeInForce": time_in_force,
-            "price": str(price),
-            "origQty": str(quantity),
-            "executedQty": "0",
-            "status": "NEW",
-            "updateTime": now_ms,
-        }
-        self.orders[client_order_id] = order_record
+            order_record = {
+                "orderId": order_id,
+                "clientOrderId": client_order_id,
+                "symbol": symbol,
+                "side": side,
+                "type": order_type,
+                "timeInForce": time_in_force,
+                "price": str(price),
+                "origQty": str(quantity),
+                "executedQty": "0",
+                "status": "NEW",
+                "updateTime": now_ms,
+            }
+            self.orders[client_order_id] = order_record
 
-        self.next_stream_seq += 1
-        new_event = {
-            "e": WebSocketEventType.ORDER_TRADE_UPDATE.value,
-            "E": now_ms,
-            "T": now_ms,
-            "_seq": self.next_stream_seq,
-            "o": {
-                "s": symbol,
-                "c": client_order_id,
-                "S": side,
-                "o": order_type,
-                "f": time_in_force,
-                "q": str(quantity),
-                "p": str(price),
-                "ap": "0",
-                "X": "NEW",
-                "i": order_id,
-                "z": "0",
+            self.next_stream_seq += 1
+            new_event = {
+                "e": WebSocketEventType.ORDER_TRADE_UPDATE.value,
+                "E": now_ms,
                 "T": now_ms,
-                "t": 0,
-                "b": "0",
-                "a": "0",
-                "m": False,
-                "R": False,
-                "wt": "CONTRACT_PRICE",
-                "ot": order_type,
-                "ps": "BOTH",
-                "cp": False,
-                "rp": "0",
-                "pP": False,
-                "si": 0,
-                "ss": 0,
-                "x": "NEW",
-            },
-        }
-        self.stream_buffer.append(new_event)
-        return order_record
+                "_seq": self.next_stream_seq,
+                "o": {
+                    "s": symbol,
+                    "c": client_order_id,
+                    "S": side,
+                    "o": order_type,
+                    "f": time_in_force,
+                    "q": str(quantity),
+                    "p": str(price),
+                    "ap": "0",
+                    "X": "NEW",
+                    "i": order_id,
+                    "z": "0",
+                    "T": now_ms,
+                    "t": 0,
+                    "b": "0",
+                    "a": "0",
+                    "m": False,
+                    "R": False,
+                    "wt": "CONTRACT_PRICE",
+                    "ot": order_type,
+                    "ps": "BOTH",
+                    "cp": False,
+                    "rp": "0",
+                    "pP": False,
+                    "si": 0,
+                    "ss": 0,
+                    "x": "NEW",
+                },
+            }
+            self.stream_buffer.append(new_event)
+            return order_record
 
     def fill_order(
         self,
@@ -1580,197 +1647,203 @@ class MockBinanceMainnetGateway:
         is_maker: bool = False,
     ) -> dict[str, Any]:
         """Simulate order match and fill on gateway."""
-        record = self.orders.get(client_order_id)
-        if not record:
-            raise OrderCorrelationError(f"Unknown order {client_order_id}")
-        if record["status"] in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
-            raise OrderCorrelationError(
-                f"Cannot fill order {client_order_id} in terminal state {record['status']}"
-            )
+        with self._lock:
+            record = self.orders.get(client_order_id)
+            if not record:
+                raise OrderCorrelationError(f"Unknown order {client_order_id}")
+            if record["status"] in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
+                raise OrderCorrelationError(
+                    f"Cannot fill order {client_order_id} in terminal state {record['status']}"
+                )
 
-        orig_qty = Decimal(record["origQty"])
-        current_exec_qty = Decimal(record.get("executedQty", "0"))
-        remaining_qty = orig_qty - current_exec_qty
-        if remaining_qty <= Decimal("0"):
-            raise OrderCorrelationError(
-                f"Cannot fill order {client_order_id}: already fully executed"
-            )
+            orig_qty = Decimal(record["origQty"])
+            current_exec_qty = Decimal(record.get("executedQty", "0"))
+            remaining_qty = orig_qty - current_exec_qty
+            if remaining_qty <= Decimal("0"):
+                raise OrderCorrelationError(
+                    f"Cannot fill order {client_order_id}: already fully executed"
+                )
 
-        this_fill_qty = fill_qty if fill_qty is not None else remaining_qty
-        if this_fill_qty > remaining_qty:
-            this_fill_qty = remaining_qty
+            this_fill_qty = fill_qty if fill_qty is not None else remaining_qty
+            if this_fill_qty > remaining_qty:
+                this_fill_qty = remaining_qty
 
-        new_total_exec_qty = current_exec_qty + this_fill_qty
-        is_full_fill = new_total_exec_qty >= orig_qty
-        new_status = "FILLED" if is_full_fill else "PARTIALLY_FILLED"
+            new_total_exec_qty = current_exec_qty + this_fill_qty
+            is_full_fill = new_total_exec_qty >= orig_qty
+            new_status = "FILLED" if is_full_fill else "PARTIALLY_FILLED"
 
-        price = fill_price if fill_price is not None else Decimal(record["price"])
+            price = fill_price if fill_price is not None else Decimal(record["price"])
 
-        self.next_trade_id += 1
-        trade_id = self.next_trade_id
-        fee_rate = self.maker_fee_rate if is_maker else self.taker_fee_rate
-        notional = (this_fill_qty * price).quantize(Decimal("0.00000001"))
-        fee = (notional * fee_rate).quantize(Decimal("0.00000001"))
+            self.next_trade_id += 1
+            trade_id = self.next_trade_id
+            fee_rate = self.maker_fee_rate if is_maker else self.taker_fee_rate
+            notional = (this_fill_qty * price).quantize(Decimal("0.00000001"))
+            fee = (notional * fee_rate).quantize(Decimal("0.00000001"))
 
-        now_ms = int(time.time() * 1000)
-        record["executedQty"] = str(new_total_exec_qty)
-        record["status"] = new_status
-        record["updateTime"] = now_ms
-        record["tradeId"] = trade_id
-        record["isMaker"] = is_maker
+            now_ms = int(time.time() * 1000)
+            record["executedQty"] = str(new_total_exec_qty)
+            record["status"] = new_status
+            record["updateTime"] = now_ms
+            record["tradeId"] = trade_id
+            record["isMaker"] = is_maker
 
-        trade_info = {
-            "tradeId": trade_id,
-            "orderId": record["orderId"],
-            "clientOrderId": client_order_id,
-            "symbol": record["symbol"],
-            "price": str(price),
-            "qty": str(this_fill_qty),
-            "quoteQty": str(notional),
-            "commission": str(fee),
-            "time": now_ms,
-            "isMaker": is_maker,
-        }
-        self.trades.append(trade_info)
+            trade_info = {
+                "tradeId": trade_id,
+                "orderId": record["orderId"],
+                "clientOrderId": client_order_id,
+                "symbol": record["symbol"],
+                "price": str(price),
+                "qty": str(this_fill_qty),
+                "quoteQty": str(notional),
+                "commission": str(fee),
+                "time": now_ms,
+                "isMaker": is_maker,
+            }
+            self.trades.append(trade_info)
 
-        self.next_stream_seq += 1
-        trade_event = {
-            "e": WebSocketEventType.ORDER_TRADE_UPDATE.value,
-            "E": now_ms,
-            "T": now_ms,
-            "_seq": self.next_stream_seq,
-            "o": {
-                "s": record["symbol"],
-                "c": client_order_id,
-                "S": record["side"],
-                "o": record["type"],
-                "f": record["timeInForce"],
-                "q": record["origQty"],
-                "p": str(price),
-                "ap": str(price),
-                "X": new_status,
-                "i": record["orderId"],
-                "z": str(new_total_exec_qty),
-                "l": str(this_fill_qty),
-                "L": str(price),
-                "n": str(fee),
-                "N": "USDT",
+            self.next_stream_seq += 1
+            trade_event = {
+                "e": WebSocketEventType.ORDER_TRADE_UPDATE.value,
+                "E": now_ms,
                 "T": now_ms,
-                "t": trade_id,
-                "b": "0",
-                "a": "0",
-                "m": is_maker,
-                "R": False,
-                "wt": "CONTRACT_PRICE",
-                "ot": record["type"],
-                "ps": "BOTH",
-                "cp": False,
-                "rp": "0",
-                "pP": False,
-                "si": 0,
-                "ss": 0,
-                "x": "TRADE",
-            },
-        }
+                "_seq": self.next_stream_seq,
+                "o": {
+                    "s": record["symbol"],
+                    "c": client_order_id,
+                    "S": record["side"],
+                    "o": record["type"],
+                    "f": record["timeInForce"],
+                    "q": record["origQty"],
+                    "p": str(price),
+                    "ap": str(price),
+                    "X": new_status,
+                    "i": record["orderId"],
+                    "z": str(new_total_exec_qty),
+                    "l": str(this_fill_qty),
+                    "L": str(price),
+                    "n": str(fee),
+                    "N": "USDT",
+                    "T": now_ms,
+                    "t": trade_id,
+                    "b": "0",
+                    "a": "0",
+                    "m": is_maker,
+                    "R": False,
+                    "wt": "CONTRACT_PRICE",
+                    "ot": record["type"],
+                    "ps": "BOTH",
+                    "cp": False,
+                    "rp": "0",
+                    "pP": False,
+                    "si": 0,
+                    "ss": 0,
+                    "x": "TRADE",
+                },
+            }
 
-        self.stream_buffer.append(trade_event)
-        return record
+            self.stream_buffer.append(trade_event)
+            return record
 
     def cancel_order(self, symbol: str, client_order_id: str) -> dict[str, Any]:
         """Simulate cancelling an open order."""
-        record = self.orders.get(client_order_id)
-        if not record:
-            raise OrderCorrelationError(f"Unknown order {client_order_id}")
-        if record["symbol"] != symbol:
-            raise OrderCorrelationError(
-                f"Order {client_order_id} belongs to symbol {record['symbol']}, not {symbol}"
-            )
-        if record["status"] in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
-            raise OrderCorrelationError(
-                f"Cannot cancel order {client_order_id} in terminal state {record['status']}"
-            )
+        with self._lock:
+            record = self.orders.get(client_order_id)
+            if not record:
+                raise OrderCorrelationError(f"Unknown order {client_order_id}")
+            if record["symbol"] != symbol:
+                raise OrderCorrelationError(
+                    f"Order {client_order_id} belongs to symbol {record['symbol']}, not {symbol}"
+                )
+            if record["status"] in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
+                raise OrderCorrelationError(
+                    f"Cannot cancel order {client_order_id} in terminal state {record['status']}"
+                )
 
-        now_ms = int(time.time() * 1000)
-        record["status"] = "CANCELED"
-        record["updateTime"] = now_ms
+            now_ms = int(time.time() * 1000)
+            record["status"] = "CANCELED"
+            record["updateTime"] = now_ms
 
-        self.next_stream_seq += 1
-        cancel_event = {
-            "e": WebSocketEventType.ORDER_TRADE_UPDATE.value,
-            "E": now_ms,
-            "T": now_ms,
-            "_seq": self.next_stream_seq,
-            "o": {
-                "s": symbol,
-                "c": client_order_id,
-                "S": record["side"],
-                "o": record["type"],
-                "f": record["timeInForce"],
-                "q": record["origQty"],
-                "p": record["price"],
-                "ap": "0",
-                "X": "CANCELED",
-                "i": record["orderId"],
-                "z": record["executedQty"],
+            self.next_stream_seq += 1
+            cancel_event = {
+                "e": WebSocketEventType.ORDER_TRADE_UPDATE.value,
+                "E": now_ms,
                 "T": now_ms,
-                "t": 0,
-                "b": "0",
-                "a": "0",
-                "m": False,
-                "R": False,
-                "wt": "CONTRACT_PRICE",
-                "ot": record["type"],
-                "ps": "BOTH",
-                "cp": False,
-                "rp": "0",
-                "pP": False,
-                "si": 0,
-                "ss": 0,
-                "x": "CANCELED",
-            },
-        }
-        self.stream_buffer.append(cancel_event)
-        return record
+                "_seq": self.next_stream_seq,
+                "o": {
+                    "s": symbol,
+                    "c": client_order_id,
+                    "S": record["side"],
+                    "o": record["type"],
+                    "f": record["timeInForce"],
+                    "q": record["origQty"],
+                    "p": record["price"],
+                    "ap": "0",
+                    "X": "CANCELED",
+                    "i": record["orderId"],
+                    "z": record["executedQty"],
+                    "T": now_ms,
+                    "t": 0,
+                    "b": "0",
+                    "a": "0",
+                    "m": False,
+                    "R": False,
+                    "wt": "CONTRACT_PRICE",
+                    "ot": record["type"],
+                    "ps": "BOTH",
+                    "cp": False,
+                    "rp": "0",
+                    "pP": False,
+                    "si": 0,
+                    "ss": 0,
+                    "x": "CANCELED",
+                },
+            }
+            self.stream_buffer.append(cancel_event)
+            return record
 
     def query_order(self, symbol: str, client_order_id: str) -> dict[str, Any] | None:
         """REST GET /fapi/v1/order: query current order status."""
-        rec = self.orders.get(client_order_id)
-        if rec and rec["symbol"] == symbol:
-            return dict(rec)
-        return None
+        with self._lock:
+            rec = self.orders.get(client_order_id)
+            if rec and rec["symbol"] == symbol:
+                return dict(rec)
+            return None
 
     def get_open_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
         """REST GET /fapi/v1/openOrders."""
-        res = []
-        for rec in self.orders.values():
-            if rec["status"] in ("NEW", "PARTIALLY_FILLED"):
-                if symbol is None or rec["symbol"] == symbol:
-                    res.append(dict(rec))
-        return res
+        with self._lock:
+            res = []
+            for rec in self.orders.values():
+                if rec["status"] in ("NEW", "PARTIALLY_FILLED"):
+                    if symbol is None or rec["symbol"] == symbol:
+                        res.append(dict(rec))
+            return res
 
     def get_all_orders(self, symbol: str) -> list[dict[str, Any]]:
         """REST GET /fapi/v1/allOrders."""
-        return [dict(rec) for rec in self.orders.values() if rec["symbol"] == symbol]
+        with self._lock:
+            return [dict(rec) for rec in self.orders.values() if rec["symbol"] == symbol]
 
     def poll_stream_events(self) -> list[dict[str, Any]]:
         """Drain queued stream events. Raises StreamDisconnectError if disconnected."""
-        if not self.stream_connected:
-            raise StreamDisconnectError("WebSocket stream connection is disconnected (flap)")
+        with self._lock:
+            if not self.stream_connected:
+                raise StreamDisconnectError("WebSocket stream connection is disconnected (flap)")
 
-        packets = list(self.stream_buffer)
-        self.stream_buffer.clear()
+            packets = list(self.stream_buffer)
+            self.stream_buffer.clear()
 
-        # Fault Injection: Out-of-order packets
-        if self.inject_out_of_order_events and len(packets) >= 2:
-            self.inject_out_of_order_events = False
-            packets[0], packets[1] = packets[1], packets[0]
+            # Fault Injection: Out-of-order packets
+            if self.inject_out_of_order_events and len(packets) >= 2:
+                self.inject_out_of_order_events = False
+                packets[0], packets[1] = packets[1], packets[0]
 
-        # Fault Injection: Duplicate packet
-        if self.inject_duplicate_events and len(packets) >= 1:
-            self.inject_duplicate_events = False
-            packets.append(dict(packets[-1]))
+            # Fault Injection: Duplicate packet
+            if self.inject_duplicate_events and len(packets) >= 1:
+                self.inject_duplicate_events = False
+                packets.append(dict(packets[-1]))
 
-        return packets
+            return packets
 
 
 # =====================================================================
@@ -2148,6 +2221,7 @@ class MainnetMicroOrderDispatcher:
         interlock: MainnetOrderDispatchInterlock,
         track_id: str,
     ) -> None:
+        self._lock = threading.RLock()
         self.gateway = gateway
         self.reconciler = reconciler
         self.sequencer = sequencer
@@ -2179,30 +2253,62 @@ class MainnetMicroOrderDispatcher:
         client_order_id: str | None = None,
     ) -> MainnetOrderRecord:
         """Submit, correlate, and execute a live micro order."""
-        side_val = side.value if isinstance(side, OrderSide) else str(side)
-        type_val = order_type.value if isinstance(order_type, OrderType) else str(order_type)
-        tif_val = (
-            time_in_force.value if isinstance(time_in_force, TimeInForce) else str(time_in_force)
-        )
-
-        cid = client_order_id or generate_canary_client_order_id(symbol)
-        notional = (price * quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-
-        # 1. Validate Interlocks fail-closed
-        try:
-            self.interlock.validate_dispatch(
-                symbol=symbol,
-                price=price,
-                quantity=quantity,
-                client_order_id=cid,
-                is_closing=is_closing,
-                side=side_val,
+        with self._lock:
+            side_val = side.value if isinstance(side, OrderSide) else str(side)
+            type_val = order_type.value if isinstance(order_type, OrderType) else str(order_type)
+            tif_val = (
+                time_in_force.value
+                if isinstance(time_in_force, TimeInForce)
+                else str(time_in_force)
             )
-        except Exception as exc:
-            self.orders_rejected_count += 1
+
+            cid = client_order_id or generate_canary_client_order_id(symbol)
+            notional = (price * quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+
+            # 1. Validate Interlocks fail-closed
+            try:
+                self.interlock.validate_dispatch(
+                    symbol=symbol,
+                    price=price,
+                    quantity=quantity,
+                    client_order_id=cid,
+                    is_closing=is_closing,
+                    side=side_val,
+                )
+            except Exception as exc:
+                self.orders_rejected_count += 1
+                now_utc = datetime.now(UTC).isoformat()
+                rejected_order = MainnetOrderRecord(
+                    order_id=f"rej-{uuid4().hex[:8]}",
+                    client_order_id=cid,
+                    track_id=self.track_id,
+                    candidate_id=candidate_id,
+                    symbol=symbol,
+                    side=side_val,
+                    order_type=type_val,
+                    time_in_force=tif_val,
+                    price=str(price),
+                    quantity=str(quantity),
+                    executed_quantity="0",
+                    notional_usdt=str(notional),
+                    status=OrderLifecycleState.REJECTED,
+                    ingress_stage=self.interlock.ingress_stage,
+                    is_closing=is_closing,
+                    created_at_utc=now_utc,
+                    updated_at_utc=now_utc,
+                    rejection_reason=str(exc),
+                )
+                self.orders[cid] = rejected_order
+                self.telemetry_store.record_order(rejected_order)
+                self.jsonl_sink.append_event(
+                    "ORDER_REJECTED", rejected_order.model_dump(mode="json")
+                )
+                raise
+
+            # 2. Transition: PENDING_SUBMIT
             now_utc = datetime.now(UTC).isoformat()
-            rejected_order = MainnetOrderRecord(
-                order_id=f"rej-{uuid4().hex[:8]}",
+            order_rec = MainnetOrderRecord(
+                order_id=f"ord-{uuid4().hex[:8]}",
                 client_order_id=cid,
                 track_id=self.track_id,
                 candidate_id=candidate_id,
@@ -2214,334 +2320,411 @@ class MainnetMicroOrderDispatcher:
                 quantity=str(quantity),
                 executed_quantity="0",
                 notional_usdt=str(notional),
-                status=OrderLifecycleState.REJECTED,
+                status=OrderLifecycleState.PENDING_SUBMIT,
                 ingress_stage=self.interlock.ingress_stage,
                 is_closing=is_closing,
                 created_at_utc=now_utc,
                 updated_at_utc=now_utc,
-                rejection_reason=str(exc),
             )
-            self.orders[cid] = rejected_order
-            self.telemetry_store.record_order(rejected_order)
-            self.jsonl_sink.append_event("ORDER_REJECTED", rejected_order.model_dump(mode="json"))
-            raise
+            self.orders[cid] = order_rec
+            self.orders_placed_count += 1
+            self.telemetry_store.record_order(order_rec)
+            self.jsonl_sink.append_event("ORDER_PENDING_SUBMIT", order_rec.model_dump(mode="json"))
 
-        # 2. Transition: PENDING_SUBMIT
-        now_utc = datetime.now(UTC).isoformat()
-        order_rec = MainnetOrderRecord(
-            order_id=f"ord-{uuid4().hex[:8]}",
-            client_order_id=cid,
-            track_id=self.track_id,
-            candidate_id=candidate_id,
-            symbol=symbol,
-            side=side_val,
-            order_type=type_val,
-            time_in_force=tif_val,
-            price=str(price),
-            quantity=str(quantity),
-            executed_quantity="0",
-            notional_usdt=str(notional),
-            status=OrderLifecycleState.PENDING_SUBMIT,
-            ingress_stage=self.interlock.ingress_stage,
-            is_closing=is_closing,
-            created_at_utc=now_utc,
-            updated_at_utc=now_utc,
-        )
-        self.orders[cid] = order_rec
-        self.orders_placed_count += 1
-        self.telemetry_store.record_order(order_rec)
-        self.jsonl_sink.append_event("ORDER_PENDING_SUBMIT", order_rec.model_dump(mode="json"))
-
-        # 3. Gateway Submission
-        gw_res = self.gateway.create_order(
-            symbol=symbol,
-            side=side_val,
-            type=type_val,
-            timeInForce=tif_val,
-            quantity=str(quantity),
-            price=str(price),
-            newClientOrderId=cid,
-        )
-        order_rec.order_id = str(gw_res["orderId"])
-        order_rec.status = OrderLifecycleState.NEW
-        order_rec.updated_at_utc = datetime.now(UTC).isoformat()
-        self.telemetry_store.record_order(order_rec)
-
-        trans = OrderLifecycleTransition(
-            transition_id=f"tr-{uuid4().hex[:8]}",
-            track_id=self.track_id,
-            order_id=order_rec.order_id,
-            client_order_id=cid,
-            from_state=OrderLifecycleState.PENDING_SUBMIT.value,
-            to_state=OrderLifecycleState.NEW.value,
-            trigger_reason="GATEWAY_ACK",
-            timestamp_utc=order_rec.updated_at_utc,
-        )
-        self.telemetry_store.record_transition(trans)
-
-        # 4. Exchange Fill Execution
-        self.gateway.fill_order(client_order_id=cid)
-
-        # 5. Process Inbound WebSocket Stream Events (if stream is connected)
-        try:
-            self.drain_and_reconcile_stream()
-        except StreamDisconnectError:
-            # Flap condition: events buffered on gateway, handled by REST reconciliation
-            logger.warning(
-                "Stream disconnected during order dispatch for %s; will backfill via REST", cid
+            # 3. Gateway Submission
+            gw_res = self.gateway.create_order(
+                symbol=symbol,
+                side=side_val,
+                type=type_val,
+                timeInForce=tif_val,
+                quantity=str(quantity),
+                price=str(price),
+                newClientOrderId=cid,
             )
+            order_rec.order_id = str(gw_res["orderId"])
+            order_rec.status = OrderLifecycleState.NEW
+            order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+            self.telemetry_store.record_order(order_rec)
 
-        # 6. Snapshot Balance
-        snap = MainnetBalanceSnapshot(
-            snapshot_id=f"snap-{self.track_id}-{uuid4().hex[:8]}",
-            track_id=self.track_id,
-            timestamp_utc=datetime.now(UTC).isoformat(),
-            cash_usdt=str(self.reconciler.cash),
-            allocated_margin_usdt=str(self.reconciler.allocated_margin),
-            unrealized_pnl_usdt=str(self.reconciler.unrealized_pnl),
-            realized_pnl_usdt=str(self.reconciler.realized_pnl),
-            equity_usdt=str(self.reconciler.total_equity),
-            drift_usdt=str(self.reconciler.mathematical_drift),
-        )
-        self.telemetry_store.record_balance_snapshot(snap)
-        return order_rec
+            trans = OrderLifecycleTransition(
+                transition_id=f"tr-{uuid4().hex[:8]}",
+                track_id=self.track_id,
+                order_id=order_rec.order_id,
+                client_order_id=cid,
+                from_state=OrderLifecycleState.PENDING_SUBMIT.value,
+                to_state=OrderLifecycleState.NEW.value,
+                trigger_reason="GATEWAY_ACK",
+                timestamp_utc=order_rec.updated_at_utc,
+            )
+            self.telemetry_store.record_transition(trans)
+
+            # 4. Exchange Fill Execution
+            self.gateway.fill_order(client_order_id=cid)
+
+            # 5. Process Inbound WebSocket Stream Events (if stream is connected)
+            try:
+                self.drain_and_reconcile_stream()
+            except StreamDisconnectError:
+                # Flap condition: events buffered on gateway, handled by REST reconciliation
+                logger.warning(
+                    "Stream disconnected during order dispatch for %s; will backfill via REST", cid
+                )
+
+            # 6. Snapshot Balance
+            snap = MainnetBalanceSnapshot(
+                snapshot_id=f"snap-{self.track_id}-{uuid4().hex[:8]}",
+                track_id=self.track_id,
+                timestamp_utc=datetime.now(UTC).isoformat(),
+                cash_usdt=str(self.reconciler.cash),
+                allocated_margin_usdt=str(self.reconciler.allocated_margin),
+                unrealized_pnl_usdt=str(self.reconciler.unrealized_pnl),
+                realized_pnl_usdt=str(self.reconciler.realized_pnl),
+                equity_usdt=str(self.reconciler.total_equity),
+                drift_usdt=str(self.reconciler.mathematical_drift),
+            )
+            self.telemetry_store.record_balance_snapshot(snap)
+            return order_rec
 
     def drain_and_reconcile_stream(self) -> None:
         """Poll and correlate all queued user data stream packets."""
-        raw_packets = self.gateway.poll_stream_events()
-        if not raw_packets:
-            return
+        with self._lock:
+            raw_packets = self.gateway.poll_stream_events()
+            if not raw_packets:
+                return
 
-        sorted_tuples = self.sequencer.ingest_and_sort_packets(raw_packets)
+            sorted_tuples = self.sequencer.ingest_and_sort_packets(raw_packets)
 
-        for pkt, is_dup, is_ooo in sorted_tuples:
-            self.stream_events_count += 1
-            e_type = pkt.get("e", "")
-            seq = int(pkt.get("_seq", 0))
-            o_data = pkt.get("o", {})
-            cid = o_data.get("c")
-            sym = o_data.get("s")
-            ord_status = o_data.get("X")
-            event_id = f"ev-{self.track_id}-{self.stream_events_count}"
+            for pkt, is_dup, is_ooo in sorted_tuples:
+                self.stream_events_count += 1
+                e_type = pkt.get("e", "")
+                seq = int(pkt.get("_seq", 0))
+                o_data = pkt.get("o", {})
+                cid = o_data.get("c")
+                sym = o_data.get("s")
+                ord_status = o_data.get("X")
+                event_id = f"ev-{self.track_id}-{self.stream_events_count}"
 
-            ws_rec = WebSocketPushEventRecord(
-                event_id=event_id,
-                track_id=self.track_id,
-                event_type=e_type,
-                event_time_ms=pkt.get("E", int(time.time() * 1000)),
-                transaction_time_ms=pkt.get("T", int(time.time() * 1000)),
-                sequence_number=seq,
-                client_order_id=cid,
-                symbol=sym,
-                order_status=ord_status,
-                payload_json=json.dumps(pkt, sort_keys=True),
-                is_duplicate=is_dup,
-                is_out_of_order=is_ooo,
-                processed_at_utc=datetime.now(UTC).isoformat(),
-            )
-            self.telemetry_store.record_websocket_event(ws_rec)
+                ws_rec = WebSocketPushEventRecord(
+                    event_id=event_id,
+                    track_id=self.track_id,
+                    event_type=e_type,
+                    event_time_ms=pkt.get("E", int(time.time() * 1000)),
+                    transaction_time_ms=pkt.get("T", int(time.time() * 1000)),
+                    sequence_number=seq,
+                    client_order_id=cid,
+                    symbol=sym,
+                    order_status=ord_status,
+                    payload_json=json.dumps(pkt, sort_keys=True),
+                    is_duplicate=is_dup,
+                    is_out_of_order=is_ooo,
+                    processed_at_utc=datetime.now(UTC).isoformat(),
+                )
+                self.telemetry_store.record_websocket_event(ws_rec)
 
-            if is_dup:
-                continue
+                if is_dup:
+                    continue
 
-            if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value and cid in self.orders:
-                order_rec = self.orders[cid]
-                prev_state = order_rec.status.value
-                exec_type = o_data.get("x")
+                if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value and cid in self.orders:
+                    order_rec = self.orders[cid]
+                    prev_state = order_rec.status.value
+                    exec_type = o_data.get("x")
 
-                if exec_type == "TRADE":
-                    mark = MainnetExecutionMark(
-                        trade_id=str(o_data.get("t")),
-                        track_id=self.track_id,
-                        order_id=order_rec.order_id,
-                        client_order_id=cid,
-                        symbol=sym or order_rec.symbol,
-                        side=o_data.get("S", order_rec.side),
-                        price=str(o_data.get("L", order_rec.price)),
-                        quantity=str(o_data.get("l", order_rec.quantity)),
-                        quote_quantity=str(
-                            (
-                                Decimal(str(o_data.get("l"))) * Decimal(str(o_data.get("L")))
-                            ).quantize(Decimal("0.00000001"))
-                        ),
-                        commission_usdt=str(o_data.get("n", "0")),
-                        realized_pnl_usdt=str(o_data.get("rp", "0")),
-                        trade_time_ms=o_data.get("T", int(time.time() * 1000)),
-                        timestamp_utc=datetime.now(UTC).isoformat(),
-                    )
-                    self.telemetry_store.record_execution_mark(mark)
-                    self.reconciler.apply_trade_fill(mark)
+                    if exec_type == "TRADE":
+                        cum_z = Decimal(str(o_data.get("z", order_rec.quantity)))
+                        current_local_qty = Decimal(str(order_rec.executed_quantity))
+                        delta_qty = cum_z - current_local_qty
 
-                    order_rec.executed_quantity = str(o_data.get("z", order_rec.quantity))
-                    if ord_status == "FILLED":
-                        order_rec.status = OrderLifecycleState.FILLED
-                        self.orders_filled_count += 1
-                    elif ord_status == "PARTIALLY_FILLED":
-                        order_rec.status = OrderLifecycleState.PARTIALLY_FILLED
-                    order_rec.updated_at_utc = datetime.now(UTC).isoformat()
-                    self.telemetry_store.record_order(order_rec)
+                        # If order already filled or cum_z <= current_local_qty, skip
+                        if order_rec.status == OrderLifecycleState.FILLED or delta_qty <= Decimal(
+                            "0"
+                        ):
+                            logger.info(
+                                "Ignoring duplicate fill for %s: local_qty=%s, cum_z=%s",
+                                cid,
+                                current_local_qty,
+                                cum_z,
+                            )
+                            continue
 
-                    trans = OrderLifecycleTransition(
-                        transition_id=f"tr-{uuid4().hex[:8]}",
-                        track_id=self.track_id,
-                        order_id=order_rec.order_id,
-                        client_order_id=cid,
-                        from_state=prev_state,
-                        to_state=order_rec.status.value,
-                        trigger_reason=f"EXECUTION_FILL_{exec_type}",
-                        timestamp_utc=order_rec.updated_at_utc,
-                    )
-                    self.telemetry_store.record_transition(trans)
-                    self.jsonl_sink.append_event(
-                        "ORDER_FILL",
-                        {
-                            "client_order_id": cid,
-                            "trade_id": mark.trade_id,
-                            "status": order_rec.status.value,
-                        },
-                    )
+                        fill_px = str(o_data.get("L") or order_rec.price)
+                        mark = MainnetExecutionMark(
+                            trade_id=str(o_data.get("t")),
+                            track_id=self.track_id,
+                            order_id=order_rec.order_id,
+                            client_order_id=cid,
+                            symbol=sym or order_rec.symbol,
+                            side=o_data.get("S") or order_rec.side,
+                            price=fill_px,
+                            quantity=str(delta_qty),
+                            quote_quantity=str(
+                                (delta_qty * Decimal(fill_px)).quantize(Decimal("0.00000001"))
+                            ),
+                            commission_usdt=str(o_data.get("n") or "0"),
+                            realized_pnl_usdt=str(o_data.get("rp") or "0"),
+                            trade_time_ms=o_data.get("T", int(time.time() * 1000)),
+                            timestamp_utc=datetime.now(UTC).isoformat(),
+                        )
+                        self.telemetry_store.record_execution_mark(mark)
+                        self.reconciler.apply_trade_fill(mark)
 
-                elif exec_type == "CANCELED":
-                    order_rec.status = OrderLifecycleState.CANCELLED
-                    self.orders_cancelled_count += 1
-                    order_rec.updated_at_utc = datetime.now(UTC).isoformat()
-                    self.telemetry_store.record_order(order_rec)
+                        order_rec.executed_quantity = str(cum_z)
+                        self.sequencer.record_order_fill(cid, cum_z)
 
-                    trans = OrderLifecycleTransition(
-                        transition_id=f"tr-{uuid4().hex[:8]}",
-                        track_id=self.track_id,
-                        order_id=order_rec.order_id,
-                        client_order_id=cid,
-                        from_state=prev_state,
-                        to_state=OrderLifecycleState.CANCELLED.value,
-                        trigger_reason="ORDER_CANCELLED",
-                        timestamp_utc=order_rec.updated_at_utc,
-                    )
-                    self.telemetry_store.record_transition(trans)
+                        if ord_status == "FILLED":
+                            order_rec.status = OrderLifecycleState.FILLED
+                            self.orders_filled_count += 1
+                        elif ord_status == "PARTIALLY_FILLED":
+                            if order_rec.status not in (
+                                OrderLifecycleState.CANCELLED,
+                                OrderLifecycleState.REJECTED,
+                                OrderLifecycleState.EXPIRED,
+                            ):
+                                order_rec.status = OrderLifecycleState.PARTIALLY_FILLED
+                        order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        self.telemetry_store.record_order(order_rec)
+
+                        trans = OrderLifecycleTransition(
+                            transition_id=f"tr-{uuid4().hex[:8]}",
+                            track_id=self.track_id,
+                            order_id=order_rec.order_id,
+                            client_order_id=cid,
+                            from_state=prev_state,
+                            to_state=order_rec.status.value,
+                            trigger_reason=f"EXECUTION_FILL_{exec_type}",
+                            timestamp_utc=order_rec.updated_at_utc,
+                        )
+                        self.telemetry_store.record_transition(trans)
+                        self.jsonl_sink.append_event(
+                            "ORDER_FILL",
+                            {
+                                "client_order_id": cid,
+                                "trade_id": mark.trade_id,
+                                "status": order_rec.status.value,
+                            },
+                        )
+
+                    elif exec_type == "NEW":
+                        if order_rec.status == OrderLifecycleState.PENDING_SUBMIT:
+                            order_rec.status = OrderLifecycleState.NEW
+                            order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                            self.telemetry_store.record_order(order_rec)
+                            trans = OrderLifecycleTransition(
+                                transition_id=f"tr-{uuid4().hex[:8]}",
+                                track_id=self.track_id,
+                                order_id=order_rec.order_id,
+                                client_order_id=cid,
+                                from_state=prev_state,
+                                to_state=OrderLifecycleState.NEW.value,
+                                trigger_reason="WEBSOCKET_NEW_ACK",
+                                timestamp_utc=order_rec.updated_at_utc,
+                            )
+                            self.telemetry_store.record_transition(trans)
+
+                    elif exec_type in ("CANCELED", "REJECTED", "EXPIRED"):
+                        # Cannot regress an already filled or terminal order
+                        if order_rec.status in (
+                            OrderLifecycleState.FILLED,
+                            OrderLifecycleState.CANCELLED,
+                            OrderLifecycleState.REJECTED,
+                            OrderLifecycleState.EXPIRED,
+                        ):
+                            logger.info(
+                                "Ignoring %s event for %s in terminal state %s",
+                                exec_type,
+                                cid,
+                                order_rec.status.value,
+                            )
+                            continue
+
+                        term_state = (
+                            OrderLifecycleState.CANCELLED
+                            if exec_type == "CANCELED"
+                            else (
+                                OrderLifecycleState.REJECTED
+                                if exec_type == "REJECTED"
+                                else OrderLifecycleState.EXPIRED
+                            )
+                        )
+                        order_rec.status = term_state
+                        if term_state == OrderLifecycleState.CANCELLED:
+                            self.orders_cancelled_count += 1
+                        order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        self.telemetry_store.record_order(order_rec)
+
+                        trans = OrderLifecycleTransition(
+                            transition_id=f"tr-{uuid4().hex[:8]}",
+                            track_id=self.track_id,
+                            order_id=order_rec.order_id,
+                            client_order_id=cid,
+                            from_state=prev_state,
+                            to_state=term_state.value,
+                            trigger_reason=f"ORDER_{exec_type}",
+                            timestamp_utc=order_rec.updated_at_utc,
+                        )
+                        self.telemetry_store.record_transition(trans)
 
     def reconcile_via_rest(self) -> list[MainnetExecutionMark]:
         """Perform REST order state reconciliation after a stream flap."""
-        marks = self.reconciler.reconcile_orders_via_rest(
-            self.gateway, self.orders, sequencer=self.sequencer
-        )
-        for m in marks:
-            self.telemetry_store.record_execution_mark(m)
-        return marks
+        with self._lock:
+            prev_states = {cid: ord_rec.status for cid, ord_rec in self.orders.items()}
+            marks = self.reconciler.reconcile_orders_via_rest(
+                self.gateway, self.orders, sequencer=self.sequencer
+            )
+            for m in marks:
+                self.telemetry_store.record_execution_mark(m)
+
+            for cid, ord_rec in self.orders.items():
+                old_status = prev_states.get(cid)
+                if old_status is not None and old_status != ord_rec.status:
+                    self.telemetry_store.record_order(ord_rec)
+                    trans = OrderLifecycleTransition(
+                        transition_id=f"tr-{uuid4().hex[:8]}",
+                        track_id=self.track_id,
+                        order_id=ord_rec.order_id,
+                        client_order_id=cid,
+                        from_state=old_status.value,
+                        to_state=ord_rec.status.value,
+                        trigger_reason="REST_RECONCILIATION_BACKFILL",
+                        timestamp_utc=ord_rec.updated_at_utc,
+                    )
+                    self.telemetry_store.record_transition(trans)
+                    if (
+                        ord_rec.status == OrderLifecycleState.FILLED
+                        and old_status != OrderLifecycleState.FILLED
+                    ):
+                        self.orders_filled_count += 1
+                        self.jsonl_sink.append_event(
+                            "ORDER_FILL",
+                            {
+                                "client_order_id": cid,
+                                "trade_id": "REST_RECONCILED",
+                                "status": ord_rec.status.value,
+                            },
+                        )
+            return marks
 
     def cancel_micro_order(self, symbol: str, client_order_id: str) -> MainnetOrderRecord:
         """Cancel an open order on gateway."""
-        rec = self.orders.get(client_order_id)
-        if not rec:
-            raise OrderCorrelationError(f"Unknown order {client_order_id}")
-        self.gateway.cancel_order(symbol=symbol, client_order_id=client_order_id)
-        try:
-            self.drain_and_reconcile_stream()
-        except StreamDisconnectError:
-            rec.status = OrderLifecycleState.CANCELLED
-            rec.updated_at_utc = datetime.now(UTC).isoformat()
-            self.telemetry_store.record_order(rec)
-        return rec
+        with self._lock:
+            rec = self.orders.get(client_order_id)
+            if not rec:
+                raise OrderCorrelationError(f"Unknown order {client_order_id}")
+            self.gateway.cancel_order(symbol=symbol, client_order_id=client_order_id)
+            try:
+                self.drain_and_reconcile_stream()
+            except StreamDisconnectError:
+                rec.status = OrderLifecycleState.CANCELLED
+                rec.updated_at_utc = datetime.now(UTC).isoformat()
+                self.telemetry_store.record_order(rec)
+            return rec
 
     def execute_emergency_flattening(self) -> list[MainnetOrderRecord]:
         """Emergency fail-closed incident response: cancel open orders and flatten positions."""
-        flattening_orders: list[MainnetOrderRecord] = []
-        self.interlock.circuit_state = CircuitBreakerState.HARD_ABORT
+        with self._lock:
+            flattening_orders: list[MainnetOrderRecord] = []
+            self.interlock.circuit_state = CircuitBreakerState.HARD_ABORT
 
-        # Step 1: Cancel all working/unfilled open orders
-        for o_cid, o_rec in list(self.orders.items()):
-            if o_rec.status in (
-                OrderLifecycleState.PENDING_SUBMIT,
-                OrderLifecycleState.NEW,
-                OrderLifecycleState.PARTIALLY_FILLED,
-            ):
-                try:
-                    self.cancel_micro_order(symbol=o_rec.symbol, client_order_id=o_cid)
-                except Exception:
-                    o_rec.status = OrderLifecycleState.CANCELLED
-                    o_rec.updated_at_utc = datetime.now(UTC).isoformat()
-                    self.telemetry_store.record_order(o_rec)
+            # Step 1: Cancel all working/unfilled open orders
+            for o_cid, o_rec in list(self.orders.items()):
+                if o_rec.status in (
+                    OrderLifecycleState.PENDING_SUBMIT,
+                    OrderLifecycleState.NEW,
+                    OrderLifecycleState.PARTIALLY_FILLED,
+                ):
+                    try:
+                        self.cancel_micro_order(symbol=o_rec.symbol, client_order_id=o_cid)
+                    except Exception:
+                        o_rec.status = OrderLifecycleState.CANCELLED
+                        o_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        self.telemetry_store.record_order(o_rec)
 
-        # Step 2: Drain stream
-        try:
-            self.drain_and_reconcile_stream()
-        except StreamDisconnectError:
-            pass
+            # Step 2: Drain stream
+            try:
+                self.drain_and_reconcile_stream()
+            except StreamDisconnectError:
+                self.reconcile_via_rest()
 
-        # Step 3: Flatten all open positions in slices <= HARD_MICRO_NOTIONAL_CAP_USDT (5.00 USDT)
-        for sym in CANARY_STAGED_SYMBOLS:
-            pos = self.reconciler.positions.get(sym, Decimal("0"))
-            if pos != Decimal("0"):
-                close_side = OrderSide.SELL if pos > Decimal("0") else OrderSide.BUY
-                rem_qty = abs(pos)
-                mark_price = self.reconciler.mark_prices.get(
-                    sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym]))
-                )
+            # Step 3: Flatten open positions in slices <= HARD_MICRO_NOTIONAL_CAP_USDT (5.00 USDT)
+            for sym in CANARY_STAGED_SYMBOLS:
+                pos = self.reconciler.positions.get(sym, Decimal("0"))
+                if pos != Decimal("0"):
+                    close_side = OrderSide.SELL if pos > Decimal("0") else OrderSide.BUY
+                    rem_qty = abs(pos)
+                    mark_price = self.reconciler.mark_prices.get(
+                        sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym]))
+                    )
+                    if mark_price <= Decimal("0"):
+                        mark_price = Decimal(str(DEFAULT_REFERENCE_PRICES[sym]))
 
-                max_chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / mark_price).quantize(
-                    Decimal("0.00000001"), rounding=ROUND_DOWN
-                )
-                if max_chunk_qty <= Decimal("0"):
-                    max_chunk_qty = Decimal("0.00000001")
-
-                while rem_qty > Decimal("0"):
-                    chunk = min(rem_qty, max_chunk_qty)
-                    while chunk * mark_price > HARD_MICRO_NOTIONAL_CAP_USDT and chunk > Decimal(
-                        "0.00000001"
-                    ):
-                        chunk -= Decimal("0.00000001")
-                    chunk = min(chunk, rem_qty)
-                    if chunk <= Decimal("0"):
-                        break
-
-                    cid = generate_canary_client_order_id(sym)
-                    now_utc = datetime.now(UTC).isoformat()
-                    notional = (mark_price * chunk).quantize(
+                    max_chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / mark_price).quantize(
                         Decimal("0.00000001"), rounding=ROUND_DOWN
                     )
+                    if max_chunk_qty <= Decimal("0"):
+                        max_chunk_qty = Decimal("0.00000001")
 
-                    gw_rec = self.gateway.create_order(
-                        symbol=sym,
-                        side=close_side.value,
-                        type=OrderType.MARKET.value,
-                        timeInForce=TimeInForce.IOC.value,
-                        quantity=str(chunk),
-                        price=str(mark_price),
-                        newClientOrderId=cid,
-                    )
-                    flatten_order = MainnetOrderRecord(
-                        order_id=str(gw_rec["orderId"]),
-                        client_order_id=cid,
-                        track_id=self.track_id,
-                        candidate_id=f"emergency-flatten-{sym.lower()}",
-                        symbol=sym,
-                        side=close_side.value,
-                        order_type=OrderType.MARKET.value,
-                        time_in_force=TimeInForce.IOC.value,
-                        price=str(mark_price),
-                        quantity=str(chunk),
-                        executed_quantity="0",
-                        notional_usdt=str(notional),
-                        status=OrderLifecycleState.NEW,
-                        ingress_stage=self.interlock.ingress_stage,
-                        is_closing=True,
-                        created_at_utc=now_utc,
-                        updated_at_utc=now_utc,
-                    )
-                    self.orders[cid] = flatten_order
-                    self.telemetry_store.record_order(flatten_order)
+                    while rem_qty > Decimal("0"):
+                        chunk = min(rem_qty, max_chunk_qty)
+                        while chunk * mark_price > HARD_MICRO_NOTIONAL_CAP_USDT and chunk > Decimal(
+                            "0.00000001"
+                        ):
+                            chunk -= Decimal("0.00000001")
+                        chunk = min(chunk, rem_qty)
+                        if chunk <= Decimal("0"):
+                            break
 
-                    # Fill market liquidation slice
-                    self.gateway.fill_order(
-                        client_order_id=cid, fill_price=mark_price, fill_qty=chunk
-                    )
-                    try:
-                        self.drain_and_reconcile_stream()
-                    except StreamDisconnectError:
-                        pass
-                    flattening_orders.append(flatten_order)
-                    rem_qty -= chunk
+                        cid = generate_canary_client_order_id(sym)
+                        now_utc = datetime.now(UTC).isoformat()
+                        notional = (mark_price * chunk).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
 
-        return flattening_orders
+                        gw_rec = self.gateway.create_order(
+                            symbol=sym,
+                            side=close_side.value,
+                            type=OrderType.MARKET.value,
+                            timeInForce=TimeInForce.IOC.value,
+                            quantity=str(chunk),
+                            price=str(mark_price),
+                            newClientOrderId=cid,
+                        )
+                        flatten_order = MainnetOrderRecord(
+                            order_id=str(gw_rec["orderId"]),
+                            client_order_id=cid,
+                            track_id=self.track_id,
+                            candidate_id=f"emergency-flatten-{sym.lower()}",
+                            symbol=sym,
+                            side=close_side.value,
+                            order_type=OrderType.MARKET.value,
+                            time_in_force=TimeInForce.IOC.value,
+                            price=str(mark_price),
+                            quantity=str(chunk),
+                            executed_quantity="0",
+                            notional_usdt=str(notional),
+                            status=OrderLifecycleState.NEW,
+                            ingress_stage=self.interlock.ingress_stage,
+                            is_closing=True,
+                            created_at_utc=now_utc,
+                            updated_at_utc=now_utc,
+                        )
+                        self.orders[cid] = flatten_order
+                        self.orders_placed_count += 1
+                        self.telemetry_store.record_order(flatten_order)
+                        self.jsonl_sink.append_event(
+                            "ORDER_PENDING_SUBMIT", flatten_order.model_dump(mode="json")
+                        )
+
+                        # Fill market liquidation slice
+                        self.gateway.fill_order(
+                            client_order_id=cid, fill_price=mark_price, fill_qty=chunk
+                        )
+                        try:
+                            self.drain_and_reconcile_stream()
+                        except StreamDisconnectError:
+                            self.reconcile_via_rest()
+                        flattening_orders.append(flatten_order)
+                        rem_qty -= chunk
+
+            return flattening_orders
 
 
 # =====================================================================
@@ -3140,7 +3323,7 @@ class CanaryMainnetDeploymentRunner:
         backfilled_marks = dispatcher.reconcile_via_rest()
         assert len(backfilled_marks) == 1
         assert btc_open.status == OrderLifecycleState.FILLED
-        dispatcher.orders_filled_count += 1
+        assert dispatcher.orders_filled_count == 1
 
         # Drain stream buffer; sequencer deduplicates already backfilled fills
         dispatcher.drain_and_reconcile_stream()

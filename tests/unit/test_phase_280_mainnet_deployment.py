@@ -29,9 +29,11 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from autonomous_futures.feed.canary_activation import (  # noqa: E402
+    DEFAULT_REFERENCE_PRICES,
     STARTING_EQUITY_USDT,
     OrderSide,
     OrderType,
+    TimeInForce,
 )
 from autonomous_futures.feed.canary_probe import (  # noqa: E402
     SafetyInvariantViolation,
@@ -569,3 +571,352 @@ def test_cli_execute_phase_280_runner_verify_only():
         verify_only=True,
     )
     assert exit_code == 0
+
+
+# =====================================================================
+# 9. Adversarial Edge Case & Robustness Tests
+# =====================================================================
+
+
+def test_rest_reconciliation_omitted_trade_id_deduplication(manifest, tmp_path: Path):
+    """Verify that when REST order query omits tradeId (standard Binance API),
+
+    reconciliation does not double-credit positions when the buffered WS stream is drained.
+    """
+    db_path = tmp_path / "telemetry.sqlite3"
+    jsonl_path = tmp_path / "orders.jsonl"
+    store = SqliteCanaryMainnetDeploymentTelemetryStore(db_path)
+    sink = JsonlCanaryOrderSink(jsonl_path)
+    gateway = MockBinanceMainnetGateway()
+    monitor = GatewayHeartbeatMonitor()
+    reconciler = MainnetUserDataStreamReconciler(
+        track_id="adv_test_dedup", starting_equity=Decimal("100.00")
+    )
+    interlock = MainnetOrderDispatchInterlock(
+        heartbeat_monitor=monitor,
+        reconciler=reconciler,
+        telemetry_store=store,
+        track_id="adv_test_dedup",
+        ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+    )
+    sequencer = MainnetStreamSequencer()
+    dispatcher = MainnetMicroOrderDispatcher(
+        track_id="adv_test_dedup",
+        interlock=interlock,
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=store,
+        jsonl_sink=sink,
+        heartbeat_monitor=monitor,
+    )
+
+    now_ms = int(time.time() * 1000)
+    monitor.record_heartbeat(server_time_ms=now_ms - 20, latency_ms=20.0, track_id="adv")
+
+    # Disconnect stream before order creation
+    gateway.disconnect_stream()
+    cid = generate_canary_client_order_id("BTCUSDT")
+    now_utc = datetime.now(UTC).isoformat()
+    ord_rec = MainnetOrderRecord(
+        order_id="ord-rest-test-1",
+        client_order_id=cid,
+        track_id="adv_test_dedup",
+        candidate_id="alpha-futures-momentum-v1",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY.value,
+        order_type=OrderType.LIMIT.value,
+        time_in_force=TimeInForce.GTC.value,
+        price="60000.00",
+        quantity="0.00008",
+        executed_quantity="0",
+        notional_usdt="4.80000000",
+        status=OrderLifecycleState.PENDING_SUBMIT,
+        ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+        is_closing=False,
+        created_at_utc=now_utc,
+        updated_at_utc=now_utc,
+    )
+    dispatcher.orders[cid] = ord_rec
+    dispatcher.orders_placed_count += 1
+    store.record_order(ord_rec)
+
+    # Submit to gateway
+    gw_res = gateway.create_order(
+        symbol="BTCUSDT",
+        side="BUY",
+        type="LIMIT",
+        timeInForce="GTC",
+        quantity="0.00008",
+        price="60000.00",
+        newClientOrderId=cid,
+    )
+    ord_rec.order_id = str(gw_res["orderId"])
+    ord_rec.status = OrderLifecycleState.NEW
+
+    # Fill order on gateway
+    gateway.fill_order(client_order_id=cid)
+
+    # Simulate exchange REST GET /fapi/v1/order omitting tradeId
+    gateway.orders[cid].pop("tradeId", None)
+
+    # Reconnect stream and reconcile via REST
+    gateway.reconnect_stream()
+    backfilled = dispatcher.reconcile_via_rest()
+    assert len(backfilled) == 1
+    assert ord_rec.status == OrderLifecycleState.FILLED
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+    assert dispatcher.orders_filled_count == 1
+
+    # Now drain stream buffer; buffered trade events must be deduplicated
+    dispatcher.drain_and_reconcile_stream()
+    # Position must NOT be doubled to 0.00016
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+    assert dispatcher.orders_filled_count == 1
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+    store.close()
+
+
+def test_order_lifecycle_monotonicity_enforcement(manifest, tmp_path: Path):
+    """Verify out-of-order execution reports cannot regress an order once in terminal state."""
+    db_path = tmp_path / "telemetry_mono.sqlite3"
+    jsonl_path = tmp_path / "orders_mono.jsonl"
+    with SqliteCanaryMainnetDeploymentTelemetryStore(db_path) as store:
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        gateway = MockBinanceMainnetGateway()
+        monitor = GatewayHeartbeatMonitor()
+        now_ms = int(time.time() * 1000)
+        monitor.record_heartbeat(server_time_ms=now_ms - 20, latency_ms=20.0, track_id="mono")
+
+        reconciler = MainnetUserDataStreamReconciler(
+            track_id="mono_test", starting_equity=Decimal("100.00")
+        )
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=monitor,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="mono_test",
+            ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+        )
+        sequencer = MainnetStreamSequencer()
+        dispatcher = MainnetMicroOrderDispatcher(
+            track_id="mono_test",
+            interlock=interlock,
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=monitor,
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        dispatcher.dispatch_micro_order(
+            candidate_id="alpha-futures-momentum-v1",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            client_order_id=cid,
+        )
+        ord_rec = dispatcher.orders[cid]
+        assert ord_rec.status == OrderLifecycleState.FILLED
+        assert dispatcher.orders_filled_count == 1
+
+        # Simulate out-of-order packets arriving late:
+        # 1. Stale NEW event
+        pkt_new = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": now_ms - 100,
+            "T": now_ms - 100,
+            "_seq": 9991,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "x": "NEW",
+                "X": "NEW",
+                "z": "0",
+                "t": 0,
+            },
+        }
+        # 2. Stale PARTIALLY_FILLED event
+        pkt_part = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": now_ms - 50,
+            "T": now_ms - 50,
+            "_seq": 9992,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "x": "TRADE",
+                "X": "PARTIALLY_FILLED",
+                "z": "0.00004",
+                "L": "60000.00",
+                "t": 88881,
+            },
+        }
+        # 3. Late CANCELED event
+        pkt_cancel = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": now_ms + 10,
+            "T": now_ms + 10,
+            "_seq": 9993,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "x": "CANCELED",
+                "X": "CANCELED",
+                "z": "0.00008",
+                "t": 0,
+            },
+        }
+
+        gateway.stream_buffer.extend([pkt_new, pkt_part, pkt_cancel])
+        dispatcher.drain_and_reconcile_stream()
+
+        # Status must remain FILLED, filled count unchanged, cancelled count 0
+        assert ord_rec.status == OrderLifecycleState.FILLED
+        assert dispatcher.orders_filled_count == 1
+        assert dispatcher.orders_cancelled_count == 0
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+
+
+def test_concurrent_pending_submit_during_rapid_websocket_flap(manifest, tmp_path: Path):
+    """Verify thread-safety and exact reconciliation when concurrent micro orders
+
+    are placed across staged symbols during rapid WebSocket disconnect and reconnect flaps.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    db_path = tmp_path / "telemetry_flap.sqlite3"
+    jsonl_path = tmp_path / "orders_flap.jsonl"
+    with SqliteCanaryMainnetDeploymentTelemetryStore(db_path) as store:
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        gateway = MockBinanceMainnetGateway()
+        monitor = GatewayHeartbeatMonitor()
+        now_ms = int(time.time() * 1000)
+        monitor.record_heartbeat(server_time_ms=now_ms - 15, latency_ms=15.0, track_id="flap")
+
+        reconciler = MainnetUserDataStreamReconciler(
+            track_id="flap_test", starting_equity=Decimal("100.00")
+        )
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=monitor,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="flap_test",
+            ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+        )
+        sequencer = MainnetStreamSequencer()
+        dispatcher = MainnetMicroOrderDispatcher(
+            track_id="flap_test",
+            interlock=interlock,
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=monitor,
+        )
+
+        symbols = [
+            ("BTCUSDT", Decimal("0.00008")),
+            ("ETHUSDT", Decimal("0.0014")),
+            ("SOLUSDT", Decimal("0.024")),
+        ]
+
+        # Disconnect stream during execution
+        gateway.disconnect_stream()
+
+        def submit_order(sym: str, qty: Decimal):
+            return dispatcher.dispatch_micro_order(
+                candidate_id=f"alpha-futures-{sym.lower()}",
+                symbol=sym,
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=qty,
+                price=Decimal(str(DEFAULT_REFERENCE_PRICES[sym])),
+            )
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [executor.submit(submit_order, sym, qty) for sym, qty in symbols]
+            orders = [f.result() for f in futures]
+
+        assert len(orders) == 3
+        # Orders were created on gateway and filled, but stream was disconnected
+        gateway.reconnect_stream()
+        backfilled = dispatcher.reconcile_via_rest()
+        assert len(backfilled) == 3
+
+        dispatcher.drain_and_reconcile_stream()
+        for sym, qty in symbols:
+            assert reconciler.positions[sym] == qty
+
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_sqlite_telemetry_store_context_manager_and_thread_safety(tmp_path: Path):
+    """Verify sqlite telemetry store context manager and concurrent write safety."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    db_path = tmp_path / "telemetry_concurrency.sqlite3"
+    with SqliteCanaryMainnetDeploymentTelemetryStore(db_path) as store:
+
+        def write_telemetry(idx: int):
+            now_utc = datetime.now(UTC).isoformat()
+            now_ms = int(time.time() * 1000)
+            order = MainnetOrderRecord(
+                order_id=f"ord-thread-{idx}",
+                client_order_id=f"c=canary-p280-BTCUSDT-{now_ms}-{idx}",
+                track_id="thread_test",
+                candidate_id="alpha-futures-momentum-v1",
+                symbol="BTCUSDT",
+                side="BUY",
+                order_type="LIMIT",
+                time_in_force="GTC",
+                price="60000.00",
+                quantity="0.00008",
+                executed_quantity="0.00008",
+                notional_usdt="4.80000000",
+                status=OrderLifecycleState.FILLED,
+                ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+                is_closing=False,
+                created_at_utc=now_utc,
+                updated_at_utc=now_utc,
+            )
+            store.record_order(order)
+
+            mark = MainnetExecutionMark(
+                trade_id=f"tr-thread-{idx}",
+                track_id="thread_test",
+                order_id=f"ord-thread-{idx}",
+                client_order_id=order.client_order_id,
+                symbol="BTCUSDT",
+                side="BUY",
+                price="60000.00",
+                quantity="0.00008",
+                quote_quantity="4.80000000",
+                commission_usdt="0.00192000",
+                realized_pnl_usdt="0",
+                trade_time_ms=now_ms,
+                timestamp_utc=now_utc,
+            )
+            store.record_execution_mark(mark)
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(write_telemetry, i) for i in range(20)]
+            for f in futures:
+                f.result()
+
+        orders_count = store.conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE track_id = 'thread_test'"
+        ).fetchone()[0]
+        marks_count = store.conn.execute(
+            "SELECT COUNT(*) FROM execution_marks WHERE track_id = 'thread_test'"
+        ).fetchone()[0]
+        assert orders_count == 20
+        assert marks_count == 20
