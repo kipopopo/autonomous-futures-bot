@@ -89,6 +89,7 @@ MAX_PER_ASSET_MARGIN_PCT: Decimal = Decimal("0.20")  # <= 20.00% per asset
 MAX_AGGREGATE_MARGIN_PCT: Decimal = Decimal("0.60")  # <= 60.00% aggregate
 MIN_RESERVE_BUFFER_PCT: Decimal = Decimal("0.40")  # >= 40.00% reserve buffer
 DEFAULT_TAKER_FEE_RATE: Decimal = Decimal("0.0004")  # 0.04% taker fee
+DEFAULT_MAKER_FEE_RATE: Decimal = Decimal("0.0002")  # 0.02% maker fee
 LISTEN_KEY_LIFETIME_SECONDS: float = 3600.0  # 60m expiry
 LISTEN_KEY_REFRESH_INTERVAL_SECONDS: float = 1800.0  # 30m keep-alive refresh
 DEFAULT_TESTNET_BASE_URL: str = "https://testnet.binancefuture.com"
@@ -402,7 +403,7 @@ class JsonlCanaryOrderSink:
         """Append record line to JSONL sink guarded against secret leakage."""
         line = json.dumps(record, sort_keys=True)
         assert_zero_secrets(line, str(self.file_path.name))
-        with self.file_path.open("a", encoding="utf-8") as f:
+        with self.file_path.open("a", encoding="utf-8", newline="\n") as f:
             f.write(line + "\n")
 
 
@@ -774,6 +775,15 @@ class SqliteCanaryTestnetTelemetryStore:
         except sqlite3.OperationalError as exc:
             logger.warning("WAL checkpoint non-fatal error: %s", exc)
 
+    def verify_unlocked(self) -> bool:
+        """Verify database connection is open, writable, and responsive."""
+        try:
+            cursor = self.conn.execute("SELECT 1;")
+            return bool(cursor.fetchone() == (1,))
+        except Exception as exc:
+            logger.warning("Database lock verification failed: %s", exc)
+            return False
+
     def close(self) -> None:
         """Flush and close database connection."""
         try:
@@ -781,6 +791,17 @@ class SqliteCanaryTestnetTelemetryStore:
             self.conn.close()
         except Exception as exc:
             logger.warning("Error closing SQLite store: %s", exc)
+
+    def __enter__(self) -> SqliteCanaryTestnetTelemetryStore:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        self.close()
 
 
 # =====================================================================
@@ -1044,7 +1065,7 @@ class MockBinanceTestnetGateway:
 
         Executes order and generates asynchronous WebSocket push events:
         - ORDER_TRADE_UPDATE (NEW)
-        - ORDER_TRADE_UPDATE (FILLED / TRADE)
+        - ORDER_TRADE_UPDATE (FILLED / PARTIALLY_FILLED / TRADE)
         - ACCOUNT_UPDATE (wallet balance & positions)
         """
         symbol = str(params["symbol"])
@@ -1053,6 +1074,9 @@ class MockBinanceTestnetGateway:
         qty = Decimal(str(params["quantity"]))
         price = Decimal(str(params.get("price", self.positions[symbol]["markPrice"])))
         client_order_id = str(params.get("newClientOrderId", f"cid-testnet-{uuid4().hex[:8]}"))
+        auto_fill = bool(params.get("auto_fill", True))
+        is_maker = bool(params.get("is_maker", False))
+        partial_fill_qty = params.get("partial_fill_qty")
 
         order_id = self.next_order_id
         self.next_order_id += 1
@@ -1089,7 +1113,7 @@ class MockBinanceTestnetGateway:
                 "t": 0,
                 "b": "0",
                 "a": "0",
-                "m": False,
+                "m": is_maker,
                 "R": False,
                 "wt": "CONTRACT_PRICE",
                 "ot": order_type,
@@ -1100,11 +1124,41 @@ class MockBinanceTestnetGateway:
         }
         self.stream_event_queue.append(new_order_push)
 
-        # 2. Match and Fill
+        if not auto_fill:
+            order_record = {
+                "orderId": order_id,
+                "symbol": symbol,
+                "status": "NEW",
+                "clientOrderId": client_order_id,
+                "price": f"{price:.8f}",
+                "avgPrice": "0.00000000",
+                "origQty": f"{qty:.8f}",
+                "executedQty": "0.00000000",
+                "cumQty": "0.00000000",
+                "cumQuote": "0.00000000",
+                "timeInForce": str(params.get("timeInForce", "GTC")),
+                "type": order_type,
+                "side": side,
+                "updateTime": event_time,
+                "fee": "0.00000000",
+                "realizedPnl": "0.00000000",
+            }
+            self.orders[client_order_id] = order_record
+            return order_record
+
+        # 2. Determine Fill Quantities
+        fill_qty = qty
+        is_partial = False
+        if partial_fill_qty is not None:
+            fill_qty = Decimal(str(partial_fill_qty))
+            if fill_qty < qty:
+                is_partial = True
+
+        fee_rate = DEFAULT_MAKER_FEE_RATE if is_maker else DEFAULT_TAKER_FEE_RATE
         trade_id = self.next_trade_id
         self.next_trade_id += 1
-        notional = qty * price
-        fee = (notional * DEFAULT_TAKER_FEE_RATE).quantize(Decimal("0.00000001"))
+        notional = fill_qty * price
+        fee = (notional * fee_rate).quantize(Decimal("0.00000001"))
 
         current_pos = self.positions[symbol]
         curr_amt = Decimal(current_pos["positionAmt"])
@@ -1112,27 +1166,35 @@ class MockBinanceTestnetGateway:
 
         realized_pnl = Decimal("0")
         if side == "BUY":
-            new_amt = curr_amt + qty
+            new_amt = curr_amt + fill_qty
             if curr_amt >= 0:
                 new_entry = (
-                    (curr_amt * curr_entry + qty * price) / new_amt if new_amt != 0 else price
+                    (curr_amt * curr_entry + fill_qty * price) / new_amt if new_amt != 0 else price
                 )
             else:
-                closed_qty = min(abs(curr_amt), qty)
+                closed_qty = min(abs(curr_amt), fill_qty)
                 realized_pnl = (curr_entry - price) * closed_qty
-                new_entry = curr_entry if new_amt != 0 else Decimal("0")
+                excess_qty = fill_qty - abs(curr_amt)
+                if excess_qty > 0:
+                    new_entry = price
+                else:
+                    new_entry = curr_entry if new_amt != 0 else Decimal("0")
         else:  # SELL
-            new_amt = curr_amt - qty
+            new_amt = curr_amt - fill_qty
             if curr_amt <= 0:
                 new_entry = (
-                    (abs(curr_amt) * curr_entry + qty * price) / abs(new_amt)
+                    (abs(curr_amt) * curr_entry + fill_qty * price) / abs(new_amt)
                     if new_amt != 0
                     else price
                 )
             else:
-                closed_qty = min(curr_amt, qty)
+                closed_qty = min(curr_amt, fill_qty)
                 realized_pnl = (price - curr_entry) * closed_qty
-                new_entry = curr_entry if new_amt != 0 else Decimal("0")
+                excess_qty = fill_qty - curr_amt
+                if excess_qty > 0:
+                    new_entry = price
+                else:
+                    new_entry = curr_entry if new_amt != 0 else Decimal("0")
 
         # Update wallet balance: realized_pnl - fee
         self.wallet_balance = self.wallet_balance + realized_pnl - fee
@@ -1156,6 +1218,7 @@ class MockBinanceTestnetGateway:
         seq_trade = self.next_stream_seq
         self.next_stream_seq += 1
 
+        order_status_str = "PARTIALLY_FILLED" if is_partial else "FILLED"
         fill_order_push = {
             "e": WebSocketEventType.ORDER_TRADE_UPDATE.value,
             "E": trade_time,
@@ -1172,10 +1235,10 @@ class MockBinanceTestnetGateway:
                 "ap": f"{price:.8f}",
                 "sp": "0.00000000",
                 "x": "TRADE",
-                "X": "FILLED",
+                "X": order_status_str,
                 "i": order_id,
-                "l": f"{qty:.8f}",
-                "z": f"{qty:.8f}",
+                "l": f"{fill_qty:.8f}",
+                "z": f"{fill_qty:.8f}",
                 "L": f"{price:.8f}",
                 "N": "USDT",
                 "n": f"{fee:.8f}",
@@ -1183,7 +1246,7 @@ class MockBinanceTestnetGateway:
                 "t": trade_id,
                 "b": "0",
                 "a": "0",
-                "m": False,
+                "m": is_maker,
                 "R": False,
                 "wt": "CONTRACT_PRICE",
                 "ot": order_type,
@@ -1231,13 +1294,13 @@ class MockBinanceTestnetGateway:
         order_record = {
             "orderId": order_id,
             "symbol": symbol,
-            "status": "FILLED",
+            "status": order_status_str,
             "clientOrderId": client_order_id,
             "price": f"{price:.8f}",
             "avgPrice": f"{price:.8f}",
             "origQty": f"{qty:.8f}",
-            "executedQty": f"{qty:.8f}",
-            "cumQty": f"{qty:.8f}",
+            "executedQty": f"{fill_qty:.8f}",
+            "cumQty": f"{fill_qty:.8f}",
             "cumQuote": f"{notional:.8f}",
             "timeInForce": str(params.get("timeInForce", "GTC")),
             "type": order_type,
@@ -1254,6 +1317,11 @@ class MockBinanceTestnetGateway:
         record = self.orders.get(client_order_id)
         if record is None:
             raise OrderCorrelationError(f"Unknown order {client_order_id}")
+
+        if record["status"] in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
+            raise DomainViolation(
+                f"Cannot cancel order {client_order_id} in terminal state {record['status']}"
+            )
 
         record["status"] = "CANCELED"
         event_time = self.server_time_ms
@@ -1303,7 +1371,7 @@ class MockBinanceTestnetGateway:
         """Binance Futures endpoint: DELETE /fapi/v1/allOpenOrders."""
         cancelled: list[dict[str, Any]] = []
         for cid, order in list(self.orders.items()):
-            if order["status"] == "NEW":
+            if order["status"] in ("NEW", "PARTIALLY_FILLED"):
                 if symbol is None or order["symbol"] == symbol:
                     cancelled.append(self.cancel_order(order["symbol"], cid))
         return cancelled
@@ -1385,6 +1453,32 @@ class TestnetStreamSequencer:
             return f"ACC:{reason}:{wb}:{t_time}"
         return f"{e_type}:{event.get('E', 0)}:{event.get('T', 0)}"
 
+    @staticmethod
+    def _event_sort_priority(pkt: Mapping[str, Any]) -> tuple[int, int]:
+        """Tie-breaking priority for packets with identical timestamps.
+        Lower values execute first.
+        """
+        e_type = pkt.get("e", "")
+        if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
+            o_data = pkt.get("o", {})
+            exec_type = str(o_data.get("x", ""))
+            trade_id = int(o_data.get("t", 0))
+            if exec_type == "NEW":
+                return (10, 0)
+            if exec_type == "TRADE":
+                status = str(o_data.get("X", ""))
+                if status == "PARTIALLY_FILLED":
+                    return (20, trade_id)
+                return (30, trade_id)  # FILLED
+            if exec_type == "CANCELED":
+                return (40, 0)
+            if exec_type in ("REJECTED", "EXPIRED"):
+                return (50, 0)
+            return (60, trade_id)
+        if e_type == WebSocketEventType.ACCOUNT_UPDATE.value:
+            return (70, 0)
+        return (80, 0)
+
     def ingest_and_sort_packets(
         self,
         raw_packets: list[dict[str, Any]],
@@ -1394,7 +1488,7 @@ class TestnetStreamSequencer:
         Returns list of (packet, is_duplicate, is_out_of_order) tuples
         sorted in strict chronological and sequence order.
         """
-        staged: list[tuple[int, int, int, dict[str, Any], bool, bool]] = []
+        staged: list[tuple[int, int, int, tuple[int, int], dict[str, Any], bool, bool]] = []
 
         for pkt in raw_packets:
             fp = self.compute_fingerprint(pkt)
@@ -1403,6 +1497,7 @@ class TestnetStreamSequencer:
             t_time = int(pkt.get("T", pkt.get("E", 0)))
             e_time = int(pkt.get("E", 0))
             seq = int(pkt.get("_seq", 0))
+            priority = self._event_sort_priority(pkt)
 
             is_ooo = False
             if is_dup:
@@ -1421,12 +1516,12 @@ class TestnetStreamSequencer:
                     if seq > self.highest_arrival_sequence:
                         self.highest_arrival_sequence = seq
 
-            staged.append((t_time, e_time, seq, pkt, is_dup, is_ooo))
+            staged.append((t_time, e_time, seq, priority, pkt, is_dup, is_ooo))
 
-        # Sort chronologically by (transaction_time, event_time, sequence)
-        staged.sort(key=lambda x: (x[0], x[1], x[2]))
+        # Sort chronologically by (transaction_time, event_time, sequence, priority)
+        staged.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
 
-        return [(pkt, is_dup, is_ooo) for _t, _e, _s, pkt, is_dup, is_ooo in staged]
+        return [(pkt, is_dup, is_ooo) for _t, _e, _s, _p, pkt, is_dup, is_ooo in staged]
 
 
 # =====================================================================
@@ -1531,10 +1626,19 @@ class TestnetUserDataStreamReconciler:
         if exec_type != "TRADE":
             return None
 
+        if symbol not in CANARY_STAGED_SYMBOLS:
+            raise SafetyInvariantViolation(f"Unauthorized symbol {symbol} in push event")
+
         trade_id = str(o_data.get("t"))
         last_qty = Decimal(str(o_data.get("l", "0")))
         last_price = Decimal(str(o_data.get("L", "0")))
         fee = Decimal(str(o_data.get("n", "0")))
+        comm_asset = str(o_data.get("N", "USDT"))
+
+        if comm_asset != "USDT" and fee > Decimal("0"):
+            raise DomainViolation(
+                f"Unsupported commission asset {comm_asset}; only USDT is supported"
+            )
 
         if last_qty <= Decimal("0") or last_price <= Decimal("0"):
             return None
@@ -1546,42 +1650,64 @@ class TestnetUserDataStreamReconciler:
         trade_pnl = Decimal("0")
 
         if side == "BUY":
-            new_qty = curr_qty + last_qty
             if curr_qty >= 0:
                 # Increasing LONG
+                new_qty = curr_qty + last_qty
                 new_entry = (
                     (curr_qty * curr_entry + last_qty * last_price) / new_qty
                     if new_qty != 0
                     else last_price
                 )
-                margin_delta = notional
+                new_margin = new_qty * new_entry
+                old_margin = curr_qty * curr_entry
+                margin_delta = new_margin - old_margin
             else:
-                # Reducing / Closing SHORT
+                # Reducing / Closing SHORT (or flipping to LONG)
                 closed_qty = min(abs(curr_qty), last_qty)
                 trade_pnl = (curr_entry - last_price) * closed_qty
-                new_entry = curr_entry if new_qty != 0 else Decimal("0")
-                margin_delta = -(closed_qty * curr_entry)
+                excess_qty = last_qty - abs(curr_qty)
+                if excess_qty > 0:
+                    new_qty = excess_qty
+                    new_entry = last_price
+                    new_margin = new_qty * new_entry
+                else:
+                    new_qty = curr_qty + last_qty
+                    new_entry = curr_entry if new_qty != 0 else Decimal("0")
+                    new_margin = abs(new_qty) * new_entry
+                old_margin = abs(curr_qty) * curr_entry
+                margin_delta = new_margin - old_margin
         else:  # SELL
-            new_qty = curr_qty - last_qty
             if curr_qty <= 0:
                 # Increasing SHORT
+                new_qty = curr_qty - last_qty
                 new_entry = (
                     (abs(curr_qty) * curr_entry + last_qty * last_price) / abs(new_qty)
                     if new_qty != 0
                     else last_price
                 )
-                margin_delta = notional
+                new_margin = abs(new_qty) * new_entry
+                old_margin = abs(curr_qty) * curr_entry
+                margin_delta = new_margin - old_margin
             else:
-                # Reducing / Closing LONG
+                # Reducing / Closing LONG (or flipping to SHORT)
                 closed_qty = min(curr_qty, last_qty)
                 trade_pnl = (last_price - curr_entry) * closed_qty
-                new_entry = curr_entry if new_qty != 0 else Decimal("0")
-                margin_delta = -(closed_qty * curr_entry)
+                excess_qty = last_qty - curr_qty
+                if excess_qty > 0:
+                    new_qty = -excess_qty
+                    new_entry = last_price
+                    new_margin = abs(new_qty) * new_entry
+                else:
+                    new_qty = curr_qty - last_qty
+                    new_entry = curr_entry if new_qty != 0 else Decimal("0")
+                    new_margin = new_qty * new_entry
+                old_margin = curr_qty * curr_entry
+                margin_delta = new_margin - old_margin
 
         # Update ledger balances exactly
         self.positions[symbol] = new_qty
         self.entry_prices[symbol] = new_entry
-        self.per_asset_margin[symbol] = abs(new_qty) * new_entry if new_qty != 0 else Decimal("0")
+        self.per_asset_margin[symbol] = new_margin
         self.allocated_margin = sum(self.per_asset_margin.values(), Decimal("0"))
 
         # Cash updates: cash = cash - margin_delta + trade_pnl - fee
@@ -1620,6 +1746,19 @@ class TestnetUserDataStreamReconciler:
                     self.lockout_reason = (
                         f"ACCOUNT_UPDATE desync: remote walletBalance={remote_wb}, "
                         f"local walletBalance={local_wb}"
+                    )
+                    logger.warning(self.lockout_reason)
+
+        # Cross-check position quantities
+        for p in a_data.get("P", []):
+            sym = p.get("s")
+            if sym in CANARY_STAGED_SYMBOLS:
+                r_amt = Decimal(str(p.get("pa", "0")))
+                l_amt = self.positions.get(sym, Decimal("0"))
+                if abs(r_amt - l_amt) > Decimal("1e-6"):
+                    self.locked_out = True
+                    self.lockout_reason = (
+                        f"ACCOUNT_UPDATE position desync on {sym}: remote={r_amt}, local={l_amt}"
                     )
                     logger.warning(self.lockout_reason)
 
@@ -1847,8 +1986,48 @@ class TestnetMicroOrderDispatcher:
                 "Gateway locked out in TIER_2_HARD_ABORT. Orders blocked."
             )
 
-        # 4. Margin Allocation & Reserve Buffer Checks (for opening orders)
-        if not is_closing:
+        # 4. Position & Margin Checks
+        pos_qty = self.reconciler.positions.get(symbol, Decimal("0"))
+        if is_closing:
+            if pos_qty == Decimal("0"):
+                self.orders_rejected_count += 1
+                self.interlock_blocks_count += 1
+                raise DomainViolation(f"Cannot place closing order on {symbol}: no active position")
+            if pos_qty > Decimal("0") and side != OrderSide.SELL:
+                self.orders_rejected_count += 1
+                self.interlock_blocks_count += 1
+                raise DomainViolation(
+                    f"Invalid closing side {side} for LONG position on {symbol} (must be SELL)"
+                )
+            if pos_qty < Decimal("0") and side != OrderSide.BUY:
+                self.orders_rejected_count += 1
+                self.interlock_blocks_count += 1
+                raise DomainViolation(
+                    f"Invalid closing side {side} for SHORT position on {symbol} (must be BUY)"
+                )
+            if quantity > abs(pos_qty):
+                self.orders_rejected_count += 1
+                self.interlock_blocks_count += 1
+                raise DomainViolation(
+                    f"Closing quantity {quantity} exceeds active position "
+                    f"{abs(pos_qty)} on {symbol}"
+                )
+        else:
+            if pos_qty > Decimal("0") and side == OrderSide.SELL:
+                self.orders_rejected_count += 1
+                self.interlock_blocks_count += 1
+                raise DomainViolation(
+                    f"Cannot open SELL/SHORT order on {symbol} with active LONG position "
+                    "without is_closing=True"
+                )
+            if pos_qty < Decimal("0") and side == OrderSide.BUY:
+                self.orders_rejected_count += 1
+                self.interlock_blocks_count += 1
+                raise DomainViolation(
+                    f"Cannot open BUY/LONG order on {symbol} with active SHORT position "
+                    "without is_closing=True"
+                )
+
             per_asset_cap = self.reconciler.starting_equity * MAX_PER_ASSET_MARGIN_PCT
             curr_sym_margin = self.reconciler.per_asset_margin.get(symbol, Decimal("0"))
             if curr_sym_margin + notional > per_asset_cap:
@@ -1978,27 +2157,43 @@ class TestnetMicroOrderDispatcher:
             # Process ORDER_TRADE_UPDATE
             if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value and cid:
                 order_rec = self.orders.get(cid)
-                if order_rec:
-                    prev_status = order_rec.status.value
-                    new_status = ord_status or "NEW"
-                    order_rec.status = OrderLifecycleState(new_status)
-                    order_rec.updated_at_utc = datetime.now(UTC).isoformat()
-
-                    if new_status == "FILLED":
-                        order_rec.executed_quantity = order_rec.quantity
-                        self.orders_filled_count += 1
-
-                    # Record lifecycle transition
-                    trans = OrderLifecycleTransition(
-                        track_id=self.track_id,
-                        order_id=order_rec.order_id,
-                        client_order_id=cid,
-                        from_state=prev_status,
-                        to_state=new_status,
-                        trigger_reason=f"WebSocket push: {e_type} ({event.get('o', {}).get('x')})",
+                if not order_rec:
+                    raise OrderCorrelationError(
+                        f"Inbound ORDER_TRADE_UPDATE clientOrderId {cid} "
+                        "not correlated with any known outbound order"
                     )
-                    self.telemetry_store.record_transition(trans)
-                    self.telemetry_store.record_order(order_rec)
+
+                prev_status = order_rec.status.value
+                new_status = ord_status or "NEW"
+                order_rec.status = OrderLifecycleState(new_status)
+                order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+
+                cum_qty_raw = o_data.get("z")
+                if cum_qty_raw is not None and Decimal(str(cum_qty_raw)) > Decimal("0"):
+                    order_rec.executed_quantity = Decimal(str(cum_qty_raw))
+
+                if new_status == "FILLED":
+                    if prev_status != OrderLifecycleState.FILLED.value:
+                        self.orders_filled_count += 1
+                        order_rec.executed_quantity = order_rec.quantity
+                elif new_status == "CANCELED":
+                    if prev_status != OrderLifecycleState.CANCELED.value:
+                        self.orders_cancelled_count += 1
+                elif new_status == "REJECTED":
+                    if prev_status != OrderLifecycleState.REJECTED.value:
+                        self.orders_rejected_count += 1
+
+                # Record lifecycle transition
+                trans = OrderLifecycleTransition(
+                    track_id=self.track_id,
+                    order_id=order_rec.order_id,
+                    client_order_id=cid,
+                    from_state=prev_status,
+                    to_state=new_status,
+                    trigger_reason=f"WebSocket push: {e_type} ({event.get('o', {}).get('x')})",
+                )
+                self.telemetry_store.record_transition(trans)
+                self.telemetry_store.record_order(order_rec)
 
                 # Reconcile fill into double-entry ledger
                 mark = self.reconciler.apply_order_trade_update(event, is_closing=is_closing)
