@@ -16,6 +16,7 @@ Validates:
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 import time
 from datetime import UTC, datetime
@@ -920,3 +921,349 @@ def test_sqlite_telemetry_store_context_manager_and_thread_safety(tmp_path: Path
         ).fetchone()[0]
         assert orders_count == 20
         assert marks_count == 20
+
+
+def test_exact_double_entry_reconciliation_negative_pnl_partial_fills_and_flips():
+    """Verify zero balance drift (< 1e-15 USDT) across partial loss fills, marks, and flips."""
+    reconciler = MainnetUserDataStreamReconciler(
+        track_id="test_partial_pnl",
+        starting_equity=Decimal("100.00"),
+    )
+    assert reconciler.mathematical_drift == Decimal("0")
+
+    # 1. Open LONG: BUY 0.00008 BTC @ 60,000 (notional 4.80 USDT, fee 0.00192)
+    m1 = MainnetExecutionMark(
+        trade_id="tr-pnl-1",
+        track_id="test_partial_pnl",
+        order_id="ord-pnl-1",
+        client_order_id="c=canary-p280-BTCUSDT-1-pnl",
+        symbol="BTCUSDT",
+        side="BUY",
+        price="60000.00",
+        quantity="0.00008",
+        quote_quantity="4.80000000",
+        commission_usdt="0.00192000",
+        realized_pnl_usdt="0",
+        trade_time_ms=1000,
+        timestamp_utc=datetime.now(UTC).isoformat(),
+    )
+    reconciler.apply_trade_fill(m1)
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 2. Mark price moves down to 40,000 (unrealized loss of 1.60 USDT)
+    reconciler.mark_prices["BTCUSDT"] = Decimal("40000.00")
+    assert reconciler.unrealized_pnl == Decimal("-1.60000000")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 3. Partial close: SELL 0.00004 BTC @ 40,000 (realized loss of 0.80 USDT, fee 0.00064)
+    m2 = MainnetExecutionMark(
+        trade_id="tr-pnl-2",
+        track_id="test_partial_pnl",
+        order_id="ord-pnl-2",
+        client_order_id="c=canary-p280-BTCUSDT-2-pnl",
+        symbol="BTCUSDT",
+        side="SELL",
+        price="40000.00",
+        quantity="0.00004",
+        quote_quantity="1.60000000",
+        commission_usdt="0.00064000",
+        realized_pnl_usdt="-0.80000000",
+        trade_time_ms=2000,
+        timestamp_utc=datetime.now(UTC).isoformat(),
+    )
+    reconciler.apply_trade_fill(m2)
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00004")
+    assert reconciler.cumulative_realized_loss == Decimal("0.80000000")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 4. Mark price moves further down to 35,000
+    reconciler.mark_prices["BTCUSDT"] = Decimal("35000.00")
+    assert reconciler.unrealized_pnl == Decimal("-1.00000000")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 5. Full close remaining 0.00004 BTC @ 35,000 (realized loss of 1.00 USDT, fee 0.00056)
+    m3 = MainnetExecutionMark(
+        trade_id="tr-pnl-3",
+        track_id="test_partial_pnl",
+        order_id="ord-pnl-3",
+        client_order_id="c=canary-p280-BTCUSDT-3-pnl",
+        symbol="BTCUSDT",
+        side="SELL",
+        price="35000.00",
+        quantity="0.00004",
+        quote_quantity="1.40000000",
+        commission_usdt="0.00056000",
+        realized_pnl_usdt="-1.00000000",
+        trade_time_ms=3000,
+        timestamp_utc=datetime.now(UTC).isoformat(),
+    )
+    reconciler.apply_trade_fill(m3)
+    assert reconciler.positions["BTCUSDT"] == Decimal("0")
+    assert reconciler.allocated_margin == Decimal("0")
+    assert reconciler.unrealized_pnl == Decimal("0")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 6. Open SHORT: SELL 0.00005 BTC @ 60,000 (notional 3.00 USDT, fee 0.0012)
+    m4 = MainnetExecutionMark(
+        trade_id="tr-pnl-4",
+        track_id="test_partial_pnl",
+        order_id="ord-pnl-4",
+        client_order_id="c=canary-p280-BTCUSDT-4-pnl",
+        symbol="BTCUSDT",
+        side="SELL",
+        price="60000.00",
+        quantity="0.00005",
+        quote_quantity="3.00000000",
+        commission_usdt="0.00120000",
+        realized_pnl_usdt="0",
+        trade_time_ms=4000,
+        timestamp_utc=datetime.now(UTC).isoformat(),
+    )
+    reconciler.apply_trade_fill(m4)
+    assert reconciler.positions["BTCUSDT"] == Decimal("-0.00005")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 7. Position Flip: BUY 0.00008 BTC @ 55,000 (flips 0.00005 short to 0.00003 long)
+    m5 = MainnetExecutionMark(
+        trade_id="tr-pnl-5",
+        track_id="test_partial_pnl",
+        order_id="ord-pnl-5",
+        client_order_id="c=canary-p280-BTCUSDT-5-pnl",
+        symbol="BTCUSDT",
+        side="BUY",
+        price="55000.00",
+        quantity="0.00008",
+        quote_quantity="4.40000000",
+        commission_usdt="0.00176000",
+        realized_pnl_usdt="0.25000000",
+        trade_time_ms=5000,
+        timestamp_utc=datetime.now(UTC).isoformat(),
+    )
+    reconciler.apply_trade_fill(m5)
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00003")
+    assert reconciler.position_entry_prices["BTCUSDT"] == Decimal("55000.00")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 8. Close remaining 0.00003 BTC @ 55,000
+    m6 = MainnetExecutionMark(
+        trade_id="tr-pnl-6",
+        track_id="test_partial_pnl",
+        order_id="ord-pnl-6",
+        client_order_id="c=canary-p280-BTCUSDT-6-pnl",
+        symbol="BTCUSDT",
+        side="SELL",
+        price="55000.00",
+        quantity="0.00003",
+        quote_quantity="1.65000000",
+        commission_usdt="0.00066000",
+        realized_pnl_usdt="0",
+        trade_time_ms=6000,
+        timestamp_utc=datetime.now(UTC).isoformat(),
+    )
+    reconciler.apply_trade_fill(m6)
+    assert reconciler.positions["BTCUSDT"] == Decimal("0")
+    assert reconciler.allocated_margin == Decimal("0")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_interlock_boundary_conditions_exact_limits(temp_telemetry_store):
+    """Verify boundary behavior for 20% asset, 60% aggregate margin, and 40% reserve."""
+    reconciler = MainnetUserDataStreamReconciler(
+        track_id="test_limits", starting_equity=Decimal("100.00")
+    )
+    mon = GatewayHeartbeatMonitor()
+    mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000) - 20, latency_ms=20.0, track_id="test_limits"
+    )
+
+    mock_orders: dict[str, MainnetOrderRecord] = {}
+    interlock = MainnetOrderDispatchInterlock(
+        heartbeat_monitor=mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_limits",
+        ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+        orders_provider=lambda: mock_orders,
+    )
+
+    # 1. Exactly 20.00% per-asset margin is permitted (20.00 USDT on 100.00 equity)
+    # Add 3 working orders of 5.00 USDT on BTCUSDT = 15.00 USDT
+    for i in range(3):
+        mock_orders[f"ord-btc-work-{i}"] = MainnetOrderRecord(
+            order_id=f"ord-btc-work-{i}",
+            client_order_id=f"c=canary-p280-BTCUSDT-work-{i}",
+            track_id="test_limits",
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force="GTC",
+            price="1000.00",
+            quantity="0.005",  # 5.00 USDT
+            notional_usdt="5.00",
+            status=OrderLifecycleState.NEW,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+
+    # An order of 5.00 USDT brings BTCUSDT to exactly 20.00% (15.00 + 5.00 = 20.00 USDT)
+    cid_20 = generate_canary_client_order_id("BTCUSDT")
+    interlock.validate_dispatch(
+        symbol="BTCUSDT",
+        price=Decimal("1000.00"),
+        quantity=Decimal("0.005"),
+        client_order_id=cid_20,
+    )
+
+    # 2. 20.00000001% per-asset margin breaches ceiling
+    # Add 4th working order of 4.00 USDT -> total BTC working margin = 19.00 USDT
+    mock_orders["ord-btc-work-3"] = MainnetOrderRecord(
+        order_id="ord-btc-work-3",
+        client_order_id="c=canary-p280-BTCUSDT-work-3",
+        track_id="test_limits",
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side="BUY",
+        order_type="LIMIT",
+        time_in_force="GTC",
+        price="1000.00",
+        quantity="0.004",  # 4.00 USDT
+        notional_usdt="4.00",
+        status=OrderLifecycleState.NEW,
+        created_at_utc=datetime.now(UTC).isoformat(),
+        updated_at_utc=datetime.now(UTC).isoformat(),
+    )
+    # Order of 1.00000001 USDT brings BTC to 20.00000001 USDT > 20.00 USDT
+    cid_over_20 = generate_canary_client_order_id("BTCUSDT")
+    with pytest.raises(MarginAllocationExceededError) as exc_20:
+        interlock.validate_dispatch(
+            symbol="BTCUSDT",
+            price=Decimal("1000.00"),
+            quantity=Decimal("0.00100001"),
+            client_order_id=cid_over_20,
+        )
+    assert "breaches per-asset cap" in str(exc_20.value)
+
+    # 3. Aggregate margin ceiling (60% aggregate):
+    # Set up open positions on BTC (25 USDT), ETH (25 USDT), and SOL (9 USDT)
+    # Margin = 59.00 USDT. Cash = 40.00 USDT. Equity = 99.00 USDT. Max margin (60%) = 59.40 USDT.
+    r_agg = MainnetUserDataStreamReconciler(
+        track_id="test_agg_limits", starting_equity=Decimal("100.00")
+    )
+    r_agg.cash = Decimal("40.00")
+    r_agg.positions["BTCUSDT"] = Decimal("1")
+    r_agg.position_entry_prices["BTCUSDT"] = Decimal("25.00")
+    r_agg.mark_prices["BTCUSDT"] = Decimal("25.00")
+    r_agg.positions["ETHUSDT"] = Decimal("1")
+    r_agg.position_entry_prices["ETHUSDT"] = Decimal("25.00")
+    r_agg.mark_prices["ETHUSDT"] = Decimal("25.00")
+    r_agg.positions["SOLUSDT"] = Decimal("1")
+    r_agg.position_entry_prices["SOLUSDT"] = Decimal("9.00")
+    r_agg.mark_prices["SOLUSDT"] = Decimal("9.00")
+
+    ilk_agg = MainnetOrderDispatchInterlock(
+        heartbeat_monitor=mon,
+        reconciler=r_agg,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_agg_limits",
+        ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+    )
+
+    # An order of 1.00 USDT on SOL brings SOL to 10.00 USDT (well below 20% cap of 19.80 USDT),
+    # but aggregate margin to 60.00 USDT > 60% portfolio cap (59.40 USDT):
+    cid_sol_over = generate_canary_client_order_id("SOLUSDT")
+    with pytest.raises(MarginAllocationExceededError) as exc_agg:
+        ilk_agg.validate_dispatch(
+            symbol="SOLUSDT",
+            price=Decimal("9.00"),
+            quantity=Decimal("0.11111111"),
+            client_order_id=cid_sol_over,
+        )
+    assert "breaches portfolio cap" in str(exc_agg.value)
+
+
+def test_numerical_precision_sol_btc_scaling_and_round_down(temp_telemetry_store):
+    """Verify numerical precision across SOL, ETH, BTC scaling and ROUND_DOWN notional caps."""
+    reconciler = MainnetUserDataStreamReconciler(
+        track_id="test_scale", starting_equity=Decimal("100.00")
+    )
+    mon = GatewayHeartbeatMonitor()
+    mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000) - 20, latency_ms=20.0, track_id="test_scale"
+    )
+
+    interlock = MainnetOrderDispatchInterlock(
+        heartbeat_monitor=mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_scale",
+        ingress_stage=GraduatedIngressStage.STAGE_1_SEED_PROBE,
+    )
+
+    # 1. Stage 1 Seed Probe Cap (<= 1.00 USDT):
+    # SOL price 150.00: quantity 0.00666666 * 150.00 = 0.99999900 <= 1.00 USDT
+    cid_sol_seed = generate_canary_client_order_id("SOLUSDT")
+    interlock.validate_dispatch(
+        symbol="SOLUSDT",
+        price=Decimal("150.00"),
+        quantity=Decimal("0.00666666"),
+        client_order_id=cid_sol_seed,
+    )
+
+    # SOL price 150.00: quantity 0.00666667 * 150.00 = 1.00000050 > 1.00 USDT
+    with pytest.raises(SeedProbeCapExceededError):
+        interlock.validate_dispatch(
+            symbol="SOLUSDT",
+            price=Decimal("150.00"),
+            quantity=Decimal("0.00666667"),
+            client_order_id=cid_sol_seed,
+        )
+
+    # 2. Stage 2 Stepped Micro Cap (<= 5.00 USDT):
+    interlock.ingress_stage = GraduatedIngressStage.STAGE_2_STEPPED_MICRO
+
+    # SOL price 150.00: quantity 0.03333333 * 150.00 = 4.99999950 <= 5.00 USDT
+    cid_sol_micro = generate_canary_client_order_id("SOLUSDT")
+    interlock.validate_dispatch(
+        symbol="SOLUSDT",
+        price=Decimal("150.00"),
+        quantity=Decimal("0.03333333"),
+        client_order_id=cid_sol_micro,
+    )
+
+    # SOL price 150.00: quantity 0.03333334 * 150.00 = 5.00000100 > 5.00 USDT
+    with pytest.raises(NotionalCapExceededError):
+        interlock.validate_dispatch(
+            symbol="SOLUSDT",
+            price=Decimal("150.00"),
+            quantity=Decimal("0.03333334"),
+            client_order_id=cid_sol_micro,
+        )
+
+
+def test_all_database_balance_snapshots_zero_drift(tmp_path: Path):
+    """Verify 100% of balance snapshots recorded in SQLite across all tracks have drift < 1e-15."""
+    cfg = CanaryMainnetDeploymentConfig(
+        output_dir=tmp_path / "all_snap_test",
+        track="all",
+    )
+    runner = CanaryMainnetDeploymentRunner(cfg)
+    report = runner.execute_all_tracks()
+    assert report.compliance["all_criteria_passed"] is True
+    assert report.compliance["zero_balance_drift"] is True
+
+    db_path = tmp_path / "all_snap_test" / "canary-mainnet-deployment-telemetry.sqlite3"
+    with sqlite3.connect(db_path) as conn:
+        snapshots = conn.execute(
+            "SELECT snapshot_id, track_id, cash_usdt, allocated_margin_usdt, "
+            "unrealized_pnl_usdt, realized_pnl_usdt, equity_usdt, drift_usdt "
+            "FROM balance_snapshots"
+        ).fetchall()
+        assert len(snapshots) >= 15
+        for snap_id, tid, cash, margin, upnl, rpnl, eq, drift in snapshots:
+            drift_dec = Decimal(str(drift))
+            assert drift_dec < DOUBLE_ENTRY_MAX_DRIFT, (
+                f"Snapshot {snap_id} ({tid}) breached drift limit: drift={drift_dec} USDT, "
+                f"cash={cash}, margin={margin}, upnl={upnl}, rpnl={rpnl}, equity={eq}"
+            )

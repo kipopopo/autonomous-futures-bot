@@ -1301,19 +1301,16 @@ class MainnetUserDataStreamReconciler:
             tot = Decimal("0")
             for sym, pos in self.positions.items():
                 if pos != Decimal("0"):
-                    px = self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
-                    tot += abs(pos) * px
-            return tot.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                    entry = self.position_entry_prices.get(sym, Decimal("0"))
+                    tot += abs(pos) * entry
+            return tot
 
     @property
     def per_asset_margin(self) -> dict[str, Decimal]:
         """Margin committed per asset."""
         with self._lock:
             return {
-                sym: (
-                    abs(self.positions[sym])
-                    * self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
-                ).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                sym: abs(self.positions[sym]) * self.position_entry_prices.get(sym, Decimal("0"))
                 for sym in CANARY_STAGED_SYMBOLS
             }
 
@@ -1327,7 +1324,7 @@ class MainnetUserDataStreamReconciler:
                     px = self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
                     entry = self.position_entry_prices[sym]
                     pnl += pos * (px - entry)
-            return pnl.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+            return pnl
 
     @property
     def total_equity(self) -> Decimal:
@@ -1340,7 +1337,7 @@ class MainnetUserDataStreamReconciler:
         """Mathematical double-entry balance reconciliation drift."""
         with self._lock:
             left = self.cash + self.allocated_margin + self.unrealized_pnl
-            right = self.starting_equity + self.realized_pnl
+            right = self.starting_equity + self.realized_pnl + self.unrealized_pnl
             return abs(left - right)
 
     def apply_trade_fill(self, mark: MainnetExecutionMark) -> None:
@@ -1373,9 +1370,7 @@ class MainnetUserDataStreamReconciler:
                         tot_notional = (current_pos * self.position_entry_prices[sym]) + (
                             qty * price
                         )
-                        self.position_entry_prices[sym] = (tot_notional / new_pos).quantize(
-                            Decimal("0.00000001"), rounding=ROUND_DOWN
-                        )
+                        self.position_entry_prices[sym] = tot_notional / new_pos
                     self.positions[sym] = new_pos
                     self.cash -= notional + fee
                     self.realized_pnl -= fee
@@ -1387,10 +1382,16 @@ class MainnetUserDataStreamReconciler:
                     if short_pnl < Decimal("0"):
                         self.cumulative_realized_loss += abs(short_pnl)
                     self.cash += (closing_qty * self.position_entry_prices[sym]) + short_pnl - fee
-                    new_pos = current_pos + qty
-                    self.positions[sym] = new_pos
-                    if new_pos == Decimal("0"):
-                        self.position_entry_prices[sym] = Decimal("0")
+                    excess_qty = qty - abs(current_pos)
+                    if excess_qty > Decimal("0"):
+                        self.positions[sym] = excess_qty
+                        self.position_entry_prices[sym] = price
+                        self.cash -= excess_qty * price
+                    else:
+                        new_pos = current_pos + qty
+                        self.positions[sym] = new_pos
+                        if new_pos == Decimal("0"):
+                            self.position_entry_prices[sym] = Decimal("0")
             else:
                 # SELL
                 if current_pos > Decimal("0"):
@@ -1401,10 +1402,16 @@ class MainnetUserDataStreamReconciler:
                     if long_pnl < Decimal("0"):
                         self.cumulative_realized_loss += abs(long_pnl)
                     self.cash += (closing_qty * self.position_entry_prices[sym]) + long_pnl - fee
-                    new_pos = current_pos - qty
-                    self.positions[sym] = new_pos
-                    if new_pos == Decimal("0"):
-                        self.position_entry_prices[sym] = Decimal("0")
+                    excess_qty = qty - current_pos
+                    if excess_qty > Decimal("0"):
+                        self.positions[sym] = -excess_qty
+                        self.position_entry_prices[sym] = price
+                        self.cash -= excess_qty * price
+                    else:
+                        new_pos = current_pos - qty
+                        self.positions[sym] = new_pos
+                        if new_pos == Decimal("0"):
+                            self.position_entry_prices[sym] = Decimal("0")
                 else:
                     # Opening or increasing short position
                     new_pos = current_pos - qty
@@ -1412,9 +1419,7 @@ class MainnetUserDataStreamReconciler:
                         tot_notional = (abs(current_pos) * self.position_entry_prices[sym]) + (
                             qty * price
                         )
-                        self.position_entry_prices[sym] = (tot_notional / abs(new_pos)).quantize(
-                            Decimal("0.00000001"), rounding=ROUND_DOWN
-                        )
+                        self.position_entry_prices[sym] = tot_notional / abs(new_pos)
                     self.positions[sym] = new_pos
                     self.cash -= notional + fee
                     self.realized_pnl -= fee
@@ -1460,6 +1465,9 @@ class MainnetUserDataStreamReconciler:
                                     sequencer.processed_fingerprints.add(fp)
 
                             price = Decimal(str(remote.get("price", ord_rec.price)))
+                            ord_px_dec = Decimal(ord_rec.price)
+                            if price != ord_px_dec:
+                                self.total_slippage += abs(price - ord_px_dec) * delta_qty
                             fee_rate = (
                                 DEFAULT_MAKER_FEE_RATE
                                 if remote.get("isMaker")
@@ -1866,8 +1874,8 @@ class MainnetOrderDispatchInterlock:
         self,
         heartbeat_monitor: GatewayHeartbeatMonitor,
         reconciler: MainnetUserDataStreamReconciler,
-        telemetry_store: SqliteCanaryMainnetDeploymentTelemetryStore,
-        track_id: str,
+        telemetry_store: SqliteCanaryMainnetDeploymentTelemetryStore | None = None,
+        track_id: str = "mainnet_deployment",
         circuit_state: CircuitBreakerState = CircuitBreakerState.NORMAL,
         ingress_stage: GraduatedIngressStage = GraduatedIngressStage.STAGE_1_SEED_PROBE,
         intra_phase_loss_ceiling_usdt: Decimal = INTRA_PHASE_LOSS_CEILING_USDT,
@@ -2199,7 +2207,8 @@ class MainnetOrderDispatchInterlock:
             details_json=json.dumps(details, sort_keys=True),
             timestamp_utc=datetime.now(UTC).isoformat(),
         )
-        self.telemetry_store.record_interlock_event(ev)
+        if self.telemetry_store is not None:
+            self.telemetry_store.record_interlock_event(ev)
 
 
 # =====================================================================
@@ -2466,6 +2475,13 @@ class MainnetMicroOrderDispatcher:
                         )
                         self.telemetry_store.record_execution_mark(mark)
                         self.reconciler.apply_trade_fill(mark)
+
+                        fill_px_dec = Decimal(fill_px)
+                        ord_px_dec = Decimal(order_rec.price)
+                        if fill_px_dec != ord_px_dec:
+                            self.reconciler.total_slippage += (
+                                abs(fill_px_dec - ord_px_dec) * delta_qty
+                            )
 
                         order_rec.executed_quantity = str(cum_z)
                         self.sequencer.record_order_fill(cid, cum_z)
@@ -2831,7 +2847,23 @@ class CanaryMainnetDeploymentRunner:
         total_fees = sum((Decimal(t.total_fees_usdt) for t in track_results), Decimal("0"))
         total_slippage = sum((Decimal(t.total_slippage_usdt) for t in track_results), Decimal("0"))
 
-        all_zero_drift = all(t.zero_balance_drift for t in track_results)
+        # Verify all snapshots in SQLite database have zero drift (< DOUBLE_ENTRY_MAX_DRIFT)
+        all_snapshots_zero_drift = True
+        try:
+            with sqlite3.connect(db_path) as s_conn:
+                snap_rows = s_conn.execute("SELECT drift_usdt FROM balance_snapshots").fetchall()
+                for (s_drift_str,) in snap_rows:
+                    if Decimal(s_drift_str) >= DOUBLE_ENTRY_MAX_DRIFT:
+                        all_snapshots_zero_drift = False
+                        break
+        except Exception:
+            all_snapshots_zero_drift = False
+
+        all_zero_drift = (
+            all(t.zero_balance_drift for t in track_results)
+            and all_snapshots_zero_drift
+            and not self.config.simulate_adverse_drift
+        )
         all_tracks_success = all(t.success for t in track_results)
 
         compliance = {
