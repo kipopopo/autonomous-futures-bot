@@ -1318,6 +1318,11 @@ class MockBinanceTestnetGateway:
         if record is None:
             raise OrderCorrelationError(f"Unknown order {client_order_id}")
 
+        if record["symbol"] != symbol:
+            raise OrderCorrelationError(
+                f"Order {client_order_id} belongs to symbol {record['symbol']}, not {symbol}"
+            )
+
         if record["status"] in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
             raise DomainViolation(
                 f"Cannot cancel order {client_order_id} in terminal state {record['status']}"
@@ -1375,6 +1380,217 @@ class MockBinanceTestnetGateway:
                 if symbol is None or order["symbol"] == symbol:
                     cancelled.append(self.cancel_order(order["symbol"], cid))
         return cancelled
+
+    def get_open_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        """Binance Futures endpoint: GET /fapi/v1/openOrders."""
+        results: list[dict[str, Any]] = []
+        for order in self.orders.values():
+            if order["status"] in ("NEW", "PARTIALLY_FILLED"):
+                if symbol is None or order["symbol"] == symbol:
+                    results.append(dict(order))
+        return results
+
+    def get_order(self, symbol: str, client_order_id: str) -> dict[str, Any]:
+        """Binance Futures endpoint: GET /fapi/v1/order."""
+        record = self.orders.get(client_order_id)
+        if record is None:
+            raise OrderCorrelationError(f"Order {client_order_id} not found")
+        if record["symbol"] != symbol:
+            raise OrderCorrelationError(
+                f"Order {client_order_id} belongs to symbol {record['symbol']}, not {symbol}"
+            )
+        return dict(record)
+
+    def fill_order(
+        self,
+        client_order_id: str,
+        fill_qty: Decimal | None = None,
+        fill_price: Decimal | None = None,
+        is_maker: bool = False,
+    ) -> dict[str, Any]:
+        """Execute a fill (full or partial) against an existing open order."""
+        record = self.orders.get(client_order_id)
+        if record is None:
+            raise OrderCorrelationError(f"Unknown order {client_order_id}")
+        if record["status"] in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
+            raise DomainViolation(
+                f"Cannot fill order {client_order_id} in terminal state {record['status']}"
+            )
+
+        symbol = record["symbol"]
+        side = record["side"]
+        order_type = record["type"]
+        orig_qty = Decimal(record["origQty"])
+        executed_qty = Decimal(record["executedQty"])
+        remaining_qty = orig_qty - executed_qty
+
+        if fill_qty is None or fill_qty >= remaining_qty:
+            actual_fill = remaining_qty
+            new_status = "FILLED"
+        else:
+            actual_fill = fill_qty
+            new_status = "PARTIALLY_FILLED"
+
+        price = fill_price if fill_price is not None else Decimal(record["price"])
+        fee_rate = DEFAULT_MAKER_FEE_RATE if is_maker else DEFAULT_TAKER_FEE_RATE
+        trade_id = self.next_trade_id
+        self.next_trade_id += 1
+        notional = actual_fill * price
+        fee = (notional * fee_rate).quantize(Decimal("0.00000001"))
+
+        current_pos = self.positions[symbol]
+        curr_amt = Decimal(current_pos["positionAmt"])
+        curr_entry = Decimal(current_pos["entryPrice"])
+
+        realized_pnl = Decimal("0")
+        if side == "BUY":
+            new_amt = curr_amt + actual_fill
+            if curr_amt >= 0:
+                new_entry = (
+                    (curr_amt * curr_entry + actual_fill * price) / new_amt
+                    if new_amt != 0
+                    else price
+                )
+            else:
+                closed_qty = min(abs(curr_amt), actual_fill)
+                realized_pnl = (curr_entry - price) * closed_qty
+                excess_qty = actual_fill - abs(curr_amt)
+                if excess_qty > 0:
+                    new_entry = price
+                else:
+                    new_entry = curr_entry if new_amt != 0 else Decimal("0")
+        else:  # SELL
+            new_amt = curr_amt - actual_fill
+            if curr_amt <= 0:
+                new_entry = (
+                    (abs(curr_amt) * curr_entry + actual_fill * price) / abs(new_amt)
+                    if new_amt != 0
+                    else price
+                )
+            else:
+                closed_qty = min(curr_amt, actual_fill)
+                realized_pnl = (price - curr_entry) * closed_qty
+                excess_qty = actual_fill - curr_amt
+                if excess_qty > 0:
+                    new_entry = price
+                else:
+                    new_entry = curr_entry if new_amt != 0 else Decimal("0")
+
+        self.wallet_balance = self.wallet_balance + realized_pnl - fee
+        current_pos["positionAmt"] = f"{new_amt:.8f}"
+        current_pos["entryPrice"] = f"{new_entry:.8f}"
+        current_pos["positionInitialMargin"] = f"{abs(new_amt) * new_entry:.8f}"
+
+        mark = Decimal(current_pos["markPrice"])
+        if new_amt > 0:
+            u_pnl = (mark - new_entry) * new_amt
+        elif new_amt < 0:
+            u_pnl = (new_entry - mark) * abs(new_amt)
+        else:
+            u_pnl = Decimal("0")
+            current_pos["positionInitialMargin"] = "0.00000000"
+            current_pos["entryPrice"] = "0.0"
+        current_pos["unRealizedProfit"] = f"{u_pnl:.8f}"
+
+        trade_time = self.server_time_ms + 1
+        seq_trade = self.next_stream_seq
+        self.next_stream_seq += 1
+
+        new_cum_qty = executed_qty + actual_fill
+        record["status"] = new_status
+        record["executedQty"] = f"{new_cum_qty:.8f}"
+        record["cumQty"] = f"{new_cum_qty:.8f}"
+        record["cumQuote"] = f"{Decimal(record['cumQuote']) + notional:.8f}"
+        record["avgPrice"] = f"{price:.8f}"
+        record["fee"] = f"{Decimal(record['fee']) + fee:.8f}"
+        record["realizedPnl"] = f"{Decimal(record['realizedPnl']) + realized_pnl:.8f}"
+        record["updateTime"] = trade_time
+
+        fill_order_push = {
+            "e": WebSocketEventType.ORDER_TRADE_UPDATE.value,
+            "E": trade_time,
+            "T": trade_time,
+            "_seq": seq_trade,
+            "o": {
+                "s": symbol,
+                "c": client_order_id,
+                "S": side,
+                "o": order_type,
+                "f": record["timeInForce"],
+                "q": record["origQty"],
+                "p": record["price"],
+                "ap": f"{price:.8f}",
+                "sp": "0.00000000",
+                "x": "TRADE",
+                "X": new_status,
+                "i": record["orderId"],
+                "l": f"{actual_fill:.8f}",
+                "z": f"{new_cum_qty:.8f}",
+                "L": f"{price:.8f}",
+                "N": "USDT",
+                "n": f"{fee:.8f}",
+                "T": trade_time,
+                "t": trade_id,
+                "b": "0",
+                "a": "0",
+                "m": is_maker,
+                "R": False,
+                "wt": "CONTRACT_PRICE",
+                "ot": order_type,
+                "ps": "BOTH",
+                "cp": False,
+                "rp": f"{realized_pnl:.8f}",
+            },
+        }
+        self.stream_event_queue.append(fill_order_push)
+
+        seq_acc = self.next_stream_seq
+        self.next_stream_seq += 1
+        account_push = {
+            "e": WebSocketEventType.ACCOUNT_UPDATE.value,
+            "E": trade_time,
+            "T": trade_time,
+            "_seq": seq_acc,
+            "a": {
+                "m": "ORDER",
+                "B": [
+                    {
+                        "a": "USDT",
+                        "wb": f"{self.wallet_balance:.8f}",
+                        "cw": f"{self.wallet_balance:.8f}",
+                        "bc": "0",
+                    }
+                ],
+                "P": [
+                    {
+                        "s": symbol,
+                        "pa": current_pos["positionAmt"],
+                        "ep": current_pos["entryPrice"],
+                        "cr": "0.00000000",
+                        "up": current_pos["unRealizedProfit"],
+                        "mt": "cross",
+                        "iw": "0",
+                        "ps": "BOTH",
+                    }
+                ],
+            },
+        }
+        self.stream_event_queue.append(account_push)
+
+        return record
+
+    def emit_listen_key_expired(self) -> None:
+        """Simulate Binance user data stream listenKeyExpired push event."""
+        event_time = self.server_time_ms
+        seq = self.next_stream_seq
+        self.next_stream_seq += 1
+        pkt = {
+            "e": "listenKeyExpired",
+            "E": event_time,
+            "T": event_time,
+            "_seq": seq,
+        }
+        self.stream_event_queue.append(pkt)
 
     def poll_stream_events(self) -> list[dict[str, Any]]:
         """Retrieve pending push events from the simulated WebSocket stream.
@@ -1451,6 +1667,8 @@ class TestnetStreamSequencer:
                 if b.get("a") == "USDT":
                     wb = b.get("wb", "")
             return f"ACC:{reason}:{wb}:{t_time}"
+        if e_type in (WebSocketEventType.LISTEN_KEY_EXPIRED.value, "listenKeyExpired"):
+            return f"LKE:{event.get('E', 0)}:{event.get('T', 0)}"
         return f"{e_type}:{event.get('E', 0)}:{event.get('T', 0)}"
 
     @staticmethod
@@ -1459,6 +1677,8 @@ class TestnetStreamSequencer:
         Lower values execute first.
         """
         e_type = pkt.get("e", "")
+        if e_type in (WebSocketEventType.LISTEN_KEY_EXPIRED.value, "listenKeyExpired"):
+            return (5, 0)
         if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
             o_data = pkt.get("o", {})
             exec_type = str(o_data.get("x", ""))
@@ -1592,6 +1812,8 @@ class TestnetUserDataStreamReconciler:
 
     def update_mark_price(self, symbol: str, price: Decimal) -> None:
         """Update mark price and recalculate internal unrealized PnL."""
+        if symbol not in CANARY_STAGED_SYMBOLS:
+            raise SafetyInvariantViolation(f"Unauthorized symbol {symbol} for mark price update")
         if not price.is_finite() or price <= Decimal("0"):
             raise DomainViolation(f"Mark price {price} for {symbol} must be strictly positive")
         self.mark_prices[symbol] = price
@@ -1890,6 +2112,18 @@ class TestnetListenKeyManager:
         self.telemetry_store.record_listen_key_event(evt)
         return new_key
 
+    def refresh_or_reconnect(self) -> tuple[str, bool]:
+        """Attempt keep-alive refresh; if key has expired, execute stream reconnect hysteresis.
+
+        Returns (active_key, was_reconnected) tuple.
+        """
+        try:
+            self.refresh_key()
+            return (self.current_listen_key or "", False)
+        except ListenKeyExpiredError:
+            new_key = self.reconnect_stream()
+            return (new_key, True)
+
 
 # =====================================================================
 # Micro-Execution Order Dispatcher & Fail-Closed Incident Harness
@@ -1919,6 +2153,7 @@ class TestnetMicroOrderDispatcher:
         jsonl_sink: JsonlCanaryOrderSink,
         circuit_breaker: CanaryCircuitBreakerRecoveryStateMachine,
         track_id: str,
+        key_mgr: TestnetListenKeyManager | None = None,
     ) -> None:
         self.gateway = gateway
         self.reconciler = reconciler
@@ -1927,6 +2162,7 @@ class TestnetMicroOrderDispatcher:
         self.jsonl_sink = jsonl_sink
         self.circuit_breaker = circuit_breaker
         self.track_id = track_id
+        self.key_mgr = key_mgr
 
         self.orders: dict[str, TestnetOrderRecord] = {}
         self.orders_placed_count: int = 0
@@ -1945,6 +2181,9 @@ class TestnetMicroOrderDispatcher:
         quantity: Decimal,
         price: Decimal,
         is_closing: bool = False,
+        auto_fill: bool = True,
+        is_maker: bool = False,
+        partial_fill_qty: Decimal | None = None,
     ) -> TestnetOrderRecord:
         """Route micro canary order through Phase 278 interlocks and correlate push events."""
         # 1. Parameter Validation
@@ -2104,6 +2343,9 @@ class TestnetMicroOrderDispatcher:
             "quantity": str(quantity),
             "price": str(price),
             "newClientOrderId": client_order_id,
+            "auto_fill": auto_fill,
+            "is_maker": is_maker,
+            "partial_fill_qty": str(partial_fill_qty) if partial_fill_qty is not None else None,
         }
         self.gateway.place_order(params)
 
@@ -2111,6 +2353,61 @@ class TestnetMicroOrderDispatcher:
         self.process_inbound_stream_events(is_closing=is_closing)
 
         return self.orders[client_order_id]
+
+    def cancel_micro_order(self, symbol: str, client_order_id: str) -> TestnetOrderRecord:
+        """Cancel an individual in-flight micro-order and process resulting cancellation events."""
+        order_rec = self.orders.get(client_order_id)
+        if order_rec is None:
+            raise OrderCorrelationError(f"Cannot cancel unknown order {client_order_id}")
+        self.gateway.cancel_order(symbol=symbol, client_order_id=client_order_id)
+        self.process_inbound_stream_events(is_closing=order_rec.is_closing)
+        return order_rec
+
+    def sync_orders_via_rest(self) -> list[TestnetOrderRecord]:
+        """Synchronize open order lifecycle states against exchange REST endpoints.
+
+        Useful after stream reconnects to reconcile in-flight orders whose WebSocket
+        push events may have been dropped during network partitions.
+        """
+        open_orders = {
+            ord_data["clientOrderId"]: ord_data for ord_data in self.gateway.get_open_orders()
+        }
+        updated: list[TestnetOrderRecord] = []
+
+        for cid, order_rec in self.orders.items():
+            if order_rec.status in (
+                OrderLifecycleState.PENDING_DISPATCH,
+                OrderLifecycleState.NEW,
+                OrderLifecycleState.PARTIALLY_FILLED,
+            ):
+                if cid in open_orders:
+                    remote = open_orders[cid]
+                    rem_status = remote["status"]
+                    rem_exec_qty = Decimal(remote["executedQty"])
+                    if (
+                        rem_status != order_rec.status.value
+                        or rem_exec_qty != order_rec.executed_quantity
+                    ):
+                        order_rec.status = OrderLifecycleState(rem_status)
+                        order_rec.executed_quantity = rem_exec_qty
+                        order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        updated.append(order_rec)
+                else:
+                    try:
+                        remote = self.gateway.get_order(order_rec.symbol, cid)
+                        rem_status = remote["status"]
+                        rem_exec_qty = Decimal(remote["executedQty"])
+                        order_rec.status = OrderLifecycleState(rem_status)
+                        order_rec.executed_quantity = rem_exec_qty
+                        order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        if rem_status == "FILLED":
+                            self.orders_filled_count += 1
+                        elif rem_status == "CANCELED":
+                            self.orders_cancelled_count += 1
+                        updated.append(order_rec)
+                    except Exception:
+                        pass
+        return updated
 
     def process_inbound_stream_events(self, is_closing: bool = False) -> None:
         """Poll raw push events from stream, sequence, deduplicate, and reconcile."""
@@ -2179,6 +2476,18 @@ class TestnetMicroOrderDispatcher:
                 elif new_status == "CANCELED":
                     if prev_status != OrderLifecycleState.CANCELED.value:
                         self.orders_cancelled_count += 1
+                        self.jsonl_sink.write_record(
+                            {
+                                "event": "ORDER_CANCELED",
+                                "track_id": self.track_id,
+                                "order_id": order_rec.order_id,
+                                "client_order_id": cid,
+                                "symbol": order_rec.symbol,
+                                "side": order_rec.side.value,
+                                "executed_quantity": str(order_rec.executed_quantity),
+                                "timestamp_utc": order_rec.updated_at_utc,
+                            }
+                        )
                 elif new_status == "REJECTED":
                     if prev_status != OrderLifecycleState.REJECTED.value:
                         self.orders_rejected_count += 1
@@ -2220,6 +2529,11 @@ class TestnetMicroOrderDispatcher:
             elif e_type == WebSocketEventType.ACCOUNT_UPDATE.value:
                 self.reconciler.apply_account_update(event)
 
+            # Process LISTEN_KEY_EXPIRED
+            elif e_type in (WebSocketEventType.LISTEN_KEY_EXPIRED.value, "listenKeyExpired"):
+                if self.key_mgr is not None:
+                    self.key_mgr.reconnect_stream()
+
         # Snapshot balance after event batch
         snap = TestnetBalanceSnapshot(
             track_id=self.track_id,
@@ -2240,23 +2554,43 @@ class TestnetMicroOrderDispatcher:
 
         flattening_orders: list[TestnetOrderRecord] = []
 
-        # 2. Market liquidate all open positions
+        # 2. Market liquidate all open positions in slices <= HARD_NOTIONAL_CAP_USDT
         for sym, qty in list(self.reconciler.positions.items()):
-            if qty != Decimal("0"):
-                close_side = OrderSide.SELL if qty > 0 else OrderSide.BUY
-                close_qty = abs(qty)
-                mark_price = self.reconciler.mark_prices.get(sym, Decimal("60000.00"))
+            rem_qty = abs(qty)
+            if rem_qty <= Decimal("0"):
+                continue
+
+            close_side = OrderSide.SELL if qty > 0 else OrderSide.BUY
+            mark_price = self.reconciler.mark_prices.get(
+                sym, DEFAULT_REFERENCE_PRICES.get(sym, Decimal("60000.00"))
+            )
+            max_chunk_qty = (HARD_NOTIONAL_CAP_USDT / mark_price).quantize(Decimal("0.00000001"))
+            if max_chunk_qty <= Decimal("0"):
+                max_chunk_qty = Decimal("0.00000001")
+
+            while rem_qty > Decimal("0"):
+                chunk = min(rem_qty, max_chunk_qty)
+                if chunk * mark_price > HARD_NOTIONAL_CAP_USDT and chunk > Decimal("0.00000001"):
+                    chunk = (HARD_NOTIONAL_CAP_USDT / mark_price).quantize(Decimal("0.00000001"))
+                chunk = min(chunk, rem_qty)
+                if chunk <= Decimal("0"):
+                    break
 
                 order = self.dispatch_micro_order(
                     candidate_id=f"flatten-{sym.lower()}",
                     symbol=sym,
                     side=close_side,
                     order_type=OrderType.MARKET,
-                    quantity=close_qty,
+                    quantity=chunk,
                     price=mark_price,
                     is_closing=True,
                 )
                 flattening_orders.append(order)
+                curr_pos = abs(self.reconciler.positions.get(sym, Decimal("0")))
+                if curr_pos < rem_qty:
+                    rem_qty = curr_pos
+                else:
+                    rem_qty -= chunk
 
         # 3. Assert all positions flat
         for sym, qty in self.reconciler.positions.items():
@@ -2377,6 +2711,7 @@ class CanaryTestnetRunner:
             jsonl_sink=self.active_sink,
             circuit_breaker=sm,
             track_id=CanaryTestnetTrackId.TRACK_1.value,
+            key_mgr=key_mgr,
         )
 
         # 1. Acquire ListenKey
@@ -2499,6 +2834,7 @@ class CanaryTestnetRunner:
             jsonl_sink=self.active_sink,
             circuit_breaker=sm,
             track_id=CanaryTestnetTrackId.TRACK_2.value,
+            key_mgr=key_mgr,
         )
 
         # 1. Initial ListenKey Acquisition
@@ -2631,6 +2967,7 @@ class CanaryTestnetRunner:
             jsonl_sink=self.active_sink,
             circuit_breaker=sm,
             track_id=CanaryTestnetTrackId.TRACK_3.value,
+            key_mgr=key_mgr,
         )
 
         # 1. Acquire ListenKey
@@ -2752,6 +3089,7 @@ class CanaryTestnetRunner:
             jsonl_sink=self.active_sink,
             circuit_breaker=sm,
             track_id=CanaryTestnetTrackId.TRACK_4.value,
+            key_mgr=key_mgr,
         )
 
         # 1. Acquire ListenKey
