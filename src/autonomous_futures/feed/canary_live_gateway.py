@@ -20,8 +20,6 @@ from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid4
 
-_T = TypeVar("_T")
-
 from pydantic import Field
 
 from autonomous_futures.domain.contracts import DomainModel
@@ -78,6 +76,7 @@ from autonomous_futures.paper.staging import (
 )
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 # =====================================================================
 # Canonical Constants & Thresholds (Phase 277)
