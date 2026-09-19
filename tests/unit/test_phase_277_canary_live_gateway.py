@@ -48,6 +48,7 @@ from autonomous_futures.feed.canary_live_gateway import (  # noqa: E402
     CanaryLiveGatewayError,
     CanaryLiveGatewayRunner,
     CanaryLiveOrderDispatcher,
+    ExchangeRateLimitError,
     GatewayBalanceSnapshot,
     GatewayErrorRecord,
     GatewayLockoutError,
@@ -56,9 +57,11 @@ from autonomous_futures.feed.canary_live_gateway import (  # noqa: E402
     JsonlCanaryOrderSink,
     LiveGatewayAccountReconciler,
     MockBinanceFuturesGateway,
+    NetworkTimeoutError,
     OrderLifecycleState,
     PrerequisiteQualificationError,
     SqliteCanaryLiveGatewayTelemetryStore,
+    UnknownOrderStatusError,
     verify_phase_277_hash_chain,
     verify_upstream_phase276_qualification,
 )
@@ -1304,4 +1307,522 @@ class TestHardenedGatewayVerification:
         assert "cross_asset_margin_utilization" in evt.details
         assert "per_asset_margin" in evt.details
         assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+        store.close()
+
+    def test_mark_price_fluctuation_reconciliation_zero_drift(
+        self,
+        tmp_path: Path,
+        safe_key_vault: SecureExchangeKeyVault,
+        sample_certificate: CanaryActivationCertificate,
+    ) -> None:
+        """Verify exchange mark price changes update local PnL without false desync."""
+        db_path = tmp_path / "telemetry_mark_fluct.sqlite3"
+        jsonl_path = tmp_path / "orders_mark_fluct.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_exchange = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_exchange)
+        client.sync_server_time()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="track_mark_fluct",
+            starting_equity=Decimal("100.00"),
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="track_mark_fluct",
+        )
+        # Open 0.00008 BTC @ 60,000.00 (4.80 USDT margin)
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        # Move exchange mark price by +$1000
+        mock_exchange.set_mark_price("BTCUSDT", Decimal("61000.00"))
+
+        # Reconcile must not trip desync and must update local unrealized PnL
+        evt = reconciler.reconcile_with_exchange()
+        assert evt.status == GatewaySyncStatus.SYNCHRONIZED
+        assert reconciler.locked_out is False
+        assert reconciler.unrealized_pnl == Decimal("0.08000000")
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+        store.close()
+
+    def test_position_discrepancy_triggers_desync_lockout(
+        self,
+        tmp_path: Path,
+        safe_key_vault: SecureExchangeKeyVault,
+    ) -> None:
+        """Verify position divergence between remote exchange and local ledger trips lockout."""
+        db_path = tmp_path / "telemetry_pos_desync.sqlite3"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        mock_exchange = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_exchange)
+        client.sync_server_time()
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="track_pos_desync",
+            starting_equity=Decimal("100.00"),
+        )
+        # Inject phantom remote position on BTCUSDT
+        mock_exchange.positions["BTCUSDT"]["positionAmt"] = "0.00010"
+
+        with pytest.raises(BalanceDesyncError, match="Position discrepancy on BTCUSDT"):
+            reconciler.reconcile_with_exchange()
+
+        assert reconciler.locked_out is True
+        store.close()
+
+    def test_unauthorized_symbol_triggers_desync_lockout(
+        self,
+        tmp_path: Path,
+        safe_key_vault: SecureExchangeKeyVault,
+    ) -> None:
+        """Verify rogue position on non-staged symbol triggers immediate fail-closed lockout."""
+        db_path = tmp_path / "telemetry_unauth_sym.sqlite3"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        mock_exchange = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        # Add unauthorized symbol to mock exchange
+        mock_exchange.positions["DOGEUSDT"] = {
+            "symbol": "DOGEUSDT",
+            "positionAmt": "1000.0",
+            "entryPrice": "0.10",
+            "markPrice": "0.10",
+            "unRealizedProfit": "0.00000000",
+            "initialMargin": "100.00000000",
+            "positionInitialMargin": "100.00000000",
+            "maintMargin": "0.00000000",
+            "openOrderInitialMargin": "0.00000000",
+            "leverage": "1",
+            "isolated": False,
+            "positionSide": "BOTH",
+        }
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_exchange)
+        client.sync_server_time()
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="track_unauth_sym",
+            starting_equity=Decimal("100.00"),
+        )
+        with pytest.raises(
+            BalanceDesyncError,
+            match="Unauthorized position detected on non-canary symbol DOGEUSDT",
+        ):
+            reconciler.reconcile_with_exchange()
+
+        assert reconciler.locked_out is True
+        store.close()
+
+    def test_cross_endpoint_balance_divergence_triggers_lockout(
+        self,
+        tmp_path: Path,
+        safe_key_vault: SecureExchangeKeyVault,
+    ) -> None:
+        """Verify inconsistency between /fapi/v2/account and /fapi/v2/balance triggers lockout."""
+        db_path = tmp_path / "telemetry_endpoint_desync.sqlite3"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        mock_exchange = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_exchange)
+        client.sync_server_time()
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="track_endpoint_desync",
+            starting_equity=Decimal("100.00"),
+        )
+        # Invalidate /fapi/v2/balance relative to /fapi/v2/account
+        orig_get_balance = mock_exchange.get_balance
+
+        def tampered_balance(params: Any, sig: Any) -> list[dict[str, Any]]:
+            bals = orig_get_balance(params, sig)
+            bals[0]["balance"] = "80.00000000"  # Diverges by 20 USDT
+            return bals
+
+        mock_exchange.get_balance = tampered_balance  # type: ignore[assignment]
+
+        with pytest.raises(BalanceDesyncError, match="Exchange balance discrepancy"):
+            reconciler.reconcile_with_exchange()
+
+        assert reconciler.locked_out is True
+        store.close()
+
+    def test_short_position_lifecycle_and_double_entry(
+        self,
+        tmp_path: Path,
+        safe_key_vault: SecureExchangeKeyVault,
+        sample_certificate: CanaryActivationCertificate,
+    ) -> None:
+        """Verify opening and closing short positions satisfies exact double-entry accounting."""
+        db_path = tmp_path / "telemetry_short.sqlite3"
+        jsonl_path = tmp_path / "orders_short.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_exchange = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_exchange)
+        client.sync_server_time()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="track_short",
+            starting_equity=Decimal("100.00"),
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="track_short",
+        )
+        # 1. Open SHORT: SELL 0.032 SOLUSDT @ 150.00 (notional = 4.80 USDT)
+        short_order = dispatcher.dispatch_micro_order(
+            candidate_id="cand-sol",
+            symbol="SOLUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.032"),
+            price=Decimal("150.00"),
+            is_closing=False,
+        )
+        assert short_order.status == OrderLifecycleState.FILLED
+        assert reconciler.positions["SOLUSDT"] == Decimal("-0.032")
+        assert reconciler.allocated_margin == Decimal("4.80")
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+        # Intermediate Reconcile
+        evt1 = reconciler.reconcile_with_exchange()
+        assert evt1.status == GatewaySyncStatus.SYNCHRONIZED
+
+        # 2. Close SHORT: BUY 0.032 SOLUSDT @ 150.00 (is_closing=True)
+        dispatcher.advance_time(65.0, update_heartbeat=True)
+        close_short = dispatcher.dispatch_micro_order(
+            candidate_id="cand-sol",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.032"),
+            price=Decimal("150.00"),
+            is_closing=True,
+        )
+        assert close_short.status == OrderLifecycleState.FILLED
+        assert reconciler.positions["SOLUSDT"] == Decimal("0")
+        assert reconciler.allocated_margin == Decimal("0")
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+        # Final Reconcile
+        evt2 = reconciler.reconcile_with_exchange()
+        assert evt2.status == GatewaySyncStatus.SYNCHRONIZED
+        store.close()
+
+    def test_short_position_invalid_closing_rejected(
+        self,
+        tmp_path: Path,
+        safe_key_vault: SecureExchangeKeyVault,
+        sample_certificate: CanaryActivationCertificate,
+    ) -> None:
+        """Verify invalid attempts to close a short position fail closed."""
+        db_path = tmp_path / "telemetry_short_inv.sqlite3"
+        jsonl_path = tmp_path / "orders_short_inv.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_exchange = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_exchange)
+        client.sync_server_time()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="track_short_inv",
+            starting_equity=Decimal("100.00"),
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="track_short_inv",
+        )
+        # Open SHORT
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-sol",
+            symbol="SOLUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.032"),
+            price=Decimal("150.00"),
+            is_closing=False,
+        )
+        # Attempt to close short with SELL side
+        dispatcher.advance_time(65.0, update_heartbeat=True)
+        with pytest.raises(CanaryLiveGatewayError, match="expected BUY"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-sol",
+                symbol="SOLUSDT",
+                side=OrderSide.SELL,
+                order_type=OrderType.MARKET,
+                quantity=Decimal("0.032"),
+                price=Decimal("150.00"),
+                is_closing=True,
+            )
+        # Attempt to close short with quantity exceeding active short position
+        with pytest.raises(CanaryLiveGatewayError, match="exceeds active short position"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-sol",
+                symbol="SOLUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.MARKET,
+                quantity=Decimal("0.040"),
+                price=Decimal("150.00"),
+                is_closing=True,
+            )
+        store.close()
+
+    def test_unknown_order_blocks_subsequent_order_dispatch(
+        self,
+        tmp_path: Path,
+        safe_key_vault: SecureExchangeKeyVault,
+        sample_certificate: CanaryActivationCertificate,
+    ) -> None:
+        """Verify that an unresolved UNKNOWN order strictly blocks new order routing per R2."""
+        db_path = tmp_path / "telemetry_unknown_block.sqlite3"
+        jsonl_path = tmp_path / "orders_unknown_block.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_exchange = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_exchange)
+        client.sync_server_time()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="track_unknown",
+            starting_equity=Decimal("100.00"),
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="track_unknown",
+        )
+
+        # Tamper query_order to fail persistently, leaving order in UNKNOWN state
+        def failing_query(params: Any, sig: Any) -> dict[str, Any]:
+            raise CanaryLiveGatewayError("Network partition: cannot connect to host")
+
+        mock_exchange.query_order = failing_query  # type: ignore[assignment]
+        mock_exchange.inject_network_timeout = True
+
+        with pytest.raises(UnknownOrderStatusError, match="remains UNKNOWN"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+            )
+
+        # Attempt to dispatch subsequent order: must be blocked with UnknownOrderStatusError
+        with pytest.raises(UnknownOrderStatusError, match="existing order is in UNKNOWN state"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-eth",
+                symbol="ETHUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.0019"),
+                price=Decimal("2500.00"),
+            )
+        store.close()
+
+    def test_network_timeout_ingress_drop_handled_as_rejected(
+        self,
+        tmp_path: Path,
+        safe_key_vault: SecureExchangeKeyVault,
+        sample_certificate: CanaryActivationCertificate,
+    ) -> None:
+        """Verify order dropped before matching engine is recovered cleanly as REJECTED."""
+        db_path = tmp_path / "telemetry_ingress_drop.sqlite3"
+        jsonl_path = tmp_path / "orders_ingress_drop.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_exchange = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_exchange)
+        client.sync_server_time()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="track_ingress_drop",
+            starting_equity=Decimal("100.00"),
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="track_ingress_drop",
+        )
+
+        def ingress_drop_place(params: Any, sig: Any) -> dict[str, Any]:
+            mock_exchange._verify_auth(params, sig)
+            raise NetworkTimeoutError("Socket closed during TCP transmission")
+
+        mock_exchange.place_order = ingress_drop_place  # type: ignore[assignment]
+
+        order = dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        # Order should have been queried via fallback, found non-existent, and marked REJECTED
+        assert order.status == OrderLifecycleState.REJECTED
+        assert "not found" in (order.rejection_reason or "").lower()
+        assert dispatcher.orders_rejected_count == 1
+        assert reconciler.allocated_margin == Decimal("0")
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+        store.close()
+
+    def test_rate_limit_backoff_freeze_and_safe_resumption(
+        self,
+        safe_key_vault: SecureExchangeKeyVault,
+    ) -> None:
+        """Verify client rejects dispatch during rate-limit freeze and resumes after backoff."""
+        mock_gateway = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        now_time = 1000.0
+        client = CanaryLiveGatewayClient(
+            key_vault=safe_key_vault,
+            gateway=mock_gateway,
+            clock_fn=lambda: now_time,
+        )
+        # Set active rate-limit freeze for 2.0 seconds
+        client.rate_limit_backoff_until_epoch = now_time + 2.0
+
+        order_params = {
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "quantity": "0.00008",
+            "price": "60000.00",
+            "newClientOrderId": "cid-freeze-test",
+        }
+        # While now_time < freeze_until, dispatch must be frozen
+        with pytest.raises(
+            ExchangeRateLimitError,
+            match="Order dispatch frozen due to rate-limit backoff",
+        ):
+            client.dispatch_order(order_params)
+
+        # Advance clock past freeze
+        now_time += 2.5
+        resp = client.dispatch_order(order_params)
+        assert resp["status"] == "FILLED"
+
+    def test_mock_gateway_terminal_cancellation_rejected(
+        self,
+        safe_key_vault: SecureExchangeKeyVault,
+        gateway_client: CanaryLiveGatewayClient,
+        mock_gateway: MockBinanceFuturesGateway,
+    ) -> None:
+        """Verify MockBinanceFuturesGateway rejects cancelling an already FILLED order."""
+        order_params = {
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "quantity": "0.00008",
+            "price": "60000.00",
+            "newClientOrderId": "cid-filled-cancel-test",
+        }
+        resp = gateway_client.dispatch_order(order_params)
+        assert resp["status"] == "FILLED"
+
+        with pytest.raises(CanaryLiveGatewayError, match="terminal state"):
+            gateway_client.cancel_order("BTCUSDT", "cid-filled-cancel-test")
+
+    def test_telemetry_store_and_sink_string_path_initialization(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify SqliteCanaryLiveGatewayTelemetryStore and JsonlCanaryOrderSink
+        accept str paths.
+        """
+        str_db = str(tmp_path / "subdir" / "test_str.sqlite3")
+        str_jsonl = str(tmp_path / "subdir" / "test_str.jsonl")
+
+        store = SqliteCanaryLiveGatewayTelemetryStore(str_db)
+        sink = JsonlCanaryOrderSink(str_jsonl)
+
+        assert store.verify_unlocked() is True
+        assert sink.file_path.name == "test_str.jsonl"
         store.close()

@@ -359,8 +359,8 @@ class CanaryGatewayConfig(DomainModel):
 class JsonlCanaryOrderSink:
     """Thread-safe append-only JSONL log for orders and executions."""
 
-    def __init__(self, file_path: Path) -> None:
-        self.file_path = file_path
+    def __init__(self, file_path: Path | str) -> None:
+        self.file_path = Path(file_path)
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
 
     def append_order(self, order: GatewayOrderRecord) -> None:
@@ -412,8 +412,8 @@ class JsonlCanaryOrderSink:
 class SqliteCanaryLiveGatewayTelemetryStore:
     """Isolated SQLite telemetry store for Phase 277 gateway records."""
 
-    def __init__(self, db_path: Path) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: Path | str) -> None:
+        self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL;")
@@ -846,6 +846,10 @@ def verify_upstream_phase276_qualification(
             raise PrerequisiteQualificationError(
                 "Upstream Phase 276 Merkle DAG hash chain failed verification."
             )
+    elif p276_path.resolve() == Path(DEFAULT_PHASE276_OUTPUT_DIR).resolve():
+        raise PrerequisiteQualificationError(
+            f"Missing required Phase 276 report or summary in {p276_path}"
+        )
 
     cert_hash = compute_file_sha256(cert_path)
     rep_hash = compute_file_sha256(rep_path) if rep_path.is_file() else ""
@@ -1361,6 +1365,10 @@ class MockBinanceFuturesGateway:
             raise CanaryLiveGatewayError(f"Order not found to cancel: {client_order_id}")
 
         order = self.orders[str(client_order_id)]
+        if order["status"] in ("FILLED", "CANCELED", "REJECTED"):
+            raise CanaryLiveGatewayError(
+                f"Cannot cancel order {client_order_id} in terminal state {order['status']}"
+            )
         order["status"] = "CANCELED"
         return order
 
@@ -1619,6 +1627,8 @@ class LiveGatewayAccountReconciler:
         remote_avail_cash = Decimal(account_info["availableBalance"])
 
         # Reconcile /fapi/v2/balance
+        balance_endpoint_desync = False
+        endpoint_desync_reason = ""
         usdt_bal_record = next((b for b in balances if b.get("asset") == "USDT"), None)
         if usdt_bal_record is not None:
             raw_bal = Decimal(usdt_bal_record.get("balance", "0"))
@@ -1628,21 +1638,43 @@ class LiveGatewayAccountReconciler:
                     remote_wallet_balance,
                     raw_bal,
                 )
+                balance_endpoint_desync = True
+                endpoint_desync_reason = (
+                    "Exchange balance discrepancy between /fapi/v2/account "
+                    f"({remote_wallet_balance}) and /fapi/v2/balance ({raw_bal})"
+                )
 
         # Reconcile /fapi/v2/positionRisk and compute cross-asset margin utilization
         cross_asset_margin_utilization: dict[str, str] = {}
+        position_desync_detected = False
+        position_desync_reason = ""
         for p in position_risks:
             sym = p.get("symbol")
-            if sym in CANARY_STAGED_SYMBOLS:
-                pos_amt = Decimal(p.get("positionAmt", "0"))
-                pos_notional = abs(pos_amt * Decimal(p.get("markPrice", "0")))
-                local_pos = self.positions.get(sym, Decimal("0"))
-                pos_diff = abs(pos_amt - local_pos)
-                if pos_diff > Decimal("1e-6"):
-                    logger.warning(
-                        "Position discrepancy on %s: remote=%s, local=%s", sym, pos_amt, local_pos
+            pos_amt = Decimal(p.get("positionAmt", "0"))
+            if sym not in CANARY_STAGED_SYMBOLS:
+                if abs(pos_amt) > Decimal("1e-6"):
+                    position_desync_detected = True
+                    position_desync_reason = (
+                        f"Unauthorized position detected on non-canary symbol {sym}: amt={pos_amt}"
                     )
-                cross_asset_margin_utilization[sym] = f"{pos_notional:.8f}"
+                continue
+
+            remote_mark = Decimal(p.get("markPrice", "0"))
+            if remote_mark > Decimal("0"):
+                self.update_mark_price(sym, remote_mark)
+
+            pos_notional = abs(pos_amt * remote_mark)
+            local_pos = self.positions.get(sym, Decimal("0"))
+            pos_diff = abs(pos_amt - local_pos)
+            if pos_diff > Decimal("1e-6"):
+                logger.warning(
+                    "Position discrepancy on %s: remote=%s, local=%s", sym, pos_amt, local_pos
+                )
+                position_desync_detected = True
+                position_desync_reason = (
+                    f"Position discrepancy on {sym}: remote={pos_amt}, local={local_pos}"
+                )
+            cross_asset_margin_utilization[sym] = f"{pos_notional:.8f}"
 
         # Compare remote vs local (available cash + allocated margin)
         cash_diff = abs(remote_avail_cash - self.cash)
@@ -1651,13 +1683,22 @@ class LiveGatewayAccountReconciler:
         total_desync = cash_diff + margin_diff + pnl_diff
 
         status = GatewaySyncStatus.SYNCHRONIZED
-        if total_desync > DESYNC_TOLERANCE_USDT:
+        if (
+            total_desync > DESYNC_TOLERANCE_USDT
+            or position_desync_detected
+            or balance_endpoint_desync
+        ):
             status = GatewaySyncStatus.DESYNC_DETECTED
             self.locked_out = True
-            self.lockout_reason = (
-                f"Balance desync detected: total_diff={total_desync:.6f} USDT "
-                f"(remote_cash={remote_avail_cash}, local_cash={self.cash})"
-            )
+            if position_desync_detected:
+                self.lockout_reason = position_desync_reason
+            elif balance_endpoint_desync:
+                self.lockout_reason = endpoint_desync_reason
+            else:
+                self.lockout_reason = (
+                    f"Balance desync detected: total_diff={total_desync:.6f} USDT "
+                    f"(remote_cash={remote_avail_cash}, local_cash={self.cash})"
+                )
 
         sync_evt = GatewaySyncEvent(
             track_id=self.track_id,
@@ -1760,7 +1801,17 @@ class CanaryLiveOrderDispatcher:
                 f"Order quantity {quantity} must be strictly positive and finite"
             )
 
-        # 2. Fail-closed lockout check
+        # 2. Gate against unresolved UNKNOWN orders (R2 fallback query prerequisite)
+        has_unknown_orders = any(
+            o.status == OrderLifecycleState.UNKNOWN for o in self.orders.values()
+        )
+        if has_unknown_orders:
+            self.orders_rejected_count += 1
+            raise UnknownOrderStatusError(
+                "Cannot dispatch new order while an existing order is in UNKNOWN state"
+            )
+
+        # 3. Fail-closed lockout check
         if self.reconciler.locked_out and not is_closing:
             self.orders_rejected_count += 1
             self.interlock_blocks_count += 1
@@ -1768,22 +1819,41 @@ class CanaryLiveOrderDispatcher:
                 f"Gateway locked out: {self.reconciler.lockout_reason}. Orders strictly blocked."
             )
 
-        notional = (quantity * price).quantize(Decimal("0.0001"))
+        notional = (quantity * price).quantize(Decimal("0.00000001"))
         drawdown = max(Decimal("0"), self.reconciler.starting_equity - self.reconciler.total_equity)
 
-        # 3. Position & Cash Invariant Checks
+        # 4. Position & Cash Invariant Checks
         pos_qty = self.reconciler.positions.get(symbol, Decimal("0"))
         if is_closing:
-            if pos_qty <= Decimal("0"):
+            if pos_qty == Decimal("0"):
                 self.orders_rejected_count += 1
                 raise CanaryLiveGatewayError(
                     f"Cannot close position for {symbol}: no active position exists"
                 )
-            if quantity > pos_qty:
-                self.orders_rejected_count += 1
-                raise CanaryLiveGatewayError(
-                    f"Closing order quantity {quantity} exceeds active position quantity {pos_qty}"
-                )
+            if pos_qty > Decimal("0"):
+                if side != OrderSide.SELL:
+                    self.orders_rejected_count += 1
+                    raise CanaryLiveGatewayError(
+                        f"Cannot close long position on {symbol} with side {side}; expected SELL"
+                    )
+                if quantity > pos_qty:
+                    self.orders_rejected_count += 1
+                    raise CanaryLiveGatewayError(
+                        f"Closing order quantity {quantity} exceeds active long "
+                        f"position quantity {pos_qty}"
+                    )
+            else:
+                if side != OrderSide.BUY:
+                    self.orders_rejected_count += 1
+                    raise CanaryLiveGatewayError(
+                        f"Cannot close short position on {symbol} with side {side}; expected BUY"
+                    )
+                if quantity > abs(pos_qty):
+                    self.orders_rejected_count += 1
+                    raise CanaryLiveGatewayError(
+                        f"Closing order quantity {quantity} exceeds active short "
+                        f"position quantity {abs(pos_qty)}"
+                    )
         else:
             if notional > self.reconciler.cash:
                 self.orders_rejected_count += 1
@@ -1792,7 +1862,7 @@ class CanaryLiveOrderDispatcher:
                     f"exceeds available cash {self.reconciler.cash} USDT"
                 )
 
-        # 4. Evaluate Phase 276 Interlock Gates
+        # 5. Evaluate Phase 276 Interlock Gates
         current_asset_margin = self.reconciler.per_asset_margin.get(symbol, Decimal("0"))
         try:
             self.interlock_gateway.check_order_dispatch_interlocks(
@@ -1929,7 +1999,7 @@ class CanaryLiveOrderDispatcher:
         fill_qty: Decimal,
         fill_price: Decimal,
         fee: Decimal | None = None,
-        realized_pnl: Decimal = Decimal("0"),
+        realized_pnl: Decimal | None = None,
     ) -> GatewayOrderRecord:
         """Process incoming match/fill event (transitioning NEW -> PARTIALLY_FILLED -> FILLED)."""
         if client_order_id not in self.orders:
@@ -1954,6 +2024,21 @@ class CanaryLiveOrderDispatcher:
                 f"Cumulative fill {new_cum_qty} exceeds order quantity {order.quantity}"
             )
 
+        # Compute realized PnL on closing fills if not explicitly provided
+        actual_pnl = realized_pnl
+        if actual_pnl is None:
+            if order.is_closing:
+                pos_qty = self.reconciler.positions.get(order.symbol, Decimal("0"))
+                pos_margin = self.reconciler.per_asset_margin.get(order.symbol, Decimal("0"))
+                abs_pos = abs(pos_qty)
+                entry_price = (pos_margin / abs_pos) if abs_pos > Decimal("0") else fill_price
+                if pos_qty > Decimal("0"):
+                    actual_pnl = (fill_price - entry_price) * fill_qty
+                else:
+                    actual_pnl = (entry_price - fill_price) * fill_qty
+            else:
+                actual_pnl = Decimal("0")
+
         target_state = (
             OrderLifecycleState.FILLED
             if new_cum_qty == order.quantity
@@ -1973,7 +2058,7 @@ class CanaryLiveOrderDispatcher:
         if target_state == OrderLifecycleState.FILLED:
             self.orders_filled_count += 1
 
-        self._apply_fill_accounting(order, fill_qty, fill_price, calc_fee, realized_pnl)
+        self._apply_fill_accounting(order, fill_qty, fill_price, calc_fee, actual_pnl)
         self._record_balance_snapshot()
         return order
 
@@ -1983,7 +2068,7 @@ class CanaryLiveOrderDispatcher:
         exec_qty: Decimal,
         price: Decimal,
         fee: Decimal,
-        realized_pnl: Decimal,
+        realized_pnl: Decimal = Decimal("0"),
     ) -> None:
         """Update double-entry accounting state for an executed fill."""
         notional = exec_qty * price
@@ -1995,14 +2080,16 @@ class CanaryLiveOrderDispatcher:
             self.reconciler.per_asset_margin[order_record.symbol] = (
                 self.reconciler.per_asset_margin.get(order_record.symbol, Decimal("0")) + notional
             )
+            delta_qty = exec_qty if order_record.side == OrderSide.BUY else -exec_qty
             self.reconciler.positions[order_record.symbol] = (
-                self.reconciler.positions.get(order_record.symbol, Decimal("0")) + exec_qty
+                self.reconciler.positions.get(order_record.symbol, Decimal("0")) + delta_qty
             )
         else:
             pos_qty = self.reconciler.positions.get(order_record.symbol, Decimal("0"))
             pos_margin = self.reconciler.per_asset_margin.get(order_record.symbol, Decimal("0"))
-            if pos_qty > Decimal("0"):
-                close_frac = min(Decimal("1"), exec_qty / pos_qty)
+            abs_pos = abs(pos_qty)
+            if abs_pos > Decimal("0"):
+                close_frac = min(Decimal("1"), exec_qty / abs_pos)
                 margin_to_release = pos_margin * close_frac
             else:
                 margin_to_release = min(pos_margin, notional)
@@ -2014,7 +2101,14 @@ class CanaryLiveOrderDispatcher:
             self.reconciler.per_asset_margin[order_record.symbol] = max(
                 Decimal("0"), pos_margin - margin_to_release
             )
-            self.reconciler.positions[order_record.symbol] = max(Decimal("0"), pos_qty - exec_qty)
+            if pos_qty > Decimal("0"):
+                self.reconciler.positions[order_record.symbol] = max(
+                    Decimal("0"), pos_qty - exec_qty
+                )
+            else:
+                self.reconciler.positions[order_record.symbol] = min(
+                    Decimal("0"), pos_qty + exec_qty
+                )
             self.reconciler.realized_pnl += realized_pnl - fee
             self.reconciler.total_fees += fee
 
@@ -2070,7 +2164,34 @@ class CanaryLiveOrderDispatcher:
         err_record: GatewayErrorRecord,
     ) -> None:
         """Query exchange to determine status of unknown order and recover ledger."""
-        query_resp = self.client.query_order(order_record.symbol, order_record.client_order_id)
+        try:
+            query_resp = self.client.query_order(order_record.symbol, order_record.client_order_id)
+        except CanaryLiveGatewayError as query_err:
+            if "not found" in str(query_err).lower():
+                # Order dropped on ingress before reaching exchange matching engine
+                order_record.status = OrderLifecycleState.REJECTED
+                order_record.rejection_reason = (
+                    f"Order not found on exchange matching engine: {query_err}"
+                )
+                order_record.updated_at_utc = datetime.now(UTC).isoformat()
+                self.telemetry_store.record_order(order_record)
+                self.jsonl_sink.append_order(order_record)
+                self._record_transition(
+                    order_record,
+                    OrderLifecycleState.REJECTED,
+                    order_record.rejection_reason,
+                )
+                self.orders_rejected_count += 1
+                err_record.resolved = True
+                self.telemetry_store.record_error(err_record)
+                return
+            else:
+                # Query failed due to persistent network partition
+                raise UnknownOrderStatusError(
+                    f"Order {order_record.client_order_id} remains UNKNOWN: "
+                    f"fallback query failed: {query_err}"
+                ) from query_err
+
         remote_status = query_resp.get("status")
 
         if remote_status in ("FILLED", "PARTIALLY_FILLED"):
@@ -2141,6 +2262,8 @@ class CanaryLiveOrderDispatcher:
                 order_record.rejection_reason,
             )
             self.orders_rejected_count += 1
+            err_record.resolved = True
+            self.telemetry_store.record_error(err_record)
 
     def _record_transition(
         self,
