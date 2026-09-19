@@ -36,6 +36,7 @@ from autonomous_futures.feed.canary_activation import (
     CertificateStatus,
     ExchangeApiKeyPermissions,
     InterlockEvent,
+    OrderNotionalCapBreachError,
     OrderSide,
     OrderType,
     SecureExchangeKeyVault,
@@ -270,6 +271,7 @@ class GatewayOrderRecord(DomainModel):
     time_in_force: TimeInForce = TimeInForce.GTC
     price: Decimal
     quantity: Decimal
+    executed_quantity: Decimal = Decimal("0")
     notional_usdt: Decimal
     status: OrderLifecycleState
     is_closing: bool = False
@@ -374,6 +376,7 @@ class JsonlCanaryOrderSink:
             "order_type": order.order_type.value,
             "price": str(order.price),
             "quantity": str(order.quantity),
+            "executed_quantity": str(order.executed_quantity),
             "notional_usdt": str(order.notional_usdt),
             "status": order.status.value,
             "is_closing": order.is_closing,
@@ -383,7 +386,7 @@ class JsonlCanaryOrderSink:
         }
         line = canonical_json_bytes(data).decode("utf-8") + "\n"
         assert_zero_secrets(line, "canary-orders.jsonl")
-        with open(self.file_path, "a", encoding="utf-8") as f:
+        with open(self.file_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(line)
 
     def append_transition(self, trans: OrderLifecycleTransition) -> None:
@@ -402,7 +405,7 @@ class JsonlCanaryOrderSink:
         }
         line = canonical_json_bytes(data).decode("utf-8") + "\n"
         assert_zero_secrets(line, "canary-orders.jsonl")
-        with open(self.file_path, "a", encoding="utf-8") as f:
+        with open(self.file_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(line)
 
 
@@ -450,6 +453,7 @@ class SqliteCanaryLiveGatewayTelemetryStore:
                     time_in_force TEXT NOT NULL,
                     price TEXT NOT NULL,
                     quantity TEXT NOT NULL,
+                    executed_quantity TEXT NOT NULL DEFAULT '0',
                     notional_usdt TEXT NOT NULL,
                     status TEXT NOT NULL,
                     is_closing INTEGER NOT NULL,
@@ -561,10 +565,10 @@ class SqliteCanaryLiveGatewayTelemetryStore:
                 """
                 INSERT OR REPLACE INTO orders (
                     order_id, client_order_id, track_id, candidate_id, symbol,
-                    side, order_type, time_in_force, price, quantity,
+                    side, order_type, time_in_force, price, quantity, executed_quantity,
                     notional_usdt, status, is_closing, created_at_utc,
                     updated_at_utc, rejection_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order.order_id,
@@ -577,6 +581,7 @@ class SqliteCanaryLiveGatewayTelemetryStore:
                     order.time_in_force.value,
                     str(order.price),
                     str(order.quantity),
+                    str(order.executed_quantity),
                     str(order.notional_usdt),
                     order.status.value,
                     1 if order.is_closing else 0,
@@ -740,6 +745,36 @@ class SqliteCanaryLiveGatewayTelemetryStore:
         except sqlite3.Error:
             pass
 
+    def verify_double_entry_integrity(self, require_records: bool = True) -> tuple[bool, Decimal]:
+        """Verify that all recorded balance snapshots and tracks have drift < 1e-15."""
+        with self.conn:
+            rows = self.conn.execute("SELECT drift_usdt FROM balance_snapshots").fetchall()
+            track_rows = self.conn.execute("SELECT drift_usdt FROM gateway_tracks").fetchall()
+            if require_records and not rows and not track_rows:
+                return False, Decimal("0")
+            max_drift = Decimal("0")
+            for r in rows:
+                val = abs(Decimal(str(r[0])))
+                if val > max_drift:
+                    max_drift = val
+            for tr in track_rows:
+                val = abs(Decimal(str(tr[0])))
+                if val > max_drift:
+                    max_drift = val
+            return max_drift < DOUBLE_ENTRY_MAX_DRIFT, max_drift
+
+    def verify_unlocked(self, timeout: float = 2.0) -> bool:
+        """Verify database has zero dangling locks."""
+        if not self.db_path.is_file():
+            return True
+        try:
+            with sqlite3.connect(str(self.db_path), timeout=timeout) as conn:
+                conn.execute("BEGIN IMMEDIATE;")
+                conn.execute("COMMIT;")
+            return True
+        except sqlite3.Error:
+            return False
+
 
 # =====================================================================
 # Upstream Phase 276 Prerequisite Verification
@@ -868,6 +903,8 @@ class MockBinanceFuturesGateway:
         self.rate_limit_retry_after_ms: int = 100
         self.inject_balance_desync_delta: Decimal | None = None
         self.inject_network_timeout: bool = False
+        self.inject_order_initial_status: str | None = None
+        self.inject_partial_fill_qty: Decimal | None = None
 
     def advance_server_time(self, seconds: float) -> None:
         """Advance simulated server clock."""
@@ -1063,8 +1100,41 @@ class MockBinanceFuturesGateway:
         self.next_order_id += 1
 
         # Simulate execution on exchange matching engine
+        if self.inject_order_initial_status == "NEW":
+            self.inject_order_initial_status = None
+            order_record = {
+                "orderId": order_id,
+                "symbol": symbol,
+                "status": "NEW",
+                "clientOrderId": client_order_id,
+                "price": f"{price:.8f}",
+                "avgPrice": "0.00000000",
+                "origQty": f"{qty:.8f}",
+                "executedQty": "0.00000000",
+                "cumQty": "0.00000000",
+                "cumQuote": "0.00000000",
+                "timeInForce": str(params.get("timeInForce", "GTC")),
+                "type": order_type,
+                "side": side,
+                "updateTime": self.server_time_ms,
+                "fee": "0.00000000",
+                "realizedPnl": "0.00000000",
+            }
+            self.orders[client_order_id] = order_record
+            if self.inject_network_timeout:
+                self.inject_network_timeout = False
+                raise NetworkTimeoutError(
+                    f"Simulated network drop: POST /fapi/v1/order timed out for {client_order_id}"
+                )
+            return order_record
+
         executed_qty = qty
-        notional = qty * price
+        if self.inject_partial_fill_qty is not None:
+            executed_qty = min(qty, self.inject_partial_fill_qty)
+            self.inject_partial_fill_qty = None
+
+        status = "PARTIALLY_FILLED" if executed_qty < qty else "FILLED"
+        notional = executed_qty * price
         fee = notional * Decimal("0.0004")  # 0.04% taker fee
 
         # Update position and cash
@@ -1074,27 +1144,29 @@ class MockBinanceFuturesGateway:
 
         realized_pnl = Decimal("0")
         if side == "BUY":
-            new_amt = curr_amt + qty
+            new_amt = curr_amt + executed_qty
             if curr_amt >= 0:
                 # Increasing long
                 if new_amt > 0:
                     new_entry = (
-                        (curr_amt * curr_entry + qty * price) / new_amt if new_amt != 0 else price
+                        (curr_amt * curr_entry + executed_qty * price) / new_amt
+                        if new_amt != 0
+                        else price
                     )
                 else:
                     new_entry = price
             else:
                 # Reducing short
-                closed_qty = min(abs(curr_amt), qty)
+                closed_qty = min(abs(curr_amt), executed_qty)
                 realized_pnl = (curr_entry - price) * closed_qty
                 new_entry = curr_entry if new_amt != 0 else Decimal("0")
         else:  # SELL
-            new_amt = curr_amt - qty
+            new_amt = curr_amt - executed_qty
             if curr_amt <= 0:
                 # Increasing short
                 if new_amt < 0:
                     new_entry = (
-                        (abs(curr_amt) * curr_entry + qty * price) / abs(new_amt)
+                        (abs(curr_amt) * curr_entry + executed_qty * price) / abs(new_amt)
                         if new_amt != 0
                         else price
                     )
@@ -1102,7 +1174,7 @@ class MockBinanceFuturesGateway:
                     new_entry = price
             else:
                 # Reducing long
-                closed_qty = min(curr_amt, qty)
+                closed_qty = min(curr_amt, executed_qty)
                 realized_pnl = (price - curr_entry) * closed_qty
                 new_entry = curr_entry if new_amt != 0 else Decimal("0")
 
@@ -1128,7 +1200,7 @@ class MockBinanceFuturesGateway:
         order_record = {
             "orderId": order_id,
             "symbol": symbol,
-            "status": "FILLED",
+            "status": status,
             "clientOrderId": client_order_id,
             "price": f"{price:.8f}",
             "avgPrice": f"{price:.8f}",
@@ -1153,6 +1225,112 @@ class MockBinanceFuturesGateway:
             )
 
         return order_record
+
+    def set_mark_price(self, symbol: str, price: Decimal) -> None:
+        """Update simulated exchange mark price and recompute unrealized profit."""
+        if symbol not in self.positions:
+            return
+        pos = self.positions[symbol]
+        pos["markPrice"] = f"{price:.8f}"
+        amt = Decimal(pos["positionAmt"])
+        entry = Decimal(pos["entryPrice"])
+        if amt > 0:
+            u_pnl = (price - entry) * amt
+        elif amt < 0:
+            u_pnl = (entry - price) * abs(amt)
+        else:
+            u_pnl = Decimal("0")
+        pos["unRealizedProfit"] = f"{u_pnl:.8f}"
+
+    def simulate_fill(
+        self,
+        client_order_id: str,
+        fill_qty: Decimal,
+        fill_price: Decimal | None = None,
+    ) -> dict[str, Any]:
+        """Simulate a match fill event on an existing resting or partially filled order."""
+        if client_order_id not in self.orders:
+            raise CanaryLiveGatewayError(f"Order not found on exchange: {client_order_id}")
+        order = self.orders[client_order_id]
+        if order["status"] not in ("NEW", "PARTIALLY_FILLED"):
+            raise CanaryLiveGatewayError(f"Cannot fill order in terminal status {order['status']}")
+
+        symbol = order["symbol"]
+        side = order["side"]
+        price = Decimal(fill_price) if fill_price is not None else Decimal(order["price"])
+        orig_qty = Decimal(order["origQty"])
+        curr_exec = Decimal(order["executedQty"])
+        new_exec = min(orig_qty, curr_exec + fill_qty)
+        inc_fill = new_exec - curr_exec
+
+        notional = inc_fill * price
+        fee = notional * Decimal("0.0004")
+
+        current_pos = self.positions[symbol]
+        curr_amt = Decimal(current_pos["positionAmt"])
+        curr_entry = Decimal(current_pos["entryPrice"])
+
+        realized_pnl = Decimal("0")
+        if side == "BUY":
+            new_amt = curr_amt + inc_fill
+            if curr_amt >= 0:
+                new_entry = (
+                    (curr_amt * curr_entry + inc_fill * price) / new_amt if new_amt != 0 else price
+                )
+            else:
+                closed_qty = min(abs(curr_amt), inc_fill)
+                realized_pnl = (curr_entry - price) * closed_qty
+                new_entry = curr_entry if new_amt != 0 else Decimal("0")
+        else:
+            new_amt = curr_amt - inc_fill
+            if curr_amt <= 0:
+                new_entry = (
+                    (abs(curr_amt) * curr_entry + inc_fill * price) / abs(new_amt)
+                    if new_amt != 0
+                    else price
+                )
+            else:
+                closed_qty = min(curr_amt, inc_fill)
+                realized_pnl = (price - curr_entry) * closed_qty
+                new_entry = curr_entry if new_amt != 0 else Decimal("0")
+
+        self.wallet_balance = self.wallet_balance + realized_pnl - fee
+        current_pos["positionAmt"] = f"{new_amt:.8f}"
+        current_pos["entryPrice"] = f"{new_entry:.8f}"
+        current_pos["positionInitialMargin"] = f"{abs(new_amt) * price:.8f}"
+
+        mark = Decimal(current_pos["markPrice"])
+        if new_amt > 0:
+            u_pnl = (mark - new_entry) * new_amt
+        elif new_amt < 0:
+            u_pnl = (new_entry - mark) * abs(new_amt)
+        else:
+            u_pnl = Decimal("0")
+            current_pos["positionInitialMargin"] = "0.00000000"
+            current_pos["entryPrice"] = "0.0"
+
+        current_pos["unRealizedProfit"] = f"{u_pnl:.8f}"
+
+        new_status = "FILLED" if new_exec == orig_qty else "PARTIALLY_FILLED"
+        order["status"] = new_status
+        order["executedQty"] = f"{new_exec:.8f}"
+        order["cumQty"] = f"{new_exec:.8f}"
+        order["cumQuote"] = f"{new_exec * price:.8f}"
+        order["fee"] = f"{Decimal(order.get('fee', '0')) + fee:.8f}"
+        order["realizedPnl"] = f"{Decimal(order.get('realizedPnl', '0')) + realized_pnl:.8f}"
+        order["updateTime"] = self.server_time_ms
+
+        return {
+            "orderId": order["orderId"],
+            "symbol": symbol,
+            "status": new_status,
+            "clientOrderId": client_order_id,
+            "fillQty": f"{inc_fill:.8f}",
+            "executedQty": f"{new_exec:.8f}",
+            "price": f"{price:.8f}",
+            "fee": f"{fee:.8f}",
+            "realizedPnl": f"{realized_pnl:.8f}",
+        }
 
     # Endpoint: GET /fapi/v1/order
     def query_order(
@@ -1205,10 +1383,12 @@ class CanaryLiveGatewayClient:
         key_vault: SecureExchangeKeyVault,
         gateway: MockBinanceFuturesGateway,
         clock_fn: Any = None,
+        clock_advance_fn: Callable[[float], None] | None = None,
     ) -> None:
         self.key_vault = key_vault
         self.gateway = gateway
         self.clock_fn = clock_fn
+        self.clock_advance_fn = clock_advance_fn
         self.server_time_offset_ms: int = 0
         self.rate_limit_backoff_until_epoch: float = 0.0
 
@@ -1238,7 +1418,7 @@ class CanaryLiveGatewayClient:
         """Append timestamp and generate canonical HMAC-SHA256 signature."""
         req_params = dict(params)
         req_params["timestamp"] = self.get_synchronized_timestamp_ms()
-        req_params["recvWindow"] = 5000
+        req_params.setdefault("recvWindow", 5000)
 
         canonical_query = SecureExchangeKeyVault.canonicalize_query_string(req_params)
         sig = self.key_vault.generate_signature(canonical_query)
@@ -1317,16 +1497,20 @@ class CanaryLiveGatewayClient:
                     RATE_LIMIT_BACKOFF_BASE_MS * (2**attempt),
                     RATE_LIMIT_BACKOFF_MAX_MS,
                 )
-                self.rate_limit_backoff_until_epoch = self._get_local_epoch() + (
-                    backoff_ms / 1000.0
-                )
-                time.sleep(min(0.01, backoff_ms / 1000.0))
+                backoff_sec = backoff_ms / 1000.0
+                self.rate_limit_backoff_until_epoch = self._get_local_epoch() + backoff_sec
+                if self.clock_advance_fn is not None:
+                    self.clock_advance_fn(backoff_sec)
+                else:
+                    time.sleep(min(0.01, backoff_sec))
                 if attempt == retries - 1:
                     raise rate_err
-            except NetworkTimeoutError:
+            except NetworkTimeoutError as timeout_err:
                 if is_order_dispatch:
                     # Do not re-dispatch! Order status is now unknown and must be queried.
                     raise
+                if attempt == retries - 1:
+                    raise timeout_err
                 time.sleep(0.05)
         raise CanaryLiveGatewayError("Exhausted retries in gateway request dispatch")
 
@@ -1363,6 +1547,14 @@ class LiveGatewayAccountReconciler:
         self.total_fees = Decimal("0")
         self.total_slippage = Decimal("0")
 
+        self.positions: dict[str, Decimal] = {sym: Decimal("0") for sym in CANARY_STAGED_SYMBOLS}
+        self.per_asset_margin: dict[str, Decimal] = {
+            sym: Decimal("0") for sym in CANARY_STAGED_SYMBOLS
+        }
+        self.mark_prices: dict[str, Decimal] = {
+            sym: Decimal(str(DEFAULT_REFERENCE_PRICES[sym])) for sym in CANARY_STAGED_SYMBOLS
+        }
+
         self.locked_out: bool = False
         self.lockout_reason: str | None = None
 
@@ -1372,28 +1564,88 @@ class LiveGatewayAccountReconciler:
         return self.cash + self.allocated_margin + self.unrealized_pnl
 
     @property
+    def wallet_balance(self) -> Decimal:
+        """Total wallet balance: cash + allocated_margin."""
+        return self.cash + self.allocated_margin
+
+    @property
     def mathematical_drift(self) -> Decimal:
         """Mathematical double-entry balance drift:
-        |cash + margin + unrealized - (starting + realized)|.
+        |cash + margin + unrealized - (starting + realized + unrealized)|.
         """
         calc = self.cash + self.allocated_margin + self.unrealized_pnl
         exp = self.starting_equity + self.realized_pnl + self.unrealized_pnl
         return abs(calc - exp)
 
+    def update_mark_price(self, symbol: str, mark_price: Decimal) -> None:
+        """Update mark price for symbol and recalculate internal unrealized PnL."""
+        self.mark_prices[symbol] = mark_price
+        total_u_pnl = Decimal("0")
+        for sym, pos_qty in self.positions.items():
+            if pos_qty != Decimal("0"):
+                pos_margin = self.per_asset_margin.get(sym, Decimal("0"))
+                entry_price = pos_margin / abs(pos_qty) if pos_qty != Decimal("0") else Decimal("0")
+                current_mark = self.mark_prices.get(sym, entry_price)
+                if pos_qty > 0:
+                    total_u_pnl += (current_mark - entry_price) * pos_qty
+                else:
+                    total_u_pnl += (entry_price - current_mark) * abs(pos_qty)
+        self.unrealized_pnl = total_u_pnl
+
     def reconcile_with_exchange(self) -> GatewaySyncEvent:
-        """Query remote exchange endpoints and reconcile with local accounting state."""
+        """Query remote exchange endpoints and reconcile with local accounting state.
+
+        Ingests all 3 Binance Futures authenticated endpoints:
+        - /fapi/v2/account (margin balance, wallet balance, initial margin)
+        - /fapi/v2/balance (per-asset wallet balances)
+        - /fapi/v2/positionRisk (position amounts, mark prices, notional)
+
+        Reconciles cash, margin, and unrealized PnL, verifying cross-asset
+        margin utilization across BTCUSDT, ETHUSDT, SOLUSDT.
+        """
         local_ts = int(time.time() * 1000)
         time_info = self.client.gateway.get_server_time()
         server_ts = int(time_info["serverTime"])
         drift_ms = abs(server_ts - local_ts)
 
+        # Ingest all 3 endpoints per R1
         account_info = self.client.fetch_account_info()
-        remote_cash = Decimal(account_info["totalWalletBalance"])
+        balances = self.client.fetch_balances()
+        position_risks = self.client.fetch_position_risk()
+
+        remote_wallet_balance = Decimal(account_info["totalWalletBalance"])
         remote_margin = Decimal(account_info["totalPositionInitialMargin"])
         remote_u_pnl = Decimal(account_info["totalUnrealizedProfit"])
+        remote_avail_cash = Decimal(account_info["availableBalance"])
 
-        # Compare remote vs local
-        cash_diff = abs(remote_cash - self.cash)
+        # Reconcile /fapi/v2/balance
+        usdt_bal_record = next((b for b in balances if b.get("asset") == "USDT"), None)
+        if usdt_bal_record is not None:
+            raw_bal = Decimal(usdt_bal_record.get("balance", "0"))
+            if abs(raw_bal - remote_wallet_balance) > DESYNC_TOLERANCE_USDT:
+                logger.warning(
+                    "Balance discrepancy between /fapi/v2/account (%s) and /fapi/v2/balance (%s)",
+                    remote_wallet_balance,
+                    raw_bal,
+                )
+
+        # Reconcile /fapi/v2/positionRisk and compute cross-asset margin utilization
+        cross_asset_margin_utilization: dict[str, str] = {}
+        for p in position_risks:
+            sym = p.get("symbol")
+            if sym in CANARY_STAGED_SYMBOLS:
+                pos_amt = Decimal(p.get("positionAmt", "0"))
+                pos_notional = abs(pos_amt * Decimal(p.get("markPrice", "0")))
+                local_pos = self.positions.get(sym, Decimal("0"))
+                pos_diff = abs(pos_amt - local_pos)
+                if pos_diff > Decimal("1e-6"):
+                    logger.warning(
+                        "Position discrepancy on %s: remote=%s, local=%s", sym, pos_amt, local_pos
+                    )
+                cross_asset_margin_utilization[sym] = f"{pos_notional:.8f}"
+
+        # Compare remote vs local (available cash + allocated margin)
+        cash_diff = abs(remote_avail_cash - self.cash)
         margin_diff = abs(remote_margin - self.allocated_margin)
         pnl_diff = abs(remote_u_pnl - self.unrealized_pnl)
         total_desync = cash_diff + margin_diff + pnl_diff
@@ -1404,7 +1656,7 @@ class LiveGatewayAccountReconciler:
             self.locked_out = True
             self.lockout_reason = (
                 f"Balance desync detected: total_diff={total_desync:.6f} USDT "
-                f"(remote_cash={remote_cash}, local_cash={self.cash})"
+                f"(remote_cash={remote_avail_cash}, local_cash={self.cash})"
             )
 
         sync_evt = GatewaySyncEvent(
@@ -1412,7 +1664,7 @@ class LiveGatewayAccountReconciler:
             server_time_ms=server_ts,
             local_time_ms=local_ts,
             drift_ms=drift_ms,
-            remote_wallet_balance_usdt=remote_cash,
+            remote_wallet_balance_usdt=remote_wallet_balance,
             remote_unrealized_pnl_usdt=remote_u_pnl,
             remote_allocated_margin_usdt=remote_margin,
             local_cash_usdt=self.cash,
@@ -1421,9 +1673,16 @@ class LiveGatewayAccountReconciler:
             desync_drift_usdt=total_desync,
             status=status,
             details={
+                "endpoints_queried": [
+                    "/fapi/v2/account",
+                    "/fapi/v2/balance",
+                    "/fapi/v2/positionRisk",
+                ],
                 "cash_diff": str(cash_diff),
                 "margin_diff": str(margin_diff),
                 "pnl_diff": str(pnl_diff),
+                "cross_asset_margin_utilization": cross_asset_margin_utilization,
+                "per_asset_margin": {k: str(v) for k, v in self.per_asset_margin.items()},
             },
         )
         self.telemetry_store.record_sync_event(sync_evt)
@@ -1459,10 +1718,17 @@ class CanaryLiveOrderDispatcher:
         self.track_id = track_id
 
         self.orders: dict[str, GatewayOrderRecord] = {}
+        self.orders_placed_count: int = 0
+        self.orders_filled_count: int = 0
+        self.orders_cancelled_count: int = 0
+        self.orders_rejected_count: int = 0
+        self.interlock_blocks_count: int = 0
+
         now_epoch: float = time.time()
         self.simulated_clock_epoch: float = now_epoch
         self.last_heartbeat_epoch: float = now_epoch
         self.client.clock_fn = lambda: self.simulated_clock_epoch
+        self.client.clock_advance_fn = lambda sec: self.advance_time(sec, update_heartbeat=True)
 
     def advance_time(self, seconds: float, update_heartbeat: bool = True) -> None:
         """Advance simulated clock and optionally refresh stream heartbeat."""
@@ -1482,30 +1748,72 @@ class CanaryLiveOrderDispatcher:
         is_closing: bool = False,
     ) -> GatewayOrderRecord:
         """Route micro canary order through Phase 276 interlocks and track response."""
-        # 1. Gate check: Fail-closed lockout check
+        # 1. Input parameter validation (strictly positive and finite)
+        if not price.is_finite() or price <= Decimal("0"):
+            self.orders_rejected_count += 1
+            raise OrderNotionalCapBreachError(
+                f"Order price {price} must be strictly positive and finite"
+            )
+        if not quantity.is_finite() or quantity <= Decimal("0"):
+            self.orders_rejected_count += 1
+            raise OrderNotionalCapBreachError(
+                f"Order quantity {quantity} must be strictly positive and finite"
+            )
+
+        # 2. Fail-closed lockout check
         if self.reconciler.locked_out and not is_closing:
+            self.orders_rejected_count += 1
+            self.interlock_blocks_count += 1
             raise GatewayLockoutError(
                 f"Gateway locked out: {self.reconciler.lockout_reason}. Orders strictly blocked."
             )
 
-        notional = quantity * price
+        notional = (quantity * price).quantize(Decimal("0.0001"))
         drawdown = max(Decimal("0"), self.reconciler.starting_equity - self.reconciler.total_equity)
 
-        # 2. Evaluate Phase 276 Interlock Gates
-        self.interlock_gateway.check_order_dispatch_interlocks(
-            symbol=symbol,
-            notional_usdt=notional,
-            track_id=self.track_id,
-            current_time_epoch=self.simulated_clock_epoch,
-            last_heartbeat_epoch=self.last_heartbeat_epoch,
-            cumulative_drawdown_usdt=drawdown,
-            current_asset_margin_usdt=self.reconciler.allocated_margin,
-            current_aggregate_margin_usdt=self.reconciler.allocated_margin,
-            is_closing=is_closing,
-        )
+        # 3. Position & Cash Invariant Checks
+        pos_qty = self.reconciler.positions.get(symbol, Decimal("0"))
+        if is_closing:
+            if pos_qty <= Decimal("0"):
+                self.orders_rejected_count += 1
+                raise CanaryLiveGatewayError(
+                    f"Cannot close position for {symbol}: no active position exists"
+                )
+            if quantity > pos_qty:
+                self.orders_rejected_count += 1
+                raise CanaryLiveGatewayError(
+                    f"Closing order quantity {quantity} exceeds active position quantity {pos_qty}"
+                )
+        else:
+            if notional > self.reconciler.cash:
+                self.orders_rejected_count += 1
+                raise CanaryLiveGatewayError(
+                    f"Insufficient free cash: order notional {notional} USDT "
+                    f"exceeds available cash {self.reconciler.cash} USDT"
+                )
+
+        # 4. Evaluate Phase 276 Interlock Gates
+        current_asset_margin = self.reconciler.per_asset_margin.get(symbol, Decimal("0"))
+        try:
+            self.interlock_gateway.check_order_dispatch_interlocks(
+                symbol=symbol,
+                notional_usdt=notional,
+                track_id=self.track_id,
+                current_time_epoch=self.simulated_clock_epoch,
+                last_heartbeat_epoch=self.last_heartbeat_epoch,
+                cumulative_drawdown_usdt=drawdown,
+                current_asset_margin_usdt=current_asset_margin,
+                current_aggregate_margin_usdt=self.reconciler.allocated_margin,
+                is_closing=is_closing,
+            )
+        except Exception:
+            self.orders_rejected_count += 1
+            self.interlock_blocks_count += 1
+            raise
+
         self.interlock_gateway.record_order_dispatched(symbol, self.simulated_clock_epoch)
 
-        # 3. Create Order Record in PENDING_DISPATCH
+        # 5. Create Order Record in PENDING_DISPATCH
         order_id = f"ord-{uuid4().hex[:10]}"
         client_order_id = f"cid-p277-{uuid4().hex[:8]}"
         now_utc = datetime.now(UTC).isoformat()
@@ -1521,6 +1829,7 @@ class CanaryLiveOrderDispatcher:
             time_in_force=TimeInForce.GTC,
             price=price,
             quantity=quantity,
+            executed_quantity=Decimal("0"),
             notional_usdt=notional,
             status=OrderLifecycleState.PENDING_DISPATCH,
             is_closing=is_closing,
@@ -1537,7 +1846,7 @@ class CanaryLiveOrderDispatcher:
             "Order dispatch prepared and queued",
         )
 
-        # 4. Dispatch Order to Exchange with Fail-Closed Fallback
+        # 6. Dispatch Order to Exchange with Fail-Closed Fallback
         order_params = {
             "symbol": symbol,
             "side": side.value,
@@ -1549,7 +1858,6 @@ class CanaryLiveOrderDispatcher:
 
         try:
             resp = self.client.dispatch_order(order_params)
-            # Acknowledged and filled
             self._handle_successful_order_response(order_record, resp)
             return order_record
         except NetworkTimeoutError as timeout_err:
@@ -1580,6 +1888,135 @@ class CanaryLiveOrderDispatcher:
             # Execute REST query fallback to determine actual order state
             self._recover_unknown_order_state(order_record, err_record)
             return order_record
+        except Exception as exc:
+            order_record.status = OrderLifecycleState.REJECTED
+            order_record.rejection_reason = str(exc)
+            order_record.updated_at_utc = datetime.now(UTC).isoformat()
+            self.telemetry_store.record_order(order_record)
+            self.jsonl_sink.append_order(order_record)
+            self._record_transition(order_record, OrderLifecycleState.REJECTED, str(exc))
+            self.orders_rejected_count += 1
+            raise
+
+    def cancel_order(
+        self, symbol: str, client_order_id: str, reason: str = "Operator cancellation"
+    ) -> GatewayOrderRecord:
+        """Cancel an active order on exchange and transition to CANCELED."""
+        if client_order_id not in self.orders:
+            raise CanaryLiveGatewayError(f"Unknown client_order_id: {client_order_id}")
+        order = self.orders[client_order_id]
+        if order.status in (
+            OrderLifecycleState.FILLED,
+            OrderLifecycleState.CANCELED,
+            OrderLifecycleState.REJECTED,
+        ):
+            raise CanaryLiveGatewayError(
+                f"Cannot cancel order {client_order_id} in terminal state {order.status}"
+            )
+
+        self.client.cancel_order(symbol, client_order_id)
+        order.status = OrderLifecycleState.CANCELED
+        order.updated_at_utc = datetime.now(UTC).isoformat()
+        self.telemetry_store.record_order(order)
+        self.jsonl_sink.append_order(order)
+        self._record_transition(order, OrderLifecycleState.CANCELED, f"Canceled: {reason}")
+        self.orders_cancelled_count += 1
+        return order
+
+    def process_fill_event(
+        self,
+        client_order_id: str,
+        fill_qty: Decimal,
+        fill_price: Decimal,
+        fee: Decimal | None = None,
+        realized_pnl: Decimal = Decimal("0"),
+    ) -> GatewayOrderRecord:
+        """Process incoming match/fill event (transitioning NEW -> PARTIALLY_FILLED -> FILLED)."""
+        if client_order_id not in self.orders:
+            raise CanaryLiveGatewayError(f"Unknown client_order_id: {client_order_id}")
+        order = self.orders[client_order_id]
+        if order.status not in (OrderLifecycleState.NEW, OrderLifecycleState.PARTIALLY_FILLED):
+            raise CanaryLiveGatewayError(
+                f"Cannot process fill for order {client_order_id} in state {order.status}"
+            )
+
+        if not fill_qty.is_finite() or fill_qty <= Decimal("0"):
+            raise DomainViolation(f"fill_qty {fill_qty} must be strictly positive and finite")
+
+        calc_fee = (
+            fee
+            if fee is not None
+            else (fill_qty * fill_price * Decimal("0.0004")).quantize(Decimal("0.000001"))
+        )
+        new_cum_qty = order.executed_quantity + fill_qty
+        if new_cum_qty > order.quantity:
+            raise DomainViolation(
+                f"Cumulative fill {new_cum_qty} exceeds order quantity {order.quantity}"
+            )
+
+        target_state = (
+            OrderLifecycleState.FILLED
+            if new_cum_qty == order.quantity
+            else OrderLifecycleState.PARTIALLY_FILLED
+        )
+        order.executed_quantity = new_cum_qty
+        order.status = target_state
+        order.updated_at_utc = datetime.now(UTC).isoformat()
+        self.telemetry_store.record_order(order)
+        self.jsonl_sink.append_order(order)
+
+        self._record_transition(
+            order,
+            target_state,
+            f"Execution fill event: qty={fill_qty}, cum={new_cum_qty}/{order.quantity}",
+        )
+        if target_state == OrderLifecycleState.FILLED:
+            self.orders_filled_count += 1
+
+        self._apply_fill_accounting(order, fill_qty, fill_price, calc_fee, realized_pnl)
+        self._record_balance_snapshot()
+        return order
+
+    def _apply_fill_accounting(
+        self,
+        order_record: GatewayOrderRecord,
+        exec_qty: Decimal,
+        price: Decimal,
+        fee: Decimal,
+        realized_pnl: Decimal,
+    ) -> None:
+        """Update double-entry accounting state for an executed fill."""
+        notional = exec_qty * price
+        if not order_record.is_closing:
+            self.reconciler.cash -= notional + fee
+            self.reconciler.allocated_margin += notional
+            self.reconciler.realized_pnl -= fee
+            self.reconciler.total_fees += fee
+            self.reconciler.per_asset_margin[order_record.symbol] = (
+                self.reconciler.per_asset_margin.get(order_record.symbol, Decimal("0")) + notional
+            )
+            self.reconciler.positions[order_record.symbol] = (
+                self.reconciler.positions.get(order_record.symbol, Decimal("0")) + exec_qty
+            )
+        else:
+            pos_qty = self.reconciler.positions.get(order_record.symbol, Decimal("0"))
+            pos_margin = self.reconciler.per_asset_margin.get(order_record.symbol, Decimal("0"))
+            if pos_qty > Decimal("0"):
+                close_frac = min(Decimal("1"), exec_qty / pos_qty)
+                margin_to_release = pos_margin * close_frac
+            else:
+                margin_to_release = min(pos_margin, notional)
+
+            self.reconciler.cash += margin_to_release + realized_pnl - fee
+            self.reconciler.allocated_margin = max(
+                Decimal("0"), self.reconciler.allocated_margin - margin_to_release
+            )
+            self.reconciler.per_asset_margin[order_record.symbol] = max(
+                Decimal("0"), pos_margin - margin_to_release
+            )
+            self.reconciler.positions[order_record.symbol] = max(Decimal("0"), pos_qty - exec_qty)
+            self.reconciler.realized_pnl += realized_pnl - fee
+            self.reconciler.total_fees += fee
 
     def _handle_successful_order_response(
         self,
@@ -1587,42 +2024,44 @@ class CanaryLiveOrderDispatcher:
         resp: dict[str, Any],
     ) -> None:
         """Process successful order response and update ledger."""
-        # 1. Transition to NEW (Ack)
+        self.orders_placed_count += 1
+        remote_st = resp.get("status", "FILLED")
         self._record_transition(
             order_record,
             OrderLifecycleState.NEW,
             "Order accepted and acknowledged by exchange",
         )
-        # 2. Transition to FILLED
-        order_record.status = OrderLifecycleState.FILLED
+        if remote_st == "NEW":
+            order_record.status = OrderLifecycleState.NEW
+            order_record.updated_at_utc = datetime.now(UTC).isoformat()
+            self.telemetry_store.record_order(order_record)
+            self.jsonl_sink.append_order(order_record)
+            return
+
+        target_state = (
+            OrderLifecycleState.PARTIALLY_FILLED
+            if remote_st == "PARTIALLY_FILLED"
+            else OrderLifecycleState.FILLED
+        )
+        exec_qty = Decimal(resp.get("executedQty", str(order_record.quantity)))
+        order_record.executed_quantity = exec_qty
+        order_record.status = target_state
         order_record.updated_at_utc = datetime.now(UTC).isoformat()
         self.telemetry_store.record_order(order_record)
         self.jsonl_sink.append_order(order_record)
 
         self._record_transition(
             order_record,
-            OrderLifecycleState.FILLED,
-            "Order executed and filled on matching engine",
+            target_state,
+            f"Order executed ({remote_st}) on matching engine",
         )
+        if target_state == OrderLifecycleState.FILLED:
+            self.orders_filled_count += 1
 
-        # Update local ledger
-        qty = order_record.quantity
-        price = order_record.price
-        fee = Decimal(resp.get("fee", str(qty * price * Decimal("0.0004"))))
+        price = Decimal(resp.get("avgPrice", str(order_record.price)))
+        fee = Decimal(resp.get("fee", str(exec_qty * price * Decimal("0.0004"))))
         realized_pnl = Decimal(resp.get("realizedPnl", "0"))
-
-        self.reconciler.cash = self.reconciler.cash + realized_pnl - fee
-        self.reconciler.realized_pnl += realized_pnl - fee
-        self.reconciler.total_fees += fee
-
-        if not order_record.is_closing:
-            self.reconciler.allocated_margin += qty * price
-        else:
-            self.reconciler.allocated_margin = max(
-                Decimal("0"), self.reconciler.allocated_margin - (qty * price)
-            )
-
-        # Record snapshot
+        self._apply_fill_accounting(order_record, exec_qty, price, fee, realized_pnl)
         self._record_balance_snapshot()
 
     def _recover_unknown_order_state(
@@ -1634,52 +2073,74 @@ class CanaryLiveOrderDispatcher:
         query_resp = self.client.query_order(order_record.symbol, order_record.client_order_id)
         remote_status = query_resp.get("status")
 
-        if remote_status in ("FILLED", "NEW"):
-            logger.info(
-                "REST order query confirmed order %s was %s on exchange. Synchronizing ledger...",
-                order_record.client_order_id,
-                remote_status,
+        if remote_status in ("FILLED", "PARTIALLY_FILLED"):
+            self.orders_placed_count += 1
+            target_state = (
+                OrderLifecycleState.FILLED
+                if remote_status == "FILLED"
+                else OrderLifecycleState.PARTIALLY_FILLED
             )
-            order_record.status = (
-                OrderLifecycleState.FILLED if remote_status == "FILLED" else OrderLifecycleState.NEW
-            )
+            exec_qty = Decimal(query_resp.get("executedQty", str(order_record.quantity)))
+            order_record.executed_quantity = exec_qty
+            order_record.status = target_state
             order_record.updated_at_utc = datetime.now(UTC).isoformat()
             self.telemetry_store.record_order(order_record)
             self.jsonl_sink.append_order(order_record)
 
             self._record_transition(
                 order_record,
-                order_record.status,
+                target_state,
                 f"REST query fallback confirmed remote state: {remote_status}",
             )
+            if target_state == OrderLifecycleState.FILLED:
+                self.orders_filled_count += 1
 
-            qty = order_record.quantity
-            price = order_record.price
-            fee = Decimal(query_resp.get("fee", str(qty * price * Decimal("0.0004"))))
+            price = Decimal(query_resp.get("avgPrice", str(order_record.price)))
+            fee = Decimal(query_resp.get("fee", str(exec_qty * price * Decimal("0.0004"))))
             realized_pnl = Decimal(query_resp.get("realizedPnl", "0"))
-
-            self.reconciler.cash = self.reconciler.cash + realized_pnl - fee
-            self.reconciler.realized_pnl += realized_pnl - fee
-            self.reconciler.total_fees += fee
-            if not order_record.is_closing:
-                self.reconciler.allocated_margin += qty * price
-            else:
-                self.reconciler.allocated_margin = max(
-                    Decimal("0"), self.reconciler.allocated_margin - (qty * price)
-                )
-
+            self._apply_fill_accounting(order_record, exec_qty, price, fee, realized_pnl)
             self._record_balance_snapshot()
+            err_record.resolved = True
+            self.telemetry_store.record_error(err_record)
+        elif remote_status == "NEW":
+            self.orders_placed_count += 1
+            order_record.status = OrderLifecycleState.NEW
+            order_record.updated_at_utc = datetime.now(UTC).isoformat()
+            self.telemetry_store.record_order(order_record)
+            self.jsonl_sink.append_order(order_record)
+            self._record_transition(
+                order_record,
+                OrderLifecycleState.NEW,
+                "REST query fallback confirmed remote state: NEW (resting on book)",
+            )
+            err_record.resolved = True
+            self.telemetry_store.record_error(err_record)
+        elif remote_status == "CANCELED":
+            self.orders_placed_count += 1
+            order_record.status = OrderLifecycleState.CANCELED
+            order_record.updated_at_utc = datetime.now(UTC).isoformat()
+            self.telemetry_store.record_order(order_record)
+            self.jsonl_sink.append_order(order_record)
+            self._record_transition(
+                order_record,
+                OrderLifecycleState.CANCELED,
+                "REST query fallback confirmed remote state: CANCELED",
+            )
+            self.orders_cancelled_count += 1
             err_record.resolved = True
             self.telemetry_store.record_error(err_record)
         else:
             order_record.status = OrderLifecycleState.REJECTED
-            order_record.rejection_reason = "Order not found or rejected on remote exchange"
+            order_record.rejection_reason = f"Order status on remote exchange: {remote_status}"
+            order_record.updated_at_utc = datetime.now(UTC).isoformat()
             self.telemetry_store.record_order(order_record)
+            self.jsonl_sink.append_order(order_record)
             self._record_transition(
                 order_record,
                 OrderLifecycleState.REJECTED,
                 order_record.rejection_reason,
             )
+            self.orders_rejected_count += 1
 
     def _record_transition(
         self,
@@ -1916,13 +2377,11 @@ class CanaryLiveGatewayRunner:
             total_slippage_usdt=str(reconciler.total_slippage),
             drift_usdt=str(drift),
             zero_balance_drift=zero_drift,
-            orders_placed_count=len(dispatcher.orders),
-            orders_filled_count=sum(
-                1 for o in dispatcher.orders.values() if o.status == OrderLifecycleState.FILLED
-            ),
-            orders_cancelled_count=0,
-            orders_rejected_count=0,
-            interlock_blocks_count=0,
+            orders_placed_count=dispatcher.orders_placed_count,
+            orders_filled_count=dispatcher.orders_filled_count,
+            orders_cancelled_count=dispatcher.orders_cancelled_count,
+            orders_rejected_count=dispatcher.orders_rejected_count,
+            interlock_blocks_count=dispatcher.interlock_blocks_count,
             final_circuit_state=sm.current_state.value,
             success=zero_drift and reconciler.allocated_margin == Decimal("0"),
         )
@@ -2048,13 +2507,11 @@ class CanaryLiveGatewayRunner:
             total_slippage_usdt=str(reconciler.total_slippage),
             drift_usdt=str(drift),
             zero_balance_drift=zero_drift,
-            orders_placed_count=len(dispatcher.orders),
-            orders_filled_count=sum(
-                1 for o in dispatcher.orders.values() if o.status == OrderLifecycleState.FILLED
-            ),
-            orders_cancelled_count=0,
-            orders_rejected_count=0,
-            interlock_blocks_count=0,
+            orders_placed_count=dispatcher.orders_placed_count,
+            orders_filled_count=dispatcher.orders_filled_count,
+            orders_cancelled_count=dispatcher.orders_cancelled_count,
+            orders_rejected_count=dispatcher.orders_rejected_count,
+            interlock_blocks_count=dispatcher.interlock_blocks_count,
             final_circuit_state=sm.current_state.value,
             success=zero_drift and reconciler.allocated_margin == Decimal("0"),
         )
@@ -2189,11 +2646,11 @@ class CanaryLiveGatewayRunner:
             total_slippage_usdt=str(reconciler.total_slippage),
             drift_usdt=str(drift),
             zero_balance_drift=zero_drift,
-            orders_placed_count=0,
-            orders_filled_count=0,
-            orders_cancelled_count=0,
-            orders_rejected_count=1,
-            interlock_blocks_count=1,
+            orders_placed_count=dispatcher.orders_placed_count,
+            orders_filled_count=dispatcher.orders_filled_count,
+            orders_cancelled_count=dispatcher.orders_cancelled_count,
+            orders_rejected_count=dispatcher.orders_rejected_count,
+            interlock_blocks_count=dispatcher.interlock_blocks_count,
             final_circuit_state=sm.current_state.value,
             success=zero_drift and desync_caught and lockout_blocked,
         )
@@ -2323,13 +2780,11 @@ class CanaryLiveGatewayRunner:
             total_slippage_usdt=str(reconciler.total_slippage),
             drift_usdt=str(drift),
             zero_balance_drift=zero_drift,
-            orders_placed_count=len(dispatcher.orders),
-            orders_filled_count=sum(
-                1 for o in dispatcher.orders.values() if o.status == OrderLifecycleState.FILLED
-            ),
-            orders_cancelled_count=0,
-            orders_rejected_count=0,
-            interlock_blocks_count=0,
+            orders_placed_count=dispatcher.orders_placed_count,
+            orders_filled_count=dispatcher.orders_filled_count,
+            orders_cancelled_count=dispatcher.orders_cancelled_count,
+            orders_rejected_count=dispatcher.orders_rejected_count,
+            interlock_blocks_count=dispatcher.interlock_blocks_count,
             final_circuit_state=sm.current_state.value,
             success=zero_drift and reconciler.allocated_margin == Decimal("0"),
         )
@@ -2674,6 +3129,40 @@ def verify_phase_277_hash_chain(
         return False
     if not safety.get("zero_secret_leakage"):
         logger.error("Safety zero_secret_leakage invariant breached")
+        return False
+
+    # 6. Verify SQLite Telemetry Store Double-Entry Integrity and Lack of Lockouts
+    try:
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        if not store.verify_unlocked():
+            logger.error("SQLite telemetry store has active lock or cannot be accessed")
+            store.close()
+            return False
+        passed_integrity, max_drift = store.verify_double_entry_integrity(require_records=True)
+        if not passed_integrity:
+            logger.error(
+                "SQLite telemetry store failed double-entry integrity check (max drift=%s)",
+                max_drift,
+            )
+            store.close()
+            return False
+        store.close()
+    except Exception as exc:
+        logger.error("Failed to verify SQLite telemetry database integrity: %s", exc)
+        return False
+
+    # 7. Verify JSONL Order Sink Integrity
+    try:
+        with jsonl_path.open("r", encoding="utf-8") as f:
+            for line_no, line in enumerate(f, 1):
+                if line.strip():
+                    item = json.loads(line)
+                    has_id = "order_id" in item or "transition_id" in item
+                    if "event_type" not in item or not has_id:
+                        logger.error("Invalid JSONL record format at line %d", line_no)
+                        return False
+    except Exception as exc:
+        logger.error("Failed to verify JSONL integrity: %s", exc)
         return False
 
     return True
