@@ -1215,3 +1215,66 @@ Enforce mathematical precision and rigorous engineering hygiene:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-19T15:24:44Z
+
+Implement the production canary testnet micro-execution deployment runner, real-time WebSocket user data stream reconciler, and fail-closed incident response harness under Candidate Registry Manifest Version 2 (Phase 278) to validate asynchronous execution push events, listenKey lifecycle management, and live order tracking in a sandbox environment before mainnet capital authorization.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Production Canary Testnet Deployment & User Data Stream Ingress Runner
+Implement and execute the deterministic Phase 278 testnet deployment runner (`scripts/run_phase_278_testnet_deployment.py` & `src/autonomous_futures/feed/testnet_deployment.py`):
+- Ingest upstream Phase 276 activation certificate and Phase 277 gateway audit verification (`artifacts/research/phase277/canary-gateway-report.json`, `artifacts/research/phase277/gateway-summary.json`).
+- Connect to Binance Futures Testnet user data stream in an offline-safe/replay harness:
+  - Manage listenKey lifecycle: acquisition (`POST /fapi/v1/listenKey`), keep-alive refresh (`PUT /fapi/v1/listenKey` every 30m), and termination (`DELETE /fapi/v1/listenKey`).
+  - Ingest asynchronous WebSocket events: `ACCOUNT_UPDATE` (balance and position changes) and `ORDER_TRADE_UPDATE` (execution reports, fill prices, commissions).
+- Reconcile inbound push events with internal double-entry ledger state across `BTCUSDT`, `ETHUSDT`, `SOLUSDT`.
+
+### R2. Asynchronous Order Lifecycle & Micro Execution Governance
+Implement end-to-end event-driven order lifecycle governance:
+- Route micro canary orders ($\le 5.00$ USDT notional cap, $\le 20.00\%$ per asset, $\le 60.00\%$ aggregate, $\ge 40.00\%$ reserve buffer).
+- Correlate outbound client order IDs with inbound `ORDER_TRADE_UPDATE` pushes (`NEW` $\rightarrow$ `PARTIALLY_FILLED` $\rightarrow$ `FILLED` / `CANCELED`).
+- Dynamically update cash, position quantity, margin allocation, and unrealized PnL from push payloads without accounting balance drift.
+- Enforce event sequencing and deduplication against out-of-order or duplicate WebSocket packets.
+
+### R3. Deterministic Multi-Track Testnet Stress Drills & Telemetry Storage
+Execute 4 deterministic simulation tracks in `artifacts/research/phase278/`:
+1. **Track 1: Nominal User Data Stream Lifecycle & Order Fills** (Clean listenKey acquisition, routine micro order placement, event correlation, and clean ledger updates).
+2. **Track 2: ListenKey Expiry & Stream Reconnect Hysteresis Drill** (Simulate listenKey expiration -> refresh key -> reconnect WebSocket -> backfill state via REST fallback).
+3. **Track 3: Emergency Circuit Breaker Trigger & Testnet Position Flattening** (Trigger Tier 2 Hard-Abort -> cancel open orders -> emergency market liquidation flattening).
+4. **Track 4: Out-of-Order WebSocket Event Handling & Deduplication** (Simulate packet arrival out-of-sequence -> verify correct chronological reordering and deduplication).
+- Store execution marks, orders, lifecycle transitions, and testnet telemetry in isolated SQLite database (`artifacts/research/phase278/canary-testnet-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-testnet-report.json`, `testnet-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Remote CI Polling
+Enforce mathematical precision and rigorous engineering hygiene:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks ($\text{drift} = |\text{final\_cash} + \text{allocated\_margin} + \text{unrealized\_pnl} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Maintain strict containment: `execution_authority: false`, `orders: 0` on real live mainnet capital, `api_keys_loaded: 0` (zero real production secrets).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_278_testnet_deployment.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Stream Ingress & ListenKey Lifecycle
+- [ ] Testnet deployment runner manages listenKey acquisition, keep-alive, and clean termination.
+- [ ] Inbound WebSocket `ACCOUNT_UPDATE` and `ORDER_TRADE_UPDATE` events are parsed and correlated with local orders.
+
+### Order Lifecycle & Stress Handling
+- [ ] Outbound orders and inbound execution reports maintain client order ID correlation.
+- [ ] ListenKey expiration and stream reconnect execute with automatic REST state backfill.
+- [ ] Out-of-order and duplicate WebSocket events are handled without state corruption.
+
+### Accounting, Telemetry & Remote CI Verification
+- [ ] Exact mathematical balance reconciliation confirms zero drift ($< 10^{-15}\text{ USDT}$) across all testnet tracks.
+- [ ] Complete artifact bundle and isolated SQLite database generated in `artifacts/research/phase278/` with cryptographic SHA-256 digests.
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
