@@ -1344,3 +1344,72 @@ Enforce mathematical precision and autonomous safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## Follow-up — 2026-09-19T18:55:48Z
+
+Implement the production canary live mainnet micro-execution deployment runner, graduated capital ingress governance, authenticated bidirectional order stream correlation, and deterministic fail-closed safety verification across staged canary symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) under Candidate Registry Manifest Version 2 (Phase 280) to govern initial micro live deployment, stepped capital ingress, and real-time balance reconciliation before general autonomous production operations.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Upstream Verification & Cryptographic DAG Hash Chain Ingress
+Implement and execute the deterministic Phase 280 runner (`scripts/run_phase_280_mainnet_deployment.py` & `src/autonomous_futures/feed/mainnet_deployment.py`):
+- Ingest upstream Phase 279 mainnet authorization report (`artifacts/research/phase279/canary-mainnet-report.json`, `mainnet-summary.json`), Phase 278 testnet report, Phase 277 gateway report, and Phase 276 activation certificate.
+- Verify continuous cryptographic SHA-256 Merkle DAG hash chain and candidate registry manifest v2 integrity (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Validate prerequisite conditions: `mainnet_authorization_status == MAINNET_AUTHORIZATION_VERIFIED`, zero balance drift, and all safety criteria satisfied.
+
+### R2. Graduated Capital Ingress Governance & Micro Order Execution
+Implement strict multi-stage live order dispatch and capital ingress gating:
+- **Graduated Ingress Tiers**:
+  - Stage 1 (Initial Seed Micro-Probe): Orders capped at $\le 1.00$ USDT notional to verify live order route and acknowledgement without capital exposure.
+  - Stage 2 (Stepped Micro-Allocation): Orders capped at $\le 5.00$ USDT hard micro notional ceiling with `ROUND_DOWN` precision.
+- **Margin & Reserve Allocation Ceilings**: $\le 20.00\%$ per asset, $\le 60.00\%$ aggregate portfolio margin, and $\ge 40.00\%$ unencumbered cash reserve buffer.
+- **Active Working Committed Margin**: Strictly track committed margin across working and partially-filled orders to prevent over-allocation.
+- **Intra-Phase Loss Ceiling**: Cumulative loss limit of $\le 1.50$ USDT; breach triggers immediate fail-closed lockout and emergency micro-chunked position liquidation.
+- **Gateway Heartbeat Freshness**: Order placement permitted ONLY if gateway heartbeat age $\le 500$ ms; stale telemetry triggers automatic freeze with 50 ms recovery hysteresis.
+- **Dual-Confirmation Client Order Tagging**: Unique client order IDs tagged with deterministic format (`c=canary-p280-{sym}-{ts}-{uuid}`).
+
+### R3. Deterministic Multi-Track Mainnet Verification Drills & Telemetry Storage
+Execute 4 deterministic simulation tracks in `artifacts/research/phase280/`:
+1. **Track 1: Graduated Ingress & Live Micro Order Execution Replay** (Nominal seed probe order $\rightarrow$ stepped micro order placement $\rightarrow$ fill correlation $\rightarrow$ clean ledger updates).
+2. **Track 2: WebSocket Network Flap & Automatic Reconnect with REST Order State Reconciliation** (Simulate stream disconnection $\rightarrow$ buffer events $\rightarrow$ reconnect $\rightarrow$ backfill missing execution reports via REST).
+3. **Track 3: Intra-Phase Drawdown Breach & Micro-Chunked Panic Liquidation** (Simulate cumulative loss breach $\rightarrow$ immediate lockout $\rightarrow$ chunked emergency position flattening $\le 5.00$ USDT).
+4. **Track 4: Cross-Asset Concurrent Micro Orders & Trade Deduplication Drill** (Concurrent orders across `BTCUSDT`, `ETHUSDT`, `SOLUSDT` $\rightarrow$ monotonic lifecycle transitions and trade deduplication).
+- Store execution marks, orders, lifecycle transitions, and telemetry in isolated SQLite database (`artifacts/research/phase280/canary-mainnet-deployment-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-mainnet-deployment-report.json`, `deployment-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Remote CI Polling
+Enforce mathematical precision and autonomous safety:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks ($\text{drift} = |\text{final\_cash} + \text{allocated\_margin} + \text{unrealized\_pnl} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Maintain strict containment: `execution_authority: false`, `orders: 0` on uncontrolled real live mainnet capital, `api_keys_loaded: 0` (zero real secrets committed/logged).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_280_mainnet_deployment.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Upstream Hash Chain & Ingress
+- [ ] Ingests Phase 279 mainnet authorization report and validates cryptographic SHA-256 Merkle DAG hash chain.
+- [ ] Confirms Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+
+### Dispatch Interlocks & Graduated Ingress
+- [ ] Initial seed probe orders $\le 1.00$ USDT verified prior to stepped micro expansion $\le 5.00$ USDT.
+- [ ] Gateway heartbeat age > 500 ms immediately blocks order dispatch fail-closed.
+- [ ] Cumulative loss exceeding 1.50 USDT triggers immediate lockout and micro-chunked position liquidation.
+- [ ] Working committed margin actively accounts for in-flight and partially filled orders.
+
+### Accounting & Containment Invariants
+- [ ] Mathematical double-entry reconciliation drift is exactly zero ($|\text{drift}| < 10^{-15}\text{ USDT}$) across all tracks and snapshots.
+- [ ] Strict containment verified: `execution_authority: false`, `orders: 0`, `api_keys_loaded: 0`.
+- [ ] Zero API keys or secrets logged or committed.
+
+### Quality & Remote CI
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
