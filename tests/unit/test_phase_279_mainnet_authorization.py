@@ -50,11 +50,15 @@ from autonomous_futures.feed.mainnet_authorization import (  # noqa: E402
     DEFAULT_PHASE279_OUTPUT_DIR,
     CanaryMainnetConfig,
     CanaryMainnetRunner,
+    CashReserveBreachedError,
+    CircuitBreakerAbortError,
     CircuitBreakerState,
     DailyLossBudgetExceededError,
     GatewayHeartbeatMonitor,
     GatewayHeartbeatRecord,
     GatewayHeartbeatStaleError,
+    GatewayRateLimitError,
+    GatewayServiceUnavailableError,
     HeartbeatStatus,
     InvalidClientOrderIdTagError,
     JsonlCanaryOrderSink,
@@ -1183,3 +1187,492 @@ class TestPhase279AdversarialHardenings:
         transitions = store.get_transitions(track_id="track_conc")
         assert len(transitions) == 20
         store.close()
+
+
+# =====================================================================
+# 11. Round 2 Adversarial Hardenings & Deep Edge-Case Verification
+# =====================================================================
+
+
+class TestPhase279Round2AdversarialHardenings:
+    """Round 2 verification: cross-margin, partial fills, 429/503 backoff, hysteresis."""
+
+    def test_resting_and_partially_filled_orders_committed_margin_interlock_blocks(
+        self, isolated_telemetry
+    ):
+        """Verify resting and partial fills commit margin against per-asset and agg caps."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_r2_margin")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r2_margin",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r2_margin",
+        )
+
+        # 1. Place 4 resting orders for BTC (4 x 4.50 USDT = 18.00 USDT, auto_fill=False)
+        resting_cids = []
+        for _ in range(3):
+            cid_i = generate_canary_client_order_id("BTCUSDT")
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.000075"),
+                price=Decimal("60000.00"),
+                client_order_id=cid_i,
+                auto_fill=False,
+            )
+            resting_cids.append(cid_i)
+
+        cid_rest = generate_canary_client_order_id("BTCUSDT")
+        order_rest = dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.000075"),
+            price=Decimal("60000.00"),
+            client_order_id=cid_rest,
+            auto_fill=False,
+        )
+        resting_cids.append(cid_rest)
+        assert order_rest.status == OrderLifecycleState.NEW
+        assert interlock.get_working_committed_margin("BTCUSDT") == Decimal("18.00000000")
+
+        # 2. Attempt additional 4.50 USDT: 18.00 + 4.50 = 22.50 > 20.00 USDT per-asset cap!
+        cid_blocked = generate_canary_client_order_id("BTCUSDT")
+        with pytest.raises(MarginAllocationExceededError, match="per-asset cap"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.000075"),
+                price=Decimal("60000.00"),
+                client_order_id=cid_blocked,
+            )
+
+        # 3. Simulate partial fill of 0.000025 BTC (1.50 USDT) on Order 4
+        gateway.fill_order(cid_rest, fill_qty=Decimal("0.000025"))
+        dispatcher.drain_and_reconcile_stream()
+        assert dispatcher.orders[cid_rest].status == OrderLifecycleState.PARTIALLY_FILLED
+        assert reconciler.per_asset_margin["BTCUSDT"] == Decimal("1.50000000")
+        # Remaining working on cid_rest: 3.00 USDT; total working: 13.50 + 3.00 = 16.50 USDT
+        assert interlock.get_working_committed_margin("BTCUSDT") == Decimal("16.50000000")
+
+        # Combined BTC margin is 1.50 + 16.50 = 18.00 USDT. Another 4.50 USDT is still blocked!
+        cid_blocked2 = generate_canary_client_order_id("BTCUSDT")
+        with pytest.raises(MarginAllocationExceededError, match="per-asset cap"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.000075"),
+                price=Decimal("60000.00"),
+                client_order_id=cid_blocked2,
+            )
+
+        # 4. Cancel all resting orders except the partially filled position
+        for r_cid in resting_cids:
+            if dispatcher.orders[r_cid].status in (
+                OrderLifecycleState.NEW,
+                OrderLifecycleState.PARTIALLY_FILLED,
+            ):
+                dispatcher.cancel_micro_order("BTCUSDT", r_cid)
+        assert interlock.get_working_committed_margin("BTCUSDT") == Decimal("0")
+        assert reconciler.per_asset_margin["BTCUSDT"] == Decimal("1.50000000")
+
+        # 5. Now dispatching 4.50 USDT succeeds cleanly: 1.50 + 4.50 = 6.00 <= 20.00 USDT!
+        cid_ok = generate_canary_client_order_id("BTCUSDT")
+        order_ok = dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.000075"),
+            price=Decimal("60000.00"),
+            client_order_id=cid_ok,
+        )
+        assert order_ok.status == OrderLifecycleState.FILLED
+        assert reconciler.mathematical_drift < Decimal("1e-15")
+
+    def test_multi_symbol_concurrent_dispatch_portfolio_aggregate_ceiling_breach(
+        self, isolated_telemetry
+    ):
+        """Verify multi-symbol concurrent dispatch respects 60% aggregate and 40% reserve."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_r2_agg")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r2_agg",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r2_agg",
+        )
+
+        # Place 4 resting orders of ~4.75 USDT each on BTC (total ~19.00 USDT, within 20% cap)
+        for _ in range(4):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00007916"),
+                price=Decimal("60000.00"),
+                auto_fill=False,
+            )
+        # Place 4 resting orders of ~4.75 USDT each on ETH (total ~19.00 USDT, within 20% cap)
+        for _ in range(4):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-eth",
+                symbol="ETHUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00158333"),
+                price=Decimal("3000.00"),
+                auto_fill=False,
+            )
+        # Place 4 resting orders of ~4.75 USDT each on SOL (total ~19.00 USDT, within 20% cap)
+        for _ in range(4):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-sol",
+                symbol="SOLUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.03166666"),
+                price=Decimal("150.00"),
+                auto_fill=False,
+            )
+
+        # Aggregate working committed margin: ~19 * 3 = ~57.00 USDT
+        assert interlock.get_working_committed_margin() >= Decimal("56.99")
+
+        # Attempt to dispatch 4.50 USDT on SOL: 57 + 4.50 = 61.50 > 60.00 USDT (60% aggregate cap)!
+        with pytest.raises((MarginAllocationExceededError, CashReserveBreachedError)):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-sol",
+                symbol="SOLUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.030"),
+                price=Decimal("150.00"),
+            )
+
+    def test_mock_gateway_multi_step_partial_fills_and_order_completion(self, isolated_telemetry):
+        """Verify mock gateway cumulative partial fills and transitions to FILLED."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_r2_part")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r2_part",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r2_part",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        # Dispatch with auto_fill=False
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            client_order_id=cid,
+            auto_fill=False,
+        )
+        assert dispatcher.orders[cid].status == OrderLifecycleState.NEW
+
+        # Fill 1: 0.00003 BTC
+        rec1 = gateway.fill_order(cid, fill_qty=Decimal("0.00003"))
+        assert rec1["status"] == "PARTIALLY_FILLED"
+        assert rec1["executedQty"] == "0.00003"
+        dispatcher.drain_and_reconcile_stream()
+        assert dispatcher.orders[cid].status == OrderLifecycleState.PARTIALLY_FILLED
+        assert dispatcher.orders[cid].executed_quantity == "0.00003"
+
+        # Fill 2: 0.00005 BTC (completes the order)
+        rec2 = gateway.fill_order(cid, fill_qty=Decimal("0.00005"))
+        assert rec2["status"] == "FILLED"
+        assert rec2["executedQty"] == "0.00008"
+        dispatcher.drain_and_reconcile_stream()
+        assert dispatcher.orders[cid].status == OrderLifecycleState.FILLED
+        assert dispatcher.orders[cid].executed_quantity == "0.00008"
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+        assert reconciler.mathematical_drift < Decimal("1e-15")
+
+    def test_gateway_http_429_rate_limit_rejection_and_reduced_risk(self, isolated_telemetry):
+        """Verify HTTP 429 rate limit triggers order rejection and REDUCED_RISK state."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        gateway.inject_rate_limit_429 = True
+        reconciler = MainnetUserDataStreamReconciler("track_r2_429")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r2_429",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r2_429",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        with pytest.raises(GatewayRateLimitError, match="HTTP 429"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+                client_order_id=cid,
+            )
+
+        assert dispatcher.orders[cid].status == OrderLifecycleState.REJECTED
+        assert "HTTP 429" in str(dispatcher.orders[cid].rejection_reason)
+        assert interlock.circuit_state == CircuitBreakerState.REDUCED_RISK
+        assert dispatcher.orders_rejected_count == 1
+
+    def test_gateway_http_503_service_unavailable_rejection_and_heartbeat_freeze(
+        self, isolated_telemetry
+    ):
+        """Verify HTTP 503 outage triggers order rejection and HEARTBEAT_FREEZE state."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        gateway.inject_service_unavailable_503 = True
+        reconciler = MainnetUserDataStreamReconciler("track_r2_503")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r2_503",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r2_503",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        with pytest.raises(GatewayServiceUnavailableError, match="HTTP 503"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+                client_order_id=cid,
+            )
+
+        assert dispatcher.orders[cid].status == OrderLifecycleState.REJECTED
+        assert "HTTP 503" in str(dispatcher.orders[cid].rejection_reason)
+        assert interlock.circuit_state == CircuitBreakerState.HEARTBEAT_FREEZE
+        assert dispatcher.orders_rejected_count == 1
+
+        # Subsequent dispatch while frozen is blocked
+        cid2 = generate_canary_client_order_id("BTCUSDT")
+        with pytest.raises(CircuitBreakerAbortError, match="HEARTBEAT_FREEZE"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+                client_order_id=cid2,
+            )
+
+        # 3. Gateway recovers, fresh heartbeat arrives after freeze -> thaws back to NORMAL
+        gateway.inject_service_unavailable_503 = False
+        time.sleep(0.01)
+        future_ts = int(time.time() * 1000) + 100
+        heartbeat_mon.record_heartbeat(
+            server_time_ms=future_ts,
+            local_receive_time_ms=future_ts,
+            latency_ms=10.0,
+        )
+        cid3 = generate_canary_client_order_id("BTCUSDT")
+        thawed_order = dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            client_order_id=cid3,
+        )
+        assert thawed_order.status == OrderLifecycleState.FILLED
+        assert interlock.circuit_state == CircuitBreakerState.NORMAL
+
+    def test_heartbeat_timeout_and_disconnected_classification_and_freeze_thaw(
+        self, isolated_telemetry
+    ):
+        """Verify TIMEOUT and DISCONNECTED classifications and freeze thaw upon healthy recovery."""
+        mon = GatewayHeartbeatMonitor(max_age_ms=500.0)
+        # 1. No heartbeat ever received -> DISCONNECTED
+        assert not mon.is_fresh()
+        with pytest.raises(GatewayHeartbeatStaleError, match="DISCONNECTED"):
+            mon.assert_fresh()
+        assert mon.status == HeartbeatStatus.DISCONNECTED
+
+        # 2. Extreme latency spike > 2000ms -> TIMEOUT
+        mon.record_heartbeat(server_time_ms=1000000, latency_ms=2500.0)
+        assert mon.status == HeartbeatStatus.TIMEOUT
+        assert not mon.is_fresh()
+        with pytest.raises(GatewayHeartbeatStaleError, match="TIMEOUT"):
+            mon.assert_fresh()
+
+        # 3. Fresh heartbeat received -> HEALTHY
+        now_ms = int(time.time() * 1000)
+        mon.record_heartbeat(server_time_ms=now_ms - 30, latency_ms=30.0)
+        assert mon.status == HeartbeatStatus.HEALTHY
+        assert mon.is_fresh()
+
+    def test_consecutive_ticks_hysteresis_recovery(self):
+        """Verify recovery requires N consecutive healthy frames when configured."""
+        mon = GatewayHeartbeatMonitor(
+            max_age_ms=500.0,
+            recovery_threshold_ms=450.0,
+            recovery_hysteresis_ticks=3,
+        )
+        now_ms = 1000000
+        # Frame 1: Stale (600ms)
+        mon.record_heartbeat(server_time_ms=now_ms - 600, local_receive_time_ms=now_ms)
+        assert mon.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+        assert mon.consecutive_healthy_ticks == 0
+
+        # Frame 2: Healthy latency 400ms, tick 1 of 3 -> stays stale
+        now_ms += 100
+        mon.record_heartbeat(server_time_ms=now_ms - 400, local_receive_time_ms=now_ms)
+        assert mon.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+        assert mon.consecutive_healthy_ticks == 1
+
+        # Frame 3: Healthy latency 420ms, tick 2 of 3 -> stays stale
+        now_ms += 100
+        mon.record_heartbeat(server_time_ms=now_ms - 420, local_receive_time_ms=now_ms)
+        assert mon.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+        assert mon.consecutive_healthy_ticks == 2
+
+        # Frame 4: Healthy latency 390ms, tick 3 of 3 -> RECOVERS!
+        now_ms += 100
+        mon.record_heartbeat(server_time_ms=now_ms - 390, local_receive_time_ms=now_ms)
+        assert mon.status == HeartbeatStatus.HEALTHY
+        assert mon.consecutive_healthy_ticks == 3
+
+    def test_stream_synthesized_order_computes_exact_usd_notional(self, isolated_telemetry):
+        """Verify synthesized order records from push events compute USD notional (q * p)."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_r2_synth")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r2_synth",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r2_synth",
+        )
+
+        cid = "c=canary-p279-BTCUSDT-1726765000000-synth001"
+        push_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1726765000000,
+            "T": 1726765000000,
+            "_seq": 1,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "o": "LIMIT",
+                "f": "GTC",
+                "q": "0.00008",
+                "p": "60000.00",
+                "X": "NEW",
+                "i": 999999,
+                "z": "0",
+                "x": "NEW",
+            },
+        }
+        gateway.stream_buffer.append(push_event)
+        dispatcher.drain_and_reconcile_stream()
+
+        assert cid in dispatcher.orders
+        order = dispatcher.orders[cid]
+        # Notional must be 0.00008 * 60,000 = 4.80 USDT, NOT "0.00008"
+        assert order.notional_usdt == "4.80000000"
+        assert order.status == OrderLifecycleState.NEW

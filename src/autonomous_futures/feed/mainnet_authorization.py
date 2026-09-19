@@ -16,7 +16,7 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from decimal import ROUND_DOWN, Decimal
 from enum import StrEnum
@@ -145,6 +145,14 @@ class CertificateInvalidatedError(
 
 class GatewayHeartbeatStaleError(CanaryMainnetAuthorizationError):
     """Raised when gateway heartbeat age exceeds 500 ms limit."""
+
+
+class GatewayRateLimitError(CanaryMainnetAuthorizationError):
+    """Raised when exchange returns HTTP 429 rate limit exceeded."""
+
+
+class GatewayServiceUnavailableError(CanaryMainnetAuthorizationError):
+    """Raised when exchange returns HTTP 503 service unavailable."""
 
 
 class NotionalCapExceededError(CanaryMainnetAuthorizationError):
@@ -1092,9 +1100,12 @@ class GatewayHeartbeatMonitor:
         self,
         max_age_ms: float = GATEWAY_HEARTBEAT_MAX_AGE_MS,
         recovery_threshold_ms: float = GATEWAY_HEARTBEAT_HYSTERESIS_RECOVERY_MS,
+        recovery_hysteresis_ticks: int = 1,
     ) -> None:
         self.max_age_ms = max_age_ms
         self.recovery_threshold_ms = recovery_threshold_ms
+        self.recovery_hysteresis_ticks = max(1, recovery_hysteresis_ticks)
+        self.consecutive_healthy_ticks: int = 0
         self.last_heartbeat_timestamp_ms: int = 0
         self.last_monotonic_ms: float = 0.0
         self.last_server_time_ms: int = 0
@@ -1138,15 +1149,30 @@ class GatewayHeartbeatMonitor:
 
         # Evaluate freshness, clock desynchronization, and hysteresis recovery
         if is_clock_desynced or calc_latency > self.max_age_ms or calc_latency < -5.0:
-            self.stale_count += 1
-            status = HeartbeatStatus.LATENCY_SPIKE_STALE
-        elif self.status == HeartbeatStatus.LATENCY_SPIKE_STALE:
-            # Hysteresis recovery: require latency <= recovery_threshold_ms to exit stale state
-            if calc_latency <= self.recovery_threshold_ms:
-                status = HeartbeatStatus.HEALTHY
+            if self.status == HeartbeatStatus.HEALTHY:
+                self.stale_count += 1
+            self.consecutive_healthy_ticks = 0
+            if calc_latency > 2000.0:
+                status = HeartbeatStatus.TIMEOUT
             else:
                 status = HeartbeatStatus.LATENCY_SPIKE_STALE
+        elif self.status in (
+            HeartbeatStatus.LATENCY_SPIKE_STALE,
+            HeartbeatStatus.TIMEOUT,
+            HeartbeatStatus.DISCONNECTED,
+        ):
+            # Hysteresis recovery: require latency <= recovery_threshold_ms and N consecutive ticks
+            if calc_latency <= self.recovery_threshold_ms:
+                self.consecutive_healthy_ticks += 1
+                if self.consecutive_healthy_ticks >= self.recovery_hysteresis_ticks:
+                    status = HeartbeatStatus.HEALTHY
+                else:
+                    status = self.status
+            else:
+                self.consecutive_healthy_ticks = 0
+                status = self.status
         else:
+            self.consecutive_healthy_ticks += 1
             status = HeartbeatStatus.HEALTHY
 
         self.status = status
@@ -1166,6 +1192,7 @@ class GatewayHeartbeatMonitor:
                     "latency_ms": calc_latency,
                     "status": status.value,
                     "clock_desync": is_clock_desynced,
+                    "consecutive_healthy_ticks": self.consecutive_healthy_ticks,
                 }
             ),
         )
@@ -1191,10 +1218,7 @@ class GatewayHeartbeatMonitor:
 
     def is_fresh(self, now_ms: int | None = None, max_age_ms: float | None = None) -> bool:
         """Check if gateway heartbeat age is within allowable ceiling and status is HEALTHY."""
-        if (
-            self.status == HeartbeatStatus.LATENCY_SPIKE_STALE
-            and self._manual_age_override_ms is None
-        ):
+        if self.status != HeartbeatStatus.HEALTHY and self._manual_age_override_ms is None:
             return False
         limit = max_age_ms if max_age_ms is not None else self.max_age_ms
         return self.get_heartbeat_age_ms(now_ms) <= limit
@@ -1203,12 +1227,25 @@ class GatewayHeartbeatMonitor:
         """Fail-closed assertion that gateway heartbeat is fresh; raises error on stale."""
         age = self.get_heartbeat_age_ms(now_ms)
         limit = max_age_ms if max_age_ms is not None else self.max_age_ms
-        if age > limit or (
-            self.status == HeartbeatStatus.LATENCY_SPIKE_STALE
-            and self._manual_age_override_ms is None
-        ):
-            self.stale_count += 1
-            self.status = HeartbeatStatus.LATENCY_SPIKE_STALE
+        if (
+            self.status != HeartbeatStatus.HEALTHY and self._manual_age_override_ms is None
+        ) or age > limit:
+            if self.status == HeartbeatStatus.HEALTHY:
+                self.stale_count += 1
+                if self.last_heartbeat_timestamp_ms == 0:
+                    self.status = HeartbeatStatus.DISCONNECTED
+                elif age > 2000.0:
+                    self.status = HeartbeatStatus.TIMEOUT
+                else:
+                    self.status = HeartbeatStatus.LATENCY_SPIKE_STALE
+            elif self.last_heartbeat_timestamp_ms == 0:
+                self.status = HeartbeatStatus.DISCONNECTED
+            elif (
+                self.status == HeartbeatStatus.TIMEOUT
+                or age > 2000.0
+                or self.current_latency_ms > 2000.0
+            ):
+                self.status = HeartbeatStatus.TIMEOUT
             raise GatewayHeartbeatStaleError(
                 f"Gateway heartbeat stale: age {age:.1f}ms exceeds {limit:.1f}ms ceiling or "
                 f"status is {self.status.value}. Order dispatch blocked fail-closed."
@@ -1554,9 +1591,16 @@ class MockBinanceMainnetGateway:
         self.stream_buffer: list[dict[str, Any]] = []
         self.inject_out_of_order_events: bool = False
         self.inject_duplicate_events: bool = False
+        self.inject_rate_limit_429: bool = False
+        self.inject_service_unavailable_503: bool = False
+        self.rate_limit_retry_after_ms: int = 1000
 
     def generate_heartbeat(self, latency_ms: float = 45.0) -> dict[str, Any]:
         """Produce a simulated server time heartbeat packet."""
+        if self.inject_service_unavailable_503:
+            self.inject_service_unavailable_503 = False
+            raise GatewayServiceUnavailableError("HTTP 503: Gateway heartbeat endpoint unavailable")
+
         server_time_ms = int(time.time() * 1000) - int(latency_ms)
         return {
             "serverTime": server_time_ms,
@@ -1565,6 +1609,18 @@ class MockBinanceMainnetGateway:
 
     def create_order(self, **params: Any) -> dict[str, Any]:
         """Simulate creating a new order on Binance Mainnet."""
+        if self.inject_rate_limit_429:
+            self.inject_rate_limit_429 = False
+            raise GatewayRateLimitError(
+                f"HTTP 429: Too Many Requests; rate limit exceeded, retry after "
+                f"{self.rate_limit_retry_after_ms}ms"
+            )
+        if self.inject_service_unavailable_503:
+            self.inject_service_unavailable_503 = False
+            raise GatewayServiceUnavailableError(
+                "HTTP 503: Service Unavailable; Binance Futures matching engine overloaded"
+            )
+
         symbol = str(params.get("symbol"))
         side = str(params.get("side"))
         order_type = str(params.get("type", "LIMIT"))
@@ -1641,28 +1697,42 @@ class MockBinanceMainnetGateway:
         fill_qty: Decimal | None = None,
         is_maker: bool = False,
     ) -> dict[str, Any]:
-        """Simulate immediate order match and fill on gateway."""
+        """Simulate order match and fill on gateway (supporting full or partial fills)."""
         record = self.orders.get(client_order_id)
         if not record:
             raise OrderCorrelationError(f"Unknown order {client_order_id}")
-        if record["status"] in ("FILLED", "CANCELED", "REJECTED"):
+        if record["status"] in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
             raise OrderCorrelationError(
                 f"Cannot fill order {client_order_id} in terminal state {record['status']}"
             )
 
         orig_qty = Decimal(record["origQty"])
-        exec_qty = fill_qty if fill_qty is not None else orig_qty
+        current_exec_qty = Decimal(record.get("executedQty", "0"))
+        remaining_qty = orig_qty - current_exec_qty
+        if remaining_qty <= Decimal("0"):
+            raise OrderCorrelationError(
+                f"Cannot fill order {client_order_id}: already fully executed"
+            )
+
+        this_fill_qty = fill_qty if fill_qty is not None else remaining_qty
+        if this_fill_qty > remaining_qty:
+            this_fill_qty = remaining_qty
+
+        new_total_exec_qty = current_exec_qty + this_fill_qty
+        is_full_fill = new_total_exec_qty >= orig_qty
+        new_status = "FILLED" if is_full_fill else "PARTIALLY_FILLED"
+
         price = fill_price if fill_price is not None else Decimal(record["price"])
 
         self.next_trade_id += 1
         trade_id = self.next_trade_id
         fee_rate = self.maker_fee_rate if is_maker else self.taker_fee_rate
-        notional = (exec_qty * price).quantize(Decimal("0.00000001"))
+        notional = (this_fill_qty * price).quantize(Decimal("0.00000001"))
         fee = (notional * fee_rate).quantize(Decimal("0.00000001"))
 
         now_ms = int(time.time() * 1000)
-        record["executedQty"] = str(exec_qty)
-        record["status"] = "FILLED"
+        record["executedQty"] = str(new_total_exec_qty)
+        record["status"] = new_status
         record["updateTime"] = now_ms
 
         self.next_stream_seq += 1
@@ -1680,10 +1750,10 @@ class MockBinanceMainnetGateway:
                 "q": record["origQty"],
                 "p": str(price),
                 "ap": str(price),
-                "X": "FILLED",
+                "X": new_status,
                 "i": record["orderId"],
-                "z": str(exec_qty),
-                "l": str(exec_qty),
+                "z": str(new_total_exec_qty),
+                "l": str(this_fill_qty),
                 "L": str(price),
                 "n": str(fee),
                 "N": "USDT",
@@ -1803,14 +1873,76 @@ class MainnetOrderDispatchInterlock:
         track_id: str,
         circuit_state: CircuitBreakerState = CircuitBreakerState.NORMAL,
         daily_loss_budget_usdt: Decimal = DAILY_LOSS_BUDGET_USDT,
+        orders_provider: Callable[[], Mapping[str, MainnetOrderRecord]] | None = None,
     ) -> None:
         self.heartbeat_monitor = heartbeat_monitor
         self.reconciler = reconciler
         self.telemetry_store = telemetry_store
         self.track_id = track_id
-        self.circuit_state = circuit_state
+        self._circuit_state = circuit_state
+        self.freeze_timestamp_ms: int = (
+            int(time.time() * 1000) if circuit_state == CircuitBreakerState.HEARTBEAT_FREEZE else 0
+        )
+        self.freeze_heartbeat_count: int = (
+            heartbeat_monitor.heartbeat_count
+            if circuit_state == CircuitBreakerState.HEARTBEAT_FREEZE
+            else 0
+        )
         self.daily_loss_budget_usdt = daily_loss_budget_usdt
         self.interlock_blocks_count = 0
+        self._orders_provider = orders_provider
+
+    @property
+    def circuit_state(self) -> CircuitBreakerState:
+        """Current operational circuit breaker state."""
+        return self._circuit_state
+
+    @circuit_state.setter
+    def circuit_state(self, value: CircuitBreakerState) -> None:
+        self._circuit_state = value
+        if value == CircuitBreakerState.HEARTBEAT_FREEZE:
+            self.freeze_timestamp_ms = int(time.time() * 1000)
+            self.freeze_heartbeat_count = self.heartbeat_monitor.heartbeat_count
+
+    def set_orders_provider(self, provider: Callable[[], Mapping[str, MainnetOrderRecord]]) -> None:
+        """Bind callable returning active order records for working margin calculation."""
+        self._orders_provider = provider
+
+    def get_working_committed_margin(
+        self,
+        symbol: str | None = None,
+        exclude_client_order_id: str | None = None,
+    ) -> Decimal:
+        """Calculate unexecuted margin committed by active open working orders."""
+        if self._orders_provider is None:
+            return Decimal("0")
+        orders = self._orders_provider()
+        total_working = Decimal("0")
+        for ord_rec in orders.values():
+            if ord_rec.is_closing:
+                continue
+            if (
+                exclude_client_order_id is not None
+                and ord_rec.client_order_id == exclude_client_order_id
+            ):
+                continue
+            if ord_rec.status in (
+                OrderLifecycleState.PENDING_SUBMIT,
+                OrderLifecycleState.NEW,
+                OrderLifecycleState.PARTIALLY_FILLED,
+            ):
+                if symbol is not None and ord_rec.symbol != symbol:
+                    continue
+                orig_qty = Decimal(str(ord_rec.quantity))
+                exec_qty = Decimal(str(ord_rec.executed_quantity))
+                unfilled_qty = max(Decimal("0"), orig_qty - exec_qty)
+                if unfilled_qty > Decimal("0"):
+                    price = Decimal(str(ord_rec.price))
+                    order_working = (unfilled_qty * price).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+                    total_working += order_working
+        return total_working
 
     def validate_dispatch(
         self,
@@ -1823,6 +1955,7 @@ class MainnetOrderDispatchInterlock:
         """Validate order dispatch against all risk containment interlocks fail-closed."""
         # 1. Gateway Heartbeat Freshness Interlock (Age <= 500 ms)
         if not self.heartbeat_monitor.is_fresh():
+            self.circuit_state = CircuitBreakerState.HEARTBEAT_FREEZE
             self.interlock_blocks_count += 1
             age = self.heartbeat_monitor.get_heartbeat_age_ms()
             self._record_interlock(
@@ -1853,10 +1986,28 @@ class MainnetOrderDispatchInterlock:
             raise SafetyInvariantViolation(f"Unauthorized symbol {symbol} for canary trading")
 
         # 4. Circuit Breaker State Check
-        if self.circuit_state in (
+        if self._circuit_state == CircuitBreakerState.HEARTBEAT_FREEZE:
+            if self.heartbeat_monitor.is_fresh() and (
+                self.heartbeat_monitor.heartbeat_count > self.freeze_heartbeat_count
+                or self.heartbeat_monitor.last_heartbeat_timestamp_ms > self.freeze_timestamp_ms
+            ):
+                self._circuit_state = CircuitBreakerState.NORMAL
+            else:
+                self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.CIRCUIT_BREAKER_NORMAL.value,
+                    "BLOCKED",
+                    symbol,
+                    client_order_id,
+                    {"state": self._circuit_state.value},
+                )
+                raise CircuitBreakerAbortError(
+                    f"Dispatch blocked: circuit breaker in {self._circuit_state.value} state"
+                )
+
+        if self._circuit_state in (
             CircuitBreakerState.DAILY_LOSS_LOCKOUT,
             CircuitBreakerState.HARD_ABORT,
-            CircuitBreakerState.HEARTBEAT_FREEZE,
         ):
             self.interlock_blocks_count += 1
             self._record_interlock(
@@ -1864,10 +2015,10 @@ class MainnetOrderDispatchInterlock:
                 "BLOCKED",
                 symbol,
                 client_order_id,
-                {"state": self.circuit_state.value},
+                {"state": self._circuit_state.value},
             )
             raise CircuitBreakerAbortError(
-                f"Dispatch blocked: circuit breaker in {self.circuit_state.value} state"
+                f"Dispatch blocked: circuit breaker in {self._circuit_state.value} state"
             )
 
         # 5. Cumulative Daily Loss Budget Interlock (Realized loss <= 2.00 USDT)
@@ -1905,14 +2056,19 @@ class MainnetOrderDispatchInterlock:
                 f"Order notional {notional} USDT exceeds cap of {HARD_NOTIONAL_CAP_USDT} USDT"
             )
 
-        # 7. Margin & Reserve Allocation Ceiling (if opening/increasing position)
+        # 7. Margin & Reserve Allocation Ceiling (including active working orders)
         if not is_closing:
             equity = self.reconciler.total_equity
             if equity <= Decimal("0"):
                 raise SafetyInvariantViolation("Portfolio equity must be strictly positive")
 
             order_margin = notional
-            existing_sym_margin = self.reconciler.per_asset_margin.get(symbol, Decimal("0"))
+            working_sym_margin = self.get_working_committed_margin(
+                symbol, exclude_client_order_id=client_order_id
+            )
+            existing_sym_margin = (
+                self.reconciler.per_asset_margin.get(symbol, Decimal("0")) + working_sym_margin
+            )
             new_sym_margin = existing_sym_margin + order_margin
             max_sym_margin = equity * MAX_PER_ASSET_MARGIN_PCT
 
@@ -1925,15 +2081,19 @@ class MainnetOrderDispatchInterlock:
                     client_order_id,
                     {
                         "per_asset_margin": str(new_sym_margin),
+                        "working_sym_margin": str(working_sym_margin),
                         "max_per_asset": str(max_sym_margin),
                     },
                 )
                 raise MarginAllocationExceededError(
-                    f"Order margin {new_sym_margin} USDT breaches per-asset cap of "
-                    f"{max_sym_margin} USDT (20%)"
+                    f"Order margin {new_sym_margin} USDT (including {working_sym_margin} USDT "
+                    f"working) breaches per-asset cap of {max_sym_margin} USDT (20%)"
                 )
 
-            new_agg_margin = self.reconciler.allocated_margin + order_margin
+            working_agg_margin = self.get_working_committed_margin(
+                exclude_client_order_id=client_order_id
+            )
+            new_agg_margin = self.reconciler.allocated_margin + working_agg_margin + order_margin
             max_agg_margin = equity * MAX_AGGREGATE_MARGIN_PCT
             if new_agg_margin > max_agg_margin:
                 self.interlock_blocks_count += 1
@@ -1944,15 +2104,16 @@ class MainnetOrderDispatchInterlock:
                     client_order_id,
                     {
                         "aggregate_margin": str(new_agg_margin),
+                        "working_agg_margin": str(working_agg_margin),
                         "max_aggregate": str(max_agg_margin),
                     },
                 )
                 raise MarginAllocationExceededError(
-                    f"Aggregate margin {new_agg_margin} USDT breaches portfolio cap of "
-                    f"{max_agg_margin} USDT (60%)"
+                    f"Aggregate margin {new_agg_margin} USDT (including {working_agg_margin} USDT "
+                    f"working) breaches portfolio cap of {max_agg_margin} USDT (60%)"
                 )
 
-            rem_cash = self.reconciler.cash - order_margin
+            rem_cash = self.reconciler.cash - working_agg_margin - order_margin
             min_cash_reserve = equity * MIN_RESERVE_BUFFER_PCT
             if rem_cash < min_cash_reserve:
                 self.interlock_blocks_count += 1
@@ -1963,6 +2124,7 @@ class MainnetOrderDispatchInterlock:
                     client_order_id,
                     {
                         "remaining_cash": str(rem_cash),
+                        "working_agg_margin": str(working_agg_margin),
                         "min_reserve": str(min_cash_reserve),
                     },
                 )
@@ -2029,6 +2191,7 @@ class MainnetMicroOrderDispatcher:
         self.track_id = track_id
 
         self.orders: dict[str, MainnetOrderRecord] = {}
+        self.interlock.set_orders_provider(lambda: self.orders)
         self.orders_placed_count = 0
         self.orders_filled_count = 0
         self.orders_cancelled_count = 0
@@ -2046,6 +2209,8 @@ class MainnetMicroOrderDispatcher:
         client_order_id: str | None = None,
         time_in_force: TimeInForce = TimeInForce.GTC,
         is_closing: bool = False,
+        auto_fill: bool = True,
+        fill_qty: Decimal | None = None,
     ) -> MainnetOrderRecord:
         """Validate order against interlocks, dispatch to gateway, and process immediate fills."""
         now_utc = datetime.now(UTC).isoformat()
@@ -2130,6 +2295,36 @@ class MainnetMicroOrderDispatcher:
                 price=str(price),
                 newClientOrderId=cid,
             )
+        except GatewayRateLimitError as exc:
+            order_rec.status = OrderLifecycleState.REJECTED
+            order_rec.rejection_reason = str(exc)
+            order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+            self.orders_rejected_count += 1
+            self.telemetry_store.record_order(order_rec)
+            self._record_transition(
+                order_rec,
+                OrderLifecycleState.PENDING_SUBMIT.value,
+                OrderLifecycleState.REJECTED.value,
+                f"RATE_LIMIT_429: {exc}",
+            )
+            self.jsonl_sink.append_event("ORDER_REJECTED", order_rec.model_dump(mode="json"))
+            self.interlock.circuit_state = CircuitBreakerState.REDUCED_RISK
+            raise
+        except GatewayServiceUnavailableError as exc:
+            order_rec.status = OrderLifecycleState.REJECTED
+            order_rec.rejection_reason = str(exc)
+            order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+            self.orders_rejected_count += 1
+            self.telemetry_store.record_order(order_rec)
+            self._record_transition(
+                order_rec,
+                OrderLifecycleState.PENDING_SUBMIT.value,
+                OrderLifecycleState.REJECTED.value,
+                f"SERVICE_UNAVAILABLE_503: {exc}",
+            )
+            self.jsonl_sink.append_event("ORDER_REJECTED", order_rec.model_dump(mode="json"))
+            self.interlock.circuit_state = CircuitBreakerState.HEARTBEAT_FREEZE
+            raise
         except Exception as exc:
             order_rec.status = OrderLifecycleState.REJECTED
             order_rec.rejection_reason = str(exc)
@@ -2162,8 +2357,10 @@ class MainnetMicroOrderDispatcher:
         self.telemetry_store.record_order(order_rec)
         self.jsonl_sink.append_event("ORDER_NEW", order_rec.model_dump(mode="json"))
 
-        # Trigger simulated immediate match on gateway
-        self.gateway.fill_order(client_order_id=cid, fill_price=price, fill_qty=quantity)
+        # Trigger simulated match on gateway if auto_fill enabled
+        if auto_fill:
+            eff_qty = fill_qty if fill_qty is not None else quantity
+            self.gateway.fill_order(client_order_id=cid, fill_price=price, fill_qty=eff_qty)
 
         # Drain and process push stream
         self.drain_and_reconcile_stream(is_closing=is_closing)
@@ -2207,7 +2404,9 @@ class MainnetMicroOrderDispatcher:
                 try:
                     self.cancel_micro_order(symbol=o_rec.symbol, client_order_id=o_cid)
                 except Exception:
-                    pass
+                    o_rec.status = OrderLifecycleState.CANCELLED
+                    o_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                    self.telemetry_store.record_order(o_rec)
 
         # Step 2: Drain stream to absorb any racing fills or cancellations into the ledger
         self.drain_and_reconcile_stream()
@@ -2330,6 +2529,24 @@ class MainnetMicroOrderDispatcher:
 
                 if c_order_id:
                     if c_order_id not in self.orders:
+                        q_val = Decimal(str(o_data.get("q", "0")))
+                        p_val = Decimal(str(o_data.get("p", "0")))
+                        calc_notional = (q_val * p_val).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
+                        synth_status = (
+                            OrderLifecycleState.FILLED
+                            if ord_status == "FILLED"
+                            else (
+                                OrderLifecycleState.PARTIALLY_FILLED
+                                if ord_status == "PARTIALLY_FILLED"
+                                else (
+                                    OrderLifecycleState.CANCELLED
+                                    if ord_status in ("CANCELED", "CANCELLED")
+                                    else OrderLifecycleState.NEW
+                                )
+                            )
+                        )
                         synth_rec = MainnetOrderRecord(
                             order_id=str(o_data.get("i", "0")),
                             client_order_id=c_order_id,
@@ -2339,15 +2556,11 @@ class MainnetMicroOrderDispatcher:
                             side=str(o_data.get("S", "BUY")),
                             order_type=str(o_data.get("o", "LIMIT")),
                             time_in_force=str(o_data.get("f", "GTC")),
-                            price=str(o_data.get("p", "0")),
-                            quantity=str(o_data.get("q", "0")),
+                            price=str(p_val),
+                            quantity=str(q_val),
                             executed_quantity=str(o_data.get("z", "0")),
-                            notional_usdt=str(o_data.get("q", "0")),
-                            status=(
-                                OrderLifecycleState.FILLED
-                                if ord_status == "FILLED"
-                                else OrderLifecycleState.NEW
-                            ),
+                            notional_usdt=str(calc_notional),
+                            status=synth_status,
                             is_closing=is_closing,
                             created_at_utc=now_utc,
                             updated_at_utc=now_utc,
