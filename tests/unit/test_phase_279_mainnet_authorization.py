@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -33,6 +34,7 @@ from autonomous_futures.feed.canary_activation import (  # noqa: E402
     DEFAULT_PHASE276_OUTPUT_DIR,
     OrderSide,
     OrderType,
+    TimeInForce,
 )
 from autonomous_futures.feed.canary_live_gateway import (  # noqa: E402
     DEFAULT_PHASE277_OUTPUT_DIR,
@@ -51,18 +53,21 @@ from autonomous_futures.feed.mainnet_authorization import (  # noqa: E402
     CircuitBreakerState,
     DailyLossBudgetExceededError,
     GatewayHeartbeatMonitor,
+    GatewayHeartbeatRecord,
     GatewayHeartbeatStaleError,
     HeartbeatStatus,
     InvalidClientOrderIdTagError,
     JsonlCanaryOrderSink,
     MainnetMicroOrderDispatcher,
     MainnetOrderDispatchInterlock,
+    MainnetOrderRecord,
     MainnetStreamSequencer,
     MainnetUserDataStreamReconciler,
     MarginAllocationExceededError,
     MockBinanceMainnetGateway,
     NotionalCapExceededError,
     OrderLifecycleState,
+    OrderLifecycleTransition,
     PrerequisiteQualificationError,
     SqliteCanaryMainnetTelemetryStore,
     assert_valid_canary_client_order_id,
@@ -665,3 +670,516 @@ class TestCLIRunnerAndEdgeCases:
                 quantity=Decimal("10.0"),
                 price=Decimal("0.10"),
             )
+
+
+# =====================================================================
+# 9. Adversarial Break Attempts & Edge Cases (Reviewer Round 1)
+# =====================================================================
+
+
+class TestPhase279AdversarialHardenings:
+    """Adversarial stress-testing of clock drift, hysteresis, race conditions, and concurrency."""
+
+    def test_clock_drift_and_negative_latency_fail_closed(self):
+        """Verify clock drift / backward NTP skew triggers stale state fail-closed."""
+        mon = GatewayHeartbeatMonitor(max_age_ms=500.0)
+
+        # 1. Backward clock skew: local clock is 1000ms behind server time
+        rec = mon.record_heartbeat(
+            server_time_ms=1000000,
+            local_receive_time_ms=999000,  # -1000ms skew
+        )
+        assert rec.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+        assert not mon.is_fresh()
+        with pytest.raises(GatewayHeartbeatStaleError, match="Gateway heartbeat stale"):
+            mon.assert_fresh()
+
+        # 2. Negative latency passed explicitly
+        mon2 = GatewayHeartbeatMonitor(max_age_ms=500.0)
+        rec2 = mon2.record_heartbeat(
+            server_time_ms=1000000,
+            latency_ms=-50.0,
+        )
+        assert rec2.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+        assert not mon2.is_fresh()
+
+        # 3. Backward clock jump in get_heartbeat_age_ms
+        mon3 = GatewayHeartbeatMonitor(max_age_ms=500.0)
+        mon3.record_heartbeat(server_time_ms=1000000, local_receive_time_ms=1000010)
+        # Clock stepped backward by 5000ms
+        age = mon3.get_heartbeat_age_ms(now_ms=995000)
+        assert age == float("inf")
+        assert not mon3.is_fresh(now_ms=995000)
+
+    def test_gateway_heartbeat_hysteresis_boundary(self):
+        """Verify hysteresis prevents chattering when latency oscillates around 500ms."""
+        mon = GatewayHeartbeatMonitor(max_age_ms=500.0, recovery_threshold_ms=450.0)
+
+        # 1. Normal healthy state
+        rec1 = mon.record_heartbeat(server_time_ms=1000000, latency_ms=400.0)
+        assert rec1.status == HeartbeatStatus.HEALTHY
+
+        # 2. Latency spike above 500ms ceiling trips to STALE
+        rec2 = mon.record_heartbeat(server_time_ms=1001000, latency_ms=510.0)
+        assert rec2.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+        assert mon.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+
+        # 3. Latency drops to 480ms (below 500ms ceiling, but above 450ms recovery threshold)
+        # Hysteresis must keep status in LATENCY_SPIKE_STALE to prevent rapid toggling
+        rec3 = mon.record_heartbeat(server_time_ms=1002000, latency_ms=480.0)
+        assert rec3.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+        assert mon.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+
+        # 4. Latency drops below recovery threshold (440ms <= 450ms) -> recovers to HEALTHY
+        rec4 = mon.record_heartbeat(server_time_ms=1003000, latency_ms=440.0)
+        assert rec4.status == HeartbeatStatus.HEALTHY
+        assert mon.status == HeartbeatStatus.HEALTHY
+
+    def test_pending_submit_to_filled_direct_jump_and_late_new(self, isolated_telemetry):
+        """Verify direct jump PENDING_SUBMIT -> FILLED and immunity to late-arriving NEW."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_4")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_4",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_4",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        # Create order in PENDING_SUBMIT state
+        order_rec = MainnetOrderRecord(
+            order_id="100099",
+            client_order_id=cid,
+            track_id="track_4",
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY.value,
+            order_type=OrderType.LIMIT.value,
+            time_in_force=TimeInForce.GTC.value,
+            price="60000.00",
+            quantity="0.00008",
+            executed_quantity="0",
+            notional_usdt="4.80000000",
+            status=OrderLifecycleState.PENDING_SUBMIT,
+            is_closing=False,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        dispatcher.orders[cid] = order_rec
+        store.record_order(order_rec)
+
+        # Inbound WebSocket TRADE / FILLED event arrives first (skipping NEW)
+        fill_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 2000,
+            "T": 2000,
+            "_seq": 1,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "o": "LIMIT",
+                "f": "GTC",
+                "q": "0.00008",
+                "p": "60000.00",
+                "X": "FILLED",
+                "i": "100099",
+                "z": "0.00008",
+                "t": 600001,
+                "l": "0.00008",
+                "L": "60000.00",
+                "n": "0.00192000",
+                "N": "USDT",
+                "x": "TRADE",
+            },
+        }
+        gateway.stream_buffer.append(fill_event)
+        dispatcher.drain_and_reconcile_stream()
+
+        assert dispatcher.orders[cid].status == OrderLifecycleState.FILLED
+        assert dispatcher.orders_filled_count == 1
+
+        # Now late NEW packet arrives; must NOT regress state
+        late_new_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1000,
+            "T": 1000,
+            "_seq": 0,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "o": "LIMIT",
+                "f": "GTC",
+                "q": "0.00008",
+                "p": "60000.00",
+                "X": "NEW",
+                "i": "100099",
+                "x": "NEW",
+            },
+        }
+        gateway.stream_buffer.append(late_new_event)
+        dispatcher.drain_and_reconcile_stream()
+
+        assert dispatcher.orders[cid].status == OrderLifecycleState.FILLED
+
+    def test_rejected_and_cancelled_orders_do_not_regress(self, isolated_telemetry):
+        """Verify REJECTED and CANCELLED orders ignore late NEW events."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_1")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_1",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_1",
+        )
+
+        cid_rej = generate_canary_client_order_id("BTCUSDT")
+        order_rej = MainnetOrderRecord(
+            order_id="rej-001",
+            client_order_id=cid_rej,
+            track_id="track_1",
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY.value,
+            order_type=OrderType.LIMIT.value,
+            time_in_force=TimeInForce.GTC.value,
+            price="60000.00",
+            quantity="0.00008",
+            executed_quantity="0",
+            notional_usdt="4.80000000",
+            status=OrderLifecycleState.REJECTED,
+            is_closing=False,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        dispatcher.orders[cid_rej] = order_rej
+
+        # Late NEW for rejected order
+        late_new = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1000,
+            "T": 1000,
+            "o": {"s": "BTCUSDT", "c": cid_rej, "X": "NEW", "x": "NEW", "i": "rej-001"},
+        }
+        gateway.stream_buffer.append(late_new)
+        dispatcher.drain_and_reconcile_stream()
+
+        assert dispatcher.orders[cid_rej].status == OrderLifecycleState.REJECTED
+
+    def test_in_flight_fill_absorbed_after_order_cancelled(self, isolated_telemetry):
+        """Verify in-flight fill arriving after cancellation request updates ledger and status."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_1")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_1",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_1",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        # Place order on gateway without immediate fill
+        gw_rec = gateway.create_order(
+            symbol="BTCUSDT",
+            side="BUY",
+            type="LIMIT",
+            timeInForce="GTC",
+            quantity="0.00008",
+            price="60000.00",
+            newClientOrderId=cid,
+        )
+        order_rec = MainnetOrderRecord(
+            order_id=str(gw_rec["orderId"]),
+            client_order_id=cid,
+            track_id="track_1",
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force="GTC",
+            price="60000.00",
+            quantity="0.00008",
+            executed_quantity="0",
+            notional_usdt="4.80000000",
+            status=OrderLifecycleState.NEW,
+            is_closing=False,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        dispatcher.orders[cid] = order_rec
+        store.record_order(order_rec)
+
+        # Cancel order locally
+        cancelled_rec = dispatcher.cancel_micro_order("BTCUSDT", cid)
+        assert cancelled_rec.status == OrderLifecycleState.CANCELLED
+
+        # An in-flight fill that beat the cancel arrives on stream
+        fill_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 2500,
+            "T": 2500,
+            "_seq": 10,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "o": "LIMIT",
+                "f": "GTC",
+                "q": "0.00008",
+                "p": "60000.00",
+                "X": "FILLED",
+                "i": str(gw_rec["orderId"]),
+                "z": "0.00008",
+                "t": 700001,
+                "l": "0.00008",
+                "L": "60000.00",
+                "n": "0.00192000",
+                "N": "USDT",
+                "x": "TRADE",
+            },
+        }
+        gateway.stream_buffer.append(fill_event)
+        dispatcher.drain_and_reconcile_stream()
+
+        # State updated to FILLED and position absorbed into reconciler
+        assert dispatcher.orders[cid].status == OrderLifecycleState.FILLED
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+        assert reconciler.mathematical_drift < Decimal("1e-15")
+
+    def test_emergency_flattening_cancels_active_working_orders(self, isolated_telemetry):
+        """Verify execute_emergency_flattening cancels resting orders and zeroes positions."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_3")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_3",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_3",
+        )
+
+        # 1. Fill one position
+        cid_filled = generate_canary_client_order_id("BTCUSDT")
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            client_order_id=cid_filled,
+        )
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+
+        # 2. Add an unfilled working order for ETHUSDT
+        cid_working = generate_canary_client_order_id("ETHUSDT")
+        gw_rec = gateway.create_order(
+            symbol="ETHUSDT",
+            side="BUY",
+            type="LIMIT",
+            timeInForce="GTC",
+            quantity="0.0010",
+            price="3000.00",
+            newClientOrderId=cid_working,
+        )
+        working_rec = MainnetOrderRecord(
+            order_id=str(gw_rec["orderId"]),
+            client_order_id=cid_working,
+            track_id="track_3",
+            candidate_id="cand-eth",
+            symbol="ETHUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force="GTC",
+            price="3000.00",
+            quantity="0.0010",
+            executed_quantity="0",
+            notional_usdt="3.00000000",
+            status=OrderLifecycleState.NEW,
+            is_closing=False,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        dispatcher.orders[cid_working] = working_rec
+        store.record_order(working_rec)
+
+        # 3. Trigger emergency flattening
+        dispatcher.execute_emergency_flattening()
+
+        # 4. Verify working order was cancelled
+        assert dispatcher.orders[cid_working].status == OrderLifecycleState.CANCELLED
+        # 5. Verify all positions and allocated margin are strictly 0
+        for sym in CANARY_STAGED_SYMBOLS:
+            assert reconciler.positions[sym] == Decimal("0")
+        assert reconciler.allocated_margin == Decimal("0")
+        assert reconciler.mathematical_drift < Decimal("1e-15")
+
+    def test_extreme_price_gapping_and_slippage_double_entry_reconciliation(self):
+        """Verify zero balance drift holds under severe price gapping and adverse fills."""
+        reconciler = MainnetUserDataStreamReconciler("track_gapping")
+
+        # Open Long: evaluated at 60,000, filled at 65,000 (huge gap up)
+        buy_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "T": 1000,
+            "o": {
+                "s": "BTCUSDT",
+                "c": "c-gap-buy",
+                "S": "BUY",
+                "i": "1",
+                "t": 101,
+                "l": "0.00008",
+                "L": "65000.00",
+                "n": "0.00208000",
+                "N": "USDT",
+                "x": "TRADE",
+            },
+        }
+        reconciler.apply_order_trade_update(buy_event)
+        assert reconciler.mathematical_drift < Decimal("1e-15")
+
+        # Close Long: filled at 55,000 (10,000 gap down / massive slippage)
+        sell_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "T": 2000,
+            "o": {
+                "s": "BTCUSDT",
+                "c": "c-gap-sell",
+                "S": "SELL",
+                "i": "2",
+                "t": 102,
+                "l": "0.00008",
+                "L": "55000.00",
+                "n": "0.00176000",
+                "N": "USDT",
+                "x": "TRADE",
+            },
+        }
+        reconciler.apply_order_trade_update(sell_event, is_closing=True)
+        assert reconciler.mathematical_drift < Decimal("1e-15")
+        assert reconciler.positions["BTCUSDT"] == Decimal("0")
+        assert reconciler.allocated_margin == Decimal("0")
+
+    def test_sqlite_telemetry_store_concurrent_writes(self, tmp_path: Path):
+        """Verify SQLite telemetry store handles concurrent multi-threaded writes cleanly."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        db_path = tmp_path / "concurrent-telemetry.sqlite3"
+        store = SqliteCanaryMainnetTelemetryStore(db_path)
+
+        def write_batch(thread_idx: int) -> None:
+            hb = GatewayHeartbeatRecord(
+                heartbeat_id=f"hb-t{thread_idx}",
+                track_id="track_conc",
+                server_time_ms=1000000 + thread_idx,
+                local_receive_time_ms=1000040 + thread_idx,
+                latency_ms=40.0,
+                age_ms=40.0,
+                status=HeartbeatStatus.HEALTHY,
+                timestamp_utc=datetime.now(UTC).isoformat(),
+                details_json="{}",
+            )
+            store.record_heartbeat(hb)
+
+            order = MainnetOrderRecord(
+                order_id=f"ord-t{thread_idx}",
+                client_order_id=f"c=canary-p279-BTCUSDT-172676500{thread_idx}-abc{thread_idx}",
+                track_id="track_conc",
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side="BUY",
+                order_type="LIMIT",
+                time_in_force="GTC",
+                price="60000.00",
+                quantity="0.00008",
+                executed_quantity="0",
+                notional_usdt="4.80000000",
+                status=OrderLifecycleState.NEW,
+                is_closing=False,
+                created_at_utc=datetime.now(UTC).isoformat(),
+                updated_at_utc=datetime.now(UTC).isoformat(),
+            )
+            store.record_order(order)
+
+            trans = OrderLifecycleTransition(
+                transition_id=f"tr-t{thread_idx}",
+                track_id="track_conc",
+                order_id=f"ord-t{thread_idx}",
+                client_order_id=order.client_order_id,
+                from_state=OrderLifecycleState.PENDING_SUBMIT.value,
+                to_state=OrderLifecycleState.NEW.value,
+                trigger_reason="ORDER_SUBMITTED",
+                timestamp_utc=datetime.now(UTC).isoformat(),
+                details_json="{}",
+            )
+            store.record_transition(trans)
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(write_batch, i) for i in range(20)]
+            for f in futures:
+                f.result()
+
+        heartbeats = store.get_heartbeats(track_id="track_conc")
+        assert len(heartbeats) == 20
+        orders = store.get_orders(track_id="track_conc")
+        assert len(orders) == 20
+        transitions = store.get_transitions(track_id="track_conc")
+        assert len(transitions) == 20
+        store.close()

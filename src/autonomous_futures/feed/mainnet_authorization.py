@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -92,6 +93,8 @@ MAX_PER_ASSET_MARGIN_PCT: Decimal = Decimal("0.20")  # <= 20.00% per asset
 MAX_AGGREGATE_MARGIN_PCT: Decimal = Decimal("0.60")  # <= 60.00% aggregate portfolio margin
 MIN_RESERVE_BUFFER_PCT: Decimal = Decimal("0.40")  # >= 40.00% unencumbered cash reserve buffer
 GATEWAY_HEARTBEAT_MAX_AGE_MS: float = 500.0  # Order dispatch allowed only if age <= 500 ms
+MAX_CLOCK_SKEW_TOLERANCE_MS: float = 250.0  # Max tolerable backward NTP clock drift
+GATEWAY_HEARTBEAT_HYSTERESIS_RECOVERY_MS: float = 450.0  # Recovery ceiling to exit stale state
 DEFAULT_TAKER_FEE_RATE: Decimal = Decimal("0.0004")  # 0.04% taker fee
 DEFAULT_MAKER_FEE_RATE: Decimal = Decimal("0.0002")  # 0.02% maker fee
 
@@ -206,11 +209,13 @@ class OrderLifecycleState(StrEnum):
     """Monotonic lifecycle states for micro orders."""
 
     PENDING_NEW = "PENDING_NEW"
+    PENDING_SUBMIT = "PENDING_SUBMIT"
     NEW = "NEW"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
     FILLED = "FILLED"
     CANCELLED = "CANCELLED"
     REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
 
 
 class HeartbeatStatus(StrEnum):
@@ -520,9 +525,11 @@ class SqliteCanaryMainnetTelemetryStore:
     def __init__(self, db_path: Path | str) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self._lock = threading.Lock()
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=30.0)
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA synchronous=NORMAL;")
+        self.conn.execute("PRAGMA busy_timeout=30000;")
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -663,7 +670,7 @@ class SqliteCanaryMainnetTelemetryStore:
             )
 
     def record_heartbeat(self, hb: GatewayHeartbeatRecord) -> None:
-        with self.conn:
+        with self._lock, self.conn:
             self.conn.execute(
                 """
                 INSERT INTO gateway_heartbeats (
@@ -685,7 +692,7 @@ class SqliteCanaryMainnetTelemetryStore:
             )
 
     def record_order(self, order: MainnetOrderRecord) -> None:
-        with self.conn:
+        with self._lock, self.conn:
             self.conn.execute(
                 """
                 INSERT INTO orders (
@@ -722,7 +729,7 @@ class SqliteCanaryMainnetTelemetryStore:
             )
 
     def record_transition(self, trans: OrderLifecycleTransition) -> None:
-        with self.conn:
+        with self._lock, self.conn:
             self.conn.execute(
                 """
                 INSERT INTO lifecycle_transitions (
@@ -744,7 +751,7 @@ class SqliteCanaryMainnetTelemetryStore:
             )
 
     def record_execution_mark(self, mark: MainnetExecutionMark) -> None:
-        with self.conn:
+        with self._lock, self.conn:
             self.conn.execute(
                 """
                 INSERT OR IGNORE INTO execution_marks (
@@ -771,7 +778,7 @@ class SqliteCanaryMainnetTelemetryStore:
             )
 
     def record_balance_snapshot(self, snap: MainnetBalanceSnapshot) -> None:
-        with self.conn:
+        with self._lock, self.conn:
             self.conn.execute(
                 """
                 INSERT INTO balance_snapshots (
@@ -794,7 +801,7 @@ class SqliteCanaryMainnetTelemetryStore:
             )
 
     def record_interlock_event(self, ev: InterlockEventRecord) -> None:
-        with self.conn:
+        with self._lock, self.conn:
             self.conn.execute(
                 """
                 INSERT INTO interlock_events (
@@ -815,7 +822,7 @@ class SqliteCanaryMainnetTelemetryStore:
             )
 
     def record_push_event(self, evt: WebSocketPushEventRecord) -> None:
-        with self.conn:
+        with self._lock, self.conn:
             self.conn.execute(
                 """
                 INSERT OR IGNORE INTO websocket_push_events (
@@ -842,7 +849,7 @@ class SqliteCanaryMainnetTelemetryStore:
             )
 
     def record_mainnet_track(self, tr: CanaryMainnetTrackResult) -> None:
-        with self.conn:
+        with self._lock, self.conn:
             self.conn.execute(
                 """
                 INSERT INTO mainnet_track_results (
@@ -890,47 +897,78 @@ class SqliteCanaryMainnetTelemetryStore:
             )
 
     def get_orders(self, track_id: str | None = None) -> list[dict[str, Any]]:
-        query = "SELECT * FROM orders"
-        params: list[Any] = []
-        if track_id is not None:
-            query += " WHERE track_id = ?"
-            params.append(track_id)
-        query += " ORDER BY created_at_utc ASC;"
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
-        cols = [col[0] for col in cursor.description]
-        return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+        with self._lock:
+            query = "SELECT * FROM orders"
+            params: list[Any] = []
+            if track_id is not None:
+                query += " WHERE track_id = ?"
+                params.append(track_id)
+            query += " ORDER BY created_at_utc ASC;"
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
 
     def get_heartbeats(self, track_id: str | None = None) -> list[dict[str, Any]]:
-        query = "SELECT * FROM gateway_heartbeats"
-        params: list[Any] = []
-        if track_id is not None:
-            query += " WHERE track_id = ?"
-            params.append(track_id)
-        query += " ORDER BY timestamp_utc ASC;"
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
-        cols = [col[0] for col in cursor.description]
-        return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+        with self._lock:
+            query = "SELECT * FROM gateway_heartbeats"
+            params: list[Any] = []
+            if track_id is not None:
+                query += " WHERE track_id = ?"
+                params.append(track_id)
+            query += " ORDER BY timestamp_utc ASC;"
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
 
     def get_execution_marks(self, track_id: str | None = None) -> list[dict[str, Any]]:
-        query = "SELECT * FROM execution_marks"
-        params: list[Any] = []
-        if track_id is not None:
-            query += " WHERE track_id = ?"
-            params.append(track_id)
-        query += " ORDER BY trade_time_ms ASC;"
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
-        cols = [col[0] for col in cursor.description]
-        return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+        with self._lock:
+            query = "SELECT * FROM execution_marks"
+            params: list[Any] = []
+            if track_id is not None:
+                query += " WHERE track_id = ?"
+                params.append(track_id)
+            query += " ORDER BY trade_time_ms ASC;"
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
+    def get_transitions(self, track_id: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            query = "SELECT * FROM lifecycle_transitions"
+            params: list[Any] = []
+            if track_id is not None:
+                query += " WHERE track_id = ?"
+                params.append(track_id)
+            query += " ORDER BY timestamp_utc ASC;"
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
+    def get_push_events(self, track_id: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            query = "SELECT * FROM websocket_push_events"
+            params: list[Any] = []
+            if track_id is not None:
+                query += " WHERE track_id = ?"
+                params.append(track_id)
+            query += " ORDER BY sequence_number ASC, event_time_ms ASC;"
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
 
     def checkpoint(self) -> None:
-        self.conn.commit()
-        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        with self._lock:
+            self.conn.commit()
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
 
     def close(self) -> None:
-        self.conn.close()
+        with self._lock:
+            self.conn.close()
 
 
 # =====================================================================
@@ -1050,9 +1088,15 @@ def verify_upstream_phase278_qualification(
 class GatewayHeartbeatMonitor:
     """Monitors real-time gateway heartbeat telemetry and enforces <= 500 ms freshness ceiling."""
 
-    def __init__(self, max_age_ms: float = GATEWAY_HEARTBEAT_MAX_AGE_MS) -> None:
+    def __init__(
+        self,
+        max_age_ms: float = GATEWAY_HEARTBEAT_MAX_AGE_MS,
+        recovery_threshold_ms: float = GATEWAY_HEARTBEAT_HYSTERESIS_RECOVERY_MS,
+    ) -> None:
         self.max_age_ms = max_age_ms
+        self.recovery_threshold_ms = recovery_threshold_ms
         self.last_heartbeat_timestamp_ms: int = 0
+        self.last_monotonic_ms: float = 0.0
         self.last_server_time_ms: int = 0
         self.last_local_receive_time_ms: int = 0
         self.current_latency_ms: float = 0.0
@@ -1072,9 +1116,19 @@ class GatewayHeartbeatMonitor:
         now_ms = (
             local_receive_time_ms if local_receive_time_ms is not None else int(time.time() * 1000)
         )
-        calc_latency = (
-            latency_ms if latency_ms is not None else max(0.0, float(now_ms - server_time_ms))
-        )
+        self.last_monotonic_ms = time.monotonic() * 1000.0
+
+        is_clock_desynced = False
+        if latency_ms is not None:
+            if latency_ms < -MAX_CLOCK_SKEW_TOLERANCE_MS:
+                is_clock_desynced = True
+            calc_latency = float(latency_ms)
+        else:
+            raw_diff = float(now_ms - server_time_ms)
+            if raw_diff < -MAX_CLOCK_SKEW_TOLERANCE_MS:
+                is_clock_desynced = True
+            calc_latency = raw_diff
+
         self.last_heartbeat_timestamp_ms = now_ms
         self.last_server_time_ms = server_time_ms
         self.last_local_receive_time_ms = now_ms
@@ -1082,23 +1136,38 @@ class GatewayHeartbeatMonitor:
         self._manual_age_override_ms = None
         self.heartbeat_count += 1
 
-        status = (
-            HeartbeatStatus.HEALTHY
-            if calc_latency <= self.max_age_ms
-            else HeartbeatStatus.LATENCY_SPIKE_STALE
-        )
+        # Evaluate freshness, clock desynchronization, and hysteresis recovery
+        if is_clock_desynced or calc_latency > self.max_age_ms or calc_latency < -5.0:
+            self.stale_count += 1
+            status = HeartbeatStatus.LATENCY_SPIKE_STALE
+        elif self.status == HeartbeatStatus.LATENCY_SPIKE_STALE:
+            # Hysteresis recovery: require latency <= recovery_threshold_ms to exit stale state
+            if calc_latency <= self.recovery_threshold_ms:
+                status = HeartbeatStatus.HEALTHY
+            else:
+                status = HeartbeatStatus.LATENCY_SPIKE_STALE
+        else:
+            status = HeartbeatStatus.HEALTHY
+
         self.status = status
 
+        effective_age = max(0.0, calc_latency)
         return GatewayHeartbeatRecord(
             heartbeat_id=f"hb-{uuid4().hex[:12]}",
             track_id=track_id,
             server_time_ms=server_time_ms,
             local_receive_time_ms=now_ms,
             latency_ms=calc_latency,
-            age_ms=calc_latency,
+            age_ms=effective_age,
             status=status,
             timestamp_utc=datetime.now(UTC).isoformat(),
-            details_json=json.dumps({"latency_ms": calc_latency, "status": status.value}),
+            details_json=json.dumps(
+                {
+                    "latency_ms": calc_latency,
+                    "status": status.value,
+                    "clock_desync": is_clock_desynced,
+                }
+            ),
         )
 
     def set_simulated_stale_age(self, age_ms: float) -> None:
@@ -1111,11 +1180,22 @@ class GatewayHeartbeatMonitor:
             return self._manual_age_override_ms
         if self.last_heartbeat_timestamp_ms == 0:
             return float("inf")
-        curr = now_ms if now_ms is not None else int(time.time() * 1000)
-        return max(0.0, float(curr - self.last_heartbeat_timestamp_ms))
+        if now_ms is not None:
+            if now_ms < self.last_heartbeat_timestamp_ms - MAX_CLOCK_SKEW_TOLERANCE_MS:
+                # Backward clock step detected: fail-closed!
+                return float("inf")
+            return max(0.0, float(now_ms - self.last_heartbeat_timestamp_ms))
+        if self.last_monotonic_ms > 0:
+            return max(0.0, (time.monotonic() * 1000.0) - self.last_monotonic_ms)
+        return max(0.0, float(int(time.time() * 1000) - self.last_heartbeat_timestamp_ms))
 
     def is_fresh(self, now_ms: int | None = None, max_age_ms: float | None = None) -> bool:
-        """Check if gateway heartbeat age is within allowable ceiling."""
+        """Check if gateway heartbeat age is within allowable ceiling and status is HEALTHY."""
+        if (
+            self.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+            and self._manual_age_override_ms is None
+        ):
+            return False
         limit = max_age_ms if max_age_ms is not None else self.max_age_ms
         return self.get_heartbeat_age_ms(now_ms) <= limit
 
@@ -1123,12 +1203,15 @@ class GatewayHeartbeatMonitor:
         """Fail-closed assertion that gateway heartbeat is fresh; raises error on stale."""
         age = self.get_heartbeat_age_ms(now_ms)
         limit = max_age_ms if max_age_ms is not None else self.max_age_ms
-        if age > limit:
+        if age > limit or (
+            self.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+            and self._manual_age_override_ms is None
+        ):
             self.stale_count += 1
             self.status = HeartbeatStatus.LATENCY_SPIKE_STALE
             raise GatewayHeartbeatStaleError(
-                f"Gateway heartbeat stale: age {age:.1f}ms exceeds {limit:.1f}ms ceiling. "
-                "Order dispatch blocked fail-closed."
+                f"Gateway heartbeat stale: age {age:.1f}ms exceeds {limit:.1f}ms ceiling or "
+                f"status is {self.status.value}. Order dispatch blocked fail-closed."
             )
 
 
@@ -2005,23 +2088,19 @@ class MainnetMicroOrderDispatcher:
             )
             self.orders[cid] = order_rec
             self.telemetry_store.record_order(order_rec)
+            self._record_transition(
+                order_rec,
+                OrderLifecycleState.PENDING_SUBMIT.value,
+                OrderLifecycleState.REJECTED.value,
+                f"INTERLOCK_REJECTED: {exc}",
+            )
             self.jsonl_sink.append_event("ORDER_REJECTED", order_rec.model_dump(mode="json"))
             raise
 
-        # Dispatch order to gateway
-        gw_record = self.gateway.create_order(
-            symbol=symbol,
-            side=side.value,
-            type=order_type.value,
-            timeInForce=time_in_force.value,
-            quantity=str(quantity),
-            price=str(price),
-            newClientOrderId=cid,
-        )
-
-        order_id = str(gw_record["orderId"])
+        # Pre-register order as PENDING_SUBMIT before gateway dispatch to avoid race condition
+        temp_order_id = f"pend-{uuid4().hex[:8]}"
         order_rec = MainnetOrderRecord(
-            order_id=order_id,
+            order_id=temp_order_id,
             client_order_id=cid,
             track_id=self.track_id,
             candidate_id=candidate_id,
@@ -2033,12 +2112,52 @@ class MainnetMicroOrderDispatcher:
             quantity=str(quantity),
             executed_quantity="0",
             notional_usdt=str(notional),
-            status=OrderLifecycleState.NEW,
+            status=OrderLifecycleState.PENDING_SUBMIT,
             is_closing=is_closing,
             created_at_utc=now_utc,
             updated_at_utc=now_utc,
         )
         self.orders[cid] = order_rec
+
+        # Dispatch order to gateway
+        try:
+            gw_record = self.gateway.create_order(
+                symbol=symbol,
+                side=side.value,
+                type=order_type.value,
+                timeInForce=time_in_force.value,
+                quantity=str(quantity),
+                price=str(price),
+                newClientOrderId=cid,
+            )
+        except Exception as exc:
+            order_rec.status = OrderLifecycleState.REJECTED
+            order_rec.rejection_reason = str(exc)
+            order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+            self.orders_rejected_count += 1
+            self.telemetry_store.record_order(order_rec)
+            self._record_transition(
+                order_rec,
+                OrderLifecycleState.PENDING_SUBMIT.value,
+                OrderLifecycleState.REJECTED.value,
+                f"GATEWAY_REJECTED: {exc}",
+            )
+            self.jsonl_sink.append_event("ORDER_REJECTED", order_rec.model_dump(mode="json"))
+            raise
+
+        order_id = str(gw_record["orderId"])
+        order_rec.order_id = order_id
+        # Transition from PENDING_SUBMIT to NEW only if not already advanced by an instant event
+        if order_rec.status == OrderLifecycleState.PENDING_SUBMIT:
+            order_rec.status = OrderLifecycleState.NEW
+            order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+            self._record_transition(
+                order_rec,
+                OrderLifecycleState.PENDING_SUBMIT.value,
+                OrderLifecycleState.NEW.value,
+                "ORDER_SUBMITTED",
+            )
+
         self.orders_placed_count += 1
         self.telemetry_store.record_order(order_rec)
         self.jsonl_sink.append_event("ORDER_NEW", order_rec.model_dump(mode="json"))
@@ -2056,21 +2175,44 @@ class MainnetMicroOrderDispatcher:
         if not rec:
             raise OrderCorrelationError(f"Cannot cancel unknown order {client_order_id}")
 
+        old_st = rec.status
         self.gateway.cancel_order(symbol=symbol, client_order_id=client_order_id)
         rec.status = OrderLifecycleState.CANCELLED
         rec.updated_at_utc = datetime.now(UTC).isoformat()
         self.orders_cancelled_count += 1
 
         self.telemetry_store.record_order(rec)
+        self._record_transition(
+            rec,
+            old_st.value,
+            OrderLifecycleState.CANCELLED.value,
+            "CANCEL_REQUESTED",
+        )
         self.jsonl_sink.append_event("ORDER_CANCELLED", rec.model_dump(mode="json"))
         self.drain_and_reconcile_stream()
         return rec
 
     def execute_emergency_flattening(self) -> list[MainnetOrderRecord]:
-        """Emergency fail-closed incident response: flatten open positions."""
+        """Emergency fail-closed incident response: cancel open orders and flatten positions."""
         flattening_orders: list[MainnetOrderRecord] = []
         self.interlock.circuit_state = CircuitBreakerState.HARD_ABORT
 
+        # Step 1: Cancel all working/unfilled open orders to prevent concurrent execution
+        for o_cid, o_rec in list(self.orders.items()):
+            if o_rec.status in (
+                OrderLifecycleState.PENDING_SUBMIT,
+                OrderLifecycleState.NEW,
+                OrderLifecycleState.PARTIALLY_FILLED,
+            ):
+                try:
+                    self.cancel_micro_order(symbol=o_rec.symbol, client_order_id=o_cid)
+                except Exception:
+                    pass
+
+        # Step 2: Drain stream to absorb any racing fills or cancellations into the ledger
+        self.drain_and_reconcile_stream()
+
+        # Step 3: Flatten all open positions
         for sym in CANARY_STAGED_SYMBOLS:
             pos = self.reconciler.positions.get(sym, Decimal("0"))
             if pos != Decimal("0"):
@@ -2118,12 +2260,23 @@ class MainnetMicroOrderDispatcher:
                 self.orders[cid] = order_rec
                 self.orders_placed_count += 1
                 self.telemetry_store.record_order(order_rec)
+                self._record_transition(
+                    order_rec,
+                    OrderLifecycleState.PENDING_SUBMIT.value,
+                    OrderLifecycleState.NEW.value,
+                    "EMERGENCY_FLATTENING_SUBMITTED",
+                )
 
                 self.gateway.fill_order(
                     client_order_id=cid, fill_price=mark_price, fill_qty=close_qty
                 )
                 self.drain_and_reconcile_stream(is_closing=True)
                 flattening_orders.append(self.orders[cid])
+
+        # Step 4: Final verification that positions and allocated margin are strictly zero
+        for sym in CANARY_STAGED_SYMBOLS:
+            assert self.reconciler.positions.get(sym, Decimal("0")) == Decimal("0")
+        assert self.reconciler.allocated_margin == Decimal("0")
 
         return flattening_orders
 
@@ -2175,35 +2328,103 @@ class MainnetMicroOrderDispatcher:
                 exec_type = o_data.get("x")
                 c_order_id = o_data.get("c")
 
-                if c_order_id and c_order_id in self.orders:
+                if c_order_id:
+                    if c_order_id not in self.orders:
+                        synth_rec = MainnetOrderRecord(
+                            order_id=str(o_data.get("i", "0")),
+                            client_order_id=c_order_id,
+                            track_id=self.track_id,
+                            candidate_id=f"stream-{sym.lower() if sym else 'unknown'}",
+                            symbol=sym or "BTCUSDT",
+                            side=str(o_data.get("S", "BUY")),
+                            order_type=str(o_data.get("o", "LIMIT")),
+                            time_in_force=str(o_data.get("f", "GTC")),
+                            price=str(o_data.get("p", "0")),
+                            quantity=str(o_data.get("q", "0")),
+                            executed_quantity=str(o_data.get("z", "0")),
+                            notional_usdt=str(o_data.get("q", "0")),
+                            status=(
+                                OrderLifecycleState.FILLED
+                                if ord_status == "FILLED"
+                                else OrderLifecycleState.NEW
+                            ),
+                            is_closing=is_closing,
+                            created_at_utc=now_utc,
+                            updated_at_utc=now_utc,
+                        )
+                        self.orders[c_order_id] = synth_rec
+                        self.telemetry_store.record_order(synth_rec)
+
                     current_rec = self.orders[c_order_id]
                     old_state = current_rec.status
 
-                    # Monotonic state transition protection: state cannot regress from FILLED
-                    if exec_type == "TRADE" and ord_status == "FILLED":
-                        if current_rec.status != OrderLifecycleState.FILLED:
-                            current_rec.status = OrderLifecycleState.FILLED
-                            current_rec.executed_quantity = str(
-                                o_data.get("z", current_rec.quantity)
-                            )
+                    # Monotonic state transition protection:
+                    # PENDING_SUBMIT -> NEW -> PARTIALLY_FILLED ->
+                    # TERMINAL (FILLED, CANCELLED, REJECTED, EXPIRED)
+                    if exec_type == "TRADE":
+                        if ord_status == "FILLED":
+                            if current_rec.status != OrderLifecycleState.FILLED:
+                                current_rec.status = OrderLifecycleState.FILLED
+                                current_rec.executed_quantity = str(
+                                    o_data.get("z", current_rec.quantity)
+                                )
+                                current_rec.updated_at_utc = now_utc
+                                self.orders_filled_count += 1
+                                self.telemetry_store.record_order(current_rec)
+                                self._record_transition(
+                                    current_rec,
+                                    old_state.value,
+                                    OrderLifecycleState.FILLED.value,
+                                    "FILL_EVENT",
+                                )
+                        elif ord_status == "PARTIALLY_FILLED":
+                            if current_rec.status not in (
+                                OrderLifecycleState.FILLED,
+                                OrderLifecycleState.CANCELLED,
+                                OrderLifecycleState.REJECTED,
+                                OrderLifecycleState.EXPIRED,
+                            ):
+                                current_rec.status = OrderLifecycleState.PARTIALLY_FILLED
+                                current_rec.executed_quantity = str(
+                                    o_data.get("z", current_rec.executed_quantity)
+                                )
+                                current_rec.updated_at_utc = now_utc
+                                self.telemetry_store.record_order(current_rec)
+                                self._record_transition(
+                                    current_rec,
+                                    old_state.value,
+                                    OrderLifecycleState.PARTIALLY_FILLED.value,
+                                    "PARTIAL_FILL_EVENT",
+                                )
+                    elif exec_type == "NEW" and ord_status == "NEW":
+                        # Only allow progression from PENDING_SUBMIT to NEW
+                        if current_rec.status == OrderLifecycleState.PENDING_SUBMIT:
+                            current_rec.status = OrderLifecycleState.NEW
                             current_rec.updated_at_utc = now_utc
-                            self.orders_filled_count += 1
                             self.telemetry_store.record_order(current_rec)
                             self._record_transition(
                                 current_rec,
                                 old_state.value,
-                                OrderLifecycleState.FILLED.value,
-                                "FILL_EVENT",
+                                OrderLifecycleState.NEW.value,
+                                "WS_ORDER_NEW",
                             )
-                    elif exec_type == "NEW" and ord_status == "NEW":
-                        # If already FILLED or CANCELLED, do NOT regress back to NEW
+                    elif exec_type == "CANCELED" or ord_status in ("CANCELED", "CANCELLED"):
                         if current_rec.status not in (
                             OrderLifecycleState.FILLED,
                             OrderLifecycleState.CANCELLED,
+                            OrderLifecycleState.REJECTED,
+                            OrderLifecycleState.EXPIRED,
                         ):
-                            current_rec.status = OrderLifecycleState.NEW
+                            current_rec.status = OrderLifecycleState.CANCELLED
                             current_rec.updated_at_utc = now_utc
+                            self.orders_cancelled_count += 1
                             self.telemetry_store.record_order(current_rec)
+                            self._record_transition(
+                                current_rec,
+                                old_state.value,
+                                OrderLifecycleState.CANCELLED.value,
+                                "WS_CANCEL_EVENT",
+                            )
 
                 # Reconcile double-entry ledger if trade event
                 if exec_type == "TRADE":
