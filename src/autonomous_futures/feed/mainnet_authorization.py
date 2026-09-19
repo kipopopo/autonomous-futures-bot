@@ -282,6 +282,8 @@ def generate_canary_client_order_id(
     """Generate deterministic dual-confirmation client order ID: c=canary-p279-{sym}-{ts}-{uuid}."""
     if symbol not in CANARY_STAGED_SYMBOLS:
         raise SafetyInvariantViolation(f"Unauthorized symbol {symbol} for client order ID")
+    if timestamp_ms is not None and timestamp_ms <= 0:
+        raise DomainViolation(f"timestamp_ms {timestamp_ms} must be strictly positive")
     ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
     uid = uuid_str if uuid_str is not None else uuid4().hex[:8]
     return f"c=canary-p279-{symbol}-{ts}-{uid}"
@@ -1223,6 +1225,11 @@ class GatewayHeartbeatMonitor:
         limit = max_age_ms if max_age_ms is not None else self.max_age_ms
         return self.get_heartbeat_age_ms(now_ms) <= limit
 
+    def mark_disconnected(self) -> None:
+        """Explicitly transition heartbeat monitor to DISCONNECTED state."""
+        self.status = HeartbeatStatus.DISCONNECTED
+        self.consecutive_healthy_ticks = 0
+
     def assert_fresh(self, now_ms: int | None = None, max_age_ms: float | None = None) -> None:
         """Fail-closed assertion that gateway heartbeat is fresh; raises error on stale."""
         age = self.get_heartbeat_age_ms(now_ms)
@@ -1238,7 +1245,9 @@ class GatewayHeartbeatMonitor:
                     self.status = HeartbeatStatus.TIMEOUT
                 else:
                     self.status = HeartbeatStatus.LATENCY_SPIKE_STALE
-            elif self.last_heartbeat_timestamp_ms == 0:
+            elif (
+                self.status == HeartbeatStatus.DISCONNECTED or self.last_heartbeat_timestamp_ms == 0
+            ):
                 self.status = HeartbeatStatus.DISCONNECTED
             elif (
                 self.status == HeartbeatStatus.TIMEOUT
@@ -1578,14 +1587,16 @@ class MockBinanceMainnetGateway:
         initial_balance_usdt: Decimal = STARTING_EQUITY_USDT,
         taker_fee_rate: Decimal = DEFAULT_TAKER_FEE_RATE,
         maker_fee_rate: Decimal = DEFAULT_MAKER_FEE_RATE,
+        order_id_start: int = 100000,
+        trade_id_start: int = 500000,
     ) -> None:
         self.initial_balance = initial_balance_usdt
         self.taker_fee_rate = taker_fee_rate
         self.maker_fee_rate = maker_fee_rate
 
         self.orders: dict[str, dict[str, Any]] = {}
-        self.next_order_id = 100000
-        self.next_trade_id = 500000
+        self.next_order_id = order_id_start
+        self.next_trade_id = trade_id_start
         self.next_stream_seq = 1
 
         self.stream_buffer: list[dict[str, Any]] = []
@@ -1783,7 +1794,11 @@ class MockBinanceMainnetGateway:
         record = self.orders.get(client_order_id)
         if not record:
             raise OrderCorrelationError(f"Unknown order {client_order_id}")
-        if record["status"] in ("FILLED", "CANCELED", "REJECTED"):
+        if record["symbol"] != symbol:
+            raise OrderCorrelationError(
+                f"Order {client_order_id} belongs to symbol {record['symbol']}, not {symbol}"
+            )
+        if record["status"] in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
             raise OrderCorrelationError(
                 f"Cannot cancel order {client_order_id} in terminal state {record['status']}"
             )
@@ -1951,8 +1966,35 @@ class MainnetOrderDispatchInterlock:
         quantity: Decimal,
         client_order_id: str,
         is_closing: bool = False,
+        side: OrderSide | str | None = None,
     ) -> None:
         """Validate order dispatch against all risk containment interlocks fail-closed."""
+        # 0. Finite and strictly positive validation
+        if not price.is_finite() or price <= Decimal("0"):
+            raise DomainViolation(f"Order price {price} must be strictly positive and finite")
+        if not quantity.is_finite() or quantity <= Decimal("0"):
+            raise DomainViolation(f"Order quantity {quantity} must be strictly positive and finite")
+
+        # 0.1 Validate closing order invariants
+        if is_closing:
+            pos = self.reconciler.positions.get(symbol, Decimal("0"))
+            if pos == Decimal("0"):
+                raise OrderCorrelationError(
+                    f"Cannot execute closing order for {symbol}: no open position exists"
+                )
+            if quantity > abs(pos):
+                raise OrderCorrelationError(
+                    f"Closing quantity {quantity} exceeds open position {abs(pos)} for {symbol}"
+                )
+            if side is not None:
+                expected_close_side = OrderSide.SELL if pos > Decimal("0") else OrderSide.BUY
+                actual_side = OrderSide(side) if isinstance(side, str) else side
+                if actual_side != expected_close_side:
+                    raise OrderCorrelationError(
+                        f"Closing order side {actual_side.value} for {symbol} must be "
+                        f"{expected_close_side.value} to close open position of {pos}"
+                    )
+
         # 1. Gateway Heartbeat Freshness Interlock (Age <= 500 ms)
         if not self.heartbeat_monitor.is_fresh():
             self.circuit_state = CircuitBreakerState.HEARTBEAT_FREEZE
@@ -2214,6 +2256,11 @@ class MainnetMicroOrderDispatcher:
     ) -> MainnetOrderRecord:
         """Validate order against interlocks, dispatch to gateway, and process immediate fills."""
         now_utc = datetime.now(UTC).isoformat()
+        if not price.is_finite() or price <= Decimal("0"):
+            raise DomainViolation(f"Order price {price} must be strictly positive and finite")
+        if not quantity.is_finite() or quantity <= Decimal("0"):
+            raise DomainViolation(f"Order quantity {quantity} must be strictly positive and finite")
+
         cid = (
             client_order_id
             if client_order_id is not None
@@ -2229,6 +2276,7 @@ class MainnetMicroOrderDispatcher:
                 quantity=quantity,
                 client_order_id=cid,
                 is_closing=is_closing,
+                side=side,
             )
         except CanaryMainnetAuthorizationError as exc:
             self.orders_rejected_count += 1
@@ -2371,6 +2419,19 @@ class MainnetMicroOrderDispatcher:
         rec = self.orders.get(client_order_id)
         if not rec:
             raise OrderCorrelationError(f"Cannot cancel unknown order {client_order_id}")
+        if rec.symbol != symbol:
+            raise OrderCorrelationError(
+                f"Order {client_order_id} belongs to symbol {rec.symbol}, not {symbol}"
+            )
+        if rec.status in (
+            OrderLifecycleState.FILLED,
+            OrderLifecycleState.CANCELLED,
+            OrderLifecycleState.REJECTED,
+            OrderLifecycleState.EXPIRED,
+        ):
+            raise OrderCorrelationError(
+                f"Cannot cancel order {client_order_id} in terminal state {rec.status.value}"
+            )
 
         old_st = rec.status
         self.gateway.cancel_order(symbol=symbol, client_order_id=client_order_id)
@@ -2411,66 +2472,88 @@ class MainnetMicroOrderDispatcher:
         # Step 2: Drain stream to absorb any racing fills or cancellations into the ledger
         self.drain_and_reconcile_stream()
 
-        # Step 3: Flatten all open positions
+        # Step 3: Flatten all open positions in slices <= HARD_NOTIONAL_CAP_USDT
         for sym in CANARY_STAGED_SYMBOLS:
             pos = self.reconciler.positions.get(sym, Decimal("0"))
             if pos != Decimal("0"):
                 close_side = OrderSide.SELL if pos > Decimal("0") else OrderSide.BUY
-                close_qty = abs(pos)
+                rem_qty = abs(pos)
                 mark_price = self.reconciler.mark_prices.get(
                     sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym]))
                 )
 
-                cid = generate_canary_client_order_id(sym)
-                now_utc = datetime.now(UTC).isoformat()
-                notional = (mark_price * close_qty).quantize(
+                max_chunk_qty = (HARD_NOTIONAL_CAP_USDT / mark_price).quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
+                if max_chunk_qty <= Decimal("0"):
+                    max_chunk_qty = Decimal("0.00000001")
 
-                gw_rec = self.gateway.create_order(
-                    symbol=sym,
-                    side=close_side.value,
-                    type=OrderType.MARKET.value,
-                    timeInForce=TimeInForce.GTC.value,
-                    quantity=str(close_qty),
-                    price=str(mark_price),
-                    newClientOrderId=cid,
-                )
-                order_id = str(gw_rec["orderId"])
+                while rem_qty > Decimal("0"):
+                    chunk = min(rem_qty, max_chunk_qty)
+                    while chunk * mark_price > HARD_NOTIONAL_CAP_USDT and chunk > Decimal(
+                        "0.00000001"
+                    ):
+                        chunk -= Decimal("0.00000001")
+                    chunk = min(chunk, rem_qty)
+                    if chunk <= Decimal("0"):
+                        break
 
-                order_rec = MainnetOrderRecord(
-                    order_id=order_id,
-                    client_order_id=cid,
-                    track_id=self.track_id,
-                    candidate_id=f"flat-{sym.lower()}",
-                    symbol=sym,
-                    side=close_side.value,
-                    order_type=OrderType.MARKET.value,
-                    time_in_force=TimeInForce.GTC.value,
-                    price=str(mark_price),
-                    quantity=str(close_qty),
-                    executed_quantity="0",
-                    notional_usdt=str(notional),
-                    status=OrderLifecycleState.NEW,
-                    is_closing=True,
-                    created_at_utc=now_utc,
-                    updated_at_utc=now_utc,
-                )
-                self.orders[cid] = order_rec
-                self.orders_placed_count += 1
-                self.telemetry_store.record_order(order_rec)
-                self._record_transition(
-                    order_rec,
-                    OrderLifecycleState.PENDING_SUBMIT.value,
-                    OrderLifecycleState.NEW.value,
-                    "EMERGENCY_FLATTENING_SUBMITTED",
-                )
+                    cid = generate_canary_client_order_id(sym)
+                    now_utc = datetime.now(UTC).isoformat()
+                    notional = (mark_price * chunk).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
 
-                self.gateway.fill_order(
-                    client_order_id=cid, fill_price=mark_price, fill_qty=close_qty
-                )
-                self.drain_and_reconcile_stream(is_closing=True)
-                flattening_orders.append(self.orders[cid])
+                    gw_rec = self.gateway.create_order(
+                        symbol=sym,
+                        side=close_side.value,
+                        type=OrderType.MARKET.value,
+                        timeInForce=TimeInForce.GTC.value,
+                        quantity=str(chunk),
+                        price=str(mark_price),
+                        newClientOrderId=cid,
+                    )
+                    order_id = str(gw_rec["orderId"])
+
+                    order_rec = MainnetOrderRecord(
+                        order_id=order_id,
+                        client_order_id=cid,
+                        track_id=self.track_id,
+                        candidate_id=f"flat-{sym.lower()}",
+                        symbol=sym,
+                        side=close_side.value,
+                        order_type=OrderType.MARKET.value,
+                        time_in_force=TimeInForce.GTC.value,
+                        price=str(mark_price),
+                        quantity=str(chunk),
+                        executed_quantity="0",
+                        notional_usdt=str(notional),
+                        status=OrderLifecycleState.NEW,
+                        is_closing=True,
+                        created_at_utc=now_utc,
+                        updated_at_utc=now_utc,
+                    )
+                    self.orders[cid] = order_rec
+                    self.orders_placed_count += 1
+                    self.telemetry_store.record_order(order_rec)
+                    self._record_transition(
+                        order_rec,
+                        OrderLifecycleState.PENDING_SUBMIT.value,
+                        OrderLifecycleState.NEW.value,
+                        "EMERGENCY_FLATTENING_SUBMITTED",
+                    )
+
+                    self.gateway.fill_order(
+                        client_order_id=cid, fill_price=mark_price, fill_qty=chunk
+                    )
+                    self.drain_and_reconcile_stream(is_closing=True)
+                    flattening_orders.append(self.orders[cid])
+
+                    curr_pos = abs(self.reconciler.positions.get(sym, Decimal("0")))
+                    if curr_pos < rem_qty:
+                        rem_qty = curr_pos
+                    else:
+                        rem_qty -= chunk
 
         # Step 4: Final verification that positions and allocated margin are strictly zero
         for sym in CANARY_STAGED_SYMBOLS:
@@ -2521,6 +2604,10 @@ class MainnetMicroOrderDispatcher:
                 processed_at_utc=now_utc,
             )
             self.telemetry_store.record_push_event(push_record)
+
+            # Drop duplicate events from order state machine and ledger reconciliation
+            if is_dup:
+                continue
 
             if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
                 o_data = pkt.get("o", {})
@@ -2771,7 +2858,11 @@ class CanaryMainnetRunner:
         assert self.active_store is not None
         assert self.active_sink is not None
 
-        gateway = MockBinanceMainnetGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+        gateway = MockBinanceMainnetGateway(
+            initial_balance_usdt=STARTING_EQUITY_USDT,
+            order_id_start=100000,
+            trade_id_start=500000,
+        )
         reconciler = MainnetUserDataStreamReconciler(
             track_id=CanaryMainnetTrackId.TRACK_1.value,
             starting_equity=STARTING_EQUITY_USDT,
@@ -2919,7 +3010,11 @@ class CanaryMainnetRunner:
         assert self.active_store is not None
         assert self.active_sink is not None
 
-        gateway = MockBinanceMainnetGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+        gateway = MockBinanceMainnetGateway(
+            initial_balance_usdt=STARTING_EQUITY_USDT,
+            order_id_start=200000,
+            trade_id_start=600000,
+        )
         reconciler = MainnetUserDataStreamReconciler(
             track_id=CanaryMainnetTrackId.TRACK_2.value,
             starting_equity=STARTING_EQUITY_USDT,
@@ -3049,7 +3144,11 @@ class CanaryMainnetRunner:
         assert self.active_store is not None
         assert self.active_sink is not None
 
-        gateway = MockBinanceMainnetGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+        gateway = MockBinanceMainnetGateway(
+            initial_balance_usdt=STARTING_EQUITY_USDT,
+            order_id_start=300000,
+            trade_id_start=700000,
+        )
         reconciler = MainnetUserDataStreamReconciler(
             track_id=CanaryMainnetTrackId.TRACK_3.value,
             starting_equity=STARTING_EQUITY_USDT,
@@ -3191,7 +3290,11 @@ class CanaryMainnetRunner:
         assert self.active_store is not None
         assert self.active_sink is not None
 
-        gateway = MockBinanceMainnetGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+        gateway = MockBinanceMainnetGateway(
+            initial_balance_usdt=STARTING_EQUITY_USDT,
+            order_id_start=400000,
+            trade_id_start=800000,
+        )
         reconciler = MainnetUserDataStreamReconciler(
             track_id=CanaryMainnetTrackId.TRACK_4.value,
             starting_equity=STARTING_EQUITY_USDT,

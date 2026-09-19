@@ -29,6 +29,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.feed.canary_activation import (  # noqa: E402
     CANARY_STAGED_SYMBOLS,
     DEFAULT_PHASE276_OUTPUT_DIR,
@@ -70,6 +71,7 @@ from autonomous_futures.feed.mainnet_authorization import (  # noqa: E402
     MarginAllocationExceededError,
     MockBinanceMainnetGateway,
     NotionalCapExceededError,
+    OrderCorrelationError,
     OrderLifecycleState,
     OrderLifecycleTransition,
     PrerequisiteQualificationError,
@@ -1676,3 +1678,456 @@ class TestPhase279Round2AdversarialHardenings:
         # Notional must be 0.00008 * 60,000 = 4.80 USDT, NOT "0.00008"
         assert order.notional_usdt == "4.80000000"
         assert order.status == OrderLifecycleState.NEW
+
+
+# =====================================================================
+# 11. Phase 279 Round 3 Adversarial Hardenings & Invariant Edge Cases
+# =====================================================================
+
+
+class TestPhase279Round3AdversarialHardenings:
+    """Adversarial stress-testing of emergency flattening chunking, cancel symbol matching,
+    closing order directional invariants, duplicate event drops, and heartbeat disconnects."""
+
+    def test_emergency_flattening_large_position_chunking(self, isolated_telemetry):
+        """Verify positions exceeding 5.00 USDT micro notional cap are chunked <= 5.00 USDT."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_r3_chunk")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r3_chunk",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r3_chunk",
+        )
+
+        # Build position of 0.00020 BTC @ 60,000 = 12.00 USDT (legal under 20% margin cap)
+        # by dispatching 3 legal micro orders of 0.00006, 0.00007, 0.00007 BTC
+        for q in [Decimal("0.00006"), Decimal("0.00007"), Decimal("0.00007")]:
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=q,
+                price=Decimal("60000.00"),
+            )
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00020")
+        assert reconciler.allocated_margin == Decimal("12.00000000")
+
+        # Execute emergency flattening: MUST slice into orders <= 5.00 USDT each
+        flat_orders = dispatcher.execute_emergency_flattening()
+        assert len(flat_orders) >= 3
+        total_flat_qty = Decimal("0")
+        for ord_rec in flat_orders:
+            notional = Decimal(ord_rec.notional_usdt)
+            assert notional <= Decimal("5.00000000"), f"Chunk {notional} exceeds 5.00 USDT cap"
+            assert ord_rec.symbol == "BTCUSDT"
+            assert ord_rec.is_closing is True
+            assert ord_rec.status == OrderLifecycleState.FILLED
+            total_flat_qty += Decimal(ord_rec.quantity)
+
+        assert total_flat_qty == Decimal("0.00020")
+        assert reconciler.positions["BTCUSDT"] == Decimal("0")
+        assert reconciler.allocated_margin == Decimal("0")
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    def test_order_price_and_quantity_positive_finite_validation(self, isolated_telemetry):
+        """Verify non-finite, zero, or negative price/quantity are rejected fail-closed."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_r3_val")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r3_val",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r3_val",
+        )
+
+        invalid_params = [
+            (Decimal("-10.0"), Decimal("0.00008")),
+            (Decimal("0.0"), Decimal("0.00008")),
+            (Decimal("60000.0"), Decimal("-0.00008")),
+            (Decimal("60000.0"), Decimal("0.0")),
+            (Decimal("NaN"), Decimal("0.00008")),
+            (Decimal("60000.0"), Decimal("Infinity")),
+        ]
+        for p, q in invalid_params:
+            with pytest.raises(DomainViolation):
+                dispatcher.dispatch_micro_order(
+                    candidate_id="cand-btc",
+                    symbol="BTCUSDT",
+                    side=OrderSide.BUY,
+                    order_type=OrderType.LIMIT,
+                    quantity=q,
+                    price=p,
+                )
+
+    def test_closing_order_invariants_and_direction_validation(self, isolated_telemetry):
+        """Verify closing orders require open position, matching direction, and valid quantity."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_r3_closing")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r3_closing",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r3_closing",
+        )
+
+        # 1. Closing with zero open position -> fails
+        with pytest.raises(OrderCorrelationError, match="no open position exists"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.SELL,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+                is_closing=True,
+            )
+
+        # Open Long 0.00004 BTC
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00004"),
+            price=Decimal("60000.00"),
+        )
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00004")
+
+        # 2. Closing quantity exceeds open position -> fails
+        with pytest.raises(OrderCorrelationError, match="exceeds open position"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.SELL,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+                is_closing=True,
+            )
+
+        # 3. Closing side same as position (BUY to close LONG) -> fails
+        with pytest.raises(OrderCorrelationError, match="must be SELL to close open position"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00004"),
+                price=Decimal("60000.00"),
+                is_closing=True,
+            )
+
+        # 4. Valid closing order succeeds cleanly
+        close_ord = dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00004"),
+            price=Decimal("60000.00"),
+            is_closing=True,
+        )
+        assert close_ord.status == OrderLifecycleState.FILLED
+        assert reconciler.positions["BTCUSDT"] == Decimal("0")
+
+    def test_cancel_order_symbol_mismatch_and_terminal_state(self, isolated_telemetry):
+        """Verify cancel order rejects mismatched symbol and terminal state orders."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_r3_cancel")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r3_cancel",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r3_cancel",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            client_order_id=cid,
+            auto_fill=False,
+        )
+
+        # 1. Symbol mismatch in dispatcher.cancel_micro_order
+        with pytest.raises(OrderCorrelationError, match="belongs to symbol BTCUSDT, not ETHUSDT"):
+            dispatcher.cancel_micro_order(symbol="ETHUSDT", client_order_id=cid)
+
+        # 2. Symbol mismatch in gateway.cancel_order
+        with pytest.raises(OrderCorrelationError, match="belongs to symbol BTCUSDT, not ETHUSDT"):
+            gateway.cancel_order(symbol="ETHUSDT", client_order_id=cid)
+
+        # 3. Successful cancel
+        canc_ord = dispatcher.cancel_micro_order(symbol="BTCUSDT", client_order_id=cid)
+        assert canc_ord.status == OrderLifecycleState.CANCELLED
+
+        # 4. Attempting cancel on already CANCELLED order -> fails
+        with pytest.raises(OrderCorrelationError, match="in terminal state"):
+            dispatcher.cancel_micro_order(symbol="BTCUSDT", client_order_id=cid)
+
+        # 5. Attempting gateway cancel on EXPIRED order -> fails
+        expired_cid = generate_canary_client_order_id("ETHUSDT")
+        gateway.create_order(
+            symbol="ETHUSDT",
+            side="BUY",
+            type="LIMIT",
+            timeInForce="GTC",
+            quantity="0.001",
+            price="3000.0",
+            newClientOrderId=expired_cid,
+        )
+        gateway.orders[expired_cid]["status"] = "EXPIRED"
+        with pytest.raises(OrderCorrelationError, match="terminal state EXPIRED"):
+            gateway.cancel_order(symbol="ETHUSDT", client_order_id=expired_cid)
+
+    def test_stream_duplicate_packet_does_not_mutate_order_or_re_transition(
+        self, isolated_telemetry
+    ):
+        """Verify duplicate WebSocket packets are logged but skipped from order lifecycle."""
+        store, sink, _ = isolated_telemetry
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler("track_r3_dedup")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(server_time_ms=int(time.time() * 1000) - 10)
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=store,
+            track_id="track_r3_dedup",
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="track_r3_dedup",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        order = dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            client_order_id=cid,
+            auto_fill=False,
+        )
+        assert order.status == OrderLifecycleState.NEW
+
+        # Partial fill
+        gateway.fill_order(
+            client_order_id=cid, fill_price=Decimal("60000.00"), fill_qty=Decimal("0.00004")
+        )
+        dispatcher.drain_and_reconcile_stream()
+        assert order.status == OrderLifecycleState.PARTIALLY_FILLED
+
+        # Inject duplicate PARTIALLY_FILLED packet
+        dup_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1726765000000,
+            "T": 1726765000000,
+            "_seq": 10,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "o": "LIMIT",
+                "f": "GTC",
+                "q": "0.00008",
+                "p": "60000.00",
+                "ap": "60000.00",
+                "X": "PARTIALLY_FILLED",
+                "i": int(order.order_id),
+                "z": "0.00004000",
+                "l": "0.00004000",
+                "L": "60000.00",
+                "n": "0.00096000",
+                "N": "USDT",
+                "T": 1726765000000,
+                "t": 999123,
+                "x": "TRADE",
+            },
+        }
+        # Feed first time
+        gateway.stream_buffer.append(dup_event)
+        dispatcher.drain_and_reconcile_stream()
+
+        # Count transitions recorded after first event ingestion
+        with store.conn:
+            c1 = store.conn.execute(
+                "SELECT COUNT(*) FROM lifecycle_transitions WHERE client_order_id = ?",
+                (cid,),
+            ).fetchone()[0]
+
+        # Feed duplicate identical event
+        gateway.stream_buffer.append(dup_event)
+        dispatcher.drain_and_reconcile_stream()
+
+        with store.conn:
+            # Transitions count must not increment from the duplicate event
+            c2 = store.conn.execute(
+                "SELECT COUNT(*) FROM lifecycle_transitions WHERE client_order_id = ?",
+                (cid,),
+            ).fetchone()[0]
+            # Verify push events recorded the duplicate flag
+            dup_logged = store.conn.execute(
+                "SELECT COUNT(*) FROM websocket_push_events "
+                "WHERE client_order_id = ? AND is_duplicate = 1",
+                (cid,),
+            ).fetchone()[0]
+
+        assert c1 == c2
+        assert dup_logged >= 1
+        assert sequencer.deduplicated_count >= 1
+
+    def test_gateway_heartbeat_explicit_disconnect_and_assert_fresh(self):
+        """Verify mark_disconnected sets DISCONNECTED status and assert_fresh preserves it."""
+        mon = GatewayHeartbeatMonitor(max_age_ms=500.0)
+        now_ms = int(time.time() * 1000)
+        mon.record_heartbeat(server_time_ms=now_ms - 20, latency_ms=20.0)
+        assert mon.status == HeartbeatStatus.HEALTHY
+        assert mon.is_fresh()
+
+        # Disconnect occurs
+        mon.mark_disconnected()
+        assert mon.status == HeartbeatStatus.DISCONNECTED
+        assert not mon.is_fresh()
+
+        # assert_fresh must preserve DISCONNECTED and not clobber to TIMEOUT
+        with pytest.raises(GatewayHeartbeatStaleError, match="DISCONNECTED"):
+            mon.assert_fresh(now_ms=now_ms + 5000)
+        assert mon.status == HeartbeatStatus.DISCONNECTED
+
+    def test_client_order_id_rejects_negative_timestamp(self):
+        """Verify generate_canary_client_order_id rejects negative timestamp."""
+        with pytest.raises(DomainViolation, match="strictly positive"):
+            generate_canary_client_order_id("BTCUSDT", timestamp_ms=-50)
+
+    def test_sqlite_multi_track_no_clobbering(self, isolated_telemetry):
+        """Verify multi-track execution does not clobber order IDs or trade marks in SQLite."""
+        store, sink, _ = isolated_telemetry
+        manifest, _ = load_and_validate_canary_staging_manifest(
+            DEFAULT_CANARY_STAGING_MANIFEST_PATH
+        )
+        *_, cert = verify_upstream_phase278_qualification(
+            phase278_dir=DEFAULT_PHASE278_OUTPUT_DIR,
+            manifest_path=DEFAULT_CANARY_STAGING_MANIFEST_PATH,
+            phase276_dir=DEFAULT_PHASE276_OUTPUT_DIR,
+            phase277_dir=DEFAULT_PHASE277_OUTPUT_DIR,
+        )
+        cfg = CanaryMainnetConfig(
+            output_dir=Path(isolated_telemetry[2]),
+            track="all",
+        )
+        runner = CanaryMainnetRunner(cfg)
+        runner.active_store = store
+        runner.active_sink = sink
+
+        # Run Track 1 and Track 2
+        res1 = runner._run_track_1(manifest, cert)
+        res2 = runner._run_track_2(manifest, cert)
+        assert res1.success is True
+        assert res2.success is True
+
+        with store.conn:
+            tracks_in_orders = [
+                row[0]
+                for row in store.conn.execute(
+                    "SELECT DISTINCT track_id FROM orders ORDER BY track_id"
+                ).fetchall()
+            ]
+            tracks_in_marks = [
+                row[0]
+                for row in store.conn.execute(
+                    "SELECT DISTINCT track_id FROM execution_marks ORDER BY track_id"
+                ).fetchall()
+            ]
+            t1_orders = store.conn.execute(
+                "SELECT COUNT(*) FROM orders WHERE track_id = 'track_1'"
+            ).fetchone()[0]
+            t2_orders = store.conn.execute(
+                "SELECT COUNT(*) FROM orders WHERE track_id = 'track_2'"
+            ).fetchone()[0]
+            t1_marks = store.conn.execute(
+                "SELECT COUNT(*) FROM execution_marks WHERE track_id = 'track_1'"
+            ).fetchone()[0]
+            t2_marks = store.conn.execute(
+                "SELECT COUNT(*) FROM execution_marks WHERE track_id = 'track_2'"
+            ).fetchone()[0]
+
+        assert "track_1" in tracks_in_orders
+        assert "track_2" in tracks_in_orders
+        assert "track_1" in tracks_in_marks
+        assert "track_2" in tracks_in_marks
+        assert t1_orders >= 6
+        assert t2_orders >= 2
+        assert t1_marks >= 6
+        assert t2_marks >= 2
