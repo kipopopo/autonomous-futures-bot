@@ -311,6 +311,10 @@ def generate_canary_client_order_id(
         raise SafetyInvariantViolation(f"Unauthorized symbol {symbol} for client order ID")
     if timestamp_ms is not None and timestamp_ms <= 0:
         raise DomainViolation(f"timestamp_ms {timestamp_ms} must be strictly positive")
+    if uuid_str is not None and (
+        not uuid_str.strip() or not re.match(r"^[a-zA-Z0-9_\-]+$", uuid_str)
+    ):
+        raise DomainViolation(f"Invalid uuid_str '{uuid_str}'")
     ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
     uid = uuid_str if uuid_str is not None else uuid4().hex[:8]
     return f"c=canary-p280-{symbol}-{ts}-{uid}"
@@ -333,6 +337,12 @@ def validate_canary_client_order_id(
         return (
             False,
             f"Client order ID symbol '{sym}' does not match expected symbol '{expected_symbol}'",
+        )
+    ts = int(m.group(2))
+    if ts <= 0:
+        return (
+            False,
+            f"Client order ID timestamp {ts} must be strictly positive",
         )
     return True, None
 
@@ -1045,13 +1055,16 @@ class GatewayHeartbeatMonitor:
         self,
         max_allowed_age_ms: float = GATEWAY_HEARTBEAT_MAX_AGE_MS,
         recovery_hysteresis_ms: float = GATEWAY_HEARTBEAT_HYSTERESIS_RECOVERY_MS,
+        max_clock_skew_ms: float = MAX_CLOCK_SKEW_TOLERANCE_MS,
     ) -> None:
         self.max_allowed_age_ms = max_allowed_age_ms
         self.recovery_hysteresis_ms = recovery_hysteresis_ms
+        self.max_clock_skew_ms = max_clock_skew_ms
         self.last_server_time_ms: int = 0
         self.last_receive_time_ms: int = 0
         self.last_latency_ms: float = 0.0
         self.last_heartbeat_timestamp_ms: int = 0
+        self.last_status: HeartbeatStatus = HeartbeatStatus.DISCONNECTED
         self.is_stale_state: bool = False
         self.heartbeat_count: int = 0
         self.stale_count: int = 0
@@ -1066,25 +1079,26 @@ class GatewayHeartbeatMonitor:
         """Record and validate an incoming gateway heartbeat packet."""
         now_ms = int(time.time() * 1000)
         self.heartbeat_count += 1
+
+        is_clock_skew = (
+            self.last_server_time_ms > 0
+            and (self.last_server_time_ms - server_time_ms) > self.max_clock_skew_ms
+        )
+
         self.last_server_time_ms = server_time_ms
         self.last_receive_time_ms = now_ms
         self.last_latency_ms = latency_ms
         self.last_heartbeat_timestamp_ms = now_ms
 
-        age = self.get_heartbeat_age_ms()
-        if age > self.max_allowed_age_ms:
+        threshold = self.recovery_hysteresis_ms if self.is_stale_state else self.max_allowed_age_ms
+        if is_clock_skew or latency_ms > threshold:
             status = HeartbeatStatus.LATENCY_SPIKE_STALE
             self.is_stale_state = True
             self.stale_count += 1
         else:
-            if self.is_stale_state:
-                if age <= self.recovery_hysteresis_ms:
-                    self.is_stale_state = False
-                    status = HeartbeatStatus.HEALTHY
-                else:
-                    status = HeartbeatStatus.LATENCY_SPIKE_STALE
-            else:
-                status = HeartbeatStatus.HEALTHY
+            self.is_stale_state = False
+            status = HeartbeatStatus.HEALTHY
+        self.last_status = status
 
         return GatewayHeartbeatRecord(
             heartbeat_id=f"hb-{track_id}-{self.heartbeat_count}-{uuid4().hex[:6]}",
@@ -1092,7 +1106,7 @@ class GatewayHeartbeatMonitor:
             server_time_ms=server_time_ms,
             local_receive_time_ms=now_ms,
             latency_ms=latency_ms,
-            age_ms=age,
+            age_ms=self.get_heartbeat_age_ms(),
             status=status,
             timestamp_utc=datetime.now(UTC).isoformat(),
             details_json=json.dumps({"stale_state": self.is_stale_state}),
@@ -1103,9 +1117,11 @@ class GatewayHeartbeatMonitor:
         self._simulated_stale_age = age_ms
         if age_ms is not None and age_ms > self.max_allowed_age_ms:
             self.is_stale_state = True
+            self.last_status = HeartbeatStatus.LATENCY_SPIKE_STALE
             self.stale_count += 1
         elif age_ms is not None and age_ms <= self.recovery_hysteresis_ms:
             self.is_stale_state = False
+            self.last_status = HeartbeatStatus.HEALTHY
 
     def get_heartbeat_age_ms(self) -> float:
         """Get current elapsed age of the last heartbeat."""
@@ -1118,6 +1134,8 @@ class GatewayHeartbeatMonitor:
 
     def is_fresh(self) -> bool:
         """Check if gateway heartbeat is within freshness threshold."""
+        if self.last_status != HeartbeatStatus.HEALTHY:
+            return False
         age = self.get_heartbeat_age_ms()
         if self.is_stale_state:
             return age <= self.recovery_hysteresis_ms
@@ -1435,6 +1453,7 @@ class MainnetUserDataStreamReconciler:
         with self._lock:
             for client_order_id, ord_rec in list(orders.items()):
                 if ord_rec.status in (
+                    OrderLifecycleState.PENDING_NEW,
                     OrderLifecycleState.PENDING_SUBMIT,
                     OrderLifecycleState.NEW,
                     OrderLifecycleState.PARTIALLY_FILLED,
@@ -1495,13 +1514,31 @@ class MainnetUserDataStreamReconciler:
                             )
                             self.apply_trade_fill(mark)
                             backfilled_marks.append(mark)
-
                             ord_rec.executed_quantity = str(remote_exec_qty)
-                            if remote_status == "FILLED":
-                                ord_rec.status = OrderLifecycleState.FILLED
-                            elif remote_status == "PARTIALLY_FILLED":
-                                ord_rec.status = OrderLifecycleState.PARTIALLY_FILLED
+
+                        # Update order lifecycle state based on remote status
+                        if remote_status == "FILLED":
+                            ord_rec.status = OrderLifecycleState.FILLED
                             ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        elif remote_status == "PARTIALLY_FILLED":
+                            ord_rec.status = OrderLifecycleState.PARTIALLY_FILLED
+                            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        elif remote_status in ("CANCELED", "CANCELLED"):
+                            ord_rec.status = OrderLifecycleState.CANCELLED
+                            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        elif remote_status == "REJECTED":
+                            ord_rec.status = OrderLifecycleState.REJECTED
+                            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        elif remote_status == "EXPIRED":
+                            ord_rec.status = OrderLifecycleState.EXPIRED
+                            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        elif remote_status == "NEW":
+                            if ord_rec.status in (
+                                OrderLifecycleState.PENDING_NEW,
+                                OrderLifecycleState.PENDING_SUBMIT,
+                            ):
+                                ord_rec.status = OrderLifecycleState.NEW
+                                ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
         return backfilled_marks
 
 
@@ -1932,6 +1969,7 @@ class MainnetOrderDispatchInterlock:
             ):
                 continue
             if ord_rec.status in (
+                OrderLifecycleState.PENDING_NEW,
                 OrderLifecycleState.PENDING_SUBMIT,
                 OrderLifecycleState.NEW,
                 OrderLifecycleState.PARTIALLY_FILLED,
@@ -2520,7 +2558,10 @@ class MainnetMicroOrderDispatcher:
                         )
 
                     elif exec_type == "NEW":
-                        if order_rec.status == OrderLifecycleState.PENDING_SUBMIT:
+                        if order_rec.status in (
+                            OrderLifecycleState.PENDING_NEW,
+                            OrderLifecycleState.PENDING_SUBMIT,
+                        ):
                             order_rec.status = OrderLifecycleState.NEW
                             order_rec.updated_at_utc = datetime.now(UTC).isoformat()
                             self.telemetry_store.record_order(order_rec)
@@ -2617,6 +2658,47 @@ class MainnetMicroOrderDispatcher:
                                 "status": ord_rec.status.value,
                             },
                         )
+                    elif (
+                        ord_rec.status == OrderLifecycleState.CANCELLED
+                        and old_status != OrderLifecycleState.CANCELLED
+                    ):
+                        self.orders_cancelled_count += 1
+                        self.jsonl_sink.append_event(
+                            "ORDER_CANCELLED",
+                            {
+                                "client_order_id": cid,
+                                "trade_id": "REST_RECONCILED",
+                                "status": ord_rec.status.value,
+                            },
+                        )
+                    elif (
+                        ord_rec.status == OrderLifecycleState.REJECTED
+                        and old_status != OrderLifecycleState.REJECTED
+                    ):
+                        self.orders_rejected_count += 1
+                        self.jsonl_sink.append_event(
+                            "ORDER_REJECTED",
+                            {
+                                "client_order_id": cid,
+                                "trade_id": "REST_RECONCILED",
+                                "status": ord_rec.status.value,
+                            },
+                        )
+
+            if marks:
+                snap = MainnetBalanceSnapshot(
+                    snapshot_id=f"snap-{self.track_id}-{uuid4().hex[:8]}",
+                    track_id=self.track_id,
+                    timestamp_utc=datetime.now(UTC).isoformat(),
+                    cash_usdt=str(self.reconciler.cash),
+                    allocated_margin_usdt=str(self.reconciler.allocated_margin),
+                    unrealized_pnl_usdt=str(self.reconciler.unrealized_pnl),
+                    realized_pnl_usdt=str(self.reconciler.realized_pnl),
+                    equity_usdt=str(self.reconciler.total_equity),
+                    drift_usdt=str(self.reconciler.mathematical_drift),
+                )
+                self.telemetry_store.record_balance_snapshot(snap)
+
             return marks
 
     def cancel_micro_order(self, symbol: str, client_order_id: str) -> MainnetOrderRecord:
@@ -2643,6 +2725,7 @@ class MainnetMicroOrderDispatcher:
             # Step 1: Cancel all working/unfilled open orders
             for o_cid, o_rec in list(self.orders.items()):
                 if o_rec.status in (
+                    OrderLifecycleState.PENDING_NEW,
                     OrderLifecycleState.PENDING_SUBMIT,
                     OrderLifecycleState.NEW,
                     OrderLifecycleState.PARTIALLY_FILLED,
@@ -2739,6 +2822,20 @@ class MainnetMicroOrderDispatcher:
                             self.reconcile_via_rest()
                         flattening_orders.append(flatten_order)
                         rem_qty -= chunk
+
+            # Record final flattened balance snapshot in telemetry store
+            final_snap = MainnetBalanceSnapshot(
+                snapshot_id=f"snap-{self.track_id}-{uuid4().hex[:8]}",
+                track_id=self.track_id,
+                timestamp_utc=datetime.now(UTC).isoformat(),
+                cash_usdt=str(self.reconciler.cash),
+                allocated_margin_usdt=str(self.reconciler.allocated_margin),
+                unrealized_pnl_usdt=str(self.reconciler.unrealized_pnl),
+                realized_pnl_usdt=str(self.reconciler.realized_pnl),
+                equity_usdt=str(self.reconciler.total_equity),
+                drift_usdt=str(self.reconciler.mathematical_drift),
+            )
+            self.telemetry_store.record_balance_snapshot(final_snap)
 
             return flattening_orders
 

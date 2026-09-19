@@ -29,6 +29,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.feed.canary_activation import (  # noqa: E402
     DEFAULT_REFERENCE_PRICES,
     STARTING_EQUITY_USDT,
@@ -45,6 +46,7 @@ from autonomous_futures.feed.heartbeat_daemon import (  # noqa: E402
 from autonomous_futures.feed.mainnet_deployment import (  # noqa: E402
     DEFAULT_PHASE280_OUTPUT_DIR,
     HARD_MICRO_NOTIONAL_CAP_USDT,
+    MAX_CLOCK_SKEW_TOLERANCE_MS,
     CanaryMainnetDeploymentConfig,
     CanaryMainnetDeploymentRunner,
     CircuitBreakerState,
@@ -1267,3 +1269,232 @@ def test_all_database_balance_snapshots_zero_drift(tmp_path: Path):
                 f"Snapshot {snap_id} ({tid}) breached drift limit: drift={drift_dec} USDT, "
                 f"cash={cash}, margin={margin}, upnl={upnl}, rpnl={rpnl}, equity={eq}"
             )
+
+
+def test_rest_reconciliation_terminal_order_states(temp_telemetry_store, tmp_path: Path):
+    """Verify REST reconciliation transitions orders to CANCELLED, REJECTED, EXPIRED correctly."""
+    gw = MockBinanceMainnetGateway(initial_balance_usdt=Decimal("100.00"))
+    r = MainnetUserDataStreamReconciler(
+        track_id="test_rest_term", starting_equity=Decimal("100.00")
+    )
+    seq = MainnetStreamSequencer()
+    mon = GatewayHeartbeatMonitor()
+    mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000) - 20, latency_ms=20.0, track_id="test_rest_term"
+    )
+    sink = JsonlCanaryOrderSink(tmp_path / "orders.jsonl")
+
+    interlock = MainnetOrderDispatchInterlock(
+        heartbeat_monitor=mon,
+        reconciler=r,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_rest_term",
+        ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+    )
+    dispatcher = MainnetMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=r,
+        sequencer=seq,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=sink,
+        heartbeat_monitor=mon,
+        interlock=interlock,
+        track_id="test_rest_term",
+    )
+
+    # 1. Place Order A (will be cancelled on gateway during flap)
+    cid_a = generate_canary_client_order_id("BTCUSDT")
+    gw_a = gw.create_order(
+        symbol="BTCUSDT",
+        side="BUY",
+        type="LIMIT",
+        timeInForce="GTC",
+        quantity="0.00008",
+        price="60000.00",
+        newClientOrderId=cid_a,
+    )
+    rec_a = MainnetOrderRecord(
+        order_id=str(gw_a["orderId"]),
+        client_order_id=cid_a,
+        track_id="test_rest_term",
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side="BUY",
+        order_type="LIMIT",
+        time_in_force="GTC",
+        price="60000.00",
+        quantity="0.00008",
+        executed_quantity="0",
+        notional_usdt="4.80",
+        status=OrderLifecycleState.NEW,
+        ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+        created_at_utc=datetime.now(UTC).isoformat(),
+        updated_at_utc=datetime.now(UTC).isoformat(),
+    )
+    dispatcher.orders[cid_a] = rec_a
+
+    # 2. Place Order B (will be partially filled then cancelled on gateway)
+    cid_b = generate_canary_client_order_id("ETHUSDT")
+    gw_b = gw.create_order(
+        symbol="ETHUSDT",
+        side="BUY",
+        type="LIMIT",
+        timeInForce="GTC",
+        quantity="0.0015",
+        price="3000.00",
+        newClientOrderId=cid_b,
+    )
+    rec_b = MainnetOrderRecord(
+        order_id=str(gw_b["orderId"]),
+        client_order_id=cid_b,
+        track_id="test_rest_term",
+        candidate_id="cand-eth",
+        symbol="ETHUSDT",
+        side="BUY",
+        order_type="LIMIT",
+        time_in_force="GTC",
+        price="3000.00",
+        quantity="0.0015",
+        executed_quantity="0",
+        notional_usdt="4.50",
+        status=OrderLifecycleState.NEW,
+        ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+        created_at_utc=datetime.now(UTC).isoformat(),
+        updated_at_utc=datetime.now(UTC).isoformat(),
+    )
+    dispatcher.orders[cid_b] = rec_b
+
+    # Before flap: working margin tracks both orders (4.80 + 4.50 = 9.30 USDT)
+    assert interlock.get_working_committed_margin() == Decimal("9.30000000")
+
+    # Simulate Flap & Gateway Actions:
+    gw.disconnect_stream()
+    # Gateway cancels Order A
+    gw.cancel_order("BTCUSDT", cid_a)
+    # Gateway partially fills Order B (0.0005 ETH) then cancels remainder
+    gw.fill_order(client_order_id=cid_b, fill_price=Decimal("3000.00"), fill_qty=Decimal("0.0005"))
+    gw.cancel_order("ETHUSDT", cid_b)
+
+    # Reconcile via REST
+    gw.reconnect_stream()
+    marks = dispatcher.reconcile_via_rest()
+    assert len(marks) == 1  # 1 backfilled fill for Order B
+    assert rec_a.status == OrderLifecycleState.CANCELLED
+    assert rec_b.status == OrderLifecycleState.CANCELLED
+    assert rec_b.executed_quantity == "0.0005"
+    assert dispatcher.orders_cancelled_count == 2
+    assert dispatcher.orders_filled_count == 0
+
+    # Working margin is now cleanly released (0 USDT unfilled working orders)
+    assert interlock.get_working_committed_margin() == Decimal("0")
+    # Position margin reflects the 0.0005 ETH fill
+    assert r.positions["ETHUSDT"] == Decimal("0.0005")
+    assert r.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_balance_snapshots_recorded_for_rest_reconcile_and_emergency_flattening(tmp_path: Path):
+    """Verify balance snapshots are recorded for REST backfills and emergency flattening."""
+    cfg = CanaryMainnetDeploymentConfig(
+        output_dir=tmp_path / "snap_audit_test",
+        track="all",
+    )
+    runner = CanaryMainnetDeploymentRunner(cfg)
+    report = runner.execute_all_tracks()
+    assert report.compliance["all_criteria_passed"] is True
+
+    db_path = tmp_path / "snap_audit_test" / "canary-mainnet-deployment-telemetry.sqlite3"
+    with sqlite3.connect(db_path) as conn:
+        # Track 3 final snapshot must have 0 allocated margin after emergency flattening
+        t3_snaps = conn.execute(
+            "SELECT snapshot_id, cash_usdt, allocated_margin_usdt, equity_usdt, drift_usdt "
+            "FROM balance_snapshots WHERE track_id = 'track_3' ORDER BY rowid ASC"
+        ).fetchall()
+        assert len(t3_snaps) >= 4
+        final_t3 = t3_snaps[-1]
+        assert final_t3[2] == "0", (
+            f"Track 3 final snapshot allocated margin must be 0, got {final_t3[2]}"
+        )
+        assert Decimal(final_t3[4]) < DOUBLE_ENTRY_MAX_DRIFT
+
+        # Track 2 must record snapshot for REST backfill (at least 3 snapshots)
+        t2_snaps = conn.execute(
+            "SELECT snapshot_id, allocated_margin_usdt, drift_usdt "
+            "FROM balance_snapshots WHERE track_id = 'track_2'"
+        ).fetchall()
+        assert len(t2_snaps) >= 3
+
+
+def test_gateway_heartbeat_clock_skew_detection():
+    """Verify backward clock jump > 250 ms triggers LATENCY_SPIKE_STALE and freezes order."""
+    mon = GatewayHeartbeatMonitor(max_clock_skew_ms=MAX_CLOCK_SKEW_TOLERANCE_MS)
+    hb1 = mon.record_heartbeat(server_time_ms=1_000_000, latency_ms=30.0, track_id="test_skew")
+    assert hb1.status == HeartbeatStatus.HEALTHY
+    assert mon.is_fresh() is True
+
+    # Backward clock jump of 300 ms (> 250 ms max tolerance)
+    hb2 = mon.record_heartbeat(server_time_ms=999_700, latency_ms=30.0, track_id="test_skew")
+    assert hb2.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+    assert mon.is_stale_state is True
+    assert mon.is_fresh() is False
+
+    with pytest.raises(GatewayHeartbeatStaleError):
+        mon.assert_fresh()
+
+
+def test_client_order_id_extended_validation_and_pending_new_working_margin(temp_telemetry_store):
+    """Verify client order ID edge cases and PENDING_NEW working margin accounting."""
+    # 1. Non-positive timestamp rejection in validate_canary_client_order_id
+    ok_zero, err_zero = validate_canary_client_order_id("c=canary-p280-BTCUSDT-0-abc12345")
+    assert ok_zero is False
+    assert "timestamp 0 must be strictly positive" in (err_zero or "")
+
+    # 2. Rejection in generate_canary_client_order_id
+    with pytest.raises(DomainViolation):
+        generate_canary_client_order_id("BTCUSDT", timestamp_ms=0)
+    with pytest.raises(DomainViolation):
+        generate_canary_client_order_id("BTCUSDT", timestamp_ms=-500)
+    with pytest.raises(DomainViolation):
+        generate_canary_client_order_id("BTCUSDT", uuid_str="   ")
+    with pytest.raises(DomainViolation):
+        generate_canary_client_order_id("BTCUSDT", uuid_str="bad@char!")
+
+    # 3. PENDING_NEW included in working committed margin
+    r = MainnetUserDataStreamReconciler(
+        track_id="test_pending_new", starting_equity=Decimal("100.00")
+    )
+    mon = GatewayHeartbeatMonitor()
+    mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000) - 20, latency_ms=20.0, track_id="test_pnew"
+    )
+    orders_map: dict[str, MainnetOrderRecord] = {}
+
+    interlock = MainnetOrderDispatchInterlock(
+        heartbeat_monitor=mon,
+        reconciler=r,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_pending_new",
+        orders_provider=lambda: orders_map,
+    )
+
+    cid_pn = generate_canary_client_order_id("BTCUSDT")
+    orders_map[cid_pn] = MainnetOrderRecord(
+        order_id="ord-pn",
+        client_order_id=cid_pn,
+        track_id="test_pending_new",
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side="BUY",
+        order_type="LIMIT",
+        time_in_force="GTC",
+        price="60000.00",
+        quantity="0.00008",
+        executed_quantity="0",
+        notional_usdt="4.80",
+        status=OrderLifecycleState.PENDING_NEW,
+        ingress_stage=GraduatedIngressStage.STAGE_2_STEPPED_MICRO,
+        created_at_utc=datetime.now(UTC).isoformat(),
+        updated_at_utc=datetime.now(UTC).isoformat(),
+    )
+    assert interlock.get_working_committed_margin() == Decimal("4.80000000")
+    assert interlock.get_working_committed_margin("BTCUSDT") == Decimal("4.80000000")
+    assert interlock.get_working_committed_margin("ETHUSDT") == Decimal("0")
