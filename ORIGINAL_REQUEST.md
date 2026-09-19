@@ -1146,3 +1146,72 @@ Enforce mathematical precision and rigorous engineering hygiene:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality gates pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-19T02:56:26Z
+
+Implement the live exchange gateway synchronization runner, authenticated account balance and position reconciler, and fail-closed shadow order dispatch response audit harness under Candidate Registry Manifest Version 2 (Phase 277) to validate end-to-end exchange communication, account ledger integrity, and error recovery before live monetary deployment.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Live Gateway Account Ledger & Signed Position Synchronization Runner
+Implement and execute the deterministic Phase 277 live gateway synchronization runner (`scripts/run_phase_277_canary_live_gateway.py` & `src/autonomous_futures/feed/canary_live_gateway.py`):
+- Ingest upstream Phase 276 activation certificate (`artifacts/research/phase276/canary-activation-certificate.json`) and verify prerequisite qualification:
+  - Certificate status is strictly `ACTIVE`.
+  - Cryptographic signature and hash chain are fully validated.
+  - Certificate has not expired (`as_of` < `expires_at_utc`).
+- Ingest Binance Futures authenticated account endpoints in a deterministic offline/replay safe harness:
+  - Account information (`/fapi/v2/account`), account balance (`/fapi/v2/balance`), and position risk (`/fapi/v2/positionRisk`).
+  - Enforce HMAC-SHA256 request authentication, RFC 3986 parameter canonicalization, and millisecond timestamp drift compensation.
+- Reconcile remote exchange balances with internal double-entry accounting state: cash balance, allocated margin, unrealized PnL, and cross-asset margin utilization across `BTCUSDT`, `ETHUSDT`, `SOLUSDT`.
+
+### R2. Shadow Live Order Dispatch & Exchange Response Reconciliation
+Implement order dispatch response tracking and exchange communication lifecycle governance:
+- Route micro canary orders through the Phase 276 order dispatch interlocks (micro notional ceiling $\le 5.00$ USDT, daily loss budget $\le 2.00$ USDT, heartbeat freshness $\le 1000$ ms).
+- Track complete order acknowledgement lifecycle: client order ID generation, order acceptance ack, fill event matching, and state transitions (`NEW` $\rightarrow$ `PARTIALLY_FILLED` $\rightarrow$ `FILLED` / `CANCELED`).
+- Enforce fail-closed exchange error handling and recovery:
+  - Timestamp drift rejection (API code -1021): auto-resync server time offset via `/fapi/v1/time` and retry within safe window.
+  - Rate-limit backoff (HTTP 429 / IP ban warning): exponential jittered backoff and order dispatch freeze.
+  - Dispatch network timeout / unknown status: initiate REST order status query fallback before permitting new order routing.
+
+### R3. Deterministic Multi-Track Gateway Drills & Telemetry Storage
+Execute 4 deterministic simulation tracks in `artifacts/research/phase277/`:
+1. **Track 1: Nominal Signed Account Synchronization & Micro Order Dispatch** (Clean account sync, valid certificate, healthy stream, micro orders placed and acknowledged).
+2. **Track 2: Exchange Rate-Limit & Timestamp Drift Backoff Drill** (Simulate HTTP 429 and timestamp drift errors -> verify exponential backoff, time resync, and safe resumption).
+3. **Track 3: Remote vs Local Balance Desync Detection** (Simulate unexpected balance discrepancy between exchange and internal ledger -> trigger immediate Tier 2 Hard-Abort and engine lockout).
+4. **Track 4: Network Partition & Order Status Unknown Recovery** (Simulate network drop during order dispatch -> execute REST query fallback to determine actual order state -> resolve state cleanly).
+- Store execution marks, orders, lifecycle transitions, and gateway telemetry in isolated SQLite database (`artifacts/research/phase277/canary-gateway-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-gateway-report.json`, `gateway-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Remote CI Polling
+Enforce mathematical precision and rigorous engineering hygiene:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks ($\text{drift} = |\text{final\_cash} + \text{allocated\_margin} + \text{unrealized\_pnl} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Maintain strict read-only / paper containment: `execution_authority: false`, `exchange_access: false`, `orders: 0`, `api_keys_loaded: 0`.
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_277_canary_live_gateway.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Gateway Synchronization & Authentication
+- [ ] Live gateway runner ingests active Phase 276 activation certificate and validates prerequisite qualifications.
+- [ ] Authenticated account and position endpoints ingested and reconciled with zero unhandled exceptions.
+- [ ] HMAC signature generation and timestamp drift compensation pass validation.
+
+### Order Dispatch & Error Handling
+- [ ] Order dispatch lifecycle (ack, fill, cancel) tracks and reconciles client order IDs.
+- [ ] Exchange error recovery (HTTP 429, timestamp drift, network timeout) executes fail-closed.
+- [ ] Balance desync detection triggers instantaneous Tier 2 Hard-Abort lockout.
+
+### Accounting, Telemetry & Remote CI Verification
+- [ ] Exact mathematical balance reconciliation confirms zero drift ($< 10^{-15}\text{ USDT}$) across all gateway tracks.
+- [ ] Complete artifact bundle and isolated SQLite database generated in `artifacts/research/phase277/` with cryptographic SHA-256 digests.
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality gates pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
