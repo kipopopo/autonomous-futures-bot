@@ -208,7 +208,7 @@ def execute_phase_276_runner(
     verify_only: bool = False,
 ) -> int:
     """Execute deterministic Phase 276 canary activation runner workflow."""
-    if verify_only:
+    if verify_only or (verify_hash_chain and not authorize_canary and not interactive):
         hash_ok = verify_phase_276_hash_chain(
             output_dir=output_dir,
             manifest_path=manifest_path,

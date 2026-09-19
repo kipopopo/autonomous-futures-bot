@@ -133,6 +133,10 @@ class MissingRequiredPermissionError(CanaryActivationError, DomainViolation):
     """Raised when an API key lacks required futures trading or reading permissions."""
 
 
+class UnpermittedPermissionError(MissingRequiredPermissionError, DomainViolation):
+    """Raised when an API key possesses unpermitted capabilities (e.g. spot/margin trading)."""
+
+
 class TimestampDriftWindowExceededError(CanaryActivationError, DomainViolation):
     """Raised when API signature timestamp drift exceeds 1000ms window."""
 
@@ -143,6 +147,10 @@ class InvalidSignatureError(CanaryActivationError, DomainViolation):
 
 class OrderNotionalCapBreachError(CanaryActivationError, DomainViolation):
     """Raised when an order notional exceeds the 5.00 USDT hard cap."""
+
+
+class MarginCapBreachError(OrderNotionalCapBreachError, DomainViolation):
+    """Raised when an order would breach per-asset or aggregate allocated margin caps."""
 
 
 class DailyLossBudgetLockoutError(CanaryActivationError, DomainViolation):
@@ -398,8 +406,10 @@ class SecureExchangeKeyVault:
 
     def verify_signature(self, query_string: str, signature: str) -> bool:
         """Verify HMAC-SHA256 signature using constant-time comparison."""
+        if not signature or not isinstance(signature, str):
+            return False
         expected = self.generate_signature(query_string)
-        return hmac.compare_digest(expected, signature)
+        return hmac.compare_digest(expected.lower(), signature.strip().lower())
 
     @staticmethod
     def validate_timestamp_window(
@@ -408,6 +418,12 @@ class SecureExchangeKeyVault:
         max_drift_ms: int = TIMESTAMP_DRIFT_WINDOW_MS,
     ) -> bool:
         """Validate that request timestamp drift does not exceed allowed window (<= 1000ms)."""
+        if isinstance(request_timestamp_ms, bool) or isinstance(current_timestamp_ms, bool):
+            raise TimestampDriftWindowExceededError("Timestamps cannot be boolean values")
+        if not isinstance(request_timestamp_ms, (int, float)) or not isinstance(
+            current_timestamp_ms, (int, float)
+        ):
+            raise TimestampDriftWindowExceededError("Timestamps must be numeric milliseconds")
         if request_timestamp_ms <= 0 or current_timestamp_ms <= 0:
             raise TimestampDriftWindowExceededError(
                 "Request and current timestamps must be positive integers in milliseconds"
@@ -446,7 +462,7 @@ class SecureExchangeKeyVault:
                 "Fail-closed key rejection triggered."
             )
         if permissions.enable_margin or permissions.enable_spot_and_margin_trading:
-            raise MissingRequiredPermissionError(
+            raise UnpermittedPermissionError(
                 "Security violation: API key possesses unpermitted Margin or Spot "
                 "Trading permissions. Only Futures Trading and Spot/Futures "
                 "Read-Only are permitted."
@@ -560,6 +576,8 @@ class MicroCanaryOrder(DomainModel):
     bracket_parent_id: str | None = None
     bracket_role: str | None = None
     rejection_reason: str | None = None
+    is_closing: bool = False
+    is_emergency_close: bool = False
     created_at_utc: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at_utc: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -576,7 +594,12 @@ class MicroCanaryOrder(DomainModel):
             raise OrderNotionalCapBreachError(
                 f"Order notional {calc_notional} must be strictly positive"
             )
-        if self.status != OrderStatus.REJECTED and calc_notional > HARD_NOTIONAL_CAP_USDT:
+        if (
+            not self.is_closing
+            and not self.is_emergency_close
+            and self.status != OrderStatus.REJECTED
+            and calc_notional > HARD_NOTIONAL_CAP_USDT
+        ):
             raise OrderNotionalCapBreachError(
                 f"Order notional {calc_notional} USDT breaches {HARD_NOTIONAL_CAP_USDT} USDT cap"
             )
@@ -703,6 +726,9 @@ class CanaryOrderDispatchInterlockGateway:
         current_time_epoch: float,
         last_heartbeat_epoch: float,
         cumulative_drawdown_usdt: Decimal,
+        current_asset_margin_usdt: Decimal = Decimal("0"),
+        current_aggregate_margin_usdt: Decimal = Decimal("0"),
+        is_closing: bool = False,
         is_emergency_close: bool = False,
     ) -> None:
         """Evaluate all fail-closed order dispatch interlock gates in deterministic sequence."""
@@ -733,7 +759,7 @@ class CanaryOrderDispatchInterlockGateway:
             raise CertificateInvalidatedError(evt.detail)
 
         current_dt = datetime.fromtimestamp(current_time_epoch, tz=UTC)
-        if self.certificate.is_expired(as_of=current_dt):
+        if not is_emergency_close and self.certificate.is_expired(as_of=current_dt):
             self.certificate.status = CertificateStatus.EXPIRED
             evt = InterlockEvent(
                 track_id=track_id,
@@ -761,40 +787,98 @@ class CanaryOrderDispatchInterlockGateway:
             raise UnauthorizedSymbolError(evt.detail)
 
         # Gate 4: Hard Micro-Order Notional Cap
-        if notional_usdt <= Decimal("0") or notional_usdt > self.hard_notional_cap_usdt:
-            detail_msg = (
-                f"Order notional {notional_usdt} USDT exceeds hard ceiling "
-                f"of {self.hard_notional_cap_usdt} USDT"
-                if notional_usdt > self.hard_notional_cap_usdt
-                else f"Order notional {notional_usdt} USDT must be strictly positive"
-            )
+        if notional_usdt <= Decimal("0"):
             evt = InterlockEvent(
                 track_id=track_id,
                 trigger_type=InterlockTriggerType.HARD_NOTIONAL_CAP_REJECTION,
                 symbol=symbol,
                 attempted_notional_usdt=notional_usdt,
                 current_drawdown_usdt=cumulative_drawdown_usdt,
-                detail=detail_msg,
+                detail=f"Order notional {notional_usdt} USDT must be strictly positive",
             )
             self.interlock_events.append(evt)
             raise OrderNotionalCapBreachError(evt.detail)
 
-        # Gate 5: Stream Heartbeat Freshness
-        heartbeat_age_ms = (current_time_epoch - last_heartbeat_epoch) * 1000.0
-        if heartbeat_age_ms > self.max_heartbeat_age_ms:
+        if (
+            not is_closing
+            and not is_emergency_close
+            and notional_usdt > self.hard_notional_cap_usdt
+        ):
             evt = InterlockEvent(
                 track_id=track_id,
-                trigger_type=InterlockTriggerType.STALE_HEARTBEAT_BLOCK,
+                trigger_type=InterlockTriggerType.HARD_NOTIONAL_CAP_REJECTION,
                 symbol=symbol,
                 attempted_notional_usdt=notional_usdt,
                 current_drawdown_usdt=cumulative_drawdown_usdt,
                 detail=(
-                    f"Stream heartbeat age ({heartbeat_age_ms:.1f}ms) exceeds "
-                    f"{self.max_heartbeat_age_ms}ms threshold"
+                    f"Order notional {notional_usdt} USDT exceeds hard ceiling "
+                    f"of {self.hard_notional_cap_usdt} USDT"
                 ),
             )
             self.interlock_events.append(evt)
-            raise StaleHeartbeatInterlockError(evt.detail)
+            raise OrderNotionalCapBreachError(evt.detail)
+
+        # Gate 4b: Allocated Margin Caps (Per-Asset and Aggregate)
+        if not is_closing and not is_emergency_close:
+            per_asset_cap_str = self.certificate.max_allocated_margin_caps.get(symbol)
+            if per_asset_cap_str is not None:
+                per_asset_cap = Decimal(per_asset_cap_str)
+                if current_asset_margin_usdt + notional_usdt > per_asset_cap:
+                    evt = InterlockEvent(
+                        track_id=track_id,
+                        trigger_type=InterlockTriggerType.HARD_NOTIONAL_CAP_REJECTION,
+                        symbol=symbol,
+                        attempted_notional_usdt=notional_usdt,
+                        current_drawdown_usdt=cumulative_drawdown_usdt,
+                        detail=(
+                            f"Order notional {notional_usdt} USDT would breach {symbol} "
+                            f"margin cap of {per_asset_cap} USDT "
+                            f"(current allocated: {current_asset_margin_usdt} USDT)"
+                        ),
+                    )
+                    self.interlock_events.append(evt)
+                    raise MarginCapBreachError(evt.detail)
+
+            agg_cap = Decimal(self.certificate.max_aggregate_margin_usdt)
+            if current_aggregate_margin_usdt + notional_usdt > agg_cap:
+                evt = InterlockEvent(
+                    track_id=track_id,
+                    trigger_type=InterlockTriggerType.HARD_NOTIONAL_CAP_REJECTION,
+                    symbol=symbol,
+                    attempted_notional_usdt=notional_usdt,
+                    current_drawdown_usdt=cumulative_drawdown_usdt,
+                    detail=(
+                        f"Order notional {notional_usdt} USDT would breach aggregate "
+                        f"margin cap of {agg_cap} USDT "
+                        f"(current allocated: {current_aggregate_margin_usdt} USDT)"
+                    ),
+                )
+                self.interlock_events.append(evt)
+                raise MarginCapBreachError(evt.detail)
+
+        # Gate 5: Stream Heartbeat Freshness
+        if not is_emergency_close:
+            heartbeat_age_ms = (current_time_epoch - last_heartbeat_epoch) * 1000.0
+            if heartbeat_age_ms < 0 or heartbeat_age_ms > self.max_heartbeat_age_ms:
+                detail_msg = (
+                    f"Stream heartbeat age ({heartbeat_age_ms:.1f}ms) exceeds "
+                    f"{self.max_heartbeat_age_ms}ms threshold"
+                    if heartbeat_age_ms >= 0
+                    else (
+                        "Stream heartbeat timestamp in future / negative age "
+                        f"({heartbeat_age_ms:.1f}ms)"
+                    )
+                )
+                evt = InterlockEvent(
+                    track_id=track_id,
+                    trigger_type=InterlockTriggerType.STALE_HEARTBEAT_BLOCK,
+                    symbol=symbol,
+                    attempted_notional_usdt=notional_usdt,
+                    current_drawdown_usdt=cumulative_drawdown_usdt,
+                    detail=detail_msg,
+                )
+                self.interlock_events.append(evt)
+                raise StaleHeartbeatInterlockError(evt.detail)
 
         # Gate 6: Circuit Breaker State Invariant
         cb_state = self.circuit_breaker.current_state
@@ -951,6 +1035,8 @@ class SqliteCanaryActivationTelemetryStore:
                     bracket_parent_id TEXT,
                     bracket_role TEXT,
                     rejection_reason TEXT,
+                    is_closing INTEGER NOT NULL DEFAULT 0,
+                    is_emergency_close INTEGER NOT NULL DEFAULT 0,
                     created_at_utc TEXT NOT NULL,
                     updated_at_utc TEXT NOT NULL
                 )
@@ -1142,8 +1228,9 @@ class SqliteCanaryActivationTelemetryStore:
                     order_id, client_order_id, track_id, candidate_id, symbol,
                     side, order_type, time_in_force, status, price, quantity,
                     notional_usdt, is_post_only, bracket_parent_id, bracket_role,
-                    rejection_reason, created_at_utc, updated_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    rejection_reason, is_closing, is_emergency_close,
+                    created_at_utc, updated_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order.order_id,
@@ -1162,6 +1249,8 @@ class SqliteCanaryActivationTelemetryStore:
                     order.bracket_parent_id,
                     order.bracket_role,
                     order.rejection_reason,
+                    1 if order.is_closing else 0,
+                    1 if order.is_emergency_close else 0,
                     order.created_at_utc,
                     order.updated_at_utc,
                 ),
@@ -1688,10 +1777,24 @@ class CanaryActivationSimulator:
         bracket_parent_id: str | None = None,
         bracket_role: str | None = None,
         is_emergency_close: bool = False,
+        is_closing: bool | None = None,
     ) -> MicroCanaryOrder:
         """Evaluate gateway interlocks and place micro canary order fail-closed."""
         notional = (price * quantity).quantize(Decimal("0.0001"))
         drawdown = self.cumulative_drawdown_usdt
+
+        detected_closing = symbol in self.active_positions and (
+            (self.active_positions[symbol].side == PositionSide.LONG and side == OrderSide.SELL)
+            or (self.active_positions[symbol].side == PositionSide.SHORT and side == OrderSide.BUY)
+        )
+        order_is_closing = detected_closing if is_closing is None else is_closing
+
+        current_asset_margin = (
+            self.active_positions[symbol].allocated_margin_usdt
+            if symbol in self.active_positions
+            else Decimal("0")
+        )
+        current_aggregate_margin = self.allocated_margin
 
         try:
             self.gateway.check_order_dispatch_interlocks(
@@ -1701,6 +1804,9 @@ class CanaryActivationSimulator:
                 current_time_epoch=self.simulated_clock_epoch,
                 last_heartbeat_epoch=self.last_heartbeat_epoch,
                 cumulative_drawdown_usdt=drawdown,
+                current_asset_margin_usdt=current_asset_margin,
+                current_aggregate_margin_usdt=current_aggregate_margin,
+                is_closing=order_is_closing,
                 is_emergency_close=is_emergency_close,
             )
         except CanaryActivationError as exc:
@@ -1721,14 +1827,12 @@ class CanaryActivationSimulator:
                 bracket_parent_id=bracket_parent_id,
                 bracket_role=bracket_role,
                 rejection_reason=str(exc),
+                is_closing=order_is_closing,
+                is_emergency_close=is_emergency_close,
             )
             self.telemetry_store.record_order(rej_order)
             self.jsonl_sink.record_order(rej_order)
             raise
-
-        # Passed all interlocks
-        self.gateway.record_order_dispatched(symbol, self.simulated_clock_epoch)
-        self.orders_placed_count += 1
 
         order = MicroCanaryOrder(
             track_id=self.track_id,
@@ -1744,10 +1848,16 @@ class CanaryActivationSimulator:
             is_post_only=is_post_only,
             bracket_parent_id=bracket_parent_id,
             bracket_role=bracket_role,
+            is_closing=order_is_closing,
+            is_emergency_close=is_emergency_close,
         )
         self.orders[order.order_id] = order
         self.telemetry_store.record_order(order)
         self.jsonl_sink.record_order(order)
+
+        # Passed all interlocks and instantiated successfully
+        self.gateway.record_order_dispatched(symbol, self.simulated_clock_epoch)
+        self.orders_placed_count += 1
         return order
 
     def match_maker_fill(self, order_id: str, fill_price: Decimal) -> MicroCanaryFill:
@@ -1771,25 +1881,52 @@ class CanaryActivationSimulator:
         )
 
         if is_closing:
-            pos = self.active_positions.pop(order.symbol)
-            if pos.side == PositionSide.LONG:
-                gross_pnl = (fill_price - pos.entry_price) * order.quantity
+            pos = self.active_positions[order.symbol]
+            if order.quantity > pos.quantity:
+                raise CanaryActivationError(
+                    f"Closing order quantity {order.quantity} exceeds "
+                    f"active position quantity {pos.quantity}"
+                )
+            close_qty = order.quantity
+            if close_qty == pos.quantity:
+                margin_to_release = pos.allocated_margin_usdt
+                full_close = True
             else:
-                gross_pnl = (pos.entry_price - fill_price) * order.quantity
+                margin_frac = close_qty / pos.quantity
+                margin_to_release = (pos.allocated_margin_usdt * margin_frac).quantize(
+                    Decimal("0.0001")
+                )
+                full_close = False
+
+            if pos.side == PositionSide.LONG:
+                gross_pnl = (fill_price - pos.entry_price) * close_qty
+            else:
+                gross_pnl = (pos.entry_price - fill_price) * close_qty
             net_trade_pnl = gross_pnl - fee
 
-            self.cash += pos.allocated_margin_usdt + gross_pnl - fee
-            self.allocated_margin -= pos.allocated_margin_usdt
+            self.cash += margin_to_release + gross_pnl - fee
+            self.allocated_margin -= margin_to_release
             self.realized_pnl += net_trade_pnl
             self.total_fees += fee
 
-            pos.status = PositionStatus.CLOSED
-            pos.closed_at_utc = datetime.now(UTC).isoformat()
-            pos.exit_price = fill_price
-            pos.realized_pnl_usdt = net_trade_pnl
-            pos.unrealized_pnl_usdt = Decimal("0")
-            self.closed_positions.append(pos)
-            self.telemetry_store.record_position(pos)
+            if full_close:
+                self.active_positions.pop(order.symbol)
+                pos.quantity = Decimal("0")
+                pos.allocated_margin_usdt = Decimal("0")
+                pos.status = PositionStatus.CLOSED
+                pos.closed_at_utc = datetime.now(UTC).isoformat()
+                pos.exit_price = fill_price
+                pos.realized_pnl_usdt += net_trade_pnl
+                pos.unrealized_pnl_usdt = Decimal("0")
+                self.closed_positions.append(pos)
+                self.telemetry_store.record_position(pos)
+            else:
+                pos.quantity -= close_qty
+                pos.allocated_margin_usdt -= margin_to_release
+                pos.realized_pnl_usdt += net_trade_pnl
+                pos.current_price = fill_price
+                self.telemetry_store.record_position(pos)
+
             fill_pnl = net_trade_pnl
         else:
             self.cash -= notional + fee
@@ -1797,19 +1934,31 @@ class CanaryActivationSimulator:
             self.realized_pnl -= fee
             self.total_fees += fee
 
-            pos = MicroCanaryPosition(
-                track_id=self.track_id,
-                candidate_id=order.candidate_id,
-                symbol=order.symbol,
-                side=PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT,
-                quantity=order.quantity,
-                entry_price=fill_price,
-                current_price=fill_price,
-                allocated_margin_usdt=notional,
-                status=PositionStatus.OPEN,
-            )
-            self.active_positions[order.symbol] = pos
-            self.telemetry_store.record_position(pos)
+            if order.symbol in self.active_positions:
+                pos = self.active_positions[order.symbol]
+                new_qty = pos.quantity + order.quantity
+                new_entry = ((pos.allocated_margin_usdt + notional) / new_qty).quantize(
+                    Decimal("0.01")
+                )
+                pos.quantity = new_qty
+                pos.entry_price = new_entry
+                pos.current_price = fill_price
+                pos.allocated_margin_usdt += notional
+                self.telemetry_store.record_position(pos)
+            else:
+                pos = MicroCanaryPosition(
+                    track_id=self.track_id,
+                    candidate_id=order.candidate_id,
+                    symbol=order.symbol,
+                    side=PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT,
+                    quantity=order.quantity,
+                    entry_price=fill_price,
+                    current_price=fill_price,
+                    allocated_margin_usdt=notional,
+                    status=PositionStatus.OPEN,
+                )
+                self.active_positions[order.symbol] = pos
+                self.telemetry_store.record_position(pos)
             fill_pnl = -fee
 
         order.status = OrderStatus.FILLED
@@ -1885,26 +2034,53 @@ class CanaryActivationSimulator:
         )
 
         if is_closing:
-            pos = self.active_positions.pop(symbol)
-            if pos.side == PositionSide.LONG:
-                gross_pnl = (fill_price - pos.entry_price) * quantity
+            pos = self.active_positions[symbol]
+            if quantity > pos.quantity:
+                raise CanaryActivationError(
+                    f"Closing order quantity {quantity} exceeds "
+                    f"active position quantity {pos.quantity}"
+                )
+            close_qty = quantity
+            if close_qty == pos.quantity:
+                margin_to_release = pos.allocated_margin_usdt
+                full_close = True
             else:
-                gross_pnl = (pos.entry_price - fill_price) * quantity
+                margin_frac = close_qty / pos.quantity
+                margin_to_release = (pos.allocated_margin_usdt * margin_frac).quantize(
+                    Decimal("0.0001")
+                )
+                full_close = False
+
+            if pos.side == PositionSide.LONG:
+                gross_pnl = (fill_price - pos.entry_price) * close_qty
+            else:
+                gross_pnl = (pos.entry_price - fill_price) * close_qty
             net_trade_pnl = gross_pnl - fee
 
-            self.cash += pos.allocated_margin_usdt + gross_pnl - fee
-            self.allocated_margin -= pos.allocated_margin_usdt
+            self.cash += margin_to_release + gross_pnl - fee
+            self.allocated_margin -= margin_to_release
             self.realized_pnl += net_trade_pnl
             self.total_fees += fee
             self.total_slippage += slippage_usdt
 
-            pos.status = PositionStatus.CLOSED
-            pos.closed_at_utc = datetime.now(UTC).isoformat()
-            pos.exit_price = fill_price
-            pos.realized_pnl_usdt = net_trade_pnl
-            pos.unrealized_pnl_usdt = Decimal("0")
-            self.closed_positions.append(pos)
-            self.telemetry_store.record_position(pos)
+            if full_close:
+                self.active_positions.pop(symbol)
+                pos.quantity = Decimal("0")
+                pos.allocated_margin_usdt = Decimal("0")
+                pos.status = PositionStatus.CLOSED
+                pos.closed_at_utc = datetime.now(UTC).isoformat()
+                pos.exit_price = fill_price
+                pos.realized_pnl_usdt += net_trade_pnl
+                pos.unrealized_pnl_usdt = Decimal("0")
+                self.closed_positions.append(pos)
+                self.telemetry_store.record_position(pos)
+            else:
+                pos.quantity -= close_qty
+                pos.allocated_margin_usdt -= margin_to_release
+                pos.realized_pnl_usdt += net_trade_pnl
+                pos.current_price = fill_price
+                self.telemetry_store.record_position(pos)
+
             fill_pnl = net_trade_pnl
         else:
             self.cash -= notional + fee
@@ -1913,19 +2089,31 @@ class CanaryActivationSimulator:
             self.total_fees += fee
             self.total_slippage += slippage_usdt
 
-            pos = MicroCanaryPosition(
-                track_id=self.track_id,
-                candidate_id=candidate_id,
-                symbol=symbol,
-                side=PositionSide.LONG if side == OrderSide.BUY else PositionSide.SHORT,
-                quantity=quantity,
-                entry_price=fill_price,
-                current_price=fill_price,
-                allocated_margin_usdt=notional,
-                status=PositionStatus.OPEN,
-            )
-            self.active_positions[symbol] = pos
-            self.telemetry_store.record_position(pos)
+            if symbol in self.active_positions:
+                pos = self.active_positions[symbol]
+                new_qty = pos.quantity + quantity
+                new_entry = ((pos.allocated_margin_usdt + notional) / new_qty).quantize(
+                    Decimal("0.01")
+                )
+                pos.quantity = new_qty
+                pos.entry_price = new_entry
+                pos.current_price = fill_price
+                pos.allocated_margin_usdt += notional
+                self.telemetry_store.record_position(pos)
+            else:
+                pos = MicroCanaryPosition(
+                    track_id=self.track_id,
+                    candidate_id=candidate_id,
+                    symbol=symbol,
+                    side=PositionSide.LONG if side == OrderSide.BUY else PositionSide.SHORT,
+                    quantity=quantity,
+                    entry_price=fill_price,
+                    current_price=fill_price,
+                    allocated_margin_usdt=notional,
+                    status=PositionStatus.OPEN,
+                )
+                self.active_positions[symbol] = pos
+                self.telemetry_store.record_position(pos)
             fill_pnl = -fee
 
         order.status = OrderStatus.FILLED
@@ -3367,6 +3555,7 @@ __all__ = [
     "MissingRequiredPermissionError",
     "OperatorAuthorizationMissingError",
     "OrderNotionalCapBreachError",
+    "MarginCapBreachError",
     "OrderSide",
     "OrderStatus",
     "OrderType",
@@ -3384,6 +3573,7 @@ __all__ = [
     "TimeInForce",
     "TimestampDriftWindowExceededError",
     "UnauthorizedSymbolError",
+    "UnpermittedPermissionError",
     "UpstreamPrerequisiteNotMetError",
     "WithdrawalPermissionDetectedError",
     "compute_certificate_signature",

@@ -45,13 +45,17 @@ from autonomous_futures.feed.canary_activation import (  # noqa: E402
     ExchangeApiKeyPermissions,
     JsonlCanaryOrderSink,
     LiquidityRole,
+    MarginCapBreachError,
+    MarketDepthTick,
     MicroCanaryFill,
     MicroCanaryOrder,
     MissingRequiredPermissionError,
     OrderNotionalCapBreachError,
     OrderSide,
+    OrderStatus,
     OrderType,
     PositionSide,
+    PositionStatus,
     RateLimitThrottleExceededError,
     SecretToken,
     SecureExchangeKeyVault,
@@ -59,6 +63,7 @@ from autonomous_futures.feed.canary_activation import (  # noqa: E402
     StaleHeartbeatInterlockError,
     TimestampDriftWindowExceededError,
     UnauthorizedSymbolError,
+    UnpermittedPermissionError,
     UpstreamPrerequisiteNotMetError,
     WithdrawalPermissionDetectedError,
     compute_certificate_signature,
@@ -1085,3 +1090,342 @@ class TestAdversarialReviewerProbe:
             sample_certificate.status
             == CertificateStatus.INVALIDATED_WITHDRAWAL_PERMISSION_DETECTED
         )
+
+    def test_emergency_close_expired_certificate(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify emergency close flattens positions even after certificate has expired."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_exp_emg.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_exp_emg.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_exp_emg")
+
+        # Open a position
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+        assert len(sim.active_positions) == 1
+
+        # Expire the certificate
+        future_epoch = time.time() + (30 * 3600)
+        sim.simulated_clock_epoch = future_epoch
+
+        # Emergency close must still succeed
+        sim.close_all_positions_emergency()
+        assert len(sim.active_positions) == 0
+        assert sim.allocated_margin == Decimal("0")
+        assert sim.current_drift < Decimal("1e-15")
+        store.close()
+
+    def test_close_appreciated_position_above_hard_cap(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify closing a position whose notional grew above 5.00 USDT succeeds."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_apprec.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_apprec.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_apprec")
+
+        # Open long at 4.80 USDT (0.00008 @ 60,000)
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+        assert len(sim.active_positions) == 1
+
+        # Advance past rate limit and price rallies:
+        # notional = 0.00008 * 65,000 = 5.20 USDT > 5.00 USDT
+        sim.advance_time(70.0, update_heartbeat=True)
+        sim.on_market_tick(
+            MarketDepthTick(
+                track_id="t_apprec",
+                symbol="BTCUSDT",
+                bid_price=Decimal("65000.00"),
+                bid_quantity=Decimal("1.0"),
+                ask_price=Decimal("65002.00"),
+                ask_quantity=Decimal("1.0"),
+                mark_price=Decimal("65001.00"),
+            )
+        )
+
+        # Closing order notional is 5.20 USDT > 5.00 USDT cap, but must succeed as risk reduction
+        exit_order, fill = sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("65001.00"),
+        )
+        assert exit_order.status == OrderStatus.FILLED
+        assert len(sim.active_positions) == 0
+        assert sim.allocated_margin == Decimal("0")
+        assert sim.current_drift < Decimal("1e-15")
+        store.close()
+
+    def test_partial_maker_and_taker_closing(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify partial closing releases margin proportionally and retains zero drift."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_partial.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_partial.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_partial")
+
+        # Open 0.00008 BTC position with 4.80 USDT margin
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+        assert sim.active_positions["BTCUSDT"].quantity == Decimal("0.00008")
+        assert sim.active_positions["BTCUSDT"].allocated_margin_usdt == Decimal("4.8010")
+
+        # Advance past rate limit and partially close half (0.00004 BTC) via maker fill
+        sim.advance_time(70.0, update_heartbeat=True)
+        sell_maker = sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00004"),
+            price=Decimal("60500.00"),
+        )
+        sim.match_maker_fill(sell_maker.order_id, fill_price=Decimal("60500.00"))
+
+        # Position should remain active with half quantity and half margin
+        pos = sim.active_positions["BTCUSDT"]
+        assert pos.quantity == Decimal("0.00004")
+        assert pos.status == PositionStatus.OPEN
+        assert sim.current_drift < Decimal("1e-15")
+
+        # Advance and close remaining half via taker order
+        sim.advance_time(70.0, update_heartbeat=True)
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00004"),
+            mark_price=Decimal("61000.00"),
+        )
+        assert len(sim.active_positions) == 0
+        assert sim.allocated_margin == Decimal("0")
+        assert sim.current_drift < Decimal("1e-15")
+        store.close()
+
+    def test_overclose_rejected_fail_closed(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify closing more than active position quantity is rejected fail-closed."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+            hard_notional_cap_usdt=Decimal("10.00"),
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_overclose.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_overclose.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_overclose")
+
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00004"),
+            mark_price=Decimal("60000.00"),
+        )
+
+        sim.advance_time(70.0, update_heartbeat=True)
+        with pytest.raises(CanaryActivationError, match="exceeds active position quantity"):
+            sim.execute_taker_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.SELL,
+                order_type=OrderType.MARKET,
+                quantity=Decimal("0.00008"),  # greater than 0.00004 open position
+                mark_price=Decimal("60000.00"),
+            )
+
+        # Active position remains intact and balance uncorrupted
+        assert sim.active_positions["BTCUSDT"].quantity == Decimal("0.00004")
+        assert sim.current_drift < Decimal("1e-15")
+        store.close()
+
+    def test_scale_in_position(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify adding to an active position updates weighted average entry price and margin."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_scale.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_scale.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_scale")
+
+        # Initial buy 0.00002 @ 60,000
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00002"),
+            mark_price=Decimal("60000.00"),
+        )
+        assert sim.active_positions["BTCUSDT"].quantity == Decimal("0.00002")
+
+        # Scale in: second buy 0.00002 @ 62,000
+        sim.advance_time(70.0, update_heartbeat=True)
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00002"),
+            mark_price=Decimal("62000.00"),
+        )
+
+        pos = sim.active_positions["BTCUSDT"]
+        assert pos.quantity == Decimal("0.00004")
+        assert sim.current_drift < Decimal("1e-15")
+        store.close()
+
+    def test_per_asset_and_aggregate_margin_cap_enforcement(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+    ) -> None:
+        """Verify Gate 4b rejects orders breaching per-asset or aggregate margin caps."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+            hard_notional_cap_usdt=Decimal("25.00"),
+        )
+        now = time.time()
+
+        # 1. Per-asset cap breach (BTCUSDT cap is 20.00 USDT)
+        with pytest.raises(MarginCapBreachError, match="would breach BTCUSDT margin cap"):
+            gateway.check_order_dispatch_interlocks(
+                symbol="BTCUSDT",
+                notional_usdt=Decimal("5.00"),
+                track_id="t_cap",
+                current_time_epoch=now,
+                last_heartbeat_epoch=now,
+                cumulative_drawdown_usdt=Decimal("0.0"),
+                current_asset_margin_usdt=Decimal("18.00"),  # 18 + 5 = 23 > 20
+                current_aggregate_margin_usdt=Decimal("18.00"),
+            )
+
+        # 2. Aggregate cap breach (aggregate cap is 60.00 USDT)
+        with pytest.raises(MarginCapBreachError, match="would breach aggregate margin cap"):
+            gateway.check_order_dispatch_interlocks(
+                symbol="BTCUSDT",
+                notional_usdt=Decimal("4.00"),
+                track_id="t_cap",
+                current_time_epoch=now,
+                last_heartbeat_epoch=now,
+                cumulative_drawdown_usdt=Decimal("0.0"),
+                current_asset_margin_usdt=Decimal("10.00"),
+                current_aggregate_margin_usdt=Decimal("58.00"),  # 58 + 4 = 62 > 60
+            )
+
+    def test_timestamp_window_boolean_and_non_numeric_rejection(self) -> None:
+        """Verify boolean and non-numeric types are rejected in timestamp validation."""
+        with pytest.raises(TimestampDriftWindowExceededError, match="cannot be boolean"):
+            SecureExchangeKeyVault.validate_timestamp_window(True, 1000)
+
+        with pytest.raises(TimestampDriftWindowExceededError, match="cannot be boolean"):
+            SecureExchangeKeyVault.validate_timestamp_window(1000, False)
+
+        with pytest.raises(TimestampDriftWindowExceededError, match="must be numeric"):
+            SecureExchangeKeyVault.validate_timestamp_window("1000", 1000)  # type: ignore[arg-type]
+
+    def test_hmac_signature_case_insensitivity(
+        self, safe_key_vault: SecureExchangeKeyVault
+    ) -> None:
+        """Verify HMAC signature comparison is case-insensitive and handles None safely."""
+        qs = "symbol=BTCUSDT&timestamp=1700000000"
+        sig = safe_key_vault.generate_signature(qs)
+
+        # Upper case signature must verify
+        assert safe_key_vault.verify_signature(qs, sig.upper()) is True
+        # Lower case signature must verify
+        assert safe_key_vault.verify_signature(qs, sig.lower()) is True
+        # None and empty must return False safely without raising
+        assert safe_key_vault.verify_signature(qs, None) is False  # type: ignore[arg-type]
+        assert safe_key_vault.verify_signature(qs, "") is False
+
+    def test_unpermitted_permissions_rejected(
+        self,
+        safe_key_vault: SecureExchangeKeyVault,
+    ) -> None:
+        """Verify unpermitted spot/margin trading permissions trigger UnpermittedPermissionError."""
+        bad_perms = ExchangeApiKeyPermissions(
+            enable_reading=True,
+            enable_futures_trading=True,
+            enable_spot_and_margin_trading=True,
+        )
+        with pytest.raises(UnpermittedPermissionError, match="unpermitted Margin or Spot"):
+            safe_key_vault.verify_permissions(bad_perms)
+
+        bad_perms2 = ExchangeApiKeyPermissions(
+            enable_reading=True,
+            enable_futures_trading=True,
+            enable_margin=True,
+        )
+        with pytest.raises(UnpermittedPermissionError, match="unpermitted Margin or Spot"):
+            safe_key_vault.verify_permissions(bad_perms2)
+
+    def test_cli_verify_hash_chain_without_authorize_canary(self) -> None:
+        """Verify CLI --verify-hash-chain works without --authorize-canary."""
+        exit_code = cli_main(["--verify-hash-chain"])
+        assert exit_code == 0
