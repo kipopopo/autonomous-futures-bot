@@ -1186,7 +1186,7 @@ class MockBinanceFuturesGateway:
         self.wallet_balance = self.wallet_balance + realized_pnl - fee
         current_pos["positionAmt"] = f"{new_amt:.8f}"
         current_pos["entryPrice"] = f"{new_entry:.8f}"
-        current_pos["positionInitialMargin"] = f"{abs(new_amt) * price:.8f}"
+        current_pos["positionInitialMargin"] = f"{abs(new_amt) * new_entry:.8f}"
 
         # Recalculate unrealized PnL
         mark = Decimal(current_pos["markPrice"])
@@ -1232,6 +1232,10 @@ class MockBinanceFuturesGateway:
 
     def set_mark_price(self, symbol: str, price: Decimal) -> None:
         """Update simulated exchange mark price and recompute unrealized profit."""
+        if not price.is_finite() or price <= Decimal("0"):
+            raise DomainViolation(
+                f"Mark price {price} for {symbol} must be strictly positive and finite"
+            )
         if symbol not in self.positions:
             return
         pos = self.positions[symbol]
@@ -1251,6 +1255,7 @@ class MockBinanceFuturesGateway:
         client_order_id: str,
         fill_qty: Decimal,
         fill_price: Decimal | None = None,
+        fee: Decimal | None = None,
     ) -> dict[str, Any]:
         """Simulate a match fill event on an existing resting or partially filled order."""
         if client_order_id not in self.orders:
@@ -1268,7 +1273,7 @@ class MockBinanceFuturesGateway:
         inc_fill = new_exec - curr_exec
 
         notional = inc_fill * price
-        fee = notional * Decimal("0.0004")
+        fee_val = fee if fee is not None else notional * Decimal("0.0004")
 
         current_pos = self.positions[symbol]
         curr_amt = Decimal(current_pos["positionAmt"])
@@ -1298,10 +1303,10 @@ class MockBinanceFuturesGateway:
                 realized_pnl = (price - curr_entry) * closed_qty
                 new_entry = curr_entry if new_amt != 0 else Decimal("0")
 
-        self.wallet_balance = self.wallet_balance + realized_pnl - fee
+        self.wallet_balance = self.wallet_balance + realized_pnl - fee_val
         current_pos["positionAmt"] = f"{new_amt:.8f}"
         current_pos["entryPrice"] = f"{new_entry:.8f}"
-        current_pos["positionInitialMargin"] = f"{abs(new_amt) * price:.8f}"
+        current_pos["positionInitialMargin"] = f"{abs(new_amt) * new_entry:.8f}"
 
         mark = Decimal(current_pos["markPrice"])
         if new_amt > 0:
@@ -1319,8 +1324,12 @@ class MockBinanceFuturesGateway:
         order["status"] = new_status
         order["executedQty"] = f"{new_exec:.8f}"
         order["cumQty"] = f"{new_exec:.8f}"
-        order["cumQuote"] = f"{new_exec * price:.8f}"
-        order["fee"] = f"{Decimal(order.get('fee', '0')) + fee:.8f}"
+        prev_cum_quote = Decimal(order.get("cumQuote", "0"))
+        new_cum_quote = prev_cum_quote + notional
+        order["cumQuote"] = f"{new_cum_quote:.8f}"
+        avg_price = (new_cum_quote / new_exec) if new_exec > Decimal("0") else price
+        order["avgPrice"] = f"{avg_price:.8f}"
+        order["fee"] = f"{Decimal(order.get('fee', '0')) + fee_val:.8f}"
         order["realizedPnl"] = f"{Decimal(order.get('realizedPnl', '0')) + realized_pnl:.8f}"
         order["updateTime"] = self.server_time_ms
 
@@ -1332,7 +1341,8 @@ class MockBinanceFuturesGateway:
             "fillQty": f"{inc_fill:.8f}",
             "executedQty": f"{new_exec:.8f}",
             "price": f"{price:.8f}",
-            "fee": f"{fee:.8f}",
+            "avgPrice": f"{avg_price:.8f}",
+            "fee": f"{fee_val:.8f}",
             "realizedPnl": f"{realized_pnl:.8f}",
         }
 
@@ -1587,6 +1597,10 @@ class LiveGatewayAccountReconciler:
 
     def update_mark_price(self, symbol: str, mark_price: Decimal) -> None:
         """Update mark price for symbol and recalculate internal unrealized PnL."""
+        if not mark_price.is_finite() or mark_price <= Decimal("0"):
+            raise DomainViolation(
+                f"Mark price {mark_price} for {symbol} must be strictly positive and finite"
+            )
         self.mark_prices[symbol] = mark_price
         total_u_pnl = Decimal("0")
         for sym, pos_qty in self.positions.items():
@@ -1626,6 +1640,21 @@ class LiveGatewayAccountReconciler:
         remote_u_pnl = Decimal(account_info["totalUnrealizedProfit"])
         remote_avail_cash = Decimal(account_info["availableBalance"])
 
+        # Check exchange account permissions / status
+        security_breach = False
+        security_breach_reason = ""
+        if account_info.get("canTrade") is False:
+            security_breach = True
+            security_breach_reason = (
+                "Exchange account trading suspended: canTrade=False returned by exchange"
+            )
+        elif account_info.get("canWithdraw") is True:
+            security_breach = True
+            security_breach_reason = (
+                "Exchange account withdrawal enabled: canWithdraw=True strictly violates "
+                "containment"
+            )
+
         # Reconcile /fapi/v2/balance
         balance_endpoint_desync = False
         endpoint_desync_reason = ""
@@ -1645,11 +1674,16 @@ class LiveGatewayAccountReconciler:
                 )
 
         # Reconcile /fapi/v2/positionRisk and compute cross-asset margin utilization
-        cross_asset_margin_utilization: dict[str, str] = {}
+        cross_asset_margin_utilization: dict[str, str] = {
+            s: "0.00000000" for s in CANARY_STAGED_SYMBOLS
+        }
         position_desync_detected = False
         position_desync_reason = ""
+        returned_symbols = set()
         for p in position_risks:
             sym = p.get("symbol")
+            if sym is not None:
+                returned_symbols.add(sym)
             pos_amt = Decimal(p.get("positionAmt", "0"))
             if sym not in CANARY_STAGED_SYMBOLS:
                 if abs(pos_amt) > Decimal("1e-6"):
@@ -1676,6 +1710,15 @@ class LiveGatewayAccountReconciler:
                 )
             cross_asset_margin_utilization[sym] = f"{pos_notional:.8f}"
 
+        for s in CANARY_STAGED_SYMBOLS:
+            if s not in returned_symbols and abs(self.positions.get(s, Decimal("0"))) > Decimal(
+                "1e-6"
+            ):
+                position_desync_detected = True
+                position_desync_reason = (
+                    f"Active position missing from exchange /fapi/v2/positionRisk for {s}"
+                )
+
         # Compare remote vs local (available cash + allocated margin)
         cash_diff = abs(remote_avail_cash - self.cash)
         margin_diff = abs(remote_margin - self.allocated_margin)
@@ -1687,10 +1730,13 @@ class LiveGatewayAccountReconciler:
             total_desync > DESYNC_TOLERANCE_USDT
             or position_desync_detected
             or balance_endpoint_desync
+            or security_breach
         ):
             status = GatewaySyncStatus.DESYNC_DETECTED
             self.locked_out = True
-            if position_desync_detected:
+            if security_breach:
+                self.lockout_reason = security_breach_reason
+            elif position_desync_detected:
                 self.lockout_reason = position_desync_reason
             elif balance_endpoint_desync:
                 self.lockout_reason = endpoint_desync_reason
@@ -1855,6 +1901,18 @@ class CanaryLiveOrderDispatcher:
                         f"position quantity {abs(pos_qty)}"
                     )
         else:
+            if pos_qty > Decimal("0") and side == OrderSide.SELL:
+                self.orders_rejected_count += 1
+                raise CanaryLiveGatewayError(
+                    f"Cannot open SELL/SHORT order on {symbol} with active LONG "
+                    "position without is_closing=True"
+                )
+            if pos_qty < Decimal("0") and side == OrderSide.BUY:
+                self.orders_rejected_count += 1
+                raise CanaryLiveGatewayError(
+                    f"Cannot open BUY/LONG order on {symbol} with active SHORT "
+                    "position without is_closing=True"
+                )
             if notional > self.reconciler.cash:
                 self.orders_rejected_count += 1
                 raise CanaryLiveGatewayError(
@@ -2012,6 +2070,12 @@ class CanaryLiveOrderDispatcher:
 
         if not fill_qty.is_finite() or fill_qty <= Decimal("0"):
             raise DomainViolation(f"fill_qty {fill_qty} must be strictly positive and finite")
+        if not fill_price.is_finite() or fill_price <= Decimal("0"):
+            raise DomainViolation(f"fill_price {fill_price} must be strictly positive and finite")
+        if fee is not None and (not fee.is_finite() or fee < Decimal("0")):
+            raise DomainViolation(f"fee {fee} must be non-negative and finite")
+        if realized_pnl is not None and not realized_pnl.is_finite():
+            raise DomainViolation(f"realized_pnl {realized_pnl} must be finite")
 
         calc_fee = (
             fee
@@ -2152,11 +2216,54 @@ class CanaryLiveOrderDispatcher:
         if target_state == OrderLifecycleState.FILLED:
             self.orders_filled_count += 1
 
-        price = Decimal(resp.get("avgPrice", str(order_record.price)))
+        raw_avg = resp.get("avgPrice")
+        if raw_avg is not None and Decimal(str(raw_avg)) > Decimal("0"):
+            price = Decimal(str(raw_avg))
+        elif resp.get("price") is not None and Decimal(str(resp["price"])) > Decimal("0"):
+            price = Decimal(str(resp["price"]))
+        else:
+            price = Decimal(str(order_record.price))
+
         fee = Decimal(resp.get("fee", str(exec_qty * price * Decimal("0.0004"))))
-        realized_pnl = Decimal(resp.get("realizedPnl", "0"))
+
+        if resp.get("realizedPnl") is not None:
+            realized_pnl = Decimal(str(resp["realizedPnl"]))
+        elif order_record.is_closing:
+            pos_qty = self.reconciler.positions.get(order_record.symbol, Decimal("0"))
+            pos_margin = self.reconciler.per_asset_margin.get(order_record.symbol, Decimal("0"))
+            abs_pos = abs(pos_qty)
+            entry_price = (pos_margin / abs_pos) if abs_pos > Decimal("0") else price
+            if pos_qty > Decimal("0"):
+                realized_pnl = (price - entry_price) * exec_qty
+            else:
+                realized_pnl = (entry_price - price) * exec_qty
+        else:
+            realized_pnl = Decimal("0")
+
         self._apply_fill_accounting(order_record, exec_qty, price, fee, realized_pnl)
         self._record_balance_snapshot()
+
+    def recover_unknown_order(self, client_order_id: str) -> GatewayOrderRecord:
+        """Retry fallback status query on an order in UNKNOWN state after network recovery."""
+        if client_order_id not in self.orders:
+            raise CanaryLiveGatewayError(f"Unknown client_order_id: {client_order_id}")
+        order = self.orders[client_order_id]
+        if order.status != OrderLifecycleState.UNKNOWN:
+            raise CanaryLiveGatewayError(
+                f"Order {client_order_id} is in status {order.status}, not UNKNOWN"
+            )
+
+        err_record = GatewayErrorRecord(
+            track_id=self.track_id,
+            endpoint="GET /fapi/v1/order",
+            error_code=0,
+            error_message=f"Manual/automated retry recovery of UNKNOWN order {client_order_id}",
+            recovery_action="Execute REST order status query fallback (GET /fapi/v1/order)",
+            resolved=False,
+        )
+        self.telemetry_store.record_error(err_record)
+        self._recover_unknown_order_state(order, err_record)
+        return order
 
     def _recover_unknown_order_state(
         self,
@@ -2216,9 +2323,31 @@ class CanaryLiveOrderDispatcher:
             if target_state == OrderLifecycleState.FILLED:
                 self.orders_filled_count += 1
 
-            price = Decimal(query_resp.get("avgPrice", str(order_record.price)))
+            raw_avg = query_resp.get("avgPrice")
+            raw_price = query_resp.get("price")
+            if raw_avg is not None and Decimal(str(raw_avg)) > Decimal("0"):
+                price = Decimal(str(raw_avg))
+            elif raw_price is not None and Decimal(str(raw_price)) > Decimal("0"):
+                price = Decimal(str(raw_price))
+            else:
+                price = Decimal(str(order_record.price))
+
             fee = Decimal(query_resp.get("fee", str(exec_qty * price * Decimal("0.0004"))))
-            realized_pnl = Decimal(query_resp.get("realizedPnl", "0"))
+
+            if query_resp.get("realizedPnl") is not None:
+                realized_pnl = Decimal(str(query_resp["realizedPnl"]))
+            elif order_record.is_closing:
+                pos_qty = self.reconciler.positions.get(order_record.symbol, Decimal("0"))
+                pos_margin = self.reconciler.per_asset_margin.get(order_record.symbol, Decimal("0"))
+                abs_pos = abs(pos_qty)
+                entry_price = (pos_margin / abs_pos) if abs_pos > Decimal("0") else price
+                if pos_qty > Decimal("0"):
+                    realized_pnl = (price - entry_price) * exec_qty
+                else:
+                    realized_pnl = (entry_price - price) * exec_qty
+            else:
+                realized_pnl = Decimal("0")
+
             self._apply_fill_accounting(order_record, exec_qty, price, fee, realized_pnl)
             self._record_balance_snapshot()
             err_record.resolved = True

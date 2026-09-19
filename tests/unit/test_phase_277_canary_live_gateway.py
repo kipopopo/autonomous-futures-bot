@@ -8,6 +8,7 @@ import json
 import sqlite3
 import sys
 import time
+from collections.abc import Mapping
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -20,6 +21,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.feed.canary_activation import (  # noqa: E402
     CANARY_STAGED_SYMBOLS,
     DAILY_LOSS_BUDGET_USDT,
@@ -33,6 +35,7 @@ from autonomous_futures.feed.canary_activation import (  # noqa: E402
     CertificateInvalidatedError,
     CertificateStatus,
     ExchangeApiKeyPermissions,
+    MarginCapBreachError,
     OrderNotionalCapBreachError,
     OrderSide,
     OrderType,
@@ -61,6 +64,7 @@ from autonomous_futures.feed.canary_live_gateway import (  # noqa: E402
     OrderLifecycleState,
     PrerequisiteQualificationError,
     SqliteCanaryLiveGatewayTelemetryStore,
+    TimestampDriftError,
     UnknownOrderStatusError,
     verify_phase_277_hash_chain,
     verify_upstream_phase276_qualification,
@@ -1825,4 +1829,654 @@ class TestHardenedGatewayVerification:
 
         assert store.verify_unlocked() is True
         assert sink.file_path.name == "test_str.jsonl"
+        store.close()
+
+    def test_opposing_order_without_closing_flag_rejected(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        tmp_path: Path,
+    ) -> None:
+        """Verify opening orders opposing active position direction without
+        is_closing=True are rejected fail-closed.
+        """
+        db_path = tmp_path / "telemetry_oppose.sqlite3"
+        jsonl_path = tmp_path / "orders_oppose.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_gateway = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_gateway)
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="test_oppose",
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="test_oppose",
+        )
+        # Open LONG on BTCUSDT
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            is_closing=False,
+        )
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+
+        # Attempt to dispatch SELL order without is_closing=True -> must be rejected
+        with pytest.raises(
+            CanaryLiveGatewayError,
+            match="Cannot open SELL/SHORT order on BTCUSDT with active LONG position",
+        ):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btcusdt-dcb-002",
+                symbol="BTCUSDT",
+                side=OrderSide.SELL,
+                order_type=OrderType.MARKET,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+                is_closing=False,
+            )
+
+        # Close long properly
+        dispatcher.advance_time(10.0, update_heartbeat=True)
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            is_closing=True,
+        )
+        assert reconciler.positions["BTCUSDT"] == Decimal("0")
+
+        # Open SHORT on SOLUSDT
+        dispatcher.advance_time(10.0, update_heartbeat=True)
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-solusdt-rgb-001",
+            symbol="SOLUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.032"),
+            price=Decimal("150.00"),
+            is_closing=False,
+        )
+        assert reconciler.positions["SOLUSDT"] == Decimal("-0.032")
+
+        # Attempt to dispatch BUY order without is_closing=True -> must be rejected
+        with pytest.raises(
+            CanaryLiveGatewayError,
+            match="Cannot open BUY/LONG order on SOLUSDT with active SHORT position",
+        ):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-solusdt-rgb-001",
+                symbol="SOLUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.MARKET,
+                quantity=Decimal("0.032"),
+                price=Decimal("150.00"),
+                is_closing=False,
+            )
+
+        # Close short properly
+        dispatcher.advance_time(10.0, update_heartbeat=True)
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-solusdt-rgb-001",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.032"),
+            price=Decimal("150.00"),
+            is_closing=True,
+        )
+        assert reconciler.positions["SOLUSDT"] == Decimal("0")
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+        store.close()
+
+    def test_closing_order_auto_calculates_realized_pnl_when_missing_from_exchange_resp(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        tmp_path: Path,
+    ) -> None:
+        """Verify closing orders auto-compute realized PnL from entry price when
+        the exchange order response omits realizedPnl.
+        """
+        db_path = tmp_path / "telemetry_pnl.sqlite3"
+        jsonl_path = tmp_path / "orders_pnl.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_gateway = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_gateway)
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="test_pnl",
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="test_pnl",
+        )
+        # Open LONG on BTCUSDT at 60000
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        mock_gateway.set_mark_price("BTCUSDT", Decimal("61000.00"))
+
+        orig_dispatch = client.dispatch_order
+
+        def stripped_dispatch(order_params: dict[str, Any]) -> dict[str, Any]:
+            resp = orig_dispatch(order_params)
+            resp_copy = dict(resp)
+            resp_copy.pop("realizedPnl", None)
+            return resp_copy
+
+        client.dispatch_order = stripped_dispatch  # type: ignore[method-assign]
+
+        dispatcher.advance_time(10.0, update_heartbeat=True)
+        # Close at 61000 with stripped realizedPnl
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("61000.00"),
+            is_closing=True,
+        )
+        assert reconciler.positions["BTCUSDT"] == Decimal("0")
+        assert reconciler.realized_pnl > Decimal("0")
+        sync_evt = reconciler.reconcile_with_exchange()
+        assert sync_evt.status == GatewaySyncStatus.SYNCHRONIZED
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+        store.close()
+
+    def test_mock_gateway_position_initial_margin_uses_entry_price(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        tmp_path: Path,
+    ) -> None:
+        """Verify MockBinanceFuturesGateway calculates positionInitialMargin using
+        entryPrice on partial closes, matching local reconciler exactly.
+        """
+        db_path = tmp_path / "telemetry_pos_margin.sqlite3"
+        jsonl_path = tmp_path / "orders_pos_margin.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_gateway = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_gateway)
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="test_margin",
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="test_margin",
+        )
+        # Open short on SOLUSDT of 0.032 at 150.00
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-solusdt-rgb-001",
+            symbol="SOLUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.032"),
+            price=Decimal("150.00"),
+        )
+        assert mock_gateway.positions["SOLUSDT"]["positionInitialMargin"] == "4.80000000"
+
+        # Partially close 0.016 at 140.00 (lower price than entry)
+        dispatcher.advance_time(10.0, update_heartbeat=True)
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-solusdt-rgb-001",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.016"),
+            price=Decimal("140.00"),
+            is_closing=True,
+        )
+        # Remaining amount is 0.016, entry price is 150.00 -> margin must be 0.016 * 150 = 2.40
+        assert mock_gateway.positions["SOLUSDT"]["positionInitialMargin"] == "2.40000000"
+        assert reconciler.allocated_margin == Decimal("2.40")
+
+        sync_evt = reconciler.reconcile_with_exchange()
+        assert sync_evt.status == GatewaySyncStatus.SYNCHRONIZED
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+        store.close()
+
+    def test_mock_gateway_simulate_fill_updates_cum_quote_and_avg_price(
+        self,
+        safe_key_vault: SecureExchangeKeyVault,
+        gateway_client: CanaryLiveGatewayClient,
+        mock_gateway: MockBinanceFuturesGateway,
+    ) -> None:
+        """Verify MockBinanceFuturesGateway.simulate_fill updates cumQuote and
+        avgPrice correctly across sequential partial fills.
+        """
+        mock_gateway.inject_order_initial_status = "NEW"
+        order_params = {
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "quantity": "0.00008",
+            "price": "60000.00",
+            "newClientOrderId": "cid-sim-fill-test",
+        }
+        resp = gateway_client.dispatch_order(order_params)
+        assert resp["status"] == "NEW"
+        assert resp["avgPrice"] == "0.00000000"
+
+        # Partial fill 1: 0.00004 at 60000.00
+        fill_1 = mock_gateway.simulate_fill(
+            "cid-sim-fill-test",
+            Decimal("0.00004"),
+            fill_price=Decimal("60000.00"),
+        )
+        assert fill_1["status"] == "PARTIALLY_FILLED"
+        assert fill_1["avgPrice"] == "60000.00000000"
+        order = mock_gateway.orders["cid-sim-fill-test"]
+        assert order["cumQuote"] == "2.40000000"
+        assert order["avgPrice"] == "60000.00000000"
+
+        # Partial fill 2: 0.00004 at 61000.00
+        fill_2 = mock_gateway.simulate_fill(
+            "cid-sim-fill-test",
+            Decimal("0.00004"),
+            fill_price=Decimal("61000.00"),
+        )
+        assert fill_2["status"] == "FILLED"
+        assert fill_2["avgPrice"] == "60500.00000000"
+        assert order["cumQuote"] == "4.84000000"
+        assert order["avgPrice"] == "60500.00000000"
+
+    def test_recover_unknown_order_after_network_restoration(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        tmp_path: Path,
+    ) -> None:
+        """Verify recover_unknown_order re-queries exchange after network restoration,
+        resolves UNKNOWN order, and unblocks new order routing.
+        """
+        db_path = tmp_path / "telemetry_rec.sqlite3"
+        jsonl_path = tmp_path / "orders_rec.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_gateway = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_gateway)
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="test_rec",
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="test_rec",
+        )
+        orig_query = mock_gateway.query_order
+
+        def failing_query(p: Mapping[str, Any], s: str | None) -> dict[str, Any]:
+            raise CanaryLiveGatewayError("Persistent network outage: endpoint unreachable")
+
+        mock_gateway.query_order = failing_query  # type: ignore[method-assign]
+        mock_gateway.inject_network_timeout = True
+
+        with pytest.raises(UnknownOrderStatusError, match="remains UNKNOWN"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btcusdt-dcb-002",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+            )
+
+        unknown_order = next(iter(dispatcher.orders.values()))
+        assert unknown_order.status == OrderLifecycleState.UNKNOWN
+
+        # Subsequent order must be blocked by UNKNOWN gate
+        with pytest.raises(UnknownOrderStatusError, match="existing order is in UNKNOWN state"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-ethusdt-dcb-003",
+                symbol="ETHUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.0019"),
+                price=Decimal("2500.00"),
+            )
+
+        # Restore network connectivity
+        mock_gateway.query_order = orig_query  # type: ignore[method-assign]
+
+        # Call recover_unknown_order
+        recovered = dispatcher.recover_unknown_order(unknown_order.client_order_id)
+        assert recovered.status == OrderLifecycleState.FILLED
+
+        # Now subsequent order can be placed freely
+        dispatcher.advance_time(10.0, update_heartbeat=True)
+        eth_order = dispatcher.dispatch_micro_order(
+            candidate_id="cand-ethusdt-dcb-003",
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.0019"),
+            price=Decimal("2500.00"),
+        )
+        assert eth_order.status == OrderLifecycleState.FILLED
+        store.close()
+
+    def test_reconcile_with_exchange_locks_out_on_can_trade_false_or_can_withdraw_true(
+        self,
+        safe_key_vault: SecureExchangeKeyVault,
+        tmp_path: Path,
+    ) -> None:
+        """Verify reconcile_with_exchange triggers lockout if canTrade=False
+        or canWithdraw=True.
+        """
+        db_path = tmp_path / "telemetry_sec.sqlite3"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        mock_gateway = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_gateway)
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="test_sec",
+        )
+        orig_get_account = mock_gateway.get_account
+
+        def disabled_trade_account(p: Mapping[str, Any], s: str | None) -> dict[str, Any]:
+            acc = orig_get_account(p, s)
+            acc["canTrade"] = False
+            return acc
+
+        mock_gateway.get_account = disabled_trade_account  # type: ignore[method-assign]
+        with pytest.raises(BalanceDesyncError, match="canTrade=False"):
+            reconciler.reconcile_with_exchange()
+        assert reconciler.locked_out is True
+
+        # Reset and test canWithdraw=True
+        mock_gateway.get_account = orig_get_account  # type: ignore[method-assign]
+        reconciler.locked_out = False
+
+        def withdrawal_enabled_account(p: Mapping[str, Any], s: str | None) -> dict[str, Any]:
+            acc = orig_get_account(p, s)
+            acc["canWithdraw"] = True
+            return acc
+
+        mock_gateway.get_account = withdrawal_enabled_account  # type: ignore[method-assign]
+        with pytest.raises(BalanceDesyncError, match="canWithdraw=True"):
+            reconciler.reconcile_with_exchange()
+        assert reconciler.locked_out is True
+        store.close()
+
+    def test_update_mark_price_rejects_non_finite_or_non_positive(
+        self,
+        safe_key_vault: SecureExchangeKeyVault,
+        tmp_path: Path,
+    ) -> None:
+        """Verify update_mark_price and set_mark_price strictly reject non-finite
+        and non-positive values.
+        """
+        store = SqliteCanaryLiveGatewayTelemetryStore(tmp_path / "telemetry_mp.sqlite3")
+        mock_gateway = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_gateway)
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="test_mp",
+        )
+        for invalid_val in [
+            Decimal("0"),
+            Decimal("-1.0"),
+            Decimal("NaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+        ]:
+            with pytest.raises(DomainViolation, match="strictly positive and finite"):
+                reconciler.update_mark_price("BTCUSDT", invalid_val)
+            with pytest.raises(DomainViolation, match="strictly positive and finite"):
+                mock_gateway.set_mark_price("BTCUSDT", invalid_val)
+        store.close()
+
+    def test_multi_attempt_timestamp_drift_recovery(
+        self,
+        safe_key_vault: SecureExchangeKeyVault,
+    ) -> None:
+        """Verify client succeeds when 2 consecutive requests experience timestamp
+        drift and resync.
+        """
+        mock_gateway = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_gateway)
+        attempts = 0
+        orig_get_balance = mock_gateway.get_balance
+
+        def drifting_get_balance(p: Mapping[str, Any], s: str | None) -> list[dict[str, Any]]:
+            nonlocal attempts
+            attempts += 1
+            if attempts <= 2:
+                raise TimestampDriftError("Timestamp ahead/behind server clock")
+            return orig_get_balance(p, s)
+
+        mock_gateway.get_balance = drifting_get_balance  # type: ignore[method-assign]
+        bal = client.fetch_balances()
+        assert len(bal) == 1
+        assert attempts == 3
+
+    def test_asynchronous_multi_order_partial_fill_sequence_with_fees_and_aggregate_margin_cap(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        tmp_path: Path,
+    ) -> None:
+        """Verify multi-order partial fill sequence with fees, aggregate margin
+        cap enforcement, and exact zero drift.
+        """
+        db_path = tmp_path / "telemetry_multi_partial.sqlite3"
+        jsonl_path = tmp_path / "orders_multi_partial.jsonl"
+        store = SqliteCanaryLiveGatewayTelemetryStore(db_path)
+        sink = JsonlCanaryOrderSink(jsonl_path)
+        mock_gateway = MockBinanceFuturesGateway(
+            initial_balance_usdt=Decimal("100.00"),
+            key_vault=safe_key_vault,
+        )
+        client = CanaryLiveGatewayClient(key_vault=safe_key_vault, gateway=mock_gateway)
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        interlock = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=sm,
+        )
+        reconciler = LiveGatewayAccountReconciler(
+            client=client,
+            telemetry_store=store,
+            track_id="test_multi_part",
+        )
+        dispatcher = CanaryLiveOrderDispatcher(
+            interlock_gateway=interlock,
+            client=client,
+            reconciler=reconciler,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            track_id="test_multi_part",
+        )
+        # Order 1: BTCUSDT partial fill 0.00004 at 60000 (margin = 2.40)
+        mock_gateway.inject_partial_fill_qty = Decimal("0.00004")
+        o1 = dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        assert o1.status == OrderLifecycleState.PARTIALLY_FILLED
+        assert reconciler.allocated_margin == Decimal("2.40")
+
+        # Order 2: ETHUSDT partial fill 0.0010 at 2500 (margin = 2.50)
+        dispatcher.advance_time(10.0, update_heartbeat=True)
+        mock_gateway.inject_partial_fill_qty = Decimal("0.0010")
+        o2 = dispatcher.dispatch_micro_order(
+            candidate_id="cand-ethusdt-dcb-003",
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.0019"),
+            price=Decimal("2500.00"),
+        )
+        assert o2.status == OrderLifecycleState.PARTIALLY_FILLED
+        assert reconciler.allocated_margin == Decimal("4.90")
+
+        # Complete Order 1 via mock_gateway.simulate_fill and process_fill_event
+        mock_gateway.simulate_fill(
+            o1.client_order_id,
+            Decimal("0.00004"),
+            fill_price=Decimal("60000.00"),
+            fee=Decimal("0.0010"),
+        )
+        dispatcher.process_fill_event(
+            client_order_id=o1.client_order_id,
+            fill_qty=Decimal("0.00004"),
+            fill_price=Decimal("60000.00"),
+            fee=Decimal("0.0010"),
+        )
+        assert o1.status == OrderLifecycleState.FILLED
+        assert reconciler.allocated_margin == Decimal("7.30")
+
+        # Complete Order 2 via mock_gateway.simulate_fill and process_fill_event
+        mock_gateway.simulate_fill(
+            o2.client_order_id,
+            Decimal("0.0009"),
+            fill_price=Decimal("2500.00"),
+            fee=Decimal("0.0010"),
+        )
+        dispatcher.process_fill_event(
+            client_order_id=o2.client_order_id,
+            fill_qty=Decimal("0.0009"),
+            fill_price=Decimal("2500.00"),
+            fee=Decimal("0.0010"),
+        )
+        assert o2.status == OrderLifecycleState.FILLED
+        assert reconciler.allocated_margin == Decimal("9.55")
+
+        # Attempt order that would breach aggregate margin cap
+        sample_certificate.max_aggregate_margin_usdt = "10.00"
+        with pytest.raises(MarginCapBreachError, match="would breach aggregate margin cap"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-solusdt-rgb-001",
+                symbol="SOLUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.032"),
+                price=Decimal("150.00"),
+            )
+        sample_certificate.max_aggregate_margin_usdt = str(DEFAULT_AGGREGATE_MARGIN_CAP)
+
+        # Reconcile mid-flight
+        sync_mid = reconciler.reconcile_with_exchange()
+        assert sync_mid.status == GatewaySyncStatus.SYNCHRONIZED
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+        # Close Order 1
+        dispatcher.advance_time(65.0, update_heartbeat=True)
+        c1 = dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            is_closing=True,
+        )
+        assert c1.status == OrderLifecycleState.FILLED
+
+        # Close Order 2
+        dispatcher.advance_time(65.0, update_heartbeat=True)
+        c2 = dispatcher.dispatch_micro_order(
+            candidate_id="cand-ethusdt-dcb-003",
+            symbol="ETHUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.0019"),
+            price=Decimal("2500.00"),
+            is_closing=True,
+        )
+        assert c2.status == OrderLifecycleState.FILLED
+
+        assert reconciler.allocated_margin == Decimal("0")
+        sync_final = reconciler.reconcile_with_exchange()
+        assert sync_final.status == GatewaySyncStatus.SYNCHRONIZED
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
         store.close()
