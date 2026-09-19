@@ -15,7 +15,7 @@ import sqlite3
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, TypeVar
@@ -222,6 +222,17 @@ class OrderLifecycleState(StrEnum):
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
     UNKNOWN = "UNKNOWN"
+
+
+_ORDER_STATUS_RANK: dict[str, int] = {
+    OrderLifecycleState.PENDING_DISPATCH.value: 0,
+    OrderLifecycleState.NEW.value: 1,
+    OrderLifecycleState.PARTIALLY_FILLED.value: 2,
+    OrderLifecycleState.FILLED.value: 3,
+    OrderLifecycleState.CANCELED.value: 3,
+    OrderLifecycleState.REJECTED.value: 3,
+    OrderLifecycleState.EXPIRED.value: 3,
+}
 
 
 class ListenKeyEvent(DomainModel):
@@ -1074,6 +1085,8 @@ class MockBinanceTestnetGateway:
         qty = Decimal(str(params["quantity"]))
         price = Decimal(str(params.get("price", self.positions[symbol]["markPrice"])))
         client_order_id = str(params.get("newClientOrderId", f"cid-testnet-{uuid4().hex[:8]}"))
+        if client_order_id in self.orders:
+            raise OrderCorrelationError(f"Duplicate clientOrderId {client_order_id} on gateway")
         auto_fill = bool(params.get("auto_fill", True))
         is_maker = bool(params.get("is_maker", False))
         partial_fill_qty = params.get("partial_fill_qty")
@@ -1790,6 +1803,7 @@ class TestnetUserDataStreamReconciler:
 
         self.locked_out: bool = False
         self.lockout_reason: str | None = None
+        self.applied_trade_ids: set[str] = set()
 
     @property
     def total_equity(self) -> Decimal:
@@ -1852,6 +1866,9 @@ class TestnetUserDataStreamReconciler:
             raise SafetyInvariantViolation(f"Unauthorized symbol {symbol} in push event")
 
         trade_id = str(o_data.get("t"))
+        if trade_id in self.applied_trade_ids:
+            return None
+        self.applied_trade_ids.add(trade_id)
         last_qty = Decimal(str(o_data.get("l", "0")))
         last_price = Decimal(str(o_data.get("L", "0")))
         fee = Decimal(str(o_data.get("n", "0")))
@@ -2032,16 +2049,29 @@ class TestnetListenKeyManager:
         gateway: MockBinanceTestnetGateway,
         telemetry_store: SqliteCanaryTestnetTelemetryStore,
         track_id: str,
+        backoff_base_ms: float = 100.0,
+        max_backoff_ms: float = 5000.0,
     ) -> None:
         self.gateway = gateway
         self.telemetry_store = telemetry_store
         self.track_id = track_id
+        self.backoff_base_ms = backoff_base_ms
+        self.max_backoff_ms = max_backoff_ms
 
         self.current_listen_key: str | None = None
         self.acquired_epoch: float = 0.0
         self.expiry_epoch: float = 0.0
         self.refresh_count: int = 0
         self.reconnect_count: int = 0
+        self.consecutive_failures: int = 0
+
+    def get_reconnect_backoff_ms(self) -> float:
+        """Calculate exponential backoff delay in ms with exponential scaling."""
+        delay = min(
+            self.max_backoff_ms,
+            self.backoff_base_ms * (2 ** min(self.consecutive_failures, 6)),
+        )
+        return float(delay)
 
     def acquire_key(self) -> str:
         """Acquire a fresh user data stream listenKey."""
@@ -2099,15 +2129,22 @@ class TestnetListenKeyManager:
 
     def reconnect_stream(self) -> str:
         """Execute stream reconnect hysteresis: renew key and re-establish stream."""
+        backoff_ms = self.get_reconnect_backoff_ms()
         self.reconnect_count += 1
         new_key = self.acquire_key()
+        self.consecutive_failures = 0
         evt = ListenKeyEvent(
             track_id=self.track_id,
             action=ListenKeyAction.RECONNECT,
             listen_key=new_key,
             expiry_epoch=self.expiry_epoch,
             status="RECONNECTED",
-            details_json=json.dumps({"reconnect_count": self.reconnect_count}),
+            details_json=json.dumps(
+                {
+                    "reconnect_count": self.reconnect_count,
+                    "backoff_ms": backoff_ms,
+                }
+            ),
         )
         self.telemetry_store.record_listen_key_event(evt)
         return new_key
@@ -2117,10 +2154,15 @@ class TestnetListenKeyManager:
 
         Returns (active_key, was_reconnected) tuple.
         """
+        if not self.current_listen_key:
+            new_key = self.acquire_key()
+            return (new_key, True)
         try:
             self.refresh_key()
+            self.consecutive_failures = 0
             return (self.current_listen_key or "", False)
-        except ListenKeyExpiredError:
+        except ListenKeyExpiredError, ListenKeyLifecycleError:
+            self.consecutive_failures += 1
             new_key = self.reconnect_stream()
             return (new_key, True)
 
@@ -2223,6 +2265,14 @@ class TestnetMicroOrderDispatcher:
             )
             raise CircuitBreakerAbortError(
                 "Gateway locked out in TIER_2_HARD_ABORT. Orders blocked."
+            )
+
+        # 3b. Fail-Closed Reconciler Lockout Check
+        if self.reconciler.locked_out and not is_closing:
+            self.orders_rejected_count += 1
+            self.interlock_blocks_count += 1
+            raise SafetyInvariantViolation(
+                f"Order dispatch blocked: Reconciler locked out ({self.reconciler.lockout_reason})"
             )
 
         # 4. Position & Margin Checks
@@ -2359,6 +2409,19 @@ class TestnetMicroOrderDispatcher:
         order_rec = self.orders.get(client_order_id)
         if order_rec is None:
             raise OrderCorrelationError(f"Cannot cancel unknown order {client_order_id}")
+        if order_rec.symbol != symbol:
+            raise OrderCorrelationError(
+                f"Order {client_order_id} belongs to symbol {order_rec.symbol}, not {symbol}"
+            )
+        if order_rec.status in (
+            OrderLifecycleState.FILLED,
+            OrderLifecycleState.CANCELED,
+            OrderLifecycleState.REJECTED,
+            OrderLifecycleState.EXPIRED,
+        ):
+            raise DomainViolation(
+                f"Cannot cancel order {client_order_id} in terminal state {order_rec.status.value}"
+            )
         self.gateway.cancel_order(symbol=symbol, client_order_id=client_order_id)
         self.process_inbound_stream_events(is_closing=order_rec.is_closing)
         return order_rec
@@ -2380,33 +2443,56 @@ class TestnetMicroOrderDispatcher:
                 OrderLifecycleState.NEW,
                 OrderLifecycleState.PARTIALLY_FILLED,
             ):
+                prev_status = order_rec.status.value
+                remote: dict[str, Any] | None = None
                 if cid in open_orders:
                     remote = open_orders[cid]
-                    rem_status = remote["status"]
-                    rem_exec_qty = Decimal(remote["executedQty"])
-                    if (
-                        rem_status != order_rec.status.value
-                        or rem_exec_qty != order_rec.executed_quantity
-                    ):
-                        order_rec.status = OrderLifecycleState(rem_status)
-                        order_rec.executed_quantity = rem_exec_qty
-                        order_rec.updated_at_utc = datetime.now(UTC).isoformat()
-                        updated.append(order_rec)
                 else:
                     try:
                         remote = self.gateway.get_order(order_rec.symbol, cid)
-                        rem_status = remote["status"]
-                        rem_exec_qty = Decimal(remote["executedQty"])
+                    except Exception:
+                        remote = None
+
+                if remote is not None:
+                    rem_status = str(remote["status"])
+                    rem_exec_qty = Decimal(str(remote["executedQty"]))
+                    if rem_status != prev_status or rem_exec_qty != order_rec.executed_quantity:
                         order_rec.status = OrderLifecycleState(rem_status)
                         order_rec.executed_quantity = rem_exec_qty
                         order_rec.updated_at_utc = datetime.now(UTC).isoformat()
                         if rem_status == "FILLED":
-                            self.orders_filled_count += 1
+                            if prev_status != OrderLifecycleState.FILLED.value:
+                                self.orders_filled_count += 1
                         elif rem_status == "CANCELED":
-                            self.orders_cancelled_count += 1
+                            if prev_status != OrderLifecycleState.CANCELED.value:
+                                self.orders_cancelled_count += 1
+                                self.jsonl_sink.write_record(
+                                    {
+                                        "event": "ORDER_CANCELED",
+                                        "track_id": self.track_id,
+                                        "order_id": order_rec.order_id,
+                                        "client_order_id": cid,
+                                        "symbol": order_rec.symbol,
+                                        "side": order_rec.side.value,
+                                        "executed_quantity": str(order_rec.executed_quantity),
+                                        "timestamp_utc": order_rec.updated_at_utc,
+                                    }
+                                )
+                        elif rem_status == "REJECTED":
+                            if prev_status != OrderLifecycleState.REJECTED.value:
+                                self.orders_rejected_count += 1
+
+                        trans = OrderLifecycleTransition(
+                            track_id=self.track_id,
+                            order_id=order_rec.order_id,
+                            client_order_id=cid,
+                            from_state=prev_status,
+                            to_state=rem_status,
+                            trigger_reason="REST fallback synchronization",
+                        )
+                        self.telemetry_store.record_transition(trans)
+                        self.telemetry_store.record_order(order_rec)
                         updated.append(order_rec)
-                    except Exception:
-                        pass
         return updated
 
     def process_inbound_stream_events(self, is_closing: bool = False) -> None:
@@ -2462,18 +2548,27 @@ class TestnetMicroOrderDispatcher:
 
                 prev_status = order_rec.status.value
                 new_status = ord_status or "NEW"
-                order_rec.status = OrderLifecycleState(new_status)
-                order_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                is_status_regression = new_status == "NEW" and prev_status in (
+                    OrderLifecycleState.PARTIALLY_FILLED.value,
+                    OrderLifecycleState.FILLED.value,
+                    OrderLifecycleState.CANCELED.value,
+                    OrderLifecycleState.REJECTED.value,
+                    OrderLifecycleState.EXPIRED.value,
+                )
+
+                if not is_status_regression:
+                    order_rec.status = OrderLifecycleState(new_status)
+                    order_rec.updated_at_utc = datetime.now(UTC).isoformat()
 
                 cum_qty_raw = o_data.get("z")
-                if cum_qty_raw is not None and Decimal(str(cum_qty_raw)) > Decimal("0"):
+                if cum_qty_raw is not None and not is_status_regression:
                     order_rec.executed_quantity = Decimal(str(cum_qty_raw))
 
-                if new_status == "FILLED":
+                if new_status == "FILLED" and not is_status_regression:
                     if prev_status != OrderLifecycleState.FILLED.value:
                         self.orders_filled_count += 1
                         order_rec.executed_quantity = order_rec.quantity
-                elif new_status == "CANCELED":
+                elif new_status == "CANCELED" and not is_status_regression:
                     if prev_status != OrderLifecycleState.CANCELED.value:
                         self.orders_cancelled_count += 1
                         self.jsonl_sink.write_record(
@@ -2488,21 +2583,22 @@ class TestnetMicroOrderDispatcher:
                                 "timestamp_utc": order_rec.updated_at_utc,
                             }
                         )
-                elif new_status == "REJECTED":
+                elif new_status == "REJECTED" and not is_status_regression:
                     if prev_status != OrderLifecycleState.REJECTED.value:
                         self.orders_rejected_count += 1
 
-                # Record lifecycle transition
-                trans = OrderLifecycleTransition(
-                    track_id=self.track_id,
-                    order_id=order_rec.order_id,
-                    client_order_id=cid,
-                    from_state=prev_status,
-                    to_state=new_status,
-                    trigger_reason=f"WebSocket push: {e_type} ({event.get('o', {}).get('x')})",
-                )
-                self.telemetry_store.record_transition(trans)
-                self.telemetry_store.record_order(order_rec)
+                # Record lifecycle transition only if forward progression occurred
+                if not is_status_regression and prev_status != new_status:
+                    trans = OrderLifecycleTransition(
+                        track_id=self.track_id,
+                        order_id=order_rec.order_id,
+                        client_order_id=cid,
+                        from_state=prev_status,
+                        to_state=new_status,
+                        trigger_reason=f"WebSocket push: {e_type} ({event.get('o', {}).get('x')})",
+                    )
+                    self.telemetry_store.record_transition(trans)
+                    self.telemetry_store.record_order(order_rec)
 
                 # Reconcile fill into double-entry ledger
                 mark = self.reconciler.apply_order_trade_update(event, is_closing=is_closing)
@@ -2564,14 +2660,16 @@ class TestnetMicroOrderDispatcher:
             mark_price = self.reconciler.mark_prices.get(
                 sym, DEFAULT_REFERENCE_PRICES.get(sym, Decimal("60000.00"))
             )
-            max_chunk_qty = (HARD_NOTIONAL_CAP_USDT / mark_price).quantize(Decimal("0.00000001"))
+            max_chunk_qty = (HARD_NOTIONAL_CAP_USDT / mark_price).quantize(
+                Decimal("0.00000001"), rounding=ROUND_DOWN
+            )
             if max_chunk_qty <= Decimal("0"):
                 max_chunk_qty = Decimal("0.00000001")
 
             while rem_qty > Decimal("0"):
                 chunk = min(rem_qty, max_chunk_qty)
-                if chunk * mark_price > HARD_NOTIONAL_CAP_USDT and chunk > Decimal("0.00000001"):
-                    chunk = (HARD_NOTIONAL_CAP_USDT / mark_price).quantize(Decimal("0.00000001"))
+                while chunk * mark_price > HARD_NOTIONAL_CAP_USDT and chunk > Decimal("0.00000001"):
+                    chunk -= Decimal("0.00000001")
                 chunk = min(chunk, rem_qty)
                 if chunk <= Decimal("0"):
                     break

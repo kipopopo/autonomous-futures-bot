@@ -1664,3 +1664,412 @@ class TestReviewerHardeningAndEdgeCases:
             assert reconciler.positions[sym] == Decimal("0")
         assert reconciler.allocated_margin == Decimal("0")
         assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    def test_emergency_flattening_rounding_boundary_does_not_breach_hard_cap(
+        self,
+        isolated_telemetry: tuple[SqliteCanaryTestnetTelemetryStore, JsonlCanaryOrderSink],
+    ) -> None:
+        """Verify emergency flattening under fractional prices rounds strictly down (ROUND_DOWN)
+        and never breaches the 5.00 USDT hard notional cap.
+        """
+        store, sink = isolated_telemetry
+        gateway = MockBinanceTestnetGateway()
+        reconciler = TestnetUserDataStreamReconciler("track_round", STARTING_EQUITY_USDT)
+        sequencer = TestnetStreamSequencer()
+        key_mgr = TestnetListenKeyManager(gateway, store, "track_round")
+        key_mgr.acquire_key()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+
+        dispatcher = TestnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            circuit_breaker=sm,
+            track_id="track_round",
+            key_mgr=key_mgr,
+        )
+
+        # Set mark price where 5.00 / price produces an upward half-even round (e.g. $3.00)
+        reconciler.update_mark_price("SOLUSDT", Decimal("3.00"))
+        gateway.positions["SOLUSDT"]["markPrice"] = "3.00"
+
+        # Open a position of 3.00 SOL @ $3.00 ($9.00 USDT total, within 20% cap = $20.00)
+        dispatcher.dispatch_micro_order(
+            candidate_id="c-sol-1",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("1.50"),
+            price=Decimal("3.00"),
+        )
+        dispatcher.dispatch_micro_order(
+            candidate_id="c-sol-2",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("1.50"),
+            price=Decimal("3.00"),
+        )
+        assert reconciler.positions["SOLUSDT"] == Decimal("3.00")
+
+        # Emergency flatten: each chunk must strictly be <= 5.00 USDT
+        flattening_orders = dispatcher.execute_emergency_flattening()
+        assert len(flattening_orders) >= 2
+        for ord_rec in flattening_orders:
+            assert ord_rec.notional_usdt <= HARD_NOTIONAL_CAP_USDT
+        assert reconciler.positions["SOLUSDT"] == Decimal("0")
+        assert reconciler.allocated_margin == Decimal("0")
+
+    def test_out_of_order_status_regression_protection(
+        self,
+        isolated_telemetry: tuple[SqliteCanaryTestnetTelemetryStore, JsonlCanaryOrderSink],
+    ) -> None:
+        """Verify out-of-order packets with stale earlier states (e.g. NEW after FILLED)
+        do not regress order lifecycle state or executed quantity.
+        """
+        store, sink = isolated_telemetry
+        gateway = MockBinanceTestnetGateway()
+        reconciler = TestnetUserDataStreamReconciler("track_ooo_reg", STARTING_EQUITY_USDT)
+        sequencer = TestnetStreamSequencer()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+
+        dispatcher = TestnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            circuit_breaker=sm,
+            track_id="track_ooo_reg",
+        )
+
+        order = dispatcher.dispatch_micro_order(
+            candidate_id="c-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            auto_fill=True,
+        )
+        assert order.status == OrderLifecycleState.FILLED
+        assert order.executed_quantity == Decimal("0.00008")
+
+        # Simulate arrival of an out-of-order stale NEW event in a subsequent batch
+        stale_new_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": gateway.server_time_ms - 5000,
+            "T": gateway.server_time_ms - 5000,
+            "_seq": 9999,
+            "o": {
+                "s": "BTCUSDT",
+                "c": order.client_order_id,
+                "S": "BUY",
+                "o": "LIMIT",
+                "x": "NEW",
+                "X": "NEW",
+                "z": "0.00000000",
+                "l": "0.00000000",
+                "L": "0.00000000",
+                "N": "USDT",
+                "n": "0.00000000",
+                "t": 0,
+            },
+        }
+        gateway.stream_event_queue.append(stale_new_event)
+        dispatcher.process_inbound_stream_events()
+
+        # Order must remain FILLED with executed_quantity intact
+        assert order.status == OrderLifecycleState.FILLED
+        assert order.executed_quantity == Decimal("0.00008")
+
+        # Transitions in SQLite must NOT contain FILLED -> NEW
+        cursor = store.conn.execute(
+            "SELECT from_state, to_state FROM lifecycle_transitions WHERE client_order_id = ?",
+            (order.client_order_id,),
+        )
+        transitions = cursor.fetchall()
+        for from_s, to_s in transitions:
+            assert not (from_s == "FILLED" and to_s == "NEW")
+
+    def test_reconciler_trade_id_idempotency(self) -> None:
+        """Verify TestnetUserDataStreamReconciler ignores duplicate trade applications."""
+        reconciler = TestnetUserDataStreamReconciler("track_idem", STARTING_EQUITY_USDT)
+        trade_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1000,
+            "T": 1000,
+            "o": {
+                "s": "BTCUSDT",
+                "c": "cid-idem-1",
+                "S": "BUY",
+                "x": "TRADE",
+                "X": "FILLED",
+                "i": 101,
+                "t": 555,
+                "l": "0.00008",
+                "L": "60000.00",
+                "N": "USDT",
+                "n": "0.00192000",
+            },
+        }
+
+        mark1 = reconciler.apply_order_trade_update(trade_event)
+        assert mark1 is not None
+        pos1 = reconciler.positions["BTCUSDT"]
+        cash1 = reconciler.cash
+
+        # Re-apply identical trade_id
+        mark2 = reconciler.apply_order_trade_update(trade_event)
+        assert mark2 is None
+        assert reconciler.positions["BTCUSDT"] == pos1
+        assert reconciler.cash == cash1
+
+    def test_reconciler_locked_out_blocks_non_closing_orders(
+        self,
+        isolated_telemetry: tuple[SqliteCanaryTestnetTelemetryStore, JsonlCanaryOrderSink],
+    ) -> None:
+        """Verify dispatcher rejects non-closing orders when reconciler is locked out."""
+        store, sink = isolated_telemetry
+        gateway = MockBinanceTestnetGateway()
+        reconciler = TestnetUserDataStreamReconciler("track_lockout", STARTING_EQUITY_USDT)
+        sequencer = TestnetStreamSequencer()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+
+        dispatcher = TestnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            circuit_breaker=sm,
+            track_id="track_lockout",
+        )
+
+        reconciler.locked_out = True
+        reconciler.lockout_reason = "Simulated account state desync"
+
+        with pytest.raises(SafetyInvariantViolation, match="Reconciler locked out"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="c-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+                is_closing=False,
+            )
+
+    def test_sync_orders_via_rest_persists_sqlite_and_jsonl(
+        self,
+        isolated_telemetry: tuple[SqliteCanaryTestnetTelemetryStore, JsonlCanaryOrderSink],
+    ) -> None:
+        """Verify sync_orders_via_rest persists order updates and transitions into SQLite."""
+        store, sink = isolated_telemetry
+        gateway = MockBinanceTestnetGateway()
+        reconciler = TestnetUserDataStreamReconciler("track_sync_store", STARTING_EQUITY_USDT)
+        sequencer = TestnetStreamSequencer()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+
+        dispatcher = TestnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            circuit_breaker=sm,
+            track_id="track_sync_store",
+        )
+
+        order = dispatcher.dispatch_micro_order(
+            candidate_id="c-eth",
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.0019"),
+            price=Decimal("2500.00"),
+            auto_fill=False,
+        )
+        assert order.status == OrderLifecycleState.NEW
+
+        # Exchange fills the order during partition
+        gateway.fill_order(order.client_order_id)
+
+        # Synchronize via REST
+        synced = dispatcher.sync_orders_via_rest()
+        assert len(synced) == 1
+        assert order.status == OrderLifecycleState.FILLED
+
+        # Verify SQLite orders table updated
+        cursor = store.conn.execute(
+            "SELECT status, executed_quantity FROM orders WHERE client_order_id = ?",
+            (order.client_order_id,),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row[0] == "FILLED"
+        assert Decimal(row[1]) == Decimal("0.0019")
+
+        # Verify SQLite lifecycle_transitions table contains transition
+        cursor = store.conn.execute(
+            "SELECT from_state, to_state, trigger_reason FROM lifecycle_transitions "
+            "WHERE client_order_id = ?",
+            (order.client_order_id,),
+        )
+        transitions = cursor.fetchall()
+        assert any(t[0] == "NEW" and t[1] == "FILLED" for t in transitions)
+
+    def test_sync_orders_via_rest_cancellation_emits_jsonl_and_sqlite(
+        self,
+        isolated_telemetry: tuple[SqliteCanaryTestnetTelemetryStore, JsonlCanaryOrderSink],
+    ) -> None:
+        """Verify sync_orders_via_rest handles cancellations with full telemetry persistence."""
+        store, sink = isolated_telemetry
+        gateway = MockBinanceTestnetGateway()
+        reconciler = TestnetUserDataStreamReconciler("track_sync_cancel", STARTING_EQUITY_USDT)
+        sequencer = TestnetStreamSequencer()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+
+        dispatcher = TestnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            circuit_breaker=sm,
+            track_id="track_sync_cancel",
+        )
+
+        order = dispatcher.dispatch_micro_order(
+            candidate_id="c-sol",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.032"),
+            price=Decimal("150.00"),
+            auto_fill=False,
+        )
+        assert order.status == OrderLifecycleState.NEW
+
+        # Exchange cancels the order directly
+        gateway.cancel_order("SOLUSDT", order.client_order_id)
+        # Clear queue to emulate dropped cancellation WebSocket push packet
+        gateway.stream_event_queue.clear()
+
+        # Synchronize via REST
+        synced = dispatcher.sync_orders_via_rest()
+        assert len(synced) == 1
+        assert order.status == OrderLifecycleState.CANCELED
+        assert dispatcher.orders_cancelled_count == 1
+
+        # Verify SQLite orders table updated to CANCELED
+        cursor = store.conn.execute(
+            "SELECT status FROM orders WHERE client_order_id = ?",
+            (order.client_order_id,),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row[0] == "CANCELED"
+
+    def test_refresh_or_reconnect_when_no_active_key_initializes_cleanly(
+        self,
+        isolated_telemetry: tuple[SqliteCanaryTestnetTelemetryStore, JsonlCanaryOrderSink],
+    ) -> None:
+        """Verify refresh_or_reconnect acquires key cleanly when current_listen_key is None."""
+        store, _ = isolated_telemetry
+        gateway = MockBinanceTestnetGateway()
+        key_mgr = TestnetListenKeyManager(gateway, store, "track_nokey")
+
+        assert key_mgr.current_listen_key is None
+        new_key, was_reconnected = key_mgr.refresh_or_reconnect()
+        assert new_key.startswith("testnet_lk_")
+        assert was_reconnected is True
+        assert key_mgr.current_listen_key == new_key
+
+    def test_listen_key_manager_exponential_backoff_calculation(
+        self,
+        isolated_telemetry: tuple[SqliteCanaryTestnetTelemetryStore, JsonlCanaryOrderSink],
+    ) -> None:
+        """Verify exponential backoff scaling on consecutive failure retries."""
+        store, _ = isolated_telemetry
+        gateway = MockBinanceTestnetGateway()
+        key_mgr = TestnetListenKeyManager(
+            gateway, store, "track_backoff", backoff_base_ms=50.0, max_backoff_ms=800.0
+        )
+
+        assert key_mgr.get_reconnect_backoff_ms() == 50.0
+
+        key_mgr.consecutive_failures = 1
+        assert key_mgr.get_reconnect_backoff_ms() == 100.0
+
+        key_mgr.consecutive_failures = 2
+        assert key_mgr.get_reconnect_backoff_ms() == 200.0
+
+        key_mgr.consecutive_failures = 3
+        assert key_mgr.get_reconnect_backoff_ms() == 400.0
+
+        key_mgr.consecutive_failures = 4
+        assert key_mgr.get_reconnect_backoff_ms() == 800.0
+
+        key_mgr.consecutive_failures = 10
+        assert key_mgr.get_reconnect_backoff_ms() == 800.0  # Bounded at max_backoff_ms
+
+    def test_mock_gateway_duplicate_client_order_id_rejected(self) -> None:
+        """Verify MockBinanceTestnetGateway rejects duplicate clientOrderId."""
+        gateway = MockBinanceTestnetGateway()
+        params = {
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "quantity": "0.00008",
+            "price": "60000.00",
+            "newClientOrderId": "cid-dup-test-1",
+        }
+        gateway.place_order(params)
+
+        with pytest.raises(OrderCorrelationError, match="Duplicate clientOrderId"):
+            gateway.place_order(params)
+
+    def test_dispatcher_cancel_order_terminal_state_prevalidation(
+        self,
+        isolated_telemetry: tuple[SqliteCanaryTestnetTelemetryStore, JsonlCanaryOrderSink],
+    ) -> None:
+        """Verify dispatcher cancel_micro_order pre-validates terminal state and symbol match."""
+        store, sink = isolated_telemetry
+        gateway = MockBinanceTestnetGateway()
+        reconciler = TestnetUserDataStreamReconciler("track_cancel_term", STARTING_EQUITY_USDT)
+        sequencer = TestnetStreamSequencer()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+
+        dispatcher = TestnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=store,
+            jsonl_sink=sink,
+            circuit_breaker=sm,
+            track_id="track_cancel_term",
+        )
+
+        order = dispatcher.dispatch_micro_order(
+            candidate_id="c-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+            auto_fill=True,
+        )
+        assert order.status == OrderLifecycleState.FILLED
+
+        # Symbol mismatch check
+        with pytest.raises(OrderCorrelationError, match="belongs to symbol BTCUSDT"):
+            dispatcher.cancel_micro_order("ETHUSDT", order.client_order_id)
+
+        # Terminal state check
+        with pytest.raises(
+            DomainViolation, match="Cannot cancel order .* in terminal state FILLED"
+        ):
+            dispatcher.cancel_micro_order("BTCUSDT", order.client_order_id)
