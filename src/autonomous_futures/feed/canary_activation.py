@@ -15,6 +15,7 @@ import logging
 import sqlite3
 import threading
 import time
+import urllib.parse
 from collections.abc import Mapping
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -97,7 +98,7 @@ DEFAULT_REFERENCE_PRICES: dict[str, Decimal] = {
 # =====================================================================
 
 
-class CanaryActivationError(Exception):
+class CanaryActivationError(DomainViolation):
     """Base exception for Phase 276 canary activation governance operations."""
 
 
@@ -363,14 +364,18 @@ class SecureExchangeKeyVault:
         permissions: ExchangeApiKeyPermissions,
     ) -> None:
         """Load credentials and perform immediate pre-flight permissions validation."""
+        if not api_key or not api_key.strip():
+            raise CanaryActivationError("Exchange API key must be a non-empty string")
+        if not api_secret or not api_secret.strip():
+            raise CanaryActivationError("Exchange API secret must be a non-empty string")
         self.verify_permissions(permissions)
         self._credentials = ExchangeCredentials(api_key, api_secret)
         self._permissions = permissions
 
     @staticmethod
     def canonicalize_query_string(params: Mapping[str, Any]) -> str:
-        """Format and canonicalize query string sorted alphabetically by key."""
-        sorted_keys = sorted(params.keys())
+        """Format and canonicalize query string sorted alphabetically by key per RFC 3986."""
+        sorted_keys = sorted(k for k in params.keys() if params[k] is not None)
         encoded_pairs: list[str] = []
         for k in sorted_keys:
             val = params[k]
@@ -378,7 +383,9 @@ class SecureExchangeKeyVault:
                 val_str = "true" if val else "false"
             else:
                 val_str = str(val)
-            encoded_pairs.append(f"{k}={val_str}")
+            k_enc = urllib.parse.quote(str(k), safe="~-._")
+            v_enc = urllib.parse.quote(val_str, safe="~-._")
+            encoded_pairs.append(f"{k_enc}={v_enc}")
         return "&".join(encoded_pairs)
 
     def generate_signature(self, query_string: str) -> str:
@@ -401,6 +408,12 @@ class SecureExchangeKeyVault:
         max_drift_ms: int = TIMESTAMP_DRIFT_WINDOW_MS,
     ) -> bool:
         """Validate that request timestamp drift does not exceed allowed window (<= 1000ms)."""
+        if request_timestamp_ms <= 0 or current_timestamp_ms <= 0:
+            raise TimestampDriftWindowExceededError(
+                "Request and current timestamps must be positive integers in milliseconds"
+            )
+        if max_drift_ms < 0:
+            raise TimestampDriftWindowExceededError("Timestamp drift window must be non-negative")
         drift = abs(current_timestamp_ms - request_timestamp_ms)
         if drift > max_drift_ms:
             raise TimestampDriftWindowExceededError(
@@ -431,6 +444,12 @@ class SecureExchangeKeyVault:
             raise WithdrawalPermissionDetectedError(
                 "Security violation: API key possesses prohibited Sub-Account permissions. "
                 "Fail-closed key rejection triggered."
+            )
+        if permissions.enable_margin or permissions.enable_spot_and_margin_trading:
+            raise MissingRequiredPermissionError(
+                "Security violation: API key possesses unpermitted Margin or Spot "
+                "Trading permissions. Only Futures Trading and Spot/Futures "
+                "Read-Only are permitted."
             )
 
         # 2. Required Permissions
@@ -546,7 +565,17 @@ class MicroCanaryOrder(DomainModel):
 
     @model_validator(mode="after")
     def validate_micro_order_invariants(self) -> MicroCanaryOrder:
+        if self.price <= Decimal("0"):
+            raise OrderNotionalCapBreachError(f"Order price {self.price} must be strictly positive")
+        if self.quantity <= Decimal("0"):
+            raise OrderNotionalCapBreachError(
+                f"Order quantity {self.quantity} must be strictly positive"
+            )
         calc_notional = (self.price * self.quantity).quantize(Decimal("0.0001"))
+        if calc_notional <= Decimal("0") and self.status != OrderStatus.REJECTED:
+            raise OrderNotionalCapBreachError(
+                f"Order notional {calc_notional} must be strictly positive"
+            )
         if self.status != OrderStatus.REJECTED and calc_notional > HARD_NOTIONAL_CAP_USDT:
             raise OrderNotionalCapBreachError(
                 f"Order notional {calc_notional} USDT breaches {HARD_NOTIONAL_CAP_USDT} USDT cap"
@@ -674,10 +703,11 @@ class CanaryOrderDispatchInterlockGateway:
         current_time_epoch: float,
         last_heartbeat_epoch: float,
         cumulative_drawdown_usdt: Decimal,
+        is_emergency_close: bool = False,
     ) -> None:
         """Evaluate all fail-closed order dispatch interlock gates in deterministic sequence."""
         # Gate 1: Permanent Lockout Check
-        if self.locked_out:
+        if not is_emergency_close and self.locked_out:
             evt = InterlockEvent(
                 track_id=track_id,
                 trigger_type=InterlockTriggerType.DAILY_LOSS_BUDGET_BREACH,
@@ -690,7 +720,7 @@ class CanaryOrderDispatchInterlockGateway:
             raise DailyLossBudgetLockoutError(evt.detail)
 
         # Gate 2: Certificate Validity & Expiration
-        if self.certificate.status != CertificateStatus.ACTIVE:
+        if not is_emergency_close and self.certificate.status != CertificateStatus.ACTIVE:
             evt = InterlockEvent(
                 track_id=track_id,
                 trigger_type=InterlockTriggerType.CERTIFICATE_INVALIDATED,
@@ -702,7 +732,8 @@ class CanaryOrderDispatchInterlockGateway:
             self.interlock_events.append(evt)
             raise CertificateInvalidatedError(evt.detail)
 
-        if self.certificate.is_expired():
+        current_dt = datetime.fromtimestamp(current_time_epoch, tz=UTC)
+        if self.certificate.is_expired(as_of=current_dt):
             self.certificate.status = CertificateStatus.EXPIRED
             evt = InterlockEvent(
                 track_id=track_id,
@@ -730,17 +761,20 @@ class CanaryOrderDispatchInterlockGateway:
             raise UnauthorizedSymbolError(evt.detail)
 
         # Gate 4: Hard Micro-Order Notional Cap
-        if notional_usdt > self.hard_notional_cap_usdt:
+        if notional_usdt <= Decimal("0") or notional_usdt > self.hard_notional_cap_usdt:
+            detail_msg = (
+                f"Order notional {notional_usdt} USDT exceeds hard ceiling "
+                f"of {self.hard_notional_cap_usdt} USDT"
+                if notional_usdt > self.hard_notional_cap_usdt
+                else f"Order notional {notional_usdt} USDT must be strictly positive"
+            )
             evt = InterlockEvent(
                 track_id=track_id,
                 trigger_type=InterlockTriggerType.HARD_NOTIONAL_CAP_REJECTION,
                 symbol=symbol,
                 attempted_notional_usdt=notional_usdt,
                 current_drawdown_usdt=cumulative_drawdown_usdt,
-                detail=(
-                    f"Order notional {notional_usdt} USDT exceeds hard ceiling "
-                    f"of {self.hard_notional_cap_usdt} USDT"
-                ),
+                detail=detail_msg,
             )
             self.interlock_events.append(evt)
             raise OrderNotionalCapBreachError(evt.detail)
@@ -764,7 +798,7 @@ class CanaryOrderDispatchInterlockGateway:
 
         # Gate 6: Circuit Breaker State Invariant
         cb_state = self.circuit_breaker.current_state
-        if cb_state != CircuitBreakerState.NORMAL:
+        if not is_emergency_close and cb_state != CircuitBreakerState.NORMAL:
             evt = InterlockEvent(
                 track_id=track_id,
                 trigger_type=InterlockTriggerType.CIRCUIT_BREAKER_BLOCK,
@@ -777,26 +811,27 @@ class CanaryOrderDispatchInterlockGateway:
             raise CircuitBreakerInterlockError(evt.detail)
 
         # Gate 7: Rate-Limit & Frequency Throttle
-        last_order_ts = self.last_order_timestamp_by_symbol.get(symbol)
-        if last_order_ts is not None:
-            elapsed = current_time_epoch - last_order_ts
-            if elapsed < self.rate_limit_interval_seconds:
-                evt = InterlockEvent(
-                    track_id=track_id,
-                    trigger_type=InterlockTriggerType.RATE_LIMIT_THROTTLE,
-                    symbol=symbol,
-                    attempted_notional_usdt=notional_usdt,
-                    current_drawdown_usdt=cumulative_drawdown_usdt,
-                    detail=(
-                        f"Order frequency throttle for {symbol}: elapsed {elapsed:.2f}s "
-                        f"< {self.rate_limit_interval_seconds}s limit"
-                    ),
-                )
-                self.interlock_events.append(evt)
-                raise RateLimitThrottleExceededError(evt.detail)
+        if not is_emergency_close:
+            last_order_ts = self.last_order_timestamp_by_symbol.get(symbol)
+            if last_order_ts is not None:
+                elapsed = current_time_epoch - last_order_ts
+                if elapsed < self.rate_limit_interval_seconds:
+                    evt = InterlockEvent(
+                        track_id=track_id,
+                        trigger_type=InterlockTriggerType.RATE_LIMIT_THROTTLE,
+                        symbol=symbol,
+                        attempted_notional_usdt=notional_usdt,
+                        current_drawdown_usdt=cumulative_drawdown_usdt,
+                        detail=(
+                            f"Order frequency throttle for {symbol}: elapsed {elapsed:.2f}s "
+                            f"< {self.rate_limit_interval_seconds}s limit"
+                        ),
+                    )
+                    self.interlock_events.append(evt)
+                    raise RateLimitThrottleExceededError(evt.detail)
 
         # Gate 8: Daily Loss Budget Interlock
-        if cumulative_drawdown_usdt >= self.daily_loss_budget_usdt:
+        if not is_emergency_close and cumulative_drawdown_usdt >= self.daily_loss_budget_usdt:
             self.trigger_daily_loss_lockout(
                 cumulative_drawdown_usdt,
                 track_id=track_id,
@@ -851,6 +886,20 @@ class CanaryOrderDispatchInterlockGateway:
             detail="API key possesses prohibited withdrawal rights; certificate invalidated",
         )
         self.interlock_events.append(evt)
+
+    def load_and_verify_key_vault(
+        self,
+        api_key: str,
+        api_secret: str,
+        permissions: ExchangeApiKeyPermissions,
+        track_id: str = "system",
+    ) -> None:
+        """Load credentials and invalidate certificate if withdrawal rights are detected."""
+        try:
+            self.key_vault.load_credentials(api_key, api_secret, permissions)
+        except WithdrawalPermissionDetectedError:
+            self.invalidate_certificate_for_withdrawal_key(track_id=track_id)
+            raise
 
 
 # =====================================================================
@@ -1455,6 +1504,8 @@ class JsonlCanaryOrderSink:
         self.jsonl_path = Path(jsonl_path)
         self.jsonl_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        if not self.jsonl_path.exists():
+            self.jsonl_path.touch()
 
     def record_order(self, order: MicroCanaryOrder) -> None:
         """Append an order event to JSONL order log with zero secret assertion."""
@@ -1636,6 +1687,7 @@ class CanaryActivationSimulator:
         is_post_only: bool = False,
         bracket_parent_id: str | None = None,
         bracket_role: str | None = None,
+        is_emergency_close: bool = False,
     ) -> MicroCanaryOrder:
         """Evaluate gateway interlocks and place micro canary order fail-closed."""
         notional = (price * quantity).quantize(Decimal("0.0001"))
@@ -1649,6 +1701,7 @@ class CanaryActivationSimulator:
                 current_time_epoch=self.simulated_clock_epoch,
                 last_heartbeat_epoch=self.last_heartbeat_epoch,
                 cumulative_drawdown_usdt=drawdown,
+                is_emergency_close=is_emergency_close,
             )
         except CanaryActivationError as exc:
             self.orders_rejected_count += 1
@@ -1698,7 +1751,7 @@ class CanaryActivationSimulator:
         return order
 
     def match_maker_fill(self, order_id: str, fill_price: Decimal) -> MicroCanaryFill:
-        """Simulate maker fill, open position, debit margin and maker fees."""
+        """Simulate maker fill, open or close position, debit/credit margin and maker fees."""
         order = self.orders[order_id]
         if order.status != OrderStatus.OPEN:
             raise CanaryActivationError(f"Cannot fill order {order_id} in state {order.status}")
@@ -1706,11 +1759,58 @@ class CanaryActivationSimulator:
         notional = (fill_price * order.quantity).quantize(Decimal("0.0001"))
         fee = (notional * DEFAULT_MAKER_FEE_RATE).quantize(Decimal("0.000001"))
 
-        # Exact accounting updates
-        self.cash -= notional + fee
-        self.allocated_margin += notional
-        self.realized_pnl -= fee
-        self.total_fees += fee
+        is_closing = order.symbol in self.active_positions and (
+            (
+                self.active_positions[order.symbol].side == PositionSide.LONG
+                and order.side == OrderSide.SELL
+            )
+            or (
+                self.active_positions[order.symbol].side == PositionSide.SHORT
+                and order.side == OrderSide.BUY
+            )
+        )
+
+        if is_closing:
+            pos = self.active_positions.pop(order.symbol)
+            if pos.side == PositionSide.LONG:
+                gross_pnl = (fill_price - pos.entry_price) * order.quantity
+            else:
+                gross_pnl = (pos.entry_price - fill_price) * order.quantity
+            net_trade_pnl = gross_pnl - fee
+
+            self.cash += pos.allocated_margin_usdt + gross_pnl - fee
+            self.allocated_margin -= pos.allocated_margin_usdt
+            self.realized_pnl += net_trade_pnl
+            self.total_fees += fee
+
+            pos.status = PositionStatus.CLOSED
+            pos.closed_at_utc = datetime.now(UTC).isoformat()
+            pos.exit_price = fill_price
+            pos.realized_pnl_usdt = net_trade_pnl
+            pos.unrealized_pnl_usdt = Decimal("0")
+            self.closed_positions.append(pos)
+            self.telemetry_store.record_position(pos)
+            fill_pnl = net_trade_pnl
+        else:
+            self.cash -= notional + fee
+            self.allocated_margin += notional
+            self.realized_pnl -= fee
+            self.total_fees += fee
+
+            pos = MicroCanaryPosition(
+                track_id=self.track_id,
+                candidate_id=order.candidate_id,
+                symbol=order.symbol,
+                side=PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT,
+                quantity=order.quantity,
+                entry_price=fill_price,
+                current_price=fill_price,
+                allocated_margin_usdt=notional,
+                status=PositionStatus.OPEN,
+            )
+            self.active_positions[order.symbol] = pos
+            self.telemetry_store.record_position(pos)
+            fill_pnl = -fee
 
         order.status = OrderStatus.FILLED
         order.updated_at_utc = datetime.now(UTC).isoformat()
@@ -1733,25 +1833,16 @@ class CanaryActivationSimulator:
             fee_rate=DEFAULT_MAKER_FEE_RATE,
             slippage_usdt=Decimal("0"),
             slippage_bps=Decimal("0"),
-            realized_pnl_usdt=-fee,
+            realized_pnl_usdt=fill_pnl,
         )
         self.fills[fill.fill_id] = fill
         self.telemetry_store.record_fill(fill)
         self.jsonl_sink.record_fill(fill)
 
-        pos = MicroCanaryPosition(
-            track_id=self.track_id,
-            candidate_id=order.candidate_id,
-            symbol=order.symbol,
-            side=PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT,
-            quantity=order.quantity,
-            entry_price=fill_price,
-            current_price=fill_price,
-            allocated_margin_usdt=notional,
-            status=PositionStatus.OPEN,
-        )
-        self.active_positions[order.symbol] = pos
-        self.telemetry_store.record_position(pos)
+        # Check daily loss budget after trade fill
+        drawdown = self.cumulative_drawdown_usdt
+        if drawdown >= self.gateway.daily_loss_budget_usdt and not self.gateway.locked_out:
+            self.gateway.trigger_daily_loss_lockout(drawdown, self.track_id, order.symbol)
 
         self._record_snapshot()
         return fill
@@ -1764,6 +1855,7 @@ class CanaryActivationSimulator:
         order_type: OrderType,
         quantity: Decimal,
         mark_price: Decimal,
+        is_emergency_close: bool = False,
     ) -> tuple[MicroCanaryOrder, MicroCanaryFill]:
         """Simulate taker order execution with slippage and taker fee."""
         slippage_mult = (
@@ -1781,6 +1873,7 @@ class CanaryActivationSimulator:
             order_type=order_type,
             quantity=quantity,
             price=fill_price,
+            is_emergency_close=is_emergency_close,
         )
 
         fee = (notional * DEFAULT_TAKER_FEE_RATE).quantize(Decimal("0.000001"))
@@ -1883,6 +1976,7 @@ class CanaryActivationSimulator:
                 order_type=OrderType.MARKET,
                 quantity=pos.quantity,
                 mark_price=mark,
+                is_emergency_close=True,
             )
 
 
@@ -1976,6 +2070,20 @@ class CanaryActivationConfig(DomainModel):
     daily_loss_budget_usdt: Decimal = DAILY_LOSS_BUDGET_USDT
     simulate_adverse_drift: bool = False
     recovery_hysteresis_ticks: int = 5
+
+    @model_validator(mode="after")
+    def validate_config_invariants(self) -> CanaryActivationConfig:
+        if not self.operator_id or not self.operator_id.strip():
+            raise OperatorAuthorizationMissingError("operator_id must be a non-empty string")
+        if self.daily_loss_budget_usdt <= Decimal("0"):
+            raise CanaryActivationError(
+                f"daily_loss_budget_usdt {self.daily_loss_budget_usdt} must be positive"
+            )
+        if self.max_duration_hours <= 0:
+            raise CanaryActivationError(
+                f"max_duration_hours {self.max_duration_hours} must be positive"
+            )
+        return self
 
 
 class CanaryActivationRunner:
@@ -3078,6 +3186,24 @@ def verify_phase_276_hash_chain(
         logger.error("Certificate cryptographic_signature verification failed")
         return False
 
+    p275_path = Path(phase275_dir)
+    if p275_path.is_dir():
+        p275_report = p275_path / "canary-live-readiness-report.json"
+        p275_summary = p275_path / "rehearsal-summary.json"
+        if p275_report.is_file():
+            expected_rep_hash = compute_file_sha256(p275_report)
+            if cert_data.get("upstream_phase275_readiness_hash") != expected_rep_hash:
+                logger.error("Certificate upstream_phase275_readiness_hash mismatch")
+                return False
+        if p275_summary.is_file():
+            expected_sum_hash = compute_file_sha256(p275_summary)
+            if cert_data.get("upstream_phase275_summary_hash") != expected_sum_hash:
+                logger.error("Certificate upstream_phase275_summary_hash mismatch")
+                return False
+        if not verify_phase_275_hash_chain(output_dir=p275_path, manifest_path=manifest_path):
+            logger.error("Upstream Phase 275 Merkle DAG SHA-256 hash chain is not intact")
+            return False
+
     # 3. Verify canary-activation-report.json
     try:
         report_data = json.loads(report_path.read_text(encoding="utf-8"))
@@ -3135,6 +3261,9 @@ def verify_phase_276_hash_chain(
 
     if paper_data.get("staged_manifest_hash") != manifest.manifest_hash:
         logger.error("Paper summary staged_manifest_hash mismatch")
+        return False
+    if paper_data.get("cryptographic_signature") != manifest.cryptographic_signature:
+        logger.error("Paper summary cryptographic_signature mismatch")
         return False
     paper_hashes = paper_data.get("artifact_hashes", {})
     if paper_hashes.get("canary-activation-certificate.json") != actual_cert_hash:

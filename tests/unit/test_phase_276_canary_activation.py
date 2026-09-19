@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -30,8 +31,10 @@ from autonomous_futures.feed.canary_activation import (  # noqa: E402
     AccountingDriftError,
     CanaryActivationCertificate,
     CanaryActivationConfig,
+    CanaryActivationError,
     CanaryActivationReport,
     CanaryActivationRunner,
+    CanaryActivationSimulator,
     CanaryActivationTrackResult,
     CanaryOrderDispatchInterlockGateway,
     CertificateExpiredError,
@@ -48,6 +51,7 @@ from autonomous_futures.feed.canary_activation import (  # noqa: E402
     OrderNotionalCapBreachError,
     OrderSide,
     OrderType,
+    PositionSide,
     RateLimitThrottleExceededError,
     SecretToken,
     SecureExchangeKeyVault,
@@ -812,3 +816,272 @@ class TestCliRunner:
         assert "PHASE 276: OPERATOR PRODUCTION CANARY AUTHORIZATION" in table
         assert "track_1" in table
         assert "All Criteria Passed : True" in table
+
+
+# =====================================================================
+# 9. Adversarial Reviewer Probes & Edge Case Regression Tests
+# =====================================================================
+
+
+class TestAdversarialReviewerProbe:
+    """Adversarial edge-case probes introduced by reviewer audit."""
+
+    def test_gate2_simulated_expiration(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+    ) -> None:
+        """Verify Gate 2 catches expiration under simulated/replay time past 24h."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        now = time.time()
+        future_epoch = now + (25 * 3600)  # 25 hours in future (past 24h expiry)
+
+        with pytest.raises(CertificateExpiredError, match="expiration timestamp"):
+            gateway.check_order_dispatch_interlocks(
+                symbol="BTCUSDT",
+                notional_usdt=Decimal("4.00"),
+                track_id="test_sim_exp",
+                current_time_epoch=future_epoch,
+                last_heartbeat_epoch=future_epoch,
+                cumulative_drawdown_usdt=Decimal("0.0"),
+            )
+        assert gateway.certificate.status == CertificateStatus.EXPIRED
+
+    def test_match_maker_fill_closing_position(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify match_maker_fill properly closes position, releases margin, and updates cash."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_telemetry.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_orders.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_maker_close")
+
+        # 1. Open long position via maker fill
+        buy_order = sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        sim.match_maker_fill(buy_order.order_id, fill_price=Decimal("60000.00"))
+        assert "BTCUSDT" in sim.active_positions
+        assert sim.active_positions["BTCUSDT"].side == PositionSide.LONG
+        assert sim.allocated_margin == Decimal("4.8000")
+
+        # 2. Advance time past rate-limit window
+        sim.advance_time(65.0, update_heartbeat=True)
+
+        # 3. Close long position via maker sell fill with profit
+        sell_order = sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60500.00"),
+        )
+        close_fill = sim.match_maker_fill(sell_order.order_id, fill_price=Decimal("60500.00"))
+
+        assert "BTCUSDT" not in sim.active_positions
+        assert len(sim.closed_positions) == 1
+        assert sim.allocated_margin == Decimal("0")
+        assert sim.current_drift < Decimal("1e-15")
+        assert close_fill.realized_pnl_usdt > Decimal("0")
+
+        store.close()
+
+    def test_close_all_positions_emergency_during_lockout(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify close_all_positions_emergency flattens positions even when locked out."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_emg.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_emg.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_emg_close")
+
+        # Open position
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+        assert len(sim.active_positions) == 1
+
+        # Engage lockout
+        gateway.locked_out = True
+        gateway.lockout_reason = "Daily loss budget breach lockout"
+
+        # Emergency flatten must succeed and clear active positions
+        sim.close_all_positions_emergency()
+        assert len(sim.active_positions) == 0
+        assert sim.allocated_margin == Decimal("0")
+        assert sim.current_drift < Decimal("1e-15")
+
+        store.close()
+
+    def test_non_positive_timestamps_rejected(self) -> None:
+        """Verify non-positive timestamps are rejected fail-closed."""
+        with pytest.raises(TimestampDriftWindowExceededError, match="must be positive integers"):
+            SecureExchangeKeyVault.validate_timestamp_window(-500, -200)
+
+        with pytest.raises(TimestampDriftWindowExceededError, match="must be positive integers"):
+            SecureExchangeKeyVault.validate_timestamp_window(0, 1000)
+
+        with pytest.raises(TimestampDriftWindowExceededError, match="must be non-negative"):
+            SecureExchangeKeyVault.validate_timestamp_window(1000, 1000, max_drift_ms=-1)
+
+    def test_empty_or_whitespace_credentials_rejected(self) -> None:
+        """Verify empty or whitespace API keys and secrets are rejected."""
+        vault = SecureExchangeKeyVault()
+        perms = ExchangeApiKeyPermissions(enable_reading=True, enable_futures_trading=True)
+
+        with pytest.raises(CanaryActivationError, match="must be a non-empty string"):
+            vault.load_credentials("", "secret", perms)
+
+        with pytest.raises(CanaryActivationError, match="must be a non-empty string"):
+            vault.load_credentials("key", "   ", perms)
+
+    def test_unpermitted_margin_permissions_rejected(self) -> None:
+        """Verify keys with margin or spot trading enabled are rejected fail-closed."""
+        vault = SecureExchangeKeyVault()
+
+        with pytest.raises(MissingRequiredPermissionError, match="unpermitted Margin or Spot"):
+            vault.load_credentials(
+                "key",
+                "secret",
+                ExchangeApiKeyPermissions(
+                    enable_reading=True,
+                    enable_futures_trading=True,
+                    enable_margin=True,
+                ),
+            )
+
+        with pytest.raises(MissingRequiredPermissionError, match="unpermitted Margin or Spot"):
+            vault.load_credentials(
+                "key",
+                "secret",
+                ExchangeApiKeyPermissions(
+                    enable_reading=True,
+                    enable_futures_trading=True,
+                    enable_spot_and_margin_trading=True,
+                ),
+            )
+
+    def test_rfc3986_percent_encoding(self) -> None:
+        """Verify RFC 3986 percent encoding for spaces and special characters and None omission."""
+        params = {
+            "symbol": "BTC USDT",
+            "clientOrderId": "order#1+2",
+            "filter": None,
+            "timestamp": "1700000000",
+        }
+        canonical = SecureExchangeKeyVault.canonicalize_query_string(params)
+        assert "filter" not in canonical
+        assert "clientOrderId=order%231%2B2" in canonical
+        assert "symbol=BTC%20USDT" in canonical
+
+    def test_non_positive_price_quantity_notional_rejected(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+    ) -> None:
+        """Verify non-positive price, quantity, or notional are rejected fail-closed."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        now = time.time()
+        with pytest.raises(
+            (OrderNotionalCapBreachError, ValidationError), match="must be strictly positive"
+        ):
+            MicroCanaryOrder(
+                track_id="t",
+                candidate_id="c",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                price=Decimal("-10.0"),
+                quantity=Decimal("0.0001"),
+                notional_usdt=Decimal("0.0"),
+            )
+
+        with pytest.raises(OrderNotionalCapBreachError, match="must be strictly positive"):
+            gateway.check_order_dispatch_interlocks(
+                symbol="BTCUSDT",
+                notional_usdt=Decimal("0.0"),
+                track_id="t",
+                current_time_epoch=now,
+                last_heartbeat_epoch=now,
+                cumulative_drawdown_usdt=Decimal("0.0"),
+            )
+
+    def test_config_invariants_validation(self) -> None:
+        """Verify CanaryActivationConfig validates positive parameters and non-empty operator."""
+        with pytest.raises(ValidationError, match="operator_id must be a non-empty"):
+            CanaryActivationConfig(operator_id="")
+
+        with pytest.raises(ValidationError, match="daily_loss_budget_usdt .* must be positive"):
+            CanaryActivationConfig(daily_loss_budget_usdt=Decimal("0"))
+
+        with pytest.raises(ValidationError, match="max_duration_hours .* must be positive"):
+            CanaryActivationConfig(max_duration_hours=0.0)
+
+    def test_load_and_verify_key_vault_invalidates_certificate(
+        self, sample_certificate: CanaryActivationCertificate
+    ) -> None:
+        """Verify load_and_verify_key_vault detects prohibited rights and invalidates cert."""
+        vault = SecureExchangeKeyVault()
+        sm = CanaryCircuitBreakerRecoveryStateMachine()
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=vault,
+            circuit_breaker=sm,
+        )
+        assert sample_certificate.status == CertificateStatus.ACTIVE
+
+        bad_perms = ExchangeApiKeyPermissions(
+            enable_reading=True,
+            enable_futures_trading=True,
+            enable_withdrawals=True,
+        )
+
+        with pytest.raises(WithdrawalPermissionDetectedError):
+            gateway.load_and_verify_key_vault(
+                api_key="bad_k",
+                api_secret="bad_s",
+                permissions=bad_perms,
+                track_id="adv_test",
+            )
+
+        assert (
+            sample_certificate.status
+            == CertificateStatus.INVALIDATED_WITHDRAWAL_PERMISSION_DETECTED
+        )
