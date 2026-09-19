@@ -1429,3 +1429,535 @@ class TestAdversarialReviewerProbe:
         """Verify CLI --verify-hash-chain works without --authorize-canary."""
         exit_code = cli_main(["--verify-hash-chain"])
         assert exit_code == 0
+
+    def test_fake_is_closing_rejected_without_opposing_position(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify passing is_closing=True without an active opposing position is rejected."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_fake_close.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_fake_close.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_fake_close")
+
+        # 1. No position open at all
+        with pytest.raises(CanaryActivationError, match="no active opposing position exists"):
+            sim.place_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+                is_closing=True,
+            )
+
+        # 2. Position is LONG, but order is BUY (same side, not opposing)
+        ord1 = sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00004"),
+            price=Decimal("60000.00"),
+        )
+        sim.match_maker_fill(ord1.order_id, fill_price=Decimal("60000.00"))
+
+        with pytest.raises(CanaryActivationError, match="no active opposing position exists"):
+            sim.place_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00004"),
+                price=Decimal("60000.00"),
+                is_closing=True,
+            )
+        store.close()
+
+    def test_overclosing_order_rejected_at_placement(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify closing order quantity exceeding active position is rejected in place_order."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+            hard_notional_cap_usdt=Decimal("20.00"),
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_overclose_upfront.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_overclose_upfront.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_overclose_upfront")
+
+        # Open 0.00004 BTC position
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00004"),
+            mark_price=Decimal("60000.00"),
+        )
+
+        sim.advance_time(70.0, update_heartbeat=True)
+        # Attempt to place order with quantity 0.00008 > 0.00004
+        with pytest.raises(CanaryActivationError, match="exceeds active position quantity"):
+            sim.place_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.SELL,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+            )
+
+        # Must not have left any open orders in simulator
+        open_orders = [o for o in sim.orders.values() if o.status == OrderStatus.OPEN]
+        assert len(open_orders) == 0
+        store.close()
+
+    def test_closing_order_permitted_during_loss_budget_lockout(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify closing orders are permitted through Gate 1 and Gate 8 when in loss lockout."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_lockout_close.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_lockout_close.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_lockout_close")
+
+        # Open position
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+
+        # Trigger lockout
+        gateway.trigger_daily_loss_lockout(Decimal("2.50"), "t_lockout_close", "BTCUSDT")
+        assert gateway.locked_out is True
+
+        # Opening a new order must be blocked
+        with pytest.raises(DailyLossBudgetLockoutError):
+            sim.place_order(
+                candidate_id="cand-eth",
+                symbol="ETHUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.001"),
+                price=Decimal("2500.00"),
+            )
+
+        # But closing the existing position MUST be permitted to de-risk
+        sim.advance_time(70.0, update_heartbeat=True)
+        close_order = sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        assert close_order.status == OrderStatus.OPEN
+        sim.match_maker_fill(close_order.order_id, fill_price=Decimal("60000.00"))
+        assert len(sim.active_positions) == 0
+        assert sim.current_drift < Decimal("1e-15")
+        store.close()
+
+    def test_closing_order_permitted_after_certificate_expiry(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify closing orders are permitted through Gate 2 when certificate has expired."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_exp_close.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_exp_close.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_exp_close")
+
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+
+        # Advance time 30 hours (> 24 hours certificate validity)
+        sim.advance_time(30 * 3600.0, update_heartbeat=True)
+
+        # New opening order must be blocked due to expiration
+        with pytest.raises(CertificateExpiredError):
+            sim.place_order(
+                candidate_id="cand-eth",
+                symbol="ETHUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.001"),
+                price=Decimal("2500.00"),
+            )
+
+        # Closing order MUST be permitted to exit position
+        close_order = sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        assert close_order.status == OrderStatus.OPEN
+        sim.match_maker_fill(close_order.order_id, fill_price=Decimal("60000.00"))
+        assert len(sim.active_positions) == 0
+        assert sim.current_drift < Decimal("1e-15")
+        store.close()
+
+    def test_closing_order_permitted_during_rate_limit_throttle(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify closing orders are permitted through Gate 7 within the 60s rate limit window."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_rate_close.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_rate_close.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_rate_close")
+
+        # Open position
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+
+        # Immediately advance only 5 seconds (< 60s limit)
+        sim.advance_time(5.0, update_heartbeat=True)
+
+        # Closing order MUST NOT be blocked by rate limit
+        close_order = sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        assert close_order.status == OrderStatus.OPEN
+        sim.match_maker_fill(close_order.order_id, fill_price=Decimal("60000.00"))
+        assert len(sim.active_positions) == 0
+        store.close()
+
+    def test_closing_order_permitted_during_circuit_breaker_soft_freeze(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify closing orders are permitted through Gate 6 in soft freeze."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_cb_close.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_cb_close.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_cb_close")
+
+        # Open position
+        sim.execute_taker_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("0.00008"),
+            mark_price=Decimal("60000.00"),
+        )
+
+        # Trigger soft freeze
+        fresh_sm.process_tick(rtt_ms=450.0, drift_ms=10.0, anomaly_reason="Test latency anomaly")
+        assert fresh_sm.current_state == CircuitBreakerState.TIER_1_SOFT_FREEZE
+
+        # New opening order must be blocked
+        sim.advance_time(70.0, update_heartbeat=True)
+        with pytest.raises(CircuitBreakerInterlockError):
+            sim.place_order(
+                candidate_id="cand-eth",
+                symbol="ETHUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.001"),
+                price=Decimal("2500.00"),
+            )
+
+        # Closing order MUST be permitted to exit position
+        close_order = sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        assert close_order.status == OrderStatus.OPEN
+        sim.match_maker_fill(close_order.order_id, fill_price=Decimal("60000.00"))
+        assert len(sim.active_positions) == 0
+        store.close()
+
+    def test_timestamp_window_nan_inf_and_boolean_max_drift_rejection(self) -> None:
+        """Verify NaN, Inf, and boolean max_drift are rejected in timestamp validation."""
+        with pytest.raises(TimestampDriftWindowExceededError, match="cannot be boolean"):
+            SecureExchangeKeyVault.validate_timestamp_window(1000, 1000, max_drift_ms=True)  # type: ignore[arg-type]
+
+        with pytest.raises(TimestampDriftWindowExceededError, match="must be finite"):
+            SecureExchangeKeyVault.validate_timestamp_window(float("nan"), 1000)
+
+        with pytest.raises(TimestampDriftWindowExceededError, match="must be finite"):
+            SecureExchangeKeyVault.validate_timestamp_window(1000, float("nan"))
+
+        with pytest.raises(TimestampDriftWindowExceededError, match="must be finite"):
+            SecureExchangeKeyVault.validate_timestamp_window(1000, 1000, max_drift_ms=float("nan"))  # type: ignore[arg-type]
+
+        with pytest.raises(TimestampDriftWindowExceededError, match="must be finite"):
+            SecureExchangeKeyVault.validate_timestamp_window(float("inf"), 1000)
+
+    def test_stale_heartbeat_nan_and_inf_rejection(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+    ) -> None:
+        """Verify Gate 5 blocks dispatch when heartbeat timestamps are NaN or Inf."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+
+        with pytest.raises(StaleHeartbeatInterlockError, match="invalid or non-finite"):
+            gateway.check_order_dispatch_interlocks(
+                symbol="BTCUSDT",
+                notional_usdt=Decimal("4.00"),
+                track_id="t_hb",
+                current_time_epoch=float("nan"),
+                last_heartbeat_epoch=1000.0,
+                cumulative_drawdown_usdt=Decimal("0.0"),
+            )
+
+        with pytest.raises(StaleHeartbeatInterlockError, match="invalid or non-finite"):
+            gateway.check_order_dispatch_interlocks(
+                symbol="BTCUSDT",
+                notional_usdt=Decimal("4.00"),
+                track_id="t_hb",
+                current_time_epoch=1000.0,
+                last_heartbeat_epoch=float("nan"),
+                cumulative_drawdown_usdt=Decimal("0.0"),
+            )
+
+    def test_cancel_order_and_cancel_all_open_orders(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify order cancellation updates status and telemetric counters properly."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_cancel.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_cancel.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_cancel")
+
+        ord1 = sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("60000.00"),
+        )
+        assert ord1.status == OrderStatus.OPEN
+
+        # Cancel single order
+        cancelled = sim.cancel_order(ord1.order_id, reason="Operator cancellation test")
+        assert cancelled.status == OrderStatus.CANCELLED
+        assert cancelled.rejection_reason == "Operator cancellation test"
+        assert sim.orders_cancelled_count == 1
+
+        # Place two more orders
+        sim.advance_time(70.0, update_heartbeat=True)
+        sim.place_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00008"),
+            price=Decimal("59000.00"),
+        )
+        sim.place_order(
+            candidate_id="cand-eth",
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.001"),
+            price=Decimal("2400.00"),
+        )
+
+        # Cancel all remaining open orders
+        all_cancelled = sim.cancel_all_open_orders(reason="Global cancel")
+        assert len(all_cancelled) == 2
+        assert sim.orders_cancelled_count == 3
+        assert all(o.status == OrderStatus.CANCELLED for o in all_cancelled)
+        store.close()
+
+    def test_rejected_order_with_invalid_price_or_quantity_persists(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify rejected orders with non-positive price/qty are safely recorded to telemetry."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_rej_order.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_rej_order.jsonl")
+        sim = CanaryActivationSimulator(gateway, store, sink, "t_rej_order")
+
+        with pytest.raises(OrderNotionalCapBreachError, match="must be strictly positive"):
+            sim.place_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("-100.00"),
+            )
+        assert sim.orders_rejected_count == 1
+
+        with pytest.raises(OrderNotionalCapBreachError, match="must be strictly positive"):
+            sim.place_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.0"),
+                price=Decimal("60000.00"),
+            )
+        assert sim.orders_rejected_count == 2
+        store.close()
+
+    def test_insufficient_cash_opening_order_rejected(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify attempting to open an order with notional exceeding cash is rejected."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_cash.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_cash.jsonl")
+        sim = CanaryActivationSimulator(
+            gateway, store, sink, "t_cash", starting_equity=Decimal("2.00")
+        )
+
+        # 4.80 USDT order with only 2.00 USDT cash
+        with pytest.raises(CanaryActivationError, match="Insufficient free cash"):
+            sim.place_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+            )
+        store.close()
+
+    def test_simulate_adverse_drift_fails_closed(
+        self,
+        sample_certificate: CanaryActivationCertificate,
+        safe_key_vault: SecureExchangeKeyVault,
+        fresh_sm: CanaryCircuitBreakerRecoveryStateMachine,
+        tmp_path: Path,
+    ) -> None:
+        """Verify simulate_adverse_drift triggers fail-closed AccountingDriftError."""
+        gateway = CanaryOrderDispatchInterlockGateway(
+            certificate=sample_certificate,
+            key_vault=safe_key_vault,
+            circuit_breaker=fresh_sm,
+        )
+        store = SqliteCanaryActivationTelemetryStore(tmp_path / "test_drift.sqlite3")
+        sink = JsonlCanaryOrderSink(tmp_path / "test_drift.jsonl")
+
+        with pytest.raises(AccountingDriftError, match="Double-entry drift"):
+            CanaryActivationSimulator(gateway, store, sink, "t_drift", simulate_adverse_drift=True)
+        store.close()
+
+    def test_dynamic_interlock_stats_on_single_track(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify running a single track produces truthful dynamic interlock_stats."""
+        cfg = CanaryActivationConfig(
+            output_dir=tmp_path / "track1_run",
+            track="track_1",
+            authorize_canary=True,
+        )
+        runner = CanaryActivationRunner(cfg)
+        report = runner.execute_all_tracks()
+        stats = report.interlock_stats
+        assert stats["total_interlock_blocks"] == 0
+        assert stats["heartbeat_stale_blocks"] == 0
+        assert stats["circuit_breaker_blocks"] == 0
+        assert stats["notional_cap_blocks"] == 0
+        assert stats["rate_limit_blocks"] == 0
+        assert stats["daily_loss_lockouts"] == 0
+        assert stats["key_permission_rejections"] == 0

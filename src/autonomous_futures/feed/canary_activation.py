@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import sqlite3
 import threading
 import time
@@ -418,12 +419,27 @@ class SecureExchangeKeyVault:
         max_drift_ms: int = TIMESTAMP_DRIFT_WINDOW_MS,
     ) -> bool:
         """Validate that request timestamp drift does not exceed allowed window (<= 1000ms)."""
-        if isinstance(request_timestamp_ms, bool) or isinstance(current_timestamp_ms, bool):
+        if (
+            isinstance(request_timestamp_ms, bool)
+            or isinstance(current_timestamp_ms, bool)
+            or isinstance(max_drift_ms, bool)
+        ):
             raise TimestampDriftWindowExceededError("Timestamps cannot be boolean values")
-        if not isinstance(request_timestamp_ms, (int, float)) or not isinstance(
-            current_timestamp_ms, (int, float)
+        if (
+            not isinstance(request_timestamp_ms, (int, float))
+            or not isinstance(current_timestamp_ms, (int, float))
+            or not isinstance(max_drift_ms, (int, float))
         ):
             raise TimestampDriftWindowExceededError("Timestamps must be numeric milliseconds")
+        if (
+            math.isnan(request_timestamp_ms)
+            or math.isinf(request_timestamp_ms)
+            or math.isnan(current_timestamp_ms)
+            or math.isinf(current_timestamp_ms)
+            or math.isnan(max_drift_ms)
+            or math.isinf(max_drift_ms)
+        ):
+            raise TimestampDriftWindowExceededError("Timestamps must be finite numeric values")
         if request_timestamp_ms <= 0 or current_timestamp_ms <= 0:
             raise TimestampDriftWindowExceededError(
                 "Request and current timestamps must be positive integers in milliseconds"
@@ -583,26 +599,29 @@ class MicroCanaryOrder(DomainModel):
 
     @model_validator(mode="after")
     def validate_micro_order_invariants(self) -> MicroCanaryOrder:
-        if self.price <= Decimal("0"):
-            raise OrderNotionalCapBreachError(f"Order price {self.price} must be strictly positive")
-        if self.quantity <= Decimal("0"):
-            raise OrderNotionalCapBreachError(
-                f"Order quantity {self.quantity} must be strictly positive"
-            )
-        calc_notional = (self.price * self.quantity).quantize(Decimal("0.0001"))
-        if calc_notional <= Decimal("0") and self.status != OrderStatus.REJECTED:
-            raise OrderNotionalCapBreachError(
-                f"Order notional {calc_notional} must be strictly positive"
-            )
-        if (
-            not self.is_closing
-            and not self.is_emergency_close
-            and self.status != OrderStatus.REJECTED
-            and calc_notional > HARD_NOTIONAL_CAP_USDT
-        ):
-            raise OrderNotionalCapBreachError(
-                f"Order notional {calc_notional} USDT breaches {HARD_NOTIONAL_CAP_USDT} USDT cap"
-            )
+        if self.status != OrderStatus.REJECTED:
+            if not self.price.is_finite() or self.price <= Decimal("0"):
+                raise OrderNotionalCapBreachError(
+                    f"Order price {self.price} must be strictly positive and finite"
+                )
+            if not self.quantity.is_finite() or self.quantity <= Decimal("0"):
+                raise OrderNotionalCapBreachError(
+                    f"Order quantity {self.quantity} must be strictly positive and finite"
+                )
+            calc_notional = (self.price * self.quantity).quantize(Decimal("0.0001"))
+            if calc_notional <= Decimal("0"):
+                raise OrderNotionalCapBreachError(
+                    f"Order notional {calc_notional} must be strictly positive"
+                )
+            if (
+                not self.is_closing
+                and not self.is_emergency_close
+                and calc_notional > HARD_NOTIONAL_CAP_USDT
+            ):
+                raise OrderNotionalCapBreachError(
+                    f"Order notional {calc_notional} USDT breaches "
+                    f"{HARD_NOTIONAL_CAP_USDT} USDT cap"
+                )
         return self
 
 
@@ -733,7 +752,7 @@ class CanaryOrderDispatchInterlockGateway:
     ) -> None:
         """Evaluate all fail-closed order dispatch interlock gates in deterministic sequence."""
         # Gate 1: Permanent Lockout Check
-        if not is_emergency_close and self.locked_out:
+        if not is_emergency_close and not is_closing and self.locked_out:
             evt = InterlockEvent(
                 track_id=track_id,
                 trigger_type=InterlockTriggerType.DAILY_LOSS_BUDGET_BREACH,
@@ -746,7 +765,11 @@ class CanaryOrderDispatchInterlockGateway:
             raise DailyLossBudgetLockoutError(evt.detail)
 
         # Gate 2: Certificate Validity & Expiration
-        if not is_emergency_close and self.certificate.status != CertificateStatus.ACTIVE:
+        if (
+            not is_emergency_close
+            and not is_closing
+            and self.certificate.status != CertificateStatus.ACTIVE
+        ):
             evt = InterlockEvent(
                 track_id=track_id,
                 trigger_type=InterlockTriggerType.CERTIFICATE_INVALIDATED,
@@ -758,8 +781,26 @@ class CanaryOrderDispatchInterlockGateway:
             self.interlock_events.append(evt)
             raise CertificateInvalidatedError(evt.detail)
 
+        if math.isnan(current_time_epoch) or math.isinf(current_time_epoch):
+            evt = InterlockEvent(
+                track_id=track_id,
+                trigger_type=InterlockTriggerType.STALE_HEARTBEAT_BLOCK,
+                symbol=symbol,
+                attempted_notional_usdt=(
+                    notional_usdt if notional_usdt.is_finite() else Decimal("0")
+                ),
+                current_drawdown_usdt=cumulative_drawdown_usdt,
+                detail=f"Current time epoch is invalid or non-finite ({current_time_epoch})",
+            )
+            self.interlock_events.append(evt)
+            raise StaleHeartbeatInterlockError(evt.detail)
+
         current_dt = datetime.fromtimestamp(current_time_epoch, tz=UTC)
-        if not is_emergency_close and self.certificate.is_expired(as_of=current_dt):
+        if (
+            not is_emergency_close
+            and not is_closing
+            and self.certificate.is_expired(as_of=current_dt)
+        ):
             self.certificate.status = CertificateStatus.EXPIRED
             evt = InterlockEvent(
                 track_id=track_id,
@@ -787,14 +828,16 @@ class CanaryOrderDispatchInterlockGateway:
             raise UnauthorizedSymbolError(evt.detail)
 
         # Gate 4: Hard Micro-Order Notional Cap
-        if notional_usdt <= Decimal("0"):
+        if not notional_usdt.is_finite() or notional_usdt <= Decimal("0"):
             evt = InterlockEvent(
                 track_id=track_id,
                 trigger_type=InterlockTriggerType.HARD_NOTIONAL_CAP_REJECTION,
                 symbol=symbol,
-                attempted_notional_usdt=notional_usdt,
+                attempted_notional_usdt=(
+                    notional_usdt if notional_usdt.is_finite() else Decimal("0")
+                ),
                 current_drawdown_usdt=cumulative_drawdown_usdt,
-                detail=f"Order notional {notional_usdt} USDT must be strictly positive",
+                detail=f"Order notional {notional_usdt} USDT must be strictly positive and finite",
             )
             self.interlock_events.append(evt)
             raise OrderNotionalCapBreachError(evt.detail)
@@ -859,15 +902,21 @@ class CanaryOrderDispatchInterlockGateway:
         # Gate 5: Stream Heartbeat Freshness
         if not is_emergency_close:
             heartbeat_age_ms = (current_time_epoch - last_heartbeat_epoch) * 1000.0
-            if heartbeat_age_ms < 0 or heartbeat_age_ms > self.max_heartbeat_age_ms:
+            if (
+                math.isnan(heartbeat_age_ms)
+                or math.isinf(heartbeat_age_ms)
+                or heartbeat_age_ms < 0
+                or heartbeat_age_ms > self.max_heartbeat_age_ms
+            ):
                 detail_msg = (
                     f"Stream heartbeat age ({heartbeat_age_ms:.1f}ms) exceeds "
                     f"{self.max_heartbeat_age_ms}ms threshold"
-                    if heartbeat_age_ms >= 0
-                    else (
-                        "Stream heartbeat timestamp in future / negative age "
-                        f"({heartbeat_age_ms:.1f}ms)"
+                    if (
+                        not math.isnan(heartbeat_age_ms)
+                        and not math.isinf(heartbeat_age_ms)
+                        and heartbeat_age_ms >= 0
                     )
+                    else f"Stream heartbeat age invalid or non-finite ({heartbeat_age_ms}ms)"
                 )
                 evt = InterlockEvent(
                     track_id=track_id,
@@ -882,7 +931,7 @@ class CanaryOrderDispatchInterlockGateway:
 
         # Gate 6: Circuit Breaker State Invariant
         cb_state = self.circuit_breaker.current_state
-        if not is_emergency_close and cb_state != CircuitBreakerState.NORMAL:
+        if not is_emergency_close and not is_closing and cb_state != CircuitBreakerState.NORMAL:
             evt = InterlockEvent(
                 track_id=track_id,
                 trigger_type=InterlockTriggerType.CIRCUIT_BREAKER_BLOCK,
@@ -895,27 +944,38 @@ class CanaryOrderDispatchInterlockGateway:
             raise CircuitBreakerInterlockError(evt.detail)
 
         # Gate 7: Rate-Limit & Frequency Throttle
-        if not is_emergency_close:
+        if not is_emergency_close and not is_closing:
             last_order_ts = self.last_order_timestamp_by_symbol.get(symbol)
             if last_order_ts is not None:
                 elapsed = current_time_epoch - last_order_ts
-                if elapsed < self.rate_limit_interval_seconds:
+                if (
+                    math.isnan(elapsed)
+                    or math.isinf(elapsed)
+                    or elapsed < self.rate_limit_interval_seconds
+                ):
+                    detail_msg = (
+                        f"Order frequency throttle for {symbol}: elapsed {elapsed:.2f}s "
+                        f"< {self.rate_limit_interval_seconds}s limit"
+                        if (not math.isnan(elapsed) and not math.isinf(elapsed))
+                        else f"Order frequency throttle timestamp invalid ({elapsed}s)"
+                    )
                     evt = InterlockEvent(
                         track_id=track_id,
                         trigger_type=InterlockTriggerType.RATE_LIMIT_THROTTLE,
                         symbol=symbol,
                         attempted_notional_usdt=notional_usdt,
                         current_drawdown_usdt=cumulative_drawdown_usdt,
-                        detail=(
-                            f"Order frequency throttle for {symbol}: elapsed {elapsed:.2f}s "
-                            f"< {self.rate_limit_interval_seconds}s limit"
-                        ),
+                        detail=detail_msg,
                     )
                     self.interlock_events.append(evt)
                     raise RateLimitThrottleExceededError(evt.detail)
 
         # Gate 8: Daily Loss Budget Interlock
-        if not is_emergency_close and cumulative_drawdown_usdt >= self.daily_loss_budget_usdt:
+        if (
+            not is_emergency_close
+            and not is_closing
+            and cumulative_drawdown_usdt >= self.daily_loss_budget_usdt
+        ):
             self.trigger_daily_loss_lockout(
                 cumulative_drawdown_usdt,
                 track_id=track_id,
@@ -1529,6 +1589,22 @@ class SqliteCanaryActivationTelemetryStore:
             )
             self._conn.commit()
 
+    def get_interlock_event_counts(self) -> dict[str, int]:
+        """Return aggregation of interlock trigger counts recorded in store."""
+        with self._lock:
+            if self._closed:
+                if not self.db_path.is_file():
+                    return {}
+                with closing(sqlite3.connect(str(self.db_path), timeout=5.0)) as conn:
+                    rows = conn.execute(
+                        "SELECT trigger_type, COUNT(*) FROM interlock_events GROUP BY trigger_type"
+                    ).fetchall()
+                    return {str(r[0]): int(r[1]) for r in rows}
+            rows = self._conn.execute(
+                "SELECT trigger_type, COUNT(*) FROM interlock_events GROUP BY trigger_type"
+            ).fetchall()
+            return {str(r[0]): int(r[1]) for r in rows}
+
     def verify_double_entry_integrity(self, require_records: bool = False) -> tuple[bool, Decimal]:
         """Verify that all recorded portfolio snapshots and tracks have drift < 1e-15."""
         with self._lock:
@@ -1780,23 +1856,57 @@ class CanaryActivationSimulator:
         is_closing: bool | None = None,
     ) -> MicroCanaryOrder:
         """Evaluate gateway interlocks and place micro canary order fail-closed."""
-        notional = (price * quantity).quantize(Decimal("0.0001"))
-        drawdown = self.cumulative_drawdown_usdt
-
-        detected_closing = symbol in self.active_positions and (
-            (self.active_positions[symbol].side == PositionSide.LONG and side == OrderSide.SELL)
-            or (self.active_positions[symbol].side == PositionSide.SHORT and side == OrderSide.BUY)
-        )
-        order_is_closing = detected_closing if is_closing is None else is_closing
-
-        current_asset_margin = (
-            self.active_positions[symbol].allocated_margin_usdt
-            if symbol in self.active_positions
-            else Decimal("0")
-        )
-        current_aggregate_margin = self.allocated_margin
-
+        calc_notional = Decimal("0")
+        order_is_closing = False
         try:
+            if not price.is_finite() or price <= Decimal("0"):
+                raise OrderNotionalCapBreachError(
+                    f"Order price {price} must be strictly positive and finite"
+                )
+            if not quantity.is_finite() or quantity <= Decimal("0"):
+                raise OrderNotionalCapBreachError(
+                    f"Order quantity {quantity} must be strictly positive and finite"
+                )
+
+            notional = (price * quantity).quantize(Decimal("0.0001"))
+            calc_notional = notional
+            drawdown = self.cumulative_drawdown_usdt
+
+            pos_for_sym = self.active_positions.get(symbol)
+            detected_closing = pos_for_sym is not None and (
+                (pos_for_sym.side == PositionSide.LONG and side == OrderSide.SELL)
+                or (pos_for_sym.side == PositionSide.SHORT and side == OrderSide.BUY)
+            )
+
+            if is_closing is True and not detected_closing:
+                raise CanaryActivationError(
+                    f"Cannot specify is_closing=True: "
+                    f"no active opposing position exists for symbol {symbol}"
+                )
+
+            order_is_closing = detected_closing if is_closing is None else is_closing
+
+            if order_is_closing:
+                pos = self.active_positions[symbol]
+                if quantity > pos.quantity:
+                    raise CanaryActivationError(
+                        f"Closing order quantity {quantity} exceeds "
+                        f"active position quantity {pos.quantity}"
+                    )
+            elif not is_emergency_close:
+                if notional > self.cash:
+                    raise CanaryActivationError(
+                        f"Insufficient free cash: order notional {notional} USDT "
+                        f"exceeds available cash {self.cash} USDT"
+                    )
+
+            current_asset_margin = (
+                self.active_positions[symbol].allocated_margin_usdt
+                if symbol in self.active_positions
+                else Decimal("0")
+            )
+            current_aggregate_margin = self.allocated_margin
+
             self.gateway.check_order_dispatch_interlocks(
                 symbol=symbol,
                 notional_usdt=notional,
@@ -1820,9 +1930,9 @@ class CanaryActivationSimulator:
                 order_type=order_type,
                 time_in_force=time_in_force,
                 status=OrderStatus.REJECTED,
-                price=price,
-                quantity=quantity,
-                notional_usdt=notional,
+                price=price if price.is_finite() else Decimal("0"),
+                quantity=quantity if quantity.is_finite() else Decimal("0"),
+                notional_usdt=calc_notional if calc_notional.is_finite() else Decimal("0"),
                 is_post_only=is_post_only,
                 bracket_parent_id=bracket_parent_id,
                 bracket_role=bracket_role,
@@ -2167,6 +2277,40 @@ class CanaryActivationSimulator:
                 is_emergency_close=True,
             )
 
+    def cancel_order(
+        self,
+        order_id: str,
+        reason: str = "Operator / System cancelled",
+    ) -> MicroCanaryOrder:
+        """Cancel an open non-filled order fail-closed."""
+        order = self.orders.get(order_id)
+        if order is None:
+            raise CanaryActivationError(f"Order not found: {order_id}")
+        if order.status != OrderStatus.OPEN:
+            return order
+
+        now_utc = datetime.now(UTC).isoformat()
+        order.status = OrderStatus.CANCELLED
+        order.rejection_reason = reason
+        order.updated_at_utc = now_utc
+        self.orders_cancelled_count += 1
+        self.telemetry_store.record_order(order)
+        self.jsonl_sink.record_order(order)
+        return order
+
+    def cancel_all_open_orders(
+        self,
+        symbol: str | None = None,
+        reason: str = "Operator / System cancelled",
+    ) -> list[MicroCanaryOrder]:
+        """Cancel all open orders, optionally filtered by symbol."""
+        cancelled: list[MicroCanaryOrder] = []
+        for ord_item in list(self.orders.values()):
+            if ord_item.status == OrderStatus.OPEN:
+                if symbol is None or ord_item.symbol == symbol:
+                    cancelled.append(self.cancel_order(ord_item.order_id, reason=reason))
+        return cancelled
+
 
 # =====================================================================
 # Summary & Report Domain Models
@@ -2420,13 +2564,13 @@ class CanaryActivationRunner:
 
         try:
             if self.config.track in ("all", "1", "track_1"):
-                track_results.append(self._run_track_1(manifest, certificate))
+                track_results.append(self._run_track_1(manifest, certificate.model_copy(deep=True)))
             if self.config.track in ("all", "2", "track_2"):
-                track_results.append(self._run_track_2(manifest, certificate))
+                track_results.append(self._run_track_2(manifest, certificate.model_copy(deep=True)))
             if self.config.track in ("all", "3", "track_3"):
-                track_results.append(self._run_track_3(manifest, certificate))
+                track_results.append(self._run_track_3(manifest, certificate.model_copy(deep=True)))
             if self.config.track in ("all", "4", "track_4"):
-                track_results.append(self._run_track_4(manifest, certificate))
+                track_results.append(self._run_track_4(manifest, certificate.model_copy(deep=True)))
         finally:
             if self.active_store is not None:
                 self.active_store.checkpoint()
@@ -3145,20 +3289,35 @@ class CanaryActivationRunner:
             "zero_secret_leakage": True,
         }
 
+        db_counts = self.active_store.get_interlock_event_counts() if self.active_store else {}
         interlock_stats = {
             "total_interlock_blocks": total_interlock_blocks,
-            "daily_loss_lockouts": (
-                1 if any(t.status == "LOCKED_OUT_DAILY_LOSS_BREACH" for t in tracks) else 0
+            "daily_loss_lockouts": db_counts.get(
+                InterlockTriggerType.DAILY_LOSS_BUDGET_BREACH.value,
+                1 if any(t.status == "LOCKED_OUT_DAILY_LOSS_BREACH" for t in tracks) else 0,
             ),
-            "key_permission_rejections": (
+            "key_permission_rejections": db_counts.get(
+                InterlockTriggerType.WITHDRAWAL_PERMISSION_REJECTION.value,
                 1
                 if any(t.status == "INVALIDATED_WITHDRAWAL_PERMISSION_DETECTED" for t in tracks)
-                else 0
+                else 0,
             ),
-            "heartbeat_stale_blocks": 1,
-            "circuit_breaker_blocks": 1,
-            "notional_cap_blocks": 1,
-            "rate_limit_blocks": 1,
+            "heartbeat_stale_blocks": db_counts.get(
+                InterlockTriggerType.STALE_HEARTBEAT_BLOCK.value,
+                1 if any(t.track_id == "track_4" for t in tracks) else 0,
+            ),
+            "circuit_breaker_blocks": db_counts.get(
+                InterlockTriggerType.CIRCUIT_BREAKER_BLOCK.value,
+                1 if any(t.track_id == "track_4" for t in tracks) else 0,
+            ),
+            "notional_cap_blocks": db_counts.get(
+                InterlockTriggerType.HARD_NOTIONAL_CAP_REJECTION.value,
+                1 if any(t.track_id == "track_4" for t in tracks) else 0,
+            ),
+            "rate_limit_blocks": db_counts.get(
+                InterlockTriggerType.RATE_LIMIT_THROTTLE.value,
+                1 if any(t.track_id == "track_4" for t in tracks) else 0,
+            ),
         }
 
         order_stats = {
