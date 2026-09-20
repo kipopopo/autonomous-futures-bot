@@ -300,6 +300,17 @@ class OrderLifecycleState(StrEnum):
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
 
+    @classmethod
+    def _missing_(cls, value: object) -> OrderLifecycleState | None:
+        if isinstance(value, str):
+            val_upper = value.strip().upper()
+            if val_upper in ("CANCELED", "CANCELLED"):
+                return cls.CANCELLED
+            for member in cls:
+                if member.value == val_upper:
+                    return member
+        return None
+
 
 TERMINAL_ORDER_STATES: frozenset[OrderLifecycleState] = frozenset(
     {
@@ -434,6 +445,18 @@ def _safe_decimal(val: Any, default: Decimal | str = Decimal("0")) -> Decimal:
         return Decimal(s)
     except Exception:
         return default_dec
+
+
+def _safe_order_side(val: Any) -> OrderSide | None:
+    """Safely parse OrderSide enum from string or enum instance."""
+    if val is None:
+        return None
+    if isinstance(val, OrderSide):
+        return val
+    try:
+        return OrderSide(str(val).strip().upper())
+    except ValueError:
+        return None
 
 
 # =====================================================================
@@ -1157,6 +1180,86 @@ class SqliteCanaryContinuousDaemonTelemetryStore:
             except Exception:
                 pass
 
+    def __enter__(self) -> SqliteCanaryContinuousDaemonTelemetryStore:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
+    def get_track_results(self, track_id: str | None = None) -> list[ContinuousDaemonTrackResult]:
+        """Retrieve recorded track results, optionally filtered by track_id."""
+        with self._lock:
+            cur = self.conn.cursor()
+            if track_id:
+                cur.execute(
+                    "SELECT * FROM continuous_daemon_track_results WHERE track_id = ?",
+                    (track_id,),
+                )
+            else:
+                cur.execute("SELECT * FROM continuous_daemon_track_results")
+            rows = cur.fetchall()
+            cols = [desc[0] for desc in cur.description]
+            results: list[ContinuousDaemonTrackResult] = []
+            for r in rows:
+                d = dict(zip(cols, r, strict=False))
+                d["zero_balance_drift"] = bool(d["zero_balance_drift"])
+                d["success"] = bool(d["success"])
+                results.append(ContinuousDaemonTrackResult.model_validate(d))
+            return results
+
+    def get_balance_snapshots(self, track_id: str | None = None) -> list[BalanceSnapshot]:
+        """Retrieve recorded balance snapshots, optionally filtered by track_id."""
+        with self._lock:
+            cur = self.conn.cursor()
+            if track_id:
+                cur.execute(
+                    "SELECT * FROM balance_snapshots WHERE track_id = ? ORDER BY rowid ASC",
+                    (track_id,),
+                )
+            else:
+                cur.execute("SELECT * FROM balance_snapshots ORDER BY rowid ASC")
+            rows = cur.fetchall()
+            cols = [desc[0] for desc in cur.description]
+            return [BalanceSnapshot.model_validate(dict(zip(cols, r, strict=False))) for r in rows]
+
+    def get_orders(self, track_id: str | None = None) -> list[ContinuousOrderRecord]:
+        """Retrieve recorded orders, optionally filtered by track_id."""
+        with self._lock:
+            cur = self.conn.cursor()
+            if track_id:
+                cur.execute(
+                    "SELECT * FROM orders WHERE track_id = ? ORDER BY rowid ASC",
+                    (track_id,),
+                )
+            else:
+                cur.execute("SELECT * FROM orders ORDER BY rowid ASC")
+            rows = cur.fetchall()
+            cols = [desc[0] for desc in cur.description]
+            records: list[ContinuousOrderRecord] = []
+            for r in rows:
+                d = dict(zip(cols, r, strict=False))
+                d["is_closing"] = bool(d["is_closing"])
+                records.append(ContinuousOrderRecord.model_validate(d))
+            return records
+
+    def get_execution_marks(self, track_id: str | None = None) -> list[ContinuousExecutionMark]:
+        """Retrieve recorded execution marks, optionally filtered by track_id."""
+        with self._lock:
+            cur = self.conn.cursor()
+            if track_id:
+                cur.execute(
+                    "SELECT * FROM execution_marks WHERE track_id = ? ORDER BY rowid ASC",
+                    (track_id,),
+                )
+            else:
+                cur.execute("SELECT * FROM execution_marks ORDER BY rowid ASC")
+            rows = cur.fetchall()
+            cols = [desc[0] for desc in cur.description]
+            return [
+                ContinuousExecutionMark.model_validate(dict(zip(cols, r, strict=False)))
+                for r in rows
+            ]
+
 
 # Backward compatibility alias
 SqliteCanaryMainnetExpansionTelemetryStore = SqliteCanaryContinuousDaemonTelemetryStore
@@ -1174,6 +1277,12 @@ class JsonlCanaryOrderSink:
         self.path = Path(jsonl_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+
+    def __enter__(self) -> JsonlCanaryOrderSink:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        pass
 
     def record_order_event(self, event_type: str, data: dict[str, Any]) -> None:
         line_data = {
@@ -1449,7 +1558,8 @@ class ContinuousStreamSequencer:
         """Deterministic fingerprint across all WebSocket event types."""
         e_type = str(event_data.get("e", ""))
         if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
-            o = event_data.get("o", {})
+            o_raw = event_data.get("o")
+            o = o_raw if isinstance(o_raw, dict) else {}
             cid = str(o.get("c", ""))
             t_id = str(o.get("t", ""))
             x = str(o.get("x", ""))
@@ -1459,9 +1569,10 @@ class ContinuousStreamSequencer:
         elif e_type == WebSocketEventType.ACCOUNT_UPDATE.value:
             t_ms = _safe_int(event_data.get("T"), _safe_int(event_data.get("E"), 0))
             e_ms = _safe_int(event_data.get("E"), 0)
-            a_data = event_data.get("a", {})
+            a_data = event_data.get("a")
+            a_dict = a_data if isinstance(a_data, dict) else {}
             a_hash = hashlib.sha256(
-                json.dumps(a_data, sort_keys=True, default=str).encode("utf-8")
+                json.dumps(a_dict, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest()[:16]
             return f"ACC:{e_ms}:{t_ms}:{a_hash}"
         else:
@@ -1474,7 +1585,8 @@ class ContinuousStreamSequencer:
 
     def is_duplicate_event(self, event_data: dict[str, Any]) -> bool:
         """Check if incoming packet is duplicate by trade ID or fingerprint."""
-        o = event_data.get("o", {})
+        o_raw = event_data.get("o")
+        o = o_raw if isinstance(o_raw, dict) else {}
         trade_id = str(o.get("t", ""))
         if trade_id and trade_id != "0" and trade_id in self.processed_trade_ids:
             return True
@@ -1483,7 +1595,8 @@ class ContinuousStreamSequencer:
 
     def mark_event_processed(self, event_data: dict[str, Any]) -> None:
         """Record trade ID and fingerprint as processed."""
-        o = event_data.get("o", {})
+        o_raw = event_data.get("o")
+        o = o_raw if isinstance(o_raw, dict) else {}
         trade_id = str(o.get("t", ""))
         if trade_id and trade_id != "0":
             self.processed_trade_ids.add(trade_id)
@@ -1500,8 +1613,9 @@ class ContinuousStreamSequencer:
         """Event priority ordering for identical timestamps."""
         e_type = str(pkt.get("e", ""))
         if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
-            o = pkt.get("o", {})
-            stat = str(o.get("X", ""))
+            o_raw = pkt.get("o")
+            o = o_raw if isinstance(o_raw, dict) else {}
+            stat = str(o.get("X", "")).strip().upper()
             prio = 50
             if stat == OrderLifecycleState.NEW.value:
                 prio = 10
@@ -1511,6 +1625,7 @@ class ContinuousStreamSequencer:
                 prio = 30
             elif stat in (
                 OrderLifecycleState.CANCELLED.value,
+                "CANCELED",
                 OrderLifecycleState.REJECTED.value,
                 OrderLifecycleState.EXPIRED.value,
             ):
@@ -1536,11 +1651,12 @@ class ContinuousStreamSequencer:
             # Deduplicate if execution report was already backfilled up to cumulative qty
             e_type = str(pkt.get("e", ""))
             if not is_dup and e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
-                o_data = pkt.get("o", {})
-                cid = str(o_data.get("c", ""))
-                exec_type = str(o_data.get("x", ""))
+                o_data = pkt.get("o")
+                o_dict = o_data if isinstance(o_data, dict) else {}
+                cid = str(o_dict.get("c", ""))
+                exec_type = str(o_dict.get("x", ""))
                 if exec_type == "TRADE" and cid in self.order_cumulative_filled_qty:
-                    cum_z = _safe_decimal(o_data.get("z"), Decimal("0"))
+                    cum_z = _safe_decimal(o_dict.get("z"), Decimal("0"))
                     if cum_z <= self.order_cumulative_filled_qty[cid]:
                         is_dup = True
 
@@ -1554,7 +1670,20 @@ class ContinuousStreamSequencer:
             seq = _safe_int(pkt.get("s_seq"), 0)
             priority = self._event_sort_priority(pkt)
 
-            sym = pkt.get("o", {}).get("s")
+            # Automatic sequence wrap / reconnection reset heuristic:
+            # If sequence drops back to near 1 while highest arrival sequence was elevated,
+            # or drops after elevated packets with strictly advancing timestamp,
+            # automatically advance session epoch.
+            if seq > 0 and t_time > self.highest_arrival_time_ms:
+                if (
+                    (seq <= 2 and self.highest_arrival_sequence >= 5)
+                    or (seq <= 5 and self.highest_arrival_sequence >= 10)
+                    or (self.highest_arrival_sequence - seq >= 20)
+                ):
+                    self.notify_reconnect()
+
+            o_pkt = pkt.get("o")
+            sym = o_pkt.get("s") if isinstance(o_pkt, dict) else None
             last_seq = (
                 self.highest_seq_by_symbol.get(sym, 0) if sym else self.highest_arrival_sequence
             )
@@ -1604,19 +1733,32 @@ class ContinuousStreamSequencer:
                 results.append(pkt)
 
             if telemetry_store is not None:
-                o = pkt.get("o", {})
-                cid = o.get("c")
-                sym = o.get("s")
-                stat = o.get("X")
+                o_tel = pkt.get("o")
+                o_tel_dict = o_tel if isinstance(o_tel, dict) else {}
+                tel_cid = (
+                    str(o_tel_dict["c"])
+                    if "c" in o_tel_dict and o_tel_dict["c"] is not None
+                    else None
+                )
+                tel_sym = (
+                    str(o_tel_dict["s"])
+                    if "s" in o_tel_dict and o_tel_dict["s"] is not None
+                    else None
+                )
+                tel_stat = (
+                    str(o_tel_dict["X"])
+                    if "X" in o_tel_dict and o_tel_dict["X"] is not None
+                    else None
+                )
                 push_evt = WebSocketPushEvent(
                     track_id=track_id,
                     event_type=str(pkt.get("e", "UNKNOWN")),
                     event_time_ms=e_ms,
                     transaction_time_ms=t_ms,
                     sequence_number=seq,
-                    client_order_id=cid,
-                    symbol=sym,
-                    order_status=stat,
+                    client_order_id=tel_cid,
+                    symbol=tel_sym,
+                    order_status=tel_stat,
                     payload_json=json.dumps(pkt, default=str),
                     is_duplicate=is_dup,
                     is_out_of_order=is_ooo,
@@ -1733,7 +1875,12 @@ class ContinuousUserDataStreamReconciler:
                 or curr_pos < Decimal("0")
                 and side == OrderSide.BUY
             ):
-                entry_px = self.position_entry_prices[symbol]
+                if quantity > abs(curr_pos):
+                    raise DomainViolation(
+                        f"Fill quantity {quantity} exceeds current "
+                        f"open position {abs(curr_pos)} for {symbol}"
+                    )
+                entry_px = self.position_entry_prices.get(symbol, Decimal("0"))
                 if curr_pos > Decimal("0"):
                     fill_realized_pnl = (quantity * (price - entry_px)).quantize(
                         Decimal("0.00000001"), rounding=ROUND_DOWN
@@ -1745,21 +1892,28 @@ class ContinuousUserDataStreamReconciler:
                     )
                     new_pos = curr_pos + quantity
 
-                margin_released = (quantity * entry_px).quantize(
-                    Decimal("0.00000001"), rounding=ROUND_DOWN
-                )
+                if new_pos == Decimal("0"):
+                    margin_released = self.per_asset_margin.get(symbol, Decimal("0"))
+                    self.per_asset_margin[symbol] = Decimal("0")
+                    self.position_entry_prices[symbol] = Decimal("0")
+                else:
+                    curr_margin = self.per_asset_margin.get(symbol, Decimal("0"))
+                    ratio = quantity / abs(curr_pos)
+                    margin_released = min(
+                        curr_margin,
+                        (curr_margin * ratio).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN),
+                    )
+                    self.per_asset_margin[symbol] = curr_margin - margin_released
+
                 self.allocated_margin = max(Decimal("0"), self.allocated_margin - margin_released)
-                self.per_asset_margin[symbol] = max(
-                    Decimal("0"), self.per_asset_margin[symbol] - margin_released
-                )
+                self.positions[symbol] = new_pos
+                if all(p == Decimal("0") for p in self.positions.values()):
+                    self.allocated_margin = Decimal("0")
+
                 self.cash += margin_released + fill_realized_pnl - commission
                 self.realized_pnl += fill_realized_pnl - commission
                 if fill_realized_pnl < Decimal("0"):
                     self.cumulative_realized_loss += abs(fill_realized_pnl)
-
-                self.positions[symbol] = new_pos
-                if new_pos == Decimal("0"):
-                    self.position_entry_prices[symbol] = Decimal("0")
             else:
                 margin_req = notional
                 if self.cash < (margin_req + commission):
@@ -1774,9 +1928,21 @@ class ContinuousUserDataStreamReconciler:
                 )
                 self.realized_pnl -= commission
 
+                # Volume-weighted average entry price (VWAP) when accumulating position
+                curr_entry_px = self.position_entry_prices.get(symbol, Decimal("0"))
+                if curr_pos != Decimal("0") and curr_entry_px > Decimal("0"):
+                    old_notional = abs(curr_pos) * self.position_entry_prices[symbol]
+                    new_notional = quantity * price
+                    new_qty = abs(curr_pos) + quantity
+                    new_entry_px = (old_notional + new_notional) / new_qty
+                    self.position_entry_prices[symbol] = new_entry_px.quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+                else:
+                    self.position_entry_prices[symbol] = price
+
                 new_pos = curr_pos + quantity if side == OrderSide.BUY else curr_pos - quantity
                 self.positions[symbol] = new_pos
-                self.position_entry_prices[symbol] = price
 
             self.total_fees += commission
             return fill_realized_pnl
@@ -2048,6 +2214,11 @@ class MockBinanceContinuousGateway:
             self.ws_stream_active = True
             self.reconnect_count += 1
 
+    def push_user_data_event(self, event: dict[str, Any]) -> None:
+        """Push an arbitrary user data stream event into the gateway outbound queue."""
+        with self._lock:
+            self.ws_outbound_queue.append(event)
+
     def drain_ws_queue(self) -> list[dict[str, Any]]:
         with self._lock:
             items = list(self.ws_outbound_queue)
@@ -2193,7 +2364,11 @@ class ContinuousOrderDispatchInterlock:
         pos_exposure = Decimal("0")
         for sym, pos in list(self.reconciler.positions.items()):
             if pos != Decimal("0"):
-                ref_px = Decimal(str(DEFAULT_REFERENCE_PRICES.get(sym, "100.00")))
+                ref_px = (
+                    self.reconciler.position_entry_prices.get(sym, Decimal("0"))
+                    if self.reconciler.position_entry_prices.get(sym, Decimal("0")) > Decimal("0")
+                    else Decimal(str(DEFAULT_REFERENCE_PRICES.get(sym, "100.00")))
+                )
                 raw_px = self.reconciler.mark_prices.get(sym, ref_px)
                 px = (
                     raw_px
@@ -2243,8 +2418,8 @@ class ContinuousOrderDispatchInterlock:
                     ) from None
 
         # 0.1 Validate closing order invariants
+        pos = self.reconciler.positions.get(symbol, Decimal("0"))
         if is_closing:
-            pos = self.reconciler.positions.get(symbol, Decimal("0"))
             if pos == Decimal("0"):
                 raise OrderCorrelationError(
                     f"Cannot execute closing order for {symbol}: no open position exists"
@@ -2282,6 +2457,18 @@ class ContinuousOrderDispatchInterlock:
                     raise OrderCorrelationError(
                         f"Closing order side {valid_side.value} for {symbol} must be "
                         f"{expected_close_side.value} to close open position of {pos}"
+                    )
+        else:
+            if valid_side is not None:
+                if pos > Decimal("0") and valid_side == OrderSide.SELL:
+                    raise DomainViolation(
+                        f"Cannot place SELL order for {symbol} with existing LONG position {pos} "
+                        "without is_closing=True"
+                    )
+                if pos < Decimal("0") and valid_side == OrderSide.BUY:
+                    raise DomainViolation(
+                        f"Cannot place BUY order for {symbol} with existing SHORT position {pos} "
+                        "without is_closing=True"
                     )
 
         # 1. Gateway Heartbeat Freshness Interlock (Age <= 500 ms with hysteresis)
@@ -2713,7 +2900,8 @@ class ContinuousMicroOrderDispatcher:
                 self.stream_events_count += 1
                 e_type = pkt.get("e")
                 if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
-                    o = pkt.get("o", {})
+                    o_raw = pkt.get("o")
+                    o = o_raw if isinstance(o_raw, dict) else {}
                     cid = str(o.get("c", ""))
                     stat = str(o.get("X", ""))
                     sym = str(o.get("s", ""))
@@ -2728,13 +2916,18 @@ class ContinuousMicroOrderDispatcher:
                     if cid in self.orders:
                         rec = self.orders[cid]
                         from_st = rec.status
-                        to_st = OrderLifecycleState(stat)
+                        to_st: OrderLifecycleState | None = None
+                        if stat:
+                            try:
+                                to_st = OrderLifecycleState(stat)
+                            except ValueError, TypeError:
+                                to_st = None
 
                         if cum_qty > Decimal(rec.executed_quantity):
                             rec.executed_quantity = str(cum_qty)
                             self.sequencer.record_order_fill(cid, cum_qty)
 
-                        if from_st != to_st:
+                        if to_st is not None and from_st != to_st:
                             if to_st in VALID_ORDER_TRANSITIONS.get(from_st, frozenset()):
                                 rec.status = to_st
                                 rec.updated_at_utc = datetime.now(UTC).isoformat()
@@ -2751,6 +2944,8 @@ class ContinuousMicroOrderDispatcher:
                                 )
                                 if to_st == OrderLifecycleState.FILLED:
                                     self.orders_filled_count += 1
+                                elif to_st == OrderLifecycleState.CANCELLED:
+                                    self.orders_cancelled_count += 1
                             else:
                                 logger.debug(
                                     "Ignoring invalid transition %s -> %s for order %s",
@@ -2759,8 +2954,17 @@ class ContinuousMicroOrderDispatcher:
                                     cid,
                                 )
 
-                        if exec_qty > Decimal("0") and trade_id != "0":
-                            side_enum = OrderSide(side_str)
+                        trade_id_clean = (
+                            trade_id
+                            if (trade_id and trade_id != "0")
+                            else f"tr-ws-{cid}-{t_ms or int(time.time() * 1000)}"
+                        )
+                        if exec_qty > Decimal("0"):
+                            side_enum = (
+                                _safe_order_side(side_str)
+                                or _safe_order_side(rec.side)
+                                or OrderSide.BUY
+                            )
                             fill_pnl = self.reconciler.process_fill(
                                 symbol=sym,
                                 side=side_enum,
@@ -2770,7 +2974,7 @@ class ContinuousMicroOrderDispatcher:
                                 is_closing=rec.is_closing,
                             )
                             mark = ContinuousExecutionMark(
-                                trade_id=trade_id,
+                                trade_id=trade_id_clean,
                                 track_id=self.track_id,
                                 order_id=rec.order_id,
                                 client_order_id=cid,
@@ -2785,7 +2989,7 @@ class ContinuousMicroOrderDispatcher:
                                 ),
                                 commission_usdt=str(comm),
                                 realized_pnl_usdt=str(fill_pnl),
-                                trade_time_ms=t_ms,
+                                trade_time_ms=t_ms or int(time.time() * 1000),
                             )
                             self.telemetry_store.record_execution_mark(mark)
                             self.jsonl_sink.record_order_event(
@@ -2807,31 +3011,47 @@ class ContinuousMicroOrderDispatcher:
                 ):
                     try:
                         gw_data = self.gateway.query_order(symbol=rec.symbol, client_order_id=cid)
-                        gw_stat = OrderLifecycleState(gw_data.get("status", "NEW"))
+                        gw_stat_raw = gw_data.get("status", "NEW")
+                        try:
+                            gw_stat = OrderLifecycleState(gw_stat_raw)
+                        except ValueError, TypeError:
+                            gw_stat = rec.status
+
                         gw_exec = _safe_decimal(gw_data.get("executedQty", "0"))
                         gw_price = _safe_decimal(gw_data.get("avgPrice", rec.price))
                         if gw_price <= Decimal("0"):
                             gw_price = Decimal(rec.price)
 
-                        if gw_stat != rec.status or gw_exec > Decimal(rec.executed_quantity):
+                        stat_changed = (
+                            gw_stat != rec.status
+                            and gw_stat in VALID_ORDER_TRANSITIONS.get(rec.status, frozenset())
+                        )
+                        has_new_fill = gw_exec > Decimal(rec.executed_quantity)
+
+                        if stat_changed or has_new_fill:
                             from_st = rec.status
-                            fill_delta = gw_exec - Decimal(rec.executed_quantity)
-                            rec.executed_quantity = str(gw_exec)
-                            rec.status = gw_stat
+                            fill_delta = max(Decimal("0"), gw_exec - Decimal(rec.executed_quantity))
+                            if has_new_fill:
+                                rec.executed_quantity = str(gw_exec)
+                            if stat_changed:
+                                rec.status = gw_stat
                             rec.updated_at_utc = datetime.now(UTC).isoformat()
                             self.telemetry_store.record_order(rec)
-                            self.telemetry_store.record_transition(
-                                OrderLifecycleTransition(
-                                    track_id=self.track_id,
-                                    order_id=rec.order_id,
-                                    client_order_id=cid,
-                                    from_state=from_st,
-                                    to_state=gw_stat,
-                                    trigger_reason="REST_POLL_RECONCILIATION",
+                            if stat_changed:
+                                self.telemetry_store.record_transition(
+                                    OrderLifecycleTransition(
+                                        track_id=self.track_id,
+                                        order_id=rec.order_id,
+                                        client_order_id=cid,
+                                        from_state=from_st,
+                                        to_state=gw_stat,
+                                        trigger_reason="REST_POLL_RECONCILIATION",
+                                    )
                                 )
-                            )
-                            if gw_stat == OrderLifecycleState.FILLED:
-                                self.orders_filled_count += 1
+                                if gw_stat == OrderLifecycleState.FILLED:
+                                    self.orders_filled_count += 1
+                                elif gw_stat == OrderLifecycleState.CANCELLED:
+                                    self.orders_cancelled_count += 1
 
                             if fill_delta > Decimal("0"):
                                 self.sequencer.record_order_fill(cid, gw_exec)
@@ -2841,9 +3061,10 @@ class ContinuousMicroOrderDispatcher:
                                 comm = (notional * DEFAULT_TAKER_FEE_RATE).quantize(
                                     Decimal("0.00000001"), rounding=ROUND_DOWN
                                 )
+                                side_enum = _safe_order_side(rec.side) or OrderSide.BUY
                                 fill_pnl = self.reconciler.process_fill(
                                     symbol=rec.symbol,
-                                    side=OrderSide(rec.side),
+                                    side=side_enum,
                                     price=gw_price,
                                     quantity=fill_delta,
                                     commission=comm,
@@ -3140,27 +3361,27 @@ class ContinuousAutonomousDaemon:
                 ):
                     try:
                         self.dispatcher.gateway.cancel_order(symbol=rec.symbol, client_order_id=cid)
-                        from_st = rec.status
-                        rec.status = OrderLifecycleState.CANCELLED
-                        rec.updated_at_utc = datetime.now(UTC).isoformat()
-                        self.telemetry_store.record_order(rec)
-                        self.telemetry_store.record_transition(
-                            OrderLifecycleTransition(
-                                track_id=self.track_id,
-                                order_id=rec.order_id,
-                                client_order_id=cid,
-                                from_state=from_st,
-                                to_state=OrderLifecycleState.CANCELLED,
-                                trigger_reason="DAEMON_SHUTDOWN_CLEANUP",
-                            )
-                        )
-                        self.dispatcher.jsonl_sink.record_order_event(
-                            "ORDER_CANCELLED", rec.model_dump(mode="json")
-                        )
-                        self.dispatcher.orders_cancelled_count += 1
-                        cancelled_count += 1
                     except Exception as exc:
-                        logger.warning("Failed to cancel hanging order %s: %s", cid, exc)
+                        logger.warning("Failed to cancel hanging order %s on gateway: %s", cid, exc)
+                    from_st = rec.status
+                    rec.status = OrderLifecycleState.CANCELLED
+                    rec.updated_at_utc = datetime.now(UTC).isoformat()
+                    self.telemetry_store.record_order(rec)
+                    self.telemetry_store.record_transition(
+                        OrderLifecycleTransition(
+                            track_id=self.track_id,
+                            order_id=rec.order_id,
+                            client_order_id=cid,
+                            from_state=from_st,
+                            to_state=OrderLifecycleState.CANCELLED,
+                            trigger_reason="DAEMON_SHUTDOWN_CLEANUP",
+                        )
+                    )
+                    self.dispatcher.jsonl_sink.record_order_event(
+                        "ORDER_CANCELLED", rec.model_dump(mode="json")
+                    )
+                    self.dispatcher.orders_cancelled_count += 1
+                    cancelled_count += 1
         return cancelled_count
 
     def shutdown(self, graceful: bool = True) -> None:

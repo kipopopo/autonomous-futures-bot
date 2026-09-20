@@ -57,6 +57,7 @@ from autonomous_futures.feed.continuous_daemon import (  # noqa: E402
     INTRA_PHASE_LOSS_CEILING_USDT,
     MAX_CLOCK_SKEW_TOLERANCE_MS,
     AggregateExposureCapExceededError,
+    BalanceSnapshot,
     CanaryContinuousDaemonConfig,
     CanaryContinuousDaemonRunner,
     CapitalExpansionStage,
@@ -64,6 +65,7 @@ from autonomous_futures.feed.continuous_daemon import (  # noqa: E402
     CircuitBreakerState,
     ClockSkewExceededError,
     ContinuousAutonomousDaemon,
+    ContinuousDaemonTrackResult,
     ContinuousMicroOrderDispatcher,
     ContinuousOrderDispatchInterlock,
     ContinuousOrderRecord,
@@ -1002,3 +1004,464 @@ def test_concurrent_order_dispatch_thread_safety(temp_telemetry_store, temp_json
     assert len(successes) == 1
     assert len(failures) == 1
     assert interlock.get_aggregate_active_exposure() <= Decimal("5.00")
+
+
+class TestPhase282AdversarialHardening:
+    """Adversarial stress-testing of Phase 282 continuous daemon components."""
+
+    def test_vwap_multi_fill_zero_drift(self):
+        """Verify that multi-fill executions across varying price levels compute exact VWAP
+        and maintain zero balance drift (|drift| < 1e-15 USDT) on partial and complete liquidation.
+        """
+        reconciler = ContinuousUserDataStreamReconciler(
+            track_id="test_vwap", starting_equity=Decimal("1000.00")
+        )
+
+        # Fill 1: Buy 0.0001 BTC @ 60,000 USDT
+        # Notional: 6.00 USDT, margin: 6.00 USDT, fee: 0.003 USDT
+        reconciler.process_fill(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            price=Decimal("60000.00"),
+            quantity=Decimal("0.0001"),
+            commission=Decimal("0.003"),
+            is_closing=False,
+        )
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.0001")
+        assert reconciler.position_entry_prices["BTCUSDT"] == Decimal("60000.00")
+        assert reconciler.verify_zero_balance_drift()
+
+        # Fill 2: Buy 0.0001 BTC @ 70,000 USDT
+        # Notional: 7.00 USDT, margin: 7.00 USDT, fee: 0.0035 USDT
+        reconciler.process_fill(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            price=Decimal("70000.00"),
+            quantity=Decimal("0.0001"),
+            commission=Decimal("0.0035"),
+            is_closing=False,
+        )
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.0002")
+        # VWAP = (60000 * 0.0001 + 70000 * 0.0001) / 0.0002 = 65000.00
+        assert reconciler.position_entry_prices["BTCUSDT"] == Decimal("65000.00000000")
+        assert reconciler.verify_zero_balance_drift()
+
+        # Partial Close: Sell 0.0001 BTC @ 80,000 USDT (fee: 0.004 USDT)
+        # Realized PnL = 0.0001 * (80000 - 65000) = 1.50 USDT
+        pnl_1 = reconciler.process_fill(
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            price=Decimal("80000.00"),
+            quantity=Decimal("0.0001"),
+            commission=Decimal("0.004"),
+            is_closing=True,
+        )
+        assert pnl_1 == Decimal("1.50000000")
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.0001")
+        assert reconciler.verify_zero_balance_drift()
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+        # Final Close: Sell 0.0001 BTC @ 85,000 USDT (fee: 0.00425 USDT)
+        # Realized PnL = 0.0001 * (85000 - 65000) = 2.00 USDT
+        pnl_2 = reconciler.process_fill(
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            price=Decimal("85000.00"),
+            quantity=Decimal("0.0001"),
+            commission=Decimal("0.00425"),
+            is_closing=True,
+        )
+        assert pnl_2 == Decimal("2.00000000")
+        assert reconciler.positions["BTCUSDT"] == Decimal("0")
+        assert reconciler.allocated_margin == Decimal("0")
+        assert reconciler.verify_zero_balance_drift()
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    def test_single_l_canceled_bidirectional_tolerance(self, temp_telemetry_store, temp_jsonl_sink):
+        """Verify that single-'L' Binance status 'CANCELED' parses without error in enum,
+        user data stream drain, and REST reconciliation.
+        """
+        assert OrderLifecycleState("CANCELED") == OrderLifecycleState.CANCELLED
+        assert OrderLifecycleState("CANCELLED") == OrderLifecycleState.CANCELLED
+        assert OrderLifecycleState("canceled") == OrderLifecycleState.CANCELLED
+
+        gateway = MockBinanceContinuousGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+        reconciler = ContinuousUserDataStreamReconciler(track_id="test_cancel")
+        sequencer = ContinuousStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000), latency_ms=5.0, track_id="test_cancel"
+        )
+        interlock = ContinuousOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+        )
+        dispatcher = ContinuousMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=temp_telemetry_store,
+            jsonl_sink=temp_jsonl_sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="test_cancel",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT", timestamp_ms=int(time.time() * 1000))
+        rec = ContinuousOrderRecord(
+            order_id="ord-cancel-1",
+            client_order_id=cid,
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force=TimeInForce.GTC.value,
+            price="60000.00",
+            quantity="0.00008",
+            notional_usdt="4.80000000",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+            track_id="test_cancel",
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        dispatcher.orders[cid] = rec
+        gateway.orders[cid] = {"orderId": "3001", "status": "NEW", "symbol": "BTCUSDT"}
+
+        # Simulate Binance WebSocket ORDER_TRADE_UPDATE with single-L "CANCELED"
+        ws_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": int(time.time() * 1000),
+            "T": int(time.time() * 1000),
+            "s_seq": 1,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "o": "LIMIT",
+                "X": "CANCELED",
+                "i": 3001,
+                "l": "0",
+                "z": "0",
+                "L": "0",
+                "n": "0",
+                "T": int(time.time() * 1000),
+                "t": 0,
+            },
+        }
+        gateway.push_user_data_event(ws_event)
+        dispatcher.drain_and_reconcile_stream()
+
+        assert rec.status == OrderLifecycleState.CANCELLED
+        assert dispatcher.orders_cancelled_count == 1
+
+        # Test REST poll with single-L "CANCELED"
+        cid2 = generate_canary_client_order_id("ETHUSDT", timestamp_ms=int(time.time() * 1000))
+        rec2 = ContinuousOrderRecord(
+            order_id="ord-cancel-2",
+            client_order_id=cid2,
+            candidate_id="cand-eth",
+            symbol="ETHUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force=TimeInForce.GTC.value,
+            price="3000.00",
+            quantity="0.001",
+            notional_usdt="3.00000000",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+            track_id="test_cancel",
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        dispatcher.orders[cid2] = rec2
+        gateway.orders[cid2] = {
+            "orderId": "3002",
+            "status": "CANCELED",  # single-L
+            "symbol": "ETHUSDT",
+            "executedQty": "0",
+            "avgPrice": "0",
+        }
+        dispatcher.reconcile_via_rest()
+        assert rec2.status == OrderLifecycleState.CANCELLED
+        assert dispatcher.orders_cancelled_count == 2
+
+    def test_fail_closed_shutdown_on_gateway_exception(self, temp_telemetry_store, temp_jsonl_sink):
+        """Verify that when gateway.cancel_order throws an unexpected exception during shutdown,
+        orders are still cancelled locally fail-closed without leaving hanging orders.
+        """
+        gateway = MockBinanceContinuousGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+
+        def broken_cancel(*args, **kwargs):
+            raise RuntimeError("Gateway connection dropped during cancel")
+
+        gateway.cancel_order = broken_cancel
+
+        reconciler = ContinuousUserDataStreamReconciler(track_id="test_shutdown_exc")
+        sequencer = ContinuousStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000), latency_ms=5.0, track_id="test_shutdown_exc"
+        )
+        interlock = ContinuousOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+        )
+        dispatcher = ContinuousMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=temp_telemetry_store,
+            jsonl_sink=temp_jsonl_sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="test_shutdown_exc",
+        )
+
+        cid = generate_canary_client_order_id("SOLUSDT", timestamp_ms=int(time.time() * 1000))
+        rec = ContinuousOrderRecord(
+            order_id="ord-shutdown-1",
+            client_order_id=cid,
+            candidate_id="cand-sol",
+            symbol="SOLUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force=TimeInForce.GTC.value,
+            price="150.00",
+            quantity="0.02",
+            notional_usdt="3.00000000",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+            track_id="test_shutdown_exc",
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        dispatcher.orders[cid] = rec
+
+        daemon = ContinuousAutonomousDaemon(
+            dispatcher=dispatcher,
+            reconciler=reconciler,
+            interlock=interlock,
+            heartbeat_monitor=heartbeat_mon,
+            telemetry_store=temp_telemetry_store,
+            track_id="test_shutdown_exc",
+        )
+
+        cancelled = daemon.cancel_all_working_orders()
+        assert cancelled == 1
+        assert rec.status == OrderLifecycleState.CANCELLED
+        assert dispatcher.orders_cancelled_count == 1
+
+        cur = temp_telemetry_store.conn.cursor()
+        cur.execute(
+            "SELECT to_state, trigger_reason FROM lifecycle_transitions WHERE client_order_id = ?",
+            (cid,),
+        )
+        row = cur.fetchone()
+        assert row is not None
+        assert row[0] == OrderLifecycleState.CANCELLED.value
+        assert row[1] == "DAEMON_SHUTDOWN_CLEANUP"
+
+    def test_stream_sequencer_robustness_none_and_sequence_wrap(self):
+        """Verify ContinuousStreamSequencer handles None payload defensively and handles
+        sequence wrap heuristic seamlessly.
+        """
+        sequencer = ContinuousStreamSequencer()
+
+        # Ingest malformed / None payload without error
+        res_none = sequencer.sort_and_deduplicate_batch([{"o": None}], track_id="test")
+        assert len(res_none) == 1
+
+        # Sequence wrap heuristic:
+        # 1. Establish high sequence number
+        pkt_high = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1000,
+            "T": 1000,
+            "s_seq": 50,
+            "o": {
+                "s": "BTCUSDT",
+                "c": "c1",
+                "X": "NEW",
+            },
+        }
+        res_high = sequencer.sort_and_deduplicate_batch([pkt_high], track_id="test")
+        assert len(res_high) == 1
+        assert sequencer.highest_arrival_sequence == 50
+        epoch_before = sequencer.session_epoch
+
+        # 2. Sequence drops to 1 with t_time advancing: wrap detected and epoch incremented
+        pkt_low = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 2000,
+            "T": 2000,
+            "s_seq": 1,
+            "o": {
+                "s": "BTCUSDT",
+                "c": "c2",
+                "X": "NEW",
+            },
+        }
+        res_low = sequencer.sort_and_deduplicate_batch([pkt_low], track_id="test")
+        assert len(res_low) == 1
+        assert sequencer.session_epoch > epoch_before
+
+    def test_stream_drain_fallback_trade_id_synthesis(self, temp_telemetry_store, temp_jsonl_sink):
+        """Verify that execution reports with missing or zero trade ID (t=0 or t=None)
+        synthesize a fallback deterministic trade ID and process the fill.
+        """
+        gateway = MockBinanceContinuousGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+        reconciler = ContinuousUserDataStreamReconciler(track_id="test_fallback_tid")
+        sequencer = ContinuousStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000), latency_ms=5.0, track_id="test_fallback_tid"
+        )
+        interlock = ContinuousOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+        )
+        dispatcher = ContinuousMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=temp_telemetry_store,
+            jsonl_sink=temp_jsonl_sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="test_fallback_tid",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT", timestamp_ms=int(time.time() * 1000))
+        rec = ContinuousOrderRecord(
+            order_id="ord-fallback-1",
+            client_order_id=cid,
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force=TimeInForce.GTC.value,
+            price="60000.00",
+            quantity="0.00008",
+            notional_usdt="4.80000000",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+            track_id="test_fallback_tid",
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        dispatcher.orders[cid] = rec
+        gateway.orders[cid] = {"orderId": "4001", "status": "NEW", "symbol": "BTCUSDT"}
+
+        # WebSocket ORDER_TRADE_UPDATE with t=0 (no trade ID specified)
+        ws_event = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": int(time.time() * 1000),
+            "T": int(time.time() * 1000),
+            "s_seq": 1,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "o": "LIMIT",
+                "X": "FILLED",
+                "i": 4001,
+                "l": "0.00008",
+                "z": "0.00008",
+                "L": "60000.00",
+                "n": "0.0024",
+                "T": int(time.time() * 1000),
+                "t": 0,
+            },
+        }
+        gateway.push_user_data_event(ws_event)
+        dispatcher.drain_and_reconcile_stream()
+
+        assert rec.status == OrderLifecycleState.FILLED
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+        assert reconciler.verify_zero_balance_drift()
+
+        marks = temp_telemetry_store.get_execution_marks(track_id="test_fallback_tid")
+        assert len(marks) == 1
+        assert marks[0].trade_id.startswith(f"tr-ws-{cid}-")
+
+    def test_telemetry_store_query_methods_and_context_manager(self, tmp_path: Path):
+        """Verify context manager support and query methods on
+        SqliteCanaryContinuousDaemonTelemetryStore.
+        """
+        db_path = tmp_path / "test_store_cm.sqlite3"
+        with SqliteCanaryContinuousDaemonTelemetryStore(db_path) as store:
+            track_result = ContinuousDaemonTrackResult(
+                track_id="t1",
+                track_name="Track 1",
+                status="COMPLETED",
+                starting_equity_usdt="1000.00",
+                final_cash_usdt="1000.00",
+                allocated_margin_usdt="0",
+                unrealized_pnl_usdt="0",
+                realized_pnl_usdt="0",
+                total_fees_usdt="0",
+                total_slippage_usdt="0",
+                drift_usdt="0",
+                zero_balance_drift=True,
+                orders_placed_count=2,
+                orders_filled_count=2,
+                orders_cancelled_count=0,
+                orders_rejected_count=0,
+                interlock_blocks_count=0,
+                heartbeat_events_count=10,
+                stale_heartbeat_count=0,
+                stream_events_count=5,
+                deduplicated_events_count=0,
+                out_of_order_events_count=0,
+                final_circuit_state="NORMAL",
+                final_expansion_stage="STAGE_1_CONCURRENT_MICRO",
+                success=True,
+            )
+            store.record_daemon_track(track_result)
+
+            snap = BalanceSnapshot(
+                track_id="t1",
+                cash_usdt="1000.00",
+                allocated_margin_usdt="0",
+                unrealized_pnl_usdt="0",
+                realized_pnl_usdt="0",
+                equity_usdt="1000.00",
+                drift_usdt="0",
+            )
+            store.record_balance_snapshot(snap)
+
+            cid = generate_canary_client_order_id("BTCUSDT", timestamp_ms=int(time.time() * 1000))
+            ord_rec = ContinuousOrderRecord(
+                order_id="ord-query-1",
+                client_order_id=cid,
+                candidate_id="cand-1",
+                symbol="BTCUSDT",
+                side="BUY",
+                order_type="LIMIT",
+                time_in_force=TimeInForce.GTC.value,
+                price="60000.00",
+                quantity="0.00008",
+                notional_usdt="4.80000000",
+                status=OrderLifecycleState.FILLED,
+                expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+                track_id="t1",
+                created_at_utc=datetime.now(UTC).isoformat(),
+                updated_at_utc=datetime.now(UTC).isoformat(),
+            )
+            store.record_order(ord_rec)
+
+            tr_list = store.get_track_results("t1")
+            assert len(tr_list) == 1
+            assert tr_list[0].track_id == "t1"
+
+            snap_list = store.get_balance_snapshots("t1")
+            assert len(snap_list) == 1
+            assert snap_list[0].track_id == "t1"
+
+            ord_list = store.get_orders("t1")
+            assert len(ord_list) == 1
+            assert ord_list[0].client_order_id == cid
