@@ -1630,3 +1630,79 @@ Enforce mathematical precision and autonomous safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-20T08:13:06Z
+
+Implement the production canary full autonomous multi-candidate cross-asset liquidity regime shifting runner, dynamic order slicing governance, stepped exposure scaling up to 25.00 USDT, and continuous balance reconciliation across staged canary symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) under Candidate Registry Manifest Version 2 (Phase 284) to govern order book depth adaptation, TWAP micro-chunk slicing, aggregate margin headroom protection, and session longevity verification.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Upstream Verification & Cryptographic DAG Hash Chain Ingress
+Implement and execute the deterministic Phase 284 liquidity regime runner (`scripts/run_phase_284_liquidity_regime.py` & `src/autonomous_futures/feed/liquidity_regime.py`):
+- Ingest upstream Phase 283 adaptive execution report (`artifacts/research/phase283/canary-adaptive-execution-report.json`, `adaptive-execution-summary.json`), Phase 282 continuous daemon report, Phase 281 expansion report, Phase 280 deployment report, Phase 279 mainnet authorization report, Phase 278 testnet report, Phase 277 gateway report, and Phase 276 activation certificate.
+- Verify continuous cryptographic SHA-256 Merkle DAG hash chain without gaps across Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Validate prerequisite qualification criteria: `adaptive_execution_status == ADAPTIVE_EXECUTION_VERIFIED` with zero balance drift.
+
+### R2. Liquidity Regime Detection, Dynamic Order Slicing & Stepped Exposure Ceilings
+Implement multi-asset liquidity regime classification, TWAP/iceberg micro-slicing, and stepped exposure scaling interlocks:
+- **Liquidity Regime Classification**:
+  - Dynamically classify prevailing market liquidity into discrete regimes (`NORMAL`, `THIN`, `ILLIQUID`) per candidate based on top-of-book spread, depth density, and volume velocity.
+  - Scale down order sizing or widen limit offset cushions automatically in `THIN` or `ILLIQUID` regimes to avoid slippage spikes.
+- **Dynamic Micro-Order Slicing (TWAP / Iceberg)**:
+  - If a signal order exceeds available immediate top-of-book depth with estimated slippage > 1.5 bps, dynamically slice into sequential micro-chunks (<= 2.50 USDT child orders).
+  - Enforce atomic parent-child lifecycle tracking where child order fills, cancels, and rejections aggregate cleanly into the parent order state.
+- **Stepped Exposure Scaling Limits**:
+  - Individual Micro Child Order Cap: Strictly <= 5.00 USDT notional per order with `ROUND_DOWN` precision.
+  - Aggregate Concurrent Exposure Cap: Stepped expansion up to <= 25.00 USDT aggregate concurrent active exposure across all symbols.
+- **Dynamic Margin Headroom Interlock**: Real-time evaluation ensuring active portfolio margin allocation never exceeds <= 60.00% (preserving >= 40.00% unencumbered cash reserve buffer) and per-asset allocation never exceeds <= 20.00%.
+- **Active Committed Working Margin**: Dynamically track and reserve committed margin across concurrent working parent and child orders across symbols to prevent over-allocation.
+- **Intra-Phase Cumulative Loss Budget**: Cumulative loss ceiling of <= 3.50 USDT; breach triggers immediate portfolio-wide fail-closed lockout and emergency micro-chunked position liquidation (<= 5.00 USDT chunks).
+- **Gateway Heartbeat & Clock Skew Guard**: Order placement permitted ONLY if gateway heartbeat age <= 500 ms; backward NTP clock drift > 250 ms triggers immediate `HEARTBEAT_FREEZE` with 50 ms recovery hysteresis.
+- **Dual-Confirmation Client Order Tagging**: Unique client order IDs tagged with deterministic format (`c=canary-p284-{sym}-{ts}-{uuid}`).
+
+### R3. Deterministic Multi-Track Liquidity Regime Verification Drills & Telemetry Storage
+Execute 4 deterministic simulation tracks in `artifacts/research/phase284/`:
+1. **Track 1: Multi-Candidate Liquidity Regime Classification & Micro Order Execution Replay** (Nominal regime detection, clean TWAP slicing across `BTCUSDT`, `ETHUSDT`, `SOLUSDT` -> parallel lifecycle management -> clean ledger updates).
+2. **Track 2: Abrupt Liquidity Evaporation & Dynamic TWAP Slicing Throttling Drill** (Simulate depth collapse -> dynamic child order downscaling, limit offset widening, and fail-closed dispatch rejection on margin ceiling).
+3. **Track 3: Cross-Symbol Asymmetric Liquidity Crisis & Emergency Liquidation Drill** (Simulate liquidity freeze and loss budget breach -> immediate fail-closed lockout and emergency micro-chunked position liquidation <= 5.00 USDT).
+4. **Track 4: Extended Multi-Day Session Continuity, WebSocket Heartbeat Renewal & REST Reconciliation Drill** (Simulate extended daemon execution, listen-key refresh, sequence wrap recovery, backfill missing events via REST, idempotent trade deduplication).
+- Store execution marks, orders, lifecycle transitions, and telemetry in isolated SQLite database (`artifacts/research/phase284/canary-liquidity-regime-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-liquidity-regime-report.json`, `liquidity-regime-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Remote CI Polling
+Enforce mathematical precision and autonomous safety:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks (|drift| = |final_cash + allocated_margin + unrealized_pnl - (starting_equity + realized_pnl)| < 1e-15 USDT).
+- Maintain strict containment: `execution_authority: false`, `orders: 0` on uncontrolled real live mainnet capital, `api_keys_loaded: 0`, `exchange_access: false` (zero real secrets committed/logged).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_284_liquidity_regime.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Upstream Hash Chain & Ingress
+- [ ] Ingests Phase 283 adaptive execution report and validates cryptographic SHA-256 Merkle DAG hash chain.
+- [ ] Confirms Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+
+### Liquidity Regime & Order Slicing
+- [ ] Daemon dynamically detects market liquidity regimes and applies sequential TWAP micro-slicing when depth is constrained.
+- [ ] Concurrent orders across symbols respect individual <= 5.00 USDT and aggregate <= 25.00 USDT caps.
+- [ ] Dynamic margin headroom blocks orders when aggregate margin allocation would exceed 60.00%.
+- [ ] Gateway heartbeat age > 500 ms immediately blocks order dispatch fail-closed.
+- [ ] Cumulative loss exceeding 3.50 USDT triggers immediate lockout and micro-chunked position liquidation.
+
+### Accounting & Containment Invariants
+- [ ] Mathematical double-entry reconciliation drift is exactly zero (|drift| < 1e-15 USDT) across all tracks and snapshots.
+- [ ] Strict containment verified: `execution_authority: false`, `orders: 0`, `api_keys_loaded: 0`.
+- [ ] Zero API keys or secrets logged or committed.
+
+### Quality & Remote CI
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
