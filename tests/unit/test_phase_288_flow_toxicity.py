@@ -73,6 +73,9 @@ from autonomous_futures.feed.flow_toxicity import (  # noqa: E402
     CanaryFlowToxicityConfig,
     CanaryFlowToxicityRunner,
     CapitalExpansionStage,
+    CashReserveBufferBreachedError,
+    CircuitBreakerState,
+    ClockSkewExceededError,
     FlowMicroOrderDispatcher,
     FlowToxicityEngine,
     FlowToxicityOrderDispatchInterlock,
@@ -80,6 +83,7 @@ from autonomous_futures.feed.flow_toxicity import (  # noqa: E402
     FlowToxicityStreamSequencer,
     FlowUserDataStreamReconciler,
     GatewayHeartbeatMonitor,
+    HeartbeatFreezeActiveError,
     HeartbeatStatus,
     IndividualMicroCapExceededError,
     IntraPhaseLossCeilingExceededError,
@@ -873,3 +877,338 @@ def test_cli_runner_execution(tmp_path: Path):
         ]
     )
     assert exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# 16. Adversarial Edge Case & Boundary Verification Tests
+# ---------------------------------------------------------------------------
+
+
+def test_adversarial_vpin_exact_multiple_and_boundary_partitioning():
+    """Adversarial Test 1: VPIN volume bucket partitioning when trade size is multiple of V."""
+    engine = FlowToxicityEngine(bucket_size_usdt=Decimal("25.00"), bucket_count=5)
+    px = Decimal("50000.00")
+
+    # 1. Trade of exactly 25.00 USDT (1 * V) into an empty bucket
+    engine.process_trade("BTCUSDT", px, Decimal("25.00") / px, OrderSide.BUY)
+    assert len(engine._completed_buckets["BTCUSDT"]) == 1
+    assert engine._active_buckets["BTCUSDT"]["buy"] == Decimal("0.0")
+    assert engine._active_buckets["BTCUSDT"]["sell"] == Decimal("0.0")
+
+    # 2. Trade of exactly 50.00 USDT (2 * V)
+    engine.process_trade("BTCUSDT", px, Decimal("50.00") / px, OrderSide.BUY)
+    assert len(engine._completed_buckets["BTCUSDT"]) == 3
+    assert engine._active_buckets["BTCUSDT"]["buy"] == Decimal("0.0")
+    assert engine._active_buckets["BTCUSDT"]["sell"] == Decimal("0.0")
+
+    # 3. Trade of 30.00 USDT (fills 1 bucket of 25.00 + 5.00 leftover)
+    engine.process_trade("BTCUSDT", px, Decimal("30.00") / px, OrderSide.SELL)
+    assert len(engine._completed_buckets["BTCUSDT"]) == 4
+    assert engine._active_buckets["BTCUSDT"]["sell"] == Decimal("5.00")
+
+    # 4. Complement trade of exactly 20.00 USDT to reach 25.00
+    engine.process_trade("BTCUSDT", px, Decimal("20.00") / px, OrderSide.SELL)
+    assert len(engine._completed_buckets["BTCUSDT"]) == 5
+    assert engine._active_buckets["BTCUSDT"]["sell"] == Decimal("0.0")
+
+
+def test_adversarial_twap_slicing_child_cap_strict_compliance(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test 2: TWAP slicing strictly enforces <= 2.50 USDT child cap across targets."""
+    gateway = MockBinanceFlowToxicityGateway()
+    reconciler = FlowUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    now_ms = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(now_ms - 10, 10.0, now_ms)
+    engine = FlowToxicityEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = FlowMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    test_targets = [
+        Decimal("1.00"),
+        Decimal("2.00"),
+        Decimal("2.50"),
+        Decimal("2.80"),  # Previously broke by merging dust into 2.80 USDT slice (> 2.50 cap)
+        Decimal("3.20"),  # Previously broke into 3.20 USDT slice
+        Decimal("5.00"),
+        Decimal("5.20"),  # Previously broke into [2.50, 2.70]
+        Decimal("7.80"),
+    ]
+
+    limit_px = Decimal("60000.00")
+    for target in test_targets:
+        reconciler.positions["BTCUSDT"] = Decimal("0.0")
+        reconciler.allocated_margin = Decimal("0.0")
+        parent = dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=target,
+            limit_price=limit_px,
+            slice_chunk_notional=Decimal("2.50"),
+            track_id="test_adv_slicing",
+        )
+        child_ids = json.loads(parent.child_order_ids_json)
+        assert len(child_ids) >= 1
+        assert Decimal(parent.executed_notional_usdt) == target
+        for cid in child_ids:
+            child = dispatcher.orders[cid]
+            child_notional = Decimal(child.price) * Decimal(child.quantity)
+            assert child_notional <= Decimal("2.50000001"), (
+                f"Child notional {child_notional} exceeds 2.50 cap for target {target}"
+            )
+            assert child_notional >= Decimal("0.99999999"), (
+                f"Child notional {child_notional} below 1.00 floor for target {target}"
+            )
+
+
+def test_adversarial_gateway_heartbeat_freeze_circuit_state_transition_and_recovery():
+    """Adversarial Test 3: Backward clock drift triggers HEARTBEAT_FREEZE circuit state."""
+    reconciler = FlowUserDataStreamReconciler()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = FlowToxicityEngine()
+
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+    )
+
+    t0 = 1_000_000_000
+    heartbeat_mon.record_heartbeat(server_time_ms=t0, latency_ms=15.0, local_time_ms=t0)
+    assert not heartbeat_mon.is_frozen
+    assert interlock.circuit_state == CircuitBreakerState.NORMAL
+
+    # Order valid when healthy
+    cid1 = generate_canary_client_order_id("BTCUSDT")
+    interlock.evaluate_order_dispatch(
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00005"),
+        price=Decimal("50000.00"),
+        client_order_id=cid1,
+        current_time_ms=t0 + 50,
+    )
+
+    # Induce backward NTP clock drift > 250 ms (age = -300 ms)
+    with pytest.raises(ClockSkewExceededError):
+        interlock.evaluate_order_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("50000.00"),
+            client_order_id=generate_canary_client_order_id("BTCUSDT"),
+            current_time_ms=t0 - 300,
+        )
+
+    # Circuit state MUST be HEARTBEAT_FREEZE
+    assert heartbeat_mon.is_frozen
+    assert interlock.circuit_state == CircuitBreakerState.HEARTBEAT_FREEZE
+
+    # Subsequent dispatch fails fail-closed
+    with pytest.raises(HeartbeatFreezeActiveError):
+        interlock.evaluate_order_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("50000.00"),
+            client_order_id=generate_canary_client_order_id("BTCUSDT"),
+            current_time_ms=t0 + 20,
+        )
+
+    # Attempt marginal recovery with skew = 220 ms (> 200 ms hysteresis ceiling) -> still frozen
+    hb_marginal = heartbeat_mon.record_heartbeat(
+        server_time_ms=t0 + 1000,
+        latency_ms=20.0,
+        local_time_ms=t0 + 1220,  # skew = 220 ms > 200 ms recovery ceiling
+    )
+    assert hb_marginal.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+    assert heartbeat_mon.is_frozen
+
+    # Recover with skew <= 200 ms (50 ms recovery hysteresis) and latency <= 450 ms
+    hb_rec = heartbeat_mon.record_heartbeat(
+        server_time_ms=t0 + 2000,
+        latency_ms=25.0,
+        local_time_ms=t0 + 2050,  # skew = 50 ms <= 200 ms
+    )
+    assert hb_rec.status == HeartbeatStatus.RECOVERED
+    assert not heartbeat_mon.is_frozen
+
+    # Order dispatch recovers and transitions circuit state back to NORMAL
+    cid2 = generate_canary_client_order_id("BTCUSDT")
+    interlock.evaluate_order_dispatch(
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00005"),
+        price=Decimal("50000.00"),
+        client_order_id=cid2,
+        current_time_ms=t0 + 2060,
+    )
+    assert interlock.circuit_state == CircuitBreakerState.NORMAL
+
+
+def test_adversarial_committed_working_margin_cash_reserve_interlock():
+    """Adversarial Test 4: Committed working margin reserves protect the 40% cash buffer."""
+    reconciler = FlowUserDataStreamReconciler(starting_equity=Decimal("100.00"))
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    t0 = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(server_time_ms=t0, latency_ms=10.0, local_time_ms=t0)
+    engine = FlowToxicityEngine()
+
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_9_FLOW_TOXICITY_EXPANSION,
+    )
+
+    # 1. Test aggregate cap breach when committed margin exceeds active stage cap (45.00 USDT)
+    interlock.reserve_committed_margin("BTCUSDT", Decimal("20.00"))
+    interlock.reserve_committed_margin("ETHUSDT", Decimal("20.00"))
+    interlock.reserve_committed_margin("SOLUSDT", Decimal("4.00"))
+
+    with pytest.raises(AggregateExposureCapExceededError):
+        interlock.evaluate_order_dispatch(
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.02"),
+            price=Decimal("150.00"),  # notional = 3.00, total = 47.00 > 45.00 cap
+            client_order_id=generate_canary_client_order_id("SOLUSDT"),
+            current_time_ms=t0 + 10,
+        )
+
+    # 2. Test cash reserve buffer breach (< 40% unencumbered cash reserve buffer)
+    # Set reconciler cash to 42.00 USDT (starting equity 100 USDT, required reserve 40.00 USDT)
+    reconciler.cash = Decimal("42.00")
+    interlock.committed_margin["BTCUSDT"] = Decimal("1.50")
+    interlock.committed_margin["ETHUSDT"] = Decimal("1.50")
+    interlock.committed_margin["SOLUSDT"] = Decimal("0.00")
+
+    # notional = 2.00 USDT. Projected cash = 42 - 3 - 2 = 37 USDT < 40 USDT reserve buffer
+    with pytest.raises(CashReserveBufferBreachedError):
+        interlock.evaluate_order_dispatch(
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.02"),
+            price=Decimal("100.00"),  # notional = 2.00 USDT
+            client_order_id=generate_canary_client_order_id("SOLUSDT"),
+            current_time_ms=t0 + 10,
+        )
+
+
+def test_adversarial_committed_margin_rollback_on_gateway_failure(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test 5: Committed margin is rolled back if gateway order placement fails."""
+    gateway = MockBinanceFlowToxicityGateway()
+
+    # Monkey-patch place_order to raise an exception
+    def broken_place_order(**kwargs):
+        raise ConnectionResetError("Simulated gateway network drop")
+
+    gateway.place_order = broken_place_order  # type: ignore[assignment]
+
+    reconciler = FlowUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    t0 = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(t0, 10.0, t0)
+    engine = FlowToxicityEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = FlowMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    with pytest.raises(ConnectionResetError):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-solusdt-rgb-001",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.02"),
+            price=Decimal("150.00"),
+        )
+
+    # Committed margin MUST be 0, not leaked
+    assert interlock.committed_margin["SOLUSDT"] == Decimal("0")
+
+
+def test_adversarial_vpin_direct_threshold_rejection_overrides_regime():
+    """Adversarial Test 6: Aggressive orders fail-closed if VPIN > 0.65 even under override."""
+    engine = FlowToxicityEngine()
+    px = Decimal("60000.00")
+
+    # Ingest 5 buckets of 100% buy flow -> VPIN = 1.0
+    for _ in range(5):
+        engine.process_trade("BTCUSDT", px, Decimal("25.00") / px, OrderSide.BUY)
+
+    assert engine.get_vpin("BTCUSDT") > Decimal("0.65")
+    # Manually override regime to NOMINAL
+    engine.set_regime_override("BTCUSDT", FlowToxicityRegime.NOMINAL)
+
+    # Aggressive order MUST still be rejected because VPIN > 0.65
+    with pytest.raises(AggressiveOrderRejectedError):
+        engine.validate_order_pacing_and_adverse_risk(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+        )
+
+
+def test_adversarial_multi_symbol_volume_bucket_sqlite_persistence(tmp_path: Path):
+    """Adversarial Test 7: Verify all 3 canary symbols have volume buckets in SQLite."""
+    cfg = CanaryFlowToxicityConfig(
+        output_dir=tmp_path,
+        manifest_path=DEFAULT_CANARY_STAGING_MANIFEST_PATH,
+    )
+    runner = CanaryFlowToxicityRunner(config=cfg)
+    report = runner.execute_all_tracks()
+    assert report.daemon_status == "FLOW_TOXICITY_VERIFIED"
+
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "canary-flow-toxicity-telemetry.sqlite3")
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT symbol, count(*) FROM volume_buckets WHERE track_id = 'track_1' GROUP BY symbol"
+    )
+    buckets_by_sym = dict(cur.fetchall())
+    conn.close()
+
+    # In Track 1, EVERY staged symbol (BTCUSDT, ETHUSDT, SOLUSDT) must have >= 1 completed bucket
+    for sym in CANARY_STAGED_SYMBOLS:
+        assert sym in buckets_by_sym, (
+            f"Candidate {sym} has no completed volume buckets in SQLite for track_1"
+        )
+        assert buckets_by_sym[sym] >= 1, (
+            f"Candidate {sym} volume bucket count is {buckets_by_sym[sym]}, expected >= 1"
+        )

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import sqlite3
 import threading
@@ -369,6 +370,7 @@ class CircuitBreakerState(StrEnum):
     """Circuit breaker states for intra-phase loss and toxicity protection."""
 
     NORMAL = "NORMAL"
+    HEARTBEAT_FREEZE = "HEARTBEAT_FREEZE"
     INTRA_PHASE_LOSS_LOCKOUT = "INTRA_PHASE_LOSS_LOCKOUT"
     EMERGENCY_FLATTENING = "EMERGENCY_FLATTENING"
     RECOVERY_PENDING = "RECOVERY_PENDING"
@@ -1547,6 +1549,17 @@ class GatewayHeartbeatMonitor:
                 )
             return True, "Heartbeat healthy"
 
+    def assert_healthy(self, current_time_ms: int | None = None) -> None:
+        """Assert gateway heartbeat is healthy, raising domain errors fail-closed."""
+        healthy, reason = self.check_health(current_time_ms)
+        if not healthy:
+            reason_l = reason.lower()
+            if any(term in reason_l for term in ("clock", "drift", "skew", "jump")):
+                raise ClockSkewExceededError(reason)
+            if "frozen" in reason_l:
+                raise HeartbeatFreezeActiveError(reason)
+            raise GatewayHeartbeatStaleError(reason)
+
 
 # =====================================================================
 # Flow Toxicity & VPIN Engine
@@ -1640,24 +1653,11 @@ class FlowToxicityEngine:
                 curr_total = curr_buy + curr_sell
                 bucket_space = self.bucket_size_usdt - curr_total
 
-                if remaining_trade <= bucket_space:
-                    if is_buy:
-                        self._active_buckets[sym]["buy"] += remaining_trade
-                    else:
-                        self._active_buckets[sym]["sell"] += remaining_trade
-                    remaining_trade = Decimal("0")
-                else:
-                    # Fill the current bucket to capacity
-                    if is_buy:
-                        self._active_buckets[sym]["buy"] += bucket_space
-                    else:
-                        self._active_buckets[sym]["sell"] += bucket_space
-                    remaining_trade -= bucket_space
-
-                    # Finalize bucket
-                    final_buy = self._active_buckets[sym]["buy"]
-                    final_sell = self._active_buckets[sym]["sell"]
-                    final_total = final_buy + final_sell
+                if bucket_space <= Decimal("0"):
+                    # Existing bucket already at or over capacity; finalize immediately
+                    final_buy = curr_buy
+                    final_sell = curr_sell
+                    final_total = curr_total
                     imbalance = abs(final_buy - final_sell)
 
                     self._bucket_indices[sym] += 1
@@ -1675,7 +1675,41 @@ class FlowToxicityEngine:
                     if self.telemetry_store:
                         self.telemetry_store.record_volume_bucket(b_rec)
 
-                    # Reset active bucket for next volume chunk
+                    self._active_buckets[sym] = {
+                        "buy": Decimal("0.0"),
+                        "sell": Decimal("0.0"),
+                    }
+                    continue
+
+                chunk = min(remaining_trade, bucket_space)
+                if is_buy:
+                    self._active_buckets[sym]["buy"] += chunk
+                else:
+                    self._active_buckets[sym]["sell"] += chunk
+                remaining_trade -= chunk
+
+                curr_total = self._active_buckets[sym]["buy"] + self._active_buckets[sym]["sell"]
+                if curr_total >= self.bucket_size_usdt:
+                    final_buy = self._active_buckets[sym]["buy"]
+                    final_sell = self._active_buckets[sym]["sell"]
+                    final_total = curr_total
+                    imbalance = abs(final_buy - final_sell)
+
+                    self._bucket_indices[sym] += 1
+                    b_rec = VolumeBucketRecord(
+                        track_id=track_id,
+                        symbol=sym,
+                        bucket_index=self._bucket_indices[sym],
+                        buy_volume=str(final_buy),
+                        sell_volume=str(final_sell),
+                        total_volume=str(final_total),
+                        imbalance=str(imbalance),
+                        timestamp_utc=timestamp_utc or datetime.now(UTC).isoformat(),
+                    )
+                    self._completed_buckets[sym].append(b_rec)
+                    if self.telemetry_store:
+                        self.telemetry_store.record_volume_bucket(b_rec)
+
                     self._active_buckets[sym] = {
                         "buy": Decimal("0.0"),
                         "sell": Decimal("0.0"),
@@ -1842,10 +1876,12 @@ class FlowToxicityEngine:
         adverse_state = self.get_adverse_state(sym)
 
         is_aggressive = order_type == OrderType.MARKET
-        if regime == FlowToxicityRegime.SEVERE_CONTROLS and is_aggressive:
+        vpin = self.get_vpin(sym)
+        severe_vpin = vpin > self.severe_vpin_threshold
+        if (regime == FlowToxicityRegime.SEVERE_CONTROLS or severe_vpin) and is_aggressive:
             raise AggressiveOrderRejectedError(
                 f"Aggressive order rejected for {sym}: Flow toxicity regime is "
-                f"{regime.value} with VPIN {self.get_vpin(sym)}"
+                f"{regime.value} with VPIN {vpin}"
             )
 
         if adverse_state == AdverseSelectionRiskState.SEVERE_THROTTLED and is_aggressive:
@@ -2478,6 +2514,8 @@ class FlowToxicityOrderDispatchInterlock:
             hb_ok, hb_reason = self.heartbeat_monitor.check_health(current_time_ms)
             if not hb_ok:
                 self.interlock_blocks_count += 1
+                if "frozen" in hb_reason.lower() or self.heartbeat_monitor.is_frozen:
+                    self.circuit_state = CircuitBreakerState.HEARTBEAT_FREEZE
                 self._record_interlock(
                     track_id, InterlockType.HEARTBEAT_FRESHNESS, False, sym, notional, hb_reason
                 )
@@ -2490,6 +2528,8 @@ class FlowToxicityOrderDispatchInterlock:
                 if "frozen" in hb_reason.lower():
                     raise HeartbeatFreezeActiveError(hb_reason)
                 raise GatewayHeartbeatStaleError(hb_reason)
+            elif self.circuit_state == CircuitBreakerState.HEARTBEAT_FREEZE:
+                self.circuit_state = CircuitBreakerState.NORMAL
 
             # Closing orders bypass circuit breaker lockouts and margin headroom checks
             if is_closing:
@@ -2544,7 +2584,9 @@ class FlowToxicityOrderDispatchInterlock:
                     f"{HARD_MICRO_NOTIONAL_CAP_USDT} USDT"
                 )
 
-            if notional < MIN_MICRO_NOTIONAL_CAP_USDT:
+            if notional < MIN_MICRO_NOTIONAL_CAP_USDT and (
+                MIN_MICRO_NOTIONAL_CAP_USDT - notional
+            ) > Decimal("0.001"):
                 self.interlock_blocks_count += 1
                 self._record_interlock(
                     track_id,
@@ -2643,7 +2685,7 @@ class FlowToxicityOrderDispatchInterlock:
 
             # Unencumbered cash reserve buffer >= 40%
             required_cash_reserve = starting_eq * MIN_RESERVE_BUFFER_PCT  # 40%
-            projected_cash = self.reconciler.cash - notional
+            projected_cash = self.reconciler.cash - curr_committed - notional
             if projected_cash < required_cash_reserve:
                 self.interlock_blocks_count += 1
                 self._record_interlock(
@@ -2786,14 +2828,19 @@ class FlowMicroOrderDispatcher:
                 self.interlock.reserve_committed_margin(sym, notional)
 
             # Dispatch order to gateway
-            raw_ord = self.gateway.place_order(
-                symbol=sym,
-                side=side,
-                order_type=order_type,
-                quantity=quantity,
-                price=price,
-                client_order_id=cid,
-            )
+            try:
+                raw_ord = self.gateway.place_order(
+                    symbol=sym,
+                    side=side,
+                    order_type=order_type,
+                    quantity=quantity,
+                    price=price,
+                    client_order_id=cid,
+                )
+            except Exception:
+                if not is_closing:
+                    self.interlock.release_committed_margin(sym, notional)
+                raise
 
             ord_rec = FlowToxicityOrderRecord(
                 client_order_id=cid,
@@ -2889,21 +2936,19 @@ class FlowMicroOrderDispatcher:
                 Decimal("0.00000001"), rounding=ROUND_DOWN
             )
             parent_cid = f"parent-{uuid4().hex[:12]}"
-            chunk_cap = min(slice_chunk_notional, DYNAMIC_SLICING_MAX_CHUNK_USDT)
+            chunk_cap = max(
+                MIN_MICRO_NOTIONAL_CAP_USDT,
+                min(slice_chunk_notional, DYNAMIC_SLICING_MAX_CHUNK_USDT),
+            )
 
-            # Partition into sequential chunks <= 2.50 USDT
-            child_notionals: list[Decimal] = []
-            rem = target_notional
-            while rem > Decimal("0"):
-                if rem <= chunk_cap:
-                    if rem < MIN_MICRO_NOTIONAL_CAP_USDT and child_notionals:
-                        # Merge trailing dust into previous child if valid
-                        child_notionals[-1] += rem
-                    else:
-                        child_notionals.append(rem)
-                    break
-                child_notionals.append(chunk_cap)
-                rem -= chunk_cap
+            # Partition into sequential child slices <= 2.50 USDT with >= 1.00 USDT floor
+            num_slices = max(1, math.ceil(float(target_notional / chunk_cap)))
+            base_slice = (target_notional / Decimal(num_slices)).quantize(
+                Decimal("0.00000001"), rounding=ROUND_DOWN
+            )
+            remainder = target_notional - (base_slice * Decimal(num_slices))
+            child_notionals: list[Decimal] = [base_slice] * num_slices
+            child_notionals[0] += remainder
 
             child_ids: list[str] = []
             parent_rec = ParentOrderRecord(
@@ -2930,6 +2975,16 @@ class FlowMicroOrderDispatcher:
                 c_qty = (c_notional / limit_price).quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
+                if (
+                    c_notional >= MIN_MICRO_NOTIONAL_CAP_USDT
+                    and (c_qty * limit_price).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                    < MIN_MICRO_NOTIONAL_CAP_USDT
+                ):
+                    candidate_c_qty = c_qty + Decimal("0.00000001")
+                    if (candidate_c_qty * limit_price).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    ) <= HARD_MICRO_NOTIONAL_CAP_USDT:
+                        c_qty = candidate_c_qty
                 child_cid = generate_canary_client_order_id(sym)
                 child_ids.append(child_cid)
 
@@ -2980,12 +3035,11 @@ class FlowMicroOrderDispatcher:
                 remaining_qty = abs(pos_qty)
 
                 while remaining_qty > Decimal("0.00000001"):
-                    chunk_qty = (chunk_cap / px).quantize(
-                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    chunk_qty = max(
+                        Decimal("0.00000001"),
+                        (chunk_cap / px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN),
                     )
                     actual_slice_qty = min(remaining_qty, chunk_qty)
-                    if actual_slice_qty <= Decimal("0"):
-                        actual_slice_qty = remaining_qty
 
                     close_cid = generate_canary_client_order_id(sym)
                     ord_rec = self.dispatch_micro_order(
