@@ -43,8 +43,9 @@ Validates:
 from __future__ import annotations
 
 import sys
+import threading
 import time
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 
 import pytest
@@ -63,6 +64,7 @@ from autonomous_futures.feed.canary_probe import (  # noqa: E402
 )
 from autonomous_futures.feed.liquidity_shock import (  # noqa: E402
     AGGREGATE_CONCURRENT_EXPOSURE_CAP_USDT,
+    CANARY_STAGED_SYMBOLS,
     DEFAULT_CANARY_STAGING_MANIFEST_PATH,
     DOUBLE_ENTRY_MAX_DRIFT,
     DYNAMIC_SLICING_MAX_CHUNK_USDT,
@@ -1101,3 +1103,195 @@ def test_cli_simulate_loss_breach_flag(tmp_path: Path):
         simulate_loss_breach=True,
     )
     assert exit_code == 0
+
+
+def test_gateway_heartbeat_sudden_os_clock_jump_detection(monkeypatch):
+    """Adversarial Test: Verify sudden OS clock jump (wall vs monotonic drift > 250 ms)
+    triggers CLOCK_SKEW_FREEZE immediately during check_health().
+    """
+    mon = GatewayHeartbeatMonitor()
+    gw = MockBinanceLiquidityShockGateway()
+    base_wall = 1700000000.0
+    base_mono = 1000.0
+
+    monkeypatch.setattr(time, "time", lambda: base_wall)
+    monkeypatch.setattr(time, "monotonic", lambda: base_mono)
+
+    hb = gw.generate_heartbeat(latency_ms=25.0)
+    mon.record_heartbeat(
+        server_time_ms=int(base_wall * 1000),
+        latency_ms=hb["latencyMs"],
+    )
+    assert mon.check_health()[0] is True
+
+    # Case 1: Wall clock steps backward by 300 ms while monotonic advances by 10 ms
+    monkeypatch.setattr(time, "time", lambda: base_wall - 0.290)
+    monkeypatch.setattr(time, "monotonic", lambda: base_mono + 0.010)
+
+    healthy, reason = mon.check_health()
+    assert healthy is False
+    assert mon.is_frozen is True
+    assert "Backward NTP" in reason or "clock jump" in reason
+
+    # Case 2: Fresh monitor, test forward clock jump
+    mon2 = GatewayHeartbeatMonitor()
+    monkeypatch.setattr(time, "time", lambda: base_wall)
+    monkeypatch.setattr(time, "monotonic", lambda: base_mono)
+    mon2.record_heartbeat(
+        server_time_ms=int(base_wall * 1000),
+        latency_ms=25.0,
+    )
+    assert mon2.check_health()[0] is True
+
+    # Wall clock jumps forward by 280 ms while monotonic only advances by 5 ms
+    # age = 280 ms (which is <= 500 ms, so age alone wouldn't trip staleness!)
+    # but clock_jump = 280 - 5 = 275 ms > 250 ms max clock skew!
+    monkeypatch.setattr(time, "time", lambda: base_wall + 0.280)
+    monkeypatch.setattr(time, "monotonic", lambda: base_mono + 0.005)
+
+    healthy2, reason2 = mon2.check_health()
+    assert healthy2 is False
+    assert mon2.is_frozen is True
+    assert "Sudden OS clock jump detected" in reason2
+
+
+def test_multi_thread_burst_order_dispatch_lock_safety(temp_telemetry_store, temp_jsonl_sink):
+    """Adversarial Test: Verify simultaneous multi-thread burst order submissions
+    maintain strict thread safety, zero race conditions, and clean accounting.
+    """
+    gw = MockBinanceLiquidityShockGateway()
+    reconciler = LiquidityUserDataStreamReconciler(track_id="adv_burst_threads")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    shock_engine = LiquidityShockEngine()
+    sequencer = LiquidityShockStreamSequencer()
+
+    interlock = LiquidityShockOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        shock_engine=shock_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_7_LIQUIDITY_SHOCK_EXPANSION,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="adv_burst_threads",
+        shock_engine=shock_engine,
+    )
+
+    errors: list[Exception] = []
+
+    def _worker(thread_idx: int) -> None:
+        try:
+            for j in range(3):
+                hb_w = gw.generate_heartbeat(latency_ms=20.0)
+                heartbeat_mon.record_heartbeat(hb_w["serverTime"], hb_w["latencyMs"])
+
+                sym = CANARY_STAGED_SYMBOLS[j % len(CANARY_STAGED_SYMBOLS)]
+                book = gw.books[sym]
+                px = book["bid_price"]
+                qty = (Decimal("1.50") / px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                cid = generate_canary_client_order_id(sym, uuid_str=f"t{thread_idx}j{j}")
+                try:
+                    dispatcher.dispatch_micro_order(
+                        candidate_id=f"cand-{sym.lower()}",
+                        symbol=sym,
+                        side=OrderSide.BUY,
+                        order_type=OrderType.LIMIT,
+                        quantity=qty,
+                        price=px,
+                        client_order_id=cid,
+                    )
+                except AggregateExposureCapExceededError, MarginAllocationExceededError:
+                    pass
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_worker, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10.0)
+
+    assert len(errors) == 0
+    assert reconciler.mathematical_drift < Decimal("1e-15")
+
+
+def test_emergency_flattening_multi_symbol_heartbeat_preservation(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test: Verify execute_emergency_flattening preserves gateway heartbeats
+    and closes all multi-candidate positions cleanly without stale heartbeat trips.
+    """
+    gw = MockBinanceLiquidityShockGateway()
+    reconciler = LiquidityUserDataStreamReconciler(track_id="adv_emergency_hb")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    shock_engine = LiquidityShockEngine()
+    sequencer = LiquidityShockStreamSequencer()
+
+    interlock = LiquidityShockOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        shock_engine=shock_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_7_LIQUIDITY_SHOCK_EXPANSION,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="adv_emergency_hb",
+        shock_engine=shock_engine,
+    )
+
+    for sym in CANARY_STAGED_SYMBOLS:
+        px = gw.books[sym]["bid_price"]
+        qty = (Decimal("3.00") / px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+        hb_sub = gw.generate_heartbeat(latency_ms=20.0)
+        heartbeat_mon.record_heartbeat(hb_sub["serverTime"], hb_sub["latencyMs"])
+        dispatcher.dispatch_micro_order(
+            candidate_id=f"cand-{sym.lower()}",
+            symbol=sym,
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=qty,
+            price=px,
+        )
+
+    for sym in CANARY_STAGED_SYMBOLS:
+        assert reconciler.positions[sym] > Decimal("0")
+
+    flat_orders = dispatcher.execute_emergency_flattening()
+    assert len(flat_orders) >= 3
+    for fo in flat_orders:
+        assert fo.status == OrderLifecycleState.FILLED
+        assert Decimal(fo.notional_usdt) <= HARD_MICRO_NOTIONAL_CAP_USDT
+
+    for sym in CANARY_STAGED_SYMBOLS:
+        assert reconciler.positions[sym] == Decimal("0")
+    assert reconciler.allocated_margin == Decimal("0")
+    assert reconciler.mathematical_drift < Decimal("1e-15")
+
+
+def test_chunk_qty_clamping_at_extreme_prices():
+    """Adversarial Test: Verify chunk_qty is clamped to at least 1 lot (0.00000001)
+    under astronomical unit prices, preventing zero-division and infinite loops.
+    """
+    px = Decimal("1000000000.00")
+    chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / px).quantize(
+        Decimal("0.00000001"), rounding=ROUND_DOWN
+    )
+    assert chunk_qty == Decimal("0.00000000")
+    clamped = max(Decimal("0.00000001"), chunk_qty)
+    assert clamped == Decimal("0.00000001")

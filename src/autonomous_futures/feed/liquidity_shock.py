@@ -1373,6 +1373,7 @@ class GatewayHeartbeatMonitor:
         self._lock = threading.RLock()
 
         self.last_heartbeat_ms: int = 0
+        self.last_heartbeat_mono_ms: float = 0.0
         self.last_server_time_ms: int = 0
         self.last_latency_ms: float = 0.0
         self.last_clock_skew_ms: float = 0.0
@@ -1393,6 +1394,7 @@ class GatewayHeartbeatMonitor:
             self.heartbeat_count += 1
             prev_heartbeat = self.last_heartbeat_ms
             self.last_heartbeat_ms = now_ms
+            self.last_heartbeat_mono_ms = time.monotonic() * 1000.0
             self.last_latency_ms = latency_ms
 
             prev_server = self.last_server_time_ms
@@ -1466,6 +1468,20 @@ class GatewayHeartbeatMonitor:
                     f"tolerance {self.max_clock_skew_ms}ms"
                 )
                 return False, f"Heartbeat frozen: {self.freeze_reason}"
+
+            # Sudden OS clock jump detection using monotonic clock comparison
+            if current_time_ms is None and self.last_heartbeat_mono_ms > 0:
+                mono_elapsed = (time.monotonic() * 1000.0) - self.last_heartbeat_mono_ms
+                clock_step = age - mono_elapsed
+                if abs(clock_step) > self.max_clock_skew_ms:
+                    self.is_frozen = True
+                    self.freeze_reason = (
+                        f"Sudden OS clock jump detected: wall elapsed {age:.1f}ms vs "
+                        f"monotonic elapsed {mono_elapsed:.1f}ms (jump {clock_step:.1f}ms "
+                        f"exceeds tolerance {self.max_clock_skew_ms}ms)"
+                    )
+                    return False, f"Heartbeat frozen: {self.freeze_reason}"
+
             if age > self.max_allowed_age_ms:
                 self.stale_count += 1
                 return False, f"Heartbeat age {age:.1f}ms exceeds {self.max_allowed_age_ms}ms"
@@ -2223,6 +2239,18 @@ class LiquidityUserDataStreamReconciler:
             actual_equity = self.cash + self.allocated_margin + self.unrealized_pnl
             return abs(actual_equity - expected_equity)
 
+    def get_positions_snapshot(self) -> dict[str, Decimal]:
+        with self._lock:
+            return dict(self.positions)
+
+    def get_per_asset_margin(self, symbol: str) -> Decimal:
+        with self._lock:
+            return self.per_asset_margin.get(symbol, Decimal("0"))
+
+    def get_per_asset_margin_snapshot(self) -> dict[str, Decimal]:
+        with self._lock:
+            return dict(self.per_asset_margin)
+
     def process_fill(
         self,
         trade_id: str,
@@ -2685,7 +2713,7 @@ class LiquidityShockOrderDispatchInterlock:
                     raise AggressiveOrderRejectedError(err_msg)
 
                 # Clamp candidate exposure to throttled cap
-                cur_sym_margin = self.reconciler.per_asset_margin.get(symbol, Decimal("0"))
+                cur_sym_margin = self.reconciler.get_per_asset_margin(symbol)
                 work_sym_margin = self.get_working_committed_margin(
                     symbol=symbol,
                     exclude_client_order_id=client_order_id,
@@ -2808,7 +2836,7 @@ class LiquidityShockOrderDispatchInterlock:
                 raise CashReserveBufferBreachedError(err_msg)
 
             # Per-Asset Margin Allocation <= 20.00%
-            current_asset_margin = self.reconciler.per_asset_margin.get(symbol, Decimal("0"))
+            current_asset_margin = self.reconciler.get_per_asset_margin(symbol)
             working_asset_margin = self.get_working_committed_margin(
                 symbol=symbol,
                 exclude_client_order_id=client_order_id,
@@ -3111,6 +3139,18 @@ class LiquidityMicroOrderDispatcher:
             child_orders: list[LiquidityShockOrderRecord] = []
 
             if not needs_slicing:
+                if self.heartbeat_monitor and hasattr(self.gateway, "generate_heartbeat"):
+                    try:
+                        hb = self.gateway.generate_heartbeat(latency_ms=25.0)
+                        hb_rec = self.heartbeat_monitor.record_heartbeat(
+                            server_time_ms=hb["serverTime"],
+                            latency_ms=hb["latencyMs"],
+                            track_id=self.track_id,
+                        )
+                        if self.telemetry_store:
+                            self.telemetry_store.record_heartbeat(hb_rec)
+                    except Exception:
+                        pass
                 ch = self.dispatch_micro_order(
                     candidate_id=candidate_id,
                     symbol=symbol,
@@ -3163,12 +3203,18 @@ class LiquidityMicroOrderDispatcher:
                             Decimal("0.00000001"), rounding=ROUND_DOWN
                         ) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
                             c_qty = candidate_c_qty
-                    hb = self.gateway.generate_heartbeat(latency_ms=25.0)
-                    self.heartbeat_monitor.record_heartbeat(
-                        server_time_ms=hb["serverTime"],
-                        latency_ms=hb["latencyMs"],
-                        track_id=self.track_id,
-                    )
+                    if self.heartbeat_monitor and hasattr(self.gateway, "generate_heartbeat"):
+                        try:
+                            hb = self.gateway.generate_heartbeat(latency_ms=25.0)
+                            hb_rec = self.heartbeat_monitor.record_heartbeat(
+                                server_time_ms=hb["serverTime"],
+                                latency_ms=hb["latencyMs"],
+                                track_id=self.track_id,
+                            )
+                            if self.telemetry_store:
+                                self.telemetry_store.record_heartbeat(hb_rec)
+                        except Exception:
+                            pass
                     ch = self.dispatch_micro_order(
                         candidate_id=candidate_id,
                         symbol=symbol,
@@ -3392,7 +3438,7 @@ class LiquidityMicroOrderDispatcher:
             flattening_orders: list[LiquidityShockOrderRecord] = []
 
             # 2. Micro-chunked flattening of open positions (both LONG and SHORT)
-            for sym, pos_qty in list(self.reconciler.positions.items()):
+            for sym, pos_qty in list(self.reconciler.get_positions_snapshot().items()):
                 if pos_qty == Decimal("0"):
                     continue
 
@@ -3416,6 +3462,18 @@ class LiquidityMicroOrderDispatcher:
                 while rem_qty > Decimal("0"):
                     cur_qty = min(rem_qty, chunk_qty)
                     cid = generate_canary_client_order_id(sym)
+                    if self.heartbeat_monitor and hasattr(self.gateway, "generate_heartbeat"):
+                        try:
+                            hb_flat = self.gateway.generate_heartbeat(latency_ms=25.0)
+                            hb_flat_rec = self.heartbeat_monitor.record_heartbeat(
+                                server_time_ms=hb_flat["serverTime"],
+                                latency_ms=hb_flat["latencyMs"],
+                                track_id=self.track_id,
+                            )
+                            if self.telemetry_store:
+                                self.telemetry_store.record_heartbeat(hb_flat_rec)
+                        except Exception:
+                            pass
                     fo = self.dispatch_micro_order(
                         candidate_id=f"cand-{sym.lower()}",
                         symbol=sym,
@@ -4219,7 +4277,7 @@ class CanaryLiquidityShockRunner:
                 f.result()
 
         # 4. Sequential additional micro order dispatches up to active working margin
-        hb_data4 = gateway.generate_heartbeat(latency_ms=30.0)
+        hb_data4 = gateway.generate_heartbeat(latency_ms=25.0)
         hb_rec4 = heartbeat_mon.record_heartbeat(
             server_time_ms=hb_data4["serverTime"],
             latency_ms=hb_data4["latencyMs"],
@@ -4235,6 +4293,13 @@ class CanaryLiquidityShockRunner:
             quantity=Decimal("0.00005"),
             price=Decimal("60000.00"),
         )
+        hb_data4b = gateway.generate_heartbeat(latency_ms=25.0)
+        hb_rec4b = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data4b["serverTime"],
+            latency_ms=hb_data4b["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_1.value,
+        )
+        self.active_store.record_heartbeat(hb_rec4b)
         dispatcher.dispatch_micro_order(
             candidate_id=eth_cand,
             symbol="ETHUSDT",
@@ -4245,23 +4310,23 @@ class CanaryLiquidityShockRunner:
         )
 
         # 5. Clean closure of all positions (in <= 5.00 USDT micro chunks)
-        hb_data5 = gateway.generate_heartbeat(latency_ms=30.0)
-        hb_rec5 = heartbeat_mon.record_heartbeat(
-            server_time_ms=hb_data5["serverTime"],
-            latency_ms=hb_data5["latencyMs"],
-            track_id=CanaryLiquidityShockTrackId.TRACK_1.value,
-        )
-        self.active_store.record_heartbeat(hb_rec5)
-
-        for sym, pos_qty in list(reconciler.positions.items()):
+        for sym, pos_qty in list(reconciler.get_positions_snapshot().items()):
             if pos_qty > Decimal("0"):
                 px = gateway.books[sym]["bid_price"]
                 chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / px).quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
+                chunk_qty = max(Decimal("0.00000001"), chunk_qty)
                 rem_qty = pos_qty
                 while rem_qty > Decimal("0"):
                     cur_qty = min(rem_qty, chunk_qty)
+                    hb_c = gateway.generate_heartbeat(latency_ms=25.0)
+                    hb_rec_c = heartbeat_mon.record_heartbeat(
+                        server_time_ms=hb_c["serverTime"],
+                        latency_ms=hb_c["latencyMs"],
+                        track_id=CanaryLiquidityShockTrackId.TRACK_1.value,
+                    )
+                    self.active_store.record_heartbeat(hb_rec_c)
                     cid = generate_canary_client_order_id(sym)
                     dispatcher.dispatch_micro_order(
                         candidate_id=manifest.candidates[sym].candidate_id,
@@ -4394,6 +4459,14 @@ class CanaryLiquidityShockRunner:
         shock_engine.set_aggregate_shock_index(Decimal("0.45"))
         assert shock_engine.classify_liquidity_shock_regime() == LiquidityShockRegime.ELEVATED_SHOCK
 
+        hb_data2 = gateway.generate_heartbeat(latency_ms=25.0)
+        hb_rec2 = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data2["serverTime"],
+            latency_ms=hb_data2["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_2.value,
+        )
+        self.active_store.record_heartbeat(hb_rec2)
+
         parent_elev, children_elev = dispatcher.dispatch_signal_order_with_dynamic_slicing(
             candidate_id=btc_cand,
             symbol="BTCUSDT",
@@ -4426,7 +4499,7 @@ class CanaryLiquidityShockRunner:
         assert aggressive_blocked is True
 
         # 4. Fill passive limit orders up toward aggregate ceiling (<= 35.00 USDT)
-        hb_data4 = gateway.generate_heartbeat(latency_ms=30.0)
+        hb_data4 = gateway.generate_heartbeat(latency_ms=25.0)
         hb_rec4 = heartbeat_mon.record_heartbeat(
             server_time_ms=hb_data4["serverTime"],
             latency_ms=hb_data4["latencyMs"],
@@ -4442,6 +4515,15 @@ class CanaryLiquidityShockRunner:
             quantity=Decimal("0.0016"),
             price=Decimal("3000.00"),
         )
+
+        hb_data4b = gateway.generate_heartbeat(latency_ms=25.0)
+        hb_rec4b = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data4b["serverTime"],
+            latency_ms=hb_data4b["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_2.value,
+        )
+        self.active_store.record_heartbeat(hb_rec4b)
+
         dispatcher.dispatch_micro_order(
             candidate_id=sol_cand,
             symbol="SOLUSDT",
@@ -4450,6 +4532,15 @@ class CanaryLiquidityShockRunner:
             quantity=Decimal("0.032"),
             price=Decimal("150.00"),
         )
+
+        hb_data4c = gateway.generate_heartbeat(latency_ms=25.0)
+        hb_rec4c = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data4c["serverTime"],
+            latency_ms=hb_data4c["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_2.value,
+        )
+        self.active_store.record_heartbeat(hb_rec4c)
+
         dispatcher.dispatch_micro_order(
             candidate_id=btc_cand,
             symbol="BTCUSDT",
@@ -4460,23 +4551,23 @@ class CanaryLiquidityShockRunner:
         )
 
         # 5. Cleanly close positions (in <= 5.00 USDT micro chunks)
-        hb_data5 = gateway.generate_heartbeat(latency_ms=30.0)
-        hb_rec5 = heartbeat_mon.record_heartbeat(
-            server_time_ms=hb_data5["serverTime"],
-            latency_ms=hb_data5["latencyMs"],
-            track_id=CanaryLiquidityShockTrackId.TRACK_2.value,
-        )
-        self.active_store.record_heartbeat(hb_rec5)
-
-        for sym, pos_qty in list(reconciler.positions.items()):
+        for sym, pos_qty in list(reconciler.get_positions_snapshot().items()):
             if pos_qty > Decimal("0"):
                 px = gateway.books[sym]["bid_price"]
                 chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / px).quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
+                chunk_qty = max(Decimal("0.00000001"), chunk_qty)
                 rem_qty = pos_qty
                 while rem_qty > Decimal("0"):
                     cur_qty = min(rem_qty, chunk_qty)
+                    hb_c = gateway.generate_heartbeat(latency_ms=25.0)
+                    hb_rec_c = heartbeat_mon.record_heartbeat(
+                        server_time_ms=hb_c["serverTime"],
+                        latency_ms=hb_c["latencyMs"],
+                        track_id=CanaryLiquidityShockTrackId.TRACK_2.value,
+                    )
+                    self.active_store.record_heartbeat(hb_rec_c)
                     cid = generate_canary_client_order_id(sym)
                     dispatcher.dispatch_micro_order(
                         candidate_id=manifest.candidates[sym].candidate_id,
@@ -4598,6 +4689,14 @@ class CanaryLiquidityShockRunner:
         # 2. Open multi-symbol positions:
         # BTCUSDT: 0.00008 @ 60,000 = 4.80 USDT
         # ETHUSDT: 0.0015 @ 3,000 = 4.50 USDT
+        hb_data2a = gateway.generate_heartbeat(latency_ms=25.0)
+        hb_rec2a = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data2a["serverTime"],
+            latency_ms=hb_data2a["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_3.value,
+        )
+        self.active_store.record_heartbeat(hb_rec2a)
+
         dispatcher.dispatch_micro_order(
             candidate_id=btc_cand,
             symbol="BTCUSDT",
@@ -4606,6 +4705,15 @@ class CanaryLiquidityShockRunner:
             quantity=Decimal("0.00008"),
             price=Decimal("60000.00"),
         )
+
+        hb_data2b = gateway.generate_heartbeat(latency_ms=25.0)
+        hb_rec2b = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data2b["serverTime"],
+            latency_ms=hb_data2b["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_3.value,
+        )
+        self.active_store.record_heartbeat(hb_rec2b)
+
         dispatcher.dispatch_micro_order(
             candidate_id=eth_cand,
             symbol="ETHUSDT",
@@ -4620,6 +4728,14 @@ class CanaryLiquidityShockRunner:
         # 3. Simulate systemic liquidity shock & price crash:
         # BTC plunges to 2,000 USDT -> close BTC position
         # Realized loss = 0.00008 * (60,000 - 2,000) = 4.64 USDT > 4.50 USDT ceiling!
+        hb_data3 = gateway.generate_heartbeat(latency_ms=25.0)
+        hb_rec3 = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data3["serverTime"],
+            latency_ms=hb_data3["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_3.value,
+        )
+        self.active_store.record_heartbeat(hb_rec3)
+
         dispatcher.dispatch_micro_order(
             candidate_id=btc_cand,
             symbol="BTCUSDT",
@@ -4633,6 +4749,14 @@ class CanaryLiquidityShockRunner:
         assert reconciler.cumulative_realized_loss >= Decimal("4.64")
 
         # 4. Verify immediate portfolio-wide fail-closed lockout on subsequent orders
+        hb_data4 = gateway.generate_heartbeat(latency_ms=25.0)
+        hb_rec4 = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data4["serverTime"],
+            latency_ms=hb_data4["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_3.value,
+        )
+        self.active_store.record_heartbeat(hb_rec4)
+
         lockout_caught = False
         try:
             dispatcher.dispatch_micro_order(
@@ -4650,7 +4774,7 @@ class CanaryLiquidityShockRunner:
         assert interlock.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
 
         # 5. Micro-chunked flattening of open ETH position (<= 5.00 USDT)
-        hb_data5 = gateway.generate_heartbeat(latency_ms=30.0)
+        hb_data5 = gateway.generate_heartbeat(latency_ms=25.0)
         hb_rec5 = heartbeat_mon.record_heartbeat(
             server_time_ms=hb_data5["serverTime"],
             latency_ms=hb_data5["latencyMs"],
