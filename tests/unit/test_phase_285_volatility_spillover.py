@@ -64,6 +64,7 @@ from autonomous_futures.feed.volatility_spillover import (  # noqa: E402
     DEFAULT_CANARY_STAGING_MANIFEST_PATH,
     DEFAULT_PHASE285_OUTPUT_DIR,
     DOUBLE_ENTRY_MAX_DRIFT,
+    DYNAMIC_SLICING_MAX_CHUNK_USDT,
     GATEWAY_HEARTBEAT_HYSTERESIS_RECOVERY_MS,
     GATEWAY_HEARTBEAT_MAX_AGE_MS,
     HARD_MICRO_NOTIONAL_CAP_USDT,
@@ -82,6 +83,7 @@ from autonomous_futures.feed.volatility_spillover import (  # noqa: E402
     CanaryVolatilitySpilloverRunner,
     CapitalExpansionStage,
     CircuitBreakerState,
+    ClockSkewExceededError,
     CorrelationBreakdownThrottledError,
     CorrelationState,
     GatewayHeartbeatMonitor,
@@ -904,3 +906,330 @@ def test_execute_phase_285_runner_cli_interface(tmp_path: Path):
         verify_hash_chain=True,
     )
     assert exit_code == 0
+
+
+# =====================================================================
+# 13. Adversarial & Edge Case Tests (Reviewer Round 1 Additions)
+# =====================================================================
+
+
+def test_dynamic_price_tick_recording_and_rolling_calculations():
+    """Verify price tick ingestion dynamically computes returns, rolling volatility,
+    rolling pairwise correlation, and spillover transmission.
+    """
+    engine = VolatilitySpilloverEngine(rolling_window_size=10)
+
+    # Ingest correlated upward ticks on BTC and ETH
+    btc_prices = [60000 + i * 100 for i in range(10)]
+    eth_prices = [3000 + i * 5 for i in range(10)]
+
+    for bp, ep in zip(btc_prices, eth_prices, strict=True):
+        engine.record_price_tick("BTCUSDT", bp)
+        engine.record_price_tick("ETHUSDT", ep)
+
+    assert len(engine.price_history["BTCUSDT"]) == 10
+    assert len(engine.return_history["BTCUSDT"]) == 9
+    assert engine.realized_vols["BTCUSDT"] > Decimal("0")
+    assert engine.realized_vols["ETHUSDT"] > Decimal("0")
+
+    # High correlation between positively co-moving assets
+    corr = engine.get_pairwise_correlation("BTCUSDT", "ETHUSDT")
+    assert corr > Decimal("0.70")
+    assert engine.aggregate_spillover_index > Decimal("0")
+
+
+def test_fast_decoupling_sensitivity_boost_without_window_lag():
+    """Verify rapid shock (> 3% divergence) immediately dampens correlation to flag breakdown
+    without waiting for a full rolling window of ticks.
+    """
+    engine = VolatilitySpilloverEngine(rolling_window_size=20)
+
+    # Ingest 5 aligned ticks
+    for i in range(5):
+        engine.record_price_tick("BTCUSDT", Decimal(str(60000 + i * 50)))
+        engine.record_price_tick("ETHUSDT", Decimal(str(3000 + i * 2.5)))
+
+    # Ingest a severe single-tick divergence shock: BTC drops 5% while ETH stays flat
+    prev_btc = engine.price_history["BTCUSDT"][-1]
+    prev_eth = engine.price_history["ETHUSDT"][-1]
+    engine.record_price_tick("BTCUSDT", prev_btc * Decimal("0.95"))
+    engine.record_price_tick("ETHUSDT", prev_eth)
+
+    # Immediate sensitivity boost forces correlation down to <= 0.15
+    corr = engine.get_pairwise_correlation("BTCUSDT", "ETHUSDT")
+    assert corr <= Decimal("0.15")
+    assert engine.is_correlation_breakdown("BTCUSDT") is True
+    assert engine.classify_spillover_regime("BTCUSDT") == VolatilitySpilloverRegime.SEVERE
+
+
+def test_transition_hysteresis_and_depth_recovery_with_elevated_vol():
+    """Verify regime transition hysteresis prevents fluttering, and elevated volatility
+    preserves ELEVATED regime even if order book depth recovers.
+    """
+    engine = VolatilitySpilloverEngine(regime_transition_hysteresis=Decimal("0.05"))
+
+    # 1. Start in SEVERE
+    engine.set_aggregate_spillover_index(Decimal("0.65"))
+    assert engine.classify_spillover_regime() == VolatilitySpilloverRegime.SEVERE
+
+    # Partial drop to 0.58 (> 0.55 severe exit) -> remains SEVERE due to hysteresis
+    engine.set_aggregate_spillover_index(Decimal("0.58"))
+    assert engine.classify_spillover_regime() == VolatilitySpilloverRegime.SEVERE
+
+    # Full drop below 0.55 -> exits to ELEVATED
+    engine.set_aggregate_spillover_index(Decimal("0.54"))
+    assert engine.classify_spillover_regime() == VolatilitySpilloverRegime.ELEVATED
+
+    # 2. Elevated volatility keeps regime in ELEVATED even if spillover index drops to nominal
+    engine.set_aggregate_spillover_index(Decimal("0.20"))  # Nominal spillover
+    # Set realized vol on BTC to 3.5% (baseline is 2.0% -> > 1.25x baseline)
+    engine.set_realized_volatility("BTCUSDT", Decimal("0.035"))
+    # Market depth is healthy
+    engine.set_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60001.00"), Decimal("10.0"), Decimal("10.0")
+    )
+    # BTCUSDT remains ELEVATED because realized volatility is still elevated
+    assert engine.classify_spillover_regime("BTCUSDT") == VolatilitySpilloverRegime.ELEVATED
+
+    # Normalizing realized vol allows full recovery to NOMINAL
+    engine.set_realized_volatility("BTCUSDT", Decimal("0.020"))
+    assert engine.classify_spillover_regime("BTCUSDT") == VolatilitySpilloverRegime.NOMINAL
+
+
+def test_moderate_correlation_divergence_state():
+    """Verify moderate correlation divergence (drop >= 0.20 from baseline 0.80)
+    transitions correlation state to MODERATE_DIVERGENCE and regime to ELEVATED.
+    """
+    engine = VolatilitySpilloverEngine()
+
+    # Drop correlation to 0.55 (divergence = 0.80 - 0.55 = 0.25 >= 0.20)
+    engine.set_pairwise_correlation("BTCUSDT", "ETHUSDT", Decimal("0.55"))
+
+    states = engine.correlation_states
+    assert states["BTCUSDT"] == CorrelationState.MODERATE_DIVERGENCE
+    assert states["ETHUSDT"] == CorrelationState.MODERATE_DIVERGENCE
+    assert engine.classify_spillover_regime("BTCUSDT") == VolatilitySpilloverRegime.ELEVATED
+
+
+def test_dynamic_slicing_dust_splitting_respects_child_cap(temp_telemetry_store, temp_jsonl_sink):
+    """Verify dynamic slicing splits remaining dust into balanced slices <= 2.50 USDT
+    when combining would otherwise breach DYNAMIC_SLICING_MAX_CHUNK_USDT.
+    """
+    gw = MockBinanceVolatilityGateway()
+    reconciler = VolatilityUserDataStreamReconciler(track_id="test_slice")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    spillover_engine = VolatilitySpilloverEngine()
+    sequencer = VolatilityStreamSequencer()
+
+    # Constrained depth forcing dynamic slicing
+    spillover_engine.set_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("0.00003"), Decimal("0.00003")
+    )
+    gw.set_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("0.00003"), Decimal("0.00003")
+    )
+
+    interlock = VolatilityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        spillover_engine=spillover_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_6_VOLATILITY_EXPANSION,
+    )
+    dispatcher = VolatilityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_slicing_cap",
+        spillover_engine=spillover_engine,
+    )
+
+    # Dispatch parent with 3.20 USDT notional in nominal regime
+    parent, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("3.20"),
+    )
+    assert len(children) >= 2
+    for ch in children:
+        # Every child MUST strictly respect the <= 2.50 USDT sliced child cap
+        notional = Decimal(ch.notional_usdt)
+        assert notional <= DYNAMIC_SLICING_MAX_CHUNK_USDT
+        assert notional >= Decimal("1.00")
+        assert ch.status == OrderLifecycleState.FILLED
+
+
+def test_sqlite_lifecycle_transitions_recorded(temp_telemetry_store, temp_jsonl_sink):
+    """Verify SQLite database records lifecycle transitions across
+    PENDING_NEW, NEW, FILLED, and CANCELLED.
+    """
+    gw = MockBinanceVolatilityGateway()
+    reconciler = VolatilityUserDataStreamReconciler(track_id="test_transitions")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    spillover_engine = VolatilitySpilloverEngine()
+    sequencer = VolatilityStreamSequencer()
+
+    interlock = VolatilityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        spillover_engine=spillover_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_6_VOLATILITY_EXPANSION,
+    )
+    dispatcher = VolatilityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_transitions",
+    )
+
+    # 1. Successful order dispatch & fill
+    cid = generate_canary_client_order_id("BTCUSDT")
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00005"),
+        price=Decimal("60000.00"),
+        client_order_id=cid,
+    )
+
+    # 2. Rejected order dispatch
+    cid_bad = generate_canary_client_order_id("BTCUSDT")
+    with pytest.raises(IndividualMicroCapExceededError):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.001"),  # 60 USDT > 5 USDT cap
+            price=Decimal("60000.00"),
+            client_order_id=cid_bad,
+        )
+
+    # Query SQLite lifecycle_transitions table
+    cursor = temp_telemetry_store.conn.cursor()
+    cursor.execute("SELECT from_state, to_state FROM lifecycle_transitions")
+    rows = cursor.fetchall()
+    states = [(r[0], r[1]) for r in rows]
+
+    assert ("PENDING_NEW", "NEW") in states
+    assert ("NEW", "FILLED") in states
+    assert ("PENDING_NEW", "REJECTED") in states
+
+
+def test_dynamic_unrealized_pnl_and_mark_price_drift_reconciliation():
+    """Verify marked-to-market unrealized PnL updates dynamically and preserves zero drift."""
+    reconciler = VolatilityUserDataStreamReconciler(
+        track_id="test_mark", starting_equity=Decimal("100.00")
+    )
+
+    # Open position: 0.0001 BTC @ 60000.00 = 6.00 USDT
+    reconciler.process_fill(
+        trade_id="t1",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        price=Decimal("60000.00"),
+        quantity=Decimal("0.0001"),
+        commission=Decimal("0.0024"),
+    )
+
+    # At entry: mark = 60000 -> unrealized PnL = 0
+    reconciler.set_mark_price("BTCUSDT", Decimal("60000.00"))
+    assert reconciler.unrealized_pnl == Decimal("0")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # Mark price rises to 65000 (+5000 USDT/BTC) -> unrealized PnL = 0.50 USDT
+    reconciler.set_mark_price("BTCUSDT", Decimal("65000.00"))
+    assert reconciler.unrealized_pnl == Decimal("0.50000000")
+    # Drift remains EXACTLY zero because theoretical equity accounts for
+    # marked-to-market unrealized PnL!
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+    assert reconciler.total_equity == (
+        reconciler.cash + reconciler.allocated_margin + Decimal("0.50000000")
+    )
+
+
+def test_emergency_flattening_short_positions_and_rounding_guard(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify emergency flattening handles short positions via BUY orders
+    and guards against zero chunking.
+    """
+    gw = MockBinanceVolatilityGateway()
+    reconciler = VolatilityUserDataStreamReconciler(track_id="test_short")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    spillover_engine = VolatilitySpilloverEngine()
+    sequencer = VolatilityStreamSequencer()
+
+    interlock = VolatilityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        spillover_engine=spillover_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_6_VOLATILITY_EXPANSION,
+    )
+    dispatcher = VolatilityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_short",
+    )
+
+    # Simulate an open short position
+    reconciler.positions["ETHUSDT"] = Decimal("-0.0015")
+    reconciler.entry_prices["ETHUSDT"] = Decimal("3000.00")
+    reconciler.per_asset_margin["ETHUSDT"] = Decimal("4.50")
+    reconciler.allocated_margin = Decimal("4.50")
+
+    flattening_orders = dispatcher.execute_emergency_flattening()
+    assert len(flattening_orders) >= 1
+    for fo in flattening_orders:
+        # Closing short must be a BUY order
+        assert fo.side == OrderSide.BUY.value
+        assert Decimal(fo.notional_usdt) <= HARD_MICRO_NOTIONAL_CAP_USDT
+
+    assert reconciler.positions["ETHUSDT"] == Decimal("0")
+    assert reconciler.allocated_margin == Decimal("0")
+
+
+def test_clock_skew_exceeded_error_raised_during_ntp_drift():
+    """Verify assert_healthy raises specific ClockSkewExceededError when backward
+    clock drift exceeds 250 ms.
+    """
+    mon = GatewayHeartbeatMonitor(max_clock_skew_ms=MAX_CLOCK_SKEW_TOLERANCE_MS)
+    now_ms = int(time.time() * 1000)
+
+    # Initial valid heartbeat
+    mon.record_heartbeat(
+        server_time_ms=now_ms - 10, latency_ms=20.0, local_receive_time_ms=now_ms, track_id="test"
+    )
+
+    # Backward drift of 350 ms relative to previous server time
+    mon.record_heartbeat(
+        server_time_ms=(now_ms - 10) - 350,
+        latency_ms=20.0,
+        local_receive_time_ms=now_ms,
+        track_id="test",
+    )
+
+    with pytest.raises(ClockSkewExceededError) as exc_info:
+        mon.assert_healthy(now_ms=now_ms)
+    assert "backward NTP clock skew" in str(exc_info.value)

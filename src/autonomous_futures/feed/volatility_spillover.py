@@ -1467,6 +1467,11 @@ class GatewayHeartbeatMonitor:
     def assert_healthy(self, now_ms: int | None = None) -> None:
         with self._lock:
             if self._freeze_active:
+                if self._clock_skew_frozen:
+                    raise ClockSkewExceededError(
+                        "Gateway heartbeat in HEARTBEAT_FREEZE state due to "
+                        "backward NTP clock skew > 250 ms"
+                    )
                 raise HeartbeatFreezeActiveError(
                     "Gateway heartbeat in HEARTBEAT_FREEZE state (skew or recovery)"
                 )
@@ -1513,20 +1518,30 @@ class VolatilitySpilloverEngine:
         self,
         min_required_depth: Decimal = MIN_REQUIRED_BOOK_DEPTH,
         max_spread_pct: Decimal = MAX_TOLERABLE_SPREAD_PCT,
+        rolling_window_size: int = 20,
+        regime_transition_hysteresis: Decimal = Decimal("0.05"),
     ) -> None:
         self.min_required_depth = min_required_depth
         self.max_spread_pct = max_spread_pct
+        self.rolling_window_size = rolling_window_size
+        self.regime_transition_hysteresis = regime_transition_hysteresis
+        self._current_regime: VolatilitySpilloverRegime = VolatilitySpilloverRegime.NOMINAL
         self._lock = threading.RLock()
 
         # Order books: symbol -> {bid_price, ask_price, bid_depth, ask_depth, volume_velocity}
         self.books: dict[str, dict[str, Decimal]] = {}
 
-        # Realized volatilities per symbol
-        self.realized_vols: dict[str, Decimal] = {
+        # Rolling price and return history for dynamic correlation & volatility estimation
+        self.price_history: dict[str, list[Decimal]] = {sym: [] for sym in CANARY_STAGED_SYMBOLS}
+        self.return_history: dict[str, list[Decimal]] = {sym: [] for sym in CANARY_STAGED_SYMBOLS}
+
+        # Baseline and active realized volatilities per symbol
+        self.baseline_realized_vol: dict[str, Decimal] = {
             "BTCUSDT": Decimal("0.020"),  # 2.0% daily vol
             "ETHUSDT": Decimal("0.028"),  # 2.8% daily vol
             "SOLUSDT": Decimal("0.045"),  # 4.5% daily vol
         }
+        self.realized_vols: dict[str, Decimal] = dict(self.baseline_realized_vol)
 
         # Pairwise rolling correlations
         self.pairwise_correlations: dict[tuple[str, str], Decimal] = {
@@ -1548,6 +1563,112 @@ class VolatilitySpilloverEngine:
         # Aggregate cross-asset spillover index (0.0 to 1.0)
         self.aggregate_spillover_index: Decimal = Decimal("0.18")
         self.correlation_breakdown_forced: bool = False
+
+    def record_price_tick(self, symbol: str, price: Any) -> None:
+        """Record an incoming price tick and update rolling realized volatility,
+        pairwise correlations, and directional spillover coefficients dynamically.
+        """
+        with self._lock:
+            sym_key = str(symbol).strip().upper()
+            px = _safe_decimal(price)
+            if px <= Decimal("0"):
+                return
+
+            if sym_key not in self.price_history:
+                self.price_history[sym_key] = []
+                self.return_history[sym_key] = []
+
+            prices = self.price_history[sym_key]
+            if prices:
+                prev_px = prices[-1]
+                if prev_px > Decimal("0"):
+                    ret = (px - prev_px) / prev_px
+                    rets = self.return_history[sym_key]
+                    rets.append(ret)
+                    if len(rets) > self.rolling_window_size:
+                        rets.pop(0)
+
+            prices.append(px)
+            if len(prices) > (self.rolling_window_size + 1):
+                prices.pop(0)
+
+            # Recompute realized volatility if we have >= 3 returns
+            rets = self.return_history[sym_key]
+            if len(rets) >= 3:
+                mean_ret = sum(rets) / Decimal(str(len(rets)))
+                variance = sum((r - mean_ret) ** 2 for r in rets) / Decimal(str(len(rets) - 1))
+                vol = Decimal(str(float(variance) ** 0.5)).quantize(
+                    Decimal("0.0001"), rounding=ROUND_DOWN
+                )
+                self.realized_vols[sym_key] = max(Decimal("0.001"), vol)
+
+            # Recompute rolling pairwise correlation and spillover
+            self._update_rolling_correlations_and_spillover()
+
+    def _update_rolling_correlations_and_spillover(self) -> None:
+        """Dynamically recompute rolling pairwise correlation and spillover transmission."""
+        symbols = list(self.realized_vols.keys())
+        for i in range(len(symbols)):
+            for j in range(i + 1, len(symbols)):
+                s1, s2 = symbols[i], symbols[j]
+                r1 = self.return_history.get(s1, [])
+                r2 = self.return_history.get(s2, [])
+                min_len = min(len(r1), len(r2))
+                if min_len >= 4:
+                    sub1 = r1[-min_len:]
+                    sub2 = r2[-min_len:]
+                    # Check for fast decoupling: single-tick return divergence shock
+                    fast_decoupling = False
+                    if min_len >= 1 and abs(sub1[-1] - sub2[-1]) > Decimal("0.03"):
+                        fast_decoupling = True
+
+                    m1 = sum(sub1) / Decimal(str(min_len))
+                    m2 = sum(sub2) / Decimal(str(min_len))
+                    cov = sum(
+                        (a - m1) * (b - m2) for a, b in zip(sub1, sub2, strict=False)
+                    ) / Decimal(str(min_len - 1))
+                    var1 = sum((a - m1) ** 2 for a in sub1) / Decimal(str(min_len - 1))
+                    var2 = sum((b - m2) ** 2 for b in sub2) / Decimal(str(min_len - 1))
+
+                    denom = Decimal(str((float(var1) * float(var2)) ** 0.5))
+                    if denom > Decimal("0"):
+                        corr = (cov / denom).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+                        corr = max(Decimal("-1.0000"), min(Decimal("1.0000"), corr))
+                        if fast_decoupling:
+                            # Immediate sensitivity boost: dampen correlation to flag rapid
+                            # breakdown without window lag
+                            corr = min(corr, Decimal("0.15"))
+                        key = (min(s1, s2), max(s1, s2))
+                        self.pairwise_correlations[key] = corr
+
+        # Update directional spillover transmission coefficients
+        base_coeffs = {
+            ("BTCUSDT", "ETHUSDT"): Decimal("0.22"),
+            ("BTCUSDT", "SOLUSDT"): Decimal("0.18"),
+            ("ETHUSDT", "BTCUSDT"): Decimal("0.15"),
+            ("ETHUSDT", "SOLUSDT"): Decimal("0.20"),
+            ("SOLUSDT", "BTCUSDT"): Decimal("0.10"),
+            ("SOLUSDT", "ETHUSDT"): Decimal("0.12"),
+        }
+        spillover_sum = Decimal("0")
+        pair_count = Decimal("0")
+        for (s1, s2), base_c in base_coeffs.items():
+            v1 = self.realized_vols.get(s1, self.baseline_realized_vol.get(s1, Decimal("0.020")))
+            v1_base = self.baseline_realized_vol.get(s1, Decimal("0.020"))
+            corr = self.get_pairwise_correlation(s1, s2)
+            vol_ratio = (
+                max(Decimal("1.0"), v1 / v1_base) if v1_base > Decimal("0") else Decimal("1.0")
+            )
+            coeff = (base_c * (Decimal("1.0") + abs(corr) * (vol_ratio - Decimal("1.0")))).quantize(
+                Decimal("0.0001"), rounding=ROUND_DOWN
+            )
+            self.spillover_coefficients[(s1, s2)] = coeff
+            spillover_sum += coeff
+            pair_count += Decimal("1")
+
+        if pair_count > Decimal("0"):
+            agg = (spillover_sum / pair_count).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+            self.aggregate_spillover_index = max(Decimal("0.01"), min(Decimal("1.0"), agg))
 
     def update_book(
         self,
@@ -1647,17 +1768,60 @@ class VolatilitySpilloverEngine:
 
     def classify_spillover_regime(self, symbol: str | None = None) -> VolatilitySpilloverRegime:
         """Classify cross-asset market condition into VolatilitySpilloverRegime:
-        - NOMINAL: spillover <= 0.30 and correlation aligned.
-        - ELEVATED: spillover between 0.30 and 0.60, or moderate correlation divergence.
+        - NOMINAL: spillover <= 0.30 and correlation aligned and realized vol normal.
+        - ELEVATED: spillover between 0.30 and 0.60, or moderate correlation divergence,
+          or elevated vol.
         - SEVERE: spillover > 0.60, or correlation breakdown / contagion shock.
+        Transition hysteresis ensures regime does not rapidly flutter across boundaries.
         """
         with self._lock:
             if self.is_correlation_breakdown(symbol):
+                self._current_regime = VolatilitySpilloverRegime.SEVERE
                 return VolatilitySpilloverRegime.SEVERE
-            if self.aggregate_spillover_index > ELEVATED_SPILLOVER_THRESHOLD:
+
+            h = self.regime_transition_hysteresis
+
+            # Transition from SEVERE down to ELEVATED requires dropping below threshold - hysteresis
+            if self._current_regime == VolatilitySpilloverRegime.SEVERE:
+                severe_exit = ELEVATED_SPILLOVER_THRESHOLD - h
+                if self.aggregate_spillover_index > severe_exit:
+                    return VolatilitySpilloverRegime.SEVERE
+            elif self.aggregate_spillover_index > ELEVATED_SPILLOVER_THRESHOLD:
+                self._current_regime = VolatilitySpilloverRegime.SEVERE
                 return VolatilitySpilloverRegime.SEVERE
-            if self.aggregate_spillover_index > NOMINAL_SPILLOVER_THRESHOLD:
+
+            # Check for moderate correlation divergence
+            has_mod_div = False
+            for (s1, s2), corr in self.pairwise_correlations.items():
+                if symbol is not None and symbol not in (s1, s2):
+                    continue
+                if (BASELINE_PAIRWISE_CORRELATION - corr) >= Decimal("0.20"):
+                    has_mod_div = True
+                    break
+
+            # Check if realized volatility remains elevated even if depth recovers
+            sym_key = str(symbol).strip().upper() if symbol else None
+            vol_elevated = False
+            if sym_key and sym_key in self.realized_vols and sym_key in self.baseline_realized_vol:
+                vol_elevated = self.realized_vols[sym_key] > (
+                    self.baseline_realized_vol[sym_key] * Decimal("1.25")
+                )
+
+            # Transition from ELEVATED down to NOMINAL requires dropping below
+            # threshold - hysteresis
+            if self._current_regime == VolatilitySpilloverRegime.ELEVATED:
+                elevated_exit = NOMINAL_SPILLOVER_THRESHOLD - h
+                if self.aggregate_spillover_index > elevated_exit or has_mod_div or vol_elevated:
+                    return VolatilitySpilloverRegime.ELEVATED
+            elif (
+                self.aggregate_spillover_index > NOMINAL_SPILLOVER_THRESHOLD
+                or has_mod_div
+                or vol_elevated
+            ):
+                self._current_regime = VolatilitySpilloverRegime.ELEVATED
                 return VolatilitySpilloverRegime.ELEVATED
+
+            self._current_regime = VolatilitySpilloverRegime.NOMINAL
             return VolatilitySpilloverRegime.NOMINAL
 
     # Alias for liquidity regime compatibility
@@ -1813,7 +1977,17 @@ class VolatilitySpilloverEngine:
                 if self.is_correlation_breakdown(sym):
                     states[sym] = CorrelationState.BREAKDOWN_DECOUPLED
                 else:
-                    states[sym] = CorrelationState.ALIGNED
+                    has_mod_div = False
+                    for (s1, s2), corr in self.pairwise_correlations.items():
+                        if sym in (s1, s2) and (
+                            (BASELINE_PAIRWISE_CORRELATION - corr) >= Decimal("0.20")
+                        ):
+                            has_mod_div = True
+                            break
+                    if has_mod_div:
+                        states[sym] = CorrelationState.MODERATE_DIVERGENCE
+                    else:
+                        states[sym] = CorrelationState.ALIGNED
             return states
 
 
@@ -2110,7 +2284,7 @@ class VolatilityUserDataStreamReconciler:
         self.starting_equity = starting_equity
         self.cash: Decimal = starting_equity
         self.allocated_margin: Decimal = Decimal("0")
-        self.unrealized_pnl: Decimal = Decimal("0")
+        self._manual_unrealized_pnl: Decimal | None = None
         self.realized_pnl: Decimal = Decimal("0")
         self.total_fees: Decimal = Decimal("0")
         self.total_slippage: Decimal = Decimal("0")
@@ -2124,9 +2298,40 @@ class VolatilityUserDataStreamReconciler:
         self.per_asset_margin: dict[str, Decimal] = {
             sym: Decimal("0") for sym in CANARY_STAGED_SYMBOLS
         }
+        # Symbol -> mark price for marked-to-market calculations
+        self.mark_prices: dict[str, Decimal] = {
+            sym: DEFAULT_REFERENCE_PRICES.get(sym, Decimal("100.0"))
+            for sym in CANARY_STAGED_SYMBOLS
+        }
 
         self.processed_trades: set[str] = set()
         self._lock = threading.RLock()
+
+    @property
+    def unrealized_pnl(self) -> Decimal:
+        with self._lock:
+            if self._manual_unrealized_pnl is not None:
+                return self._manual_unrealized_pnl
+            u_pnl = Decimal("0")
+            for sym, pos in self.positions.items():
+                if pos != Decimal("0"):
+                    entry_px = self.entry_prices.get(sym, Decimal("0"))
+                    mark_px = self.mark_prices.get(sym, entry_px)
+                    u_pnl += (pos * (mark_px - entry_px)).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+            return u_pnl
+
+    @unrealized_pnl.setter
+    def unrealized_pnl(self, val: Any) -> None:
+        with self._lock:
+            self._manual_unrealized_pnl = _safe_decimal(val) if val is not None else None
+
+    def set_mark_price(self, symbol: str, price: Any) -> None:
+        """Update prevailing mark price for marked-to-market valuation."""
+        with self._lock:
+            sym_key = str(symbol).strip().upper()
+            self.mark_prices[sym_key] = _safe_decimal(price)
 
     @property
     def total_equity(self) -> Decimal:
@@ -2136,7 +2341,7 @@ class VolatilityUserDataStreamReconciler:
     @property
     def mathematical_drift(self) -> Decimal:
         with self._lock:
-            expected_equity = self.starting_equity + self.realized_pnl
+            expected_equity = self.starting_equity + self.realized_pnl + self.unrealized_pnl
             actual_equity = self.cash + self.allocated_margin + self.unrealized_pnl
             return abs(actual_equity - expected_equity)
 
@@ -2475,6 +2680,8 @@ class VolatilityOrderDispatchInterlock:
                     if symbol is not None and p_rec.symbol != symbol:
                         continue
                     if p_rec.status in (
+                        OrderLifecycleState.PENDING_NEW,
+                        OrderLifecycleState.PENDING_SUBMIT,
                         OrderLifecycleState.NEW,
                         OrderLifecycleState.PARTIALLY_FILLED,
                     ):
@@ -2606,11 +2813,14 @@ class VolatilityOrderDispatchInterlock:
                 raise CircuitBreakerAbortError(err_msg)
 
             # 4. Intra-Phase Cumulative Loss Budget Ceiling
-            if self.reconciler.cumulative_realized_loss >= self.intra_phase_loss_ceiling_usdt:
+            current_loss = max(
+                self.reconciler.cumulative_realized_loss, -self.reconciler.realized_pnl
+            )
+            if current_loss >= self.intra_phase_loss_ceiling_usdt:
                 self.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
                 self.interlock_blocks_count += 1
                 err_msg = (
-                    f"Cumulative realized loss {self.reconciler.cumulative_realized_loss} USDT "
+                    f"Cumulative realized loss {current_loss} USDT "
                     f"exceeds ceiling {self.intra_phase_loss_ceiling_usdt} USDT"
                 )
                 self._record_interlock_rejection(
@@ -2917,6 +3127,16 @@ class VolatilityMicroOrderDispatcher:
                 ord_rec.rejection_reason = str(exc)
                 self.orders_rejected_count += 1
                 self.telemetry_store.record_order(ord_rec)
+                self.telemetry_store.record_lifecycle_transition(
+                    OrderLifecycleTransition(
+                        track_id=self.track_id,
+                        order_id=ord_rec.order_id,
+                        client_order_id=ord_rec.client_order_id,
+                        from_state=OrderLifecycleState.PENDING_NEW,
+                        to_state=OrderLifecycleState.REJECTED,
+                        trigger_reason=f"Interlock validation failure: {exc}",
+                    )
+                )
                 self.jsonl_sink.record_order(ord_rec)
                 raise
 
@@ -2924,6 +3144,18 @@ class VolatilityMicroOrderDispatcher:
             ord_rec.status = OrderLifecycleState.NEW
             self.orders_placed_count += 1
             self.telemetry_store.record_order(ord_rec)
+            self.telemetry_store.record_lifecycle_transition(
+                OrderLifecycleTransition(
+                    track_id=self.track_id,
+                    order_id=ord_rec.order_id,
+                    client_order_id=ord_rec.client_order_id,
+                    from_state=OrderLifecycleState.PENDING_NEW,
+                    to_state=OrderLifecycleState.NEW,
+                    trigger_reason=(
+                        "Pre-trade interlock validation passed; order dispatched to gateway"
+                    ),
+                )
+            )
             self.jsonl_sink.record_order(ord_rec)
 
             # Submit order to gateway
@@ -2976,7 +3208,7 @@ class VolatilityMicroOrderDispatcher:
                 price=limit_px,
             )
 
-            parent_cid = f"parent_{generate_canary_client_order_id(symbol)}"
+            parent_cid = generate_canary_client_order_id(symbol, uuid_str=f"p-{uuid4().hex[:8]}")
             parent_rec = ParentOrderRecord(
                 parent_client_order_id=parent_cid,
                 track_id=self.track_id,
@@ -3042,12 +3274,16 @@ class VolatilityMicroOrderDispatcher:
 
                 while rem_notional >= MIN_MICRO_NOTIONAL_CAP_USDT:
                     cur_notional = min(rem_notional, chunk_notional)
-                    if (rem_notional - cur_notional) < MIN_MICRO_NOTIONAL_CAP_USDT:
-                        # Combine remaining dust into final slice if strictly <= 5.00 USDT
-                        if (
-                            cur_notional + (rem_notional - cur_notional)
-                        ) <= HARD_MICRO_NOTIONAL_CAP_USDT:
+                    rem_after = rem_notional - cur_notional
+                    if Decimal("0") < rem_after < MIN_MICRO_NOTIONAL_CAP_USDT:
+                        # If remaining dust can be combined without breaching sliced child cap
+                        if (cur_notional + rem_after) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
                             cur_notional = rem_notional
+                        else:
+                            # Split rem_notional into two balanced micro-chunks <= 2.50 USDT
+                            cur_notional = (rem_notional / Decimal("2")).quantize(
+                                Decimal("0.00000001"), rounding=ROUND_DOWN
+                            )
 
                     c_qty = (cur_notional / limit_px).quantize(
                         Decimal("0.00000001"), rounding=ROUND_DOWN
@@ -3118,12 +3354,25 @@ class VolatilityMicroOrderDispatcher:
                     comm = _safe_decimal(o_payload.get("n", "0"))
 
                     if fill_qty > Decimal("0"):
+                        prev_state = ord_rec.status
                         ord_rec.executed_quantity = str(
                             _safe_decimal(ord_rec.executed_quantity) + fill_qty
                         )
                         ord_rec.status = OrderLifecycleState.FILLED
                         self.orders_filled_count += 1
                         self.telemetry_store.record_order(ord_rec)
+                        self.telemetry_store.record_lifecycle_transition(
+                            OrderLifecycleTransition(
+                                track_id=self.track_id,
+                                order_id=ord_rec.order_id,
+                                client_order_id=ord_rec.client_order_id,
+                                from_state=prev_state,
+                                to_state=OrderLifecycleState.FILLED,
+                                trigger_reason=(
+                                    f"Execution trade fill processed (trade_id={trade_id})"
+                                ),
+                            )
+                        )
 
                         mark = self.reconciler.process_fill(
                             trade_id=trade_id,
@@ -3150,10 +3399,24 @@ class VolatilityMicroOrderDispatcher:
                 if cid in self.orders:
                     ord_rec = self.orders[cid]
                     if ord_rec.status != OrderLifecycleState.FILLED:
+                        prev_state = ord_rec.status
                         ord_rec.status = OrderLifecycleState.FILLED
                         ord_rec.executed_quantity = gw_o["executedQty"]
                         self.orders_filled_count += 1
                         self.telemetry_store.record_order(ord_rec)
+                        self.telemetry_store.record_lifecycle_transition(
+                            OrderLifecycleTransition(
+                                track_id=self.track_id,
+                                order_id=ord_rec.order_id,
+                                client_order_id=ord_rec.client_order_id,
+                                from_state=prev_state,
+                                to_state=OrderLifecycleState.FILLED,
+                                trigger_reason=(
+                                    "REST backfill fill reconciliation "
+                                    f"(order_id={gw_o['orderId']})"
+                                ),
+                            )
+                        )
                         reconciled.append(ord_rec)
 
                         # Check for missing fill in reconciler
@@ -3191,13 +3454,28 @@ class VolatilityMicroOrderDispatcher:
                     OrderLifecycleState.NEW,
                     OrderLifecycleState.PARTIALLY_FILLED,
                 ):
+                    prev_state = ord_rec.status
                     ord_rec.status = OrderLifecycleState.CANCELLED
                     self.orders_cancelled_count += 1
                     self.telemetry_store.record_order(ord_rec)
+                    self.telemetry_store.record_lifecycle_transition(
+                        OrderLifecycleTransition(
+                            track_id=self.track_id,
+                            order_id=ord_rec.order_id,
+                            client_order_id=ord_rec.client_order_id,
+                            from_state=prev_state,
+                            to_state=OrderLifecycleState.CANCELLED,
+                            trigger_reason=(
+                                "Emergency flattening: open working order cancelled fail-closed"
+                            ),
+                        )
+                    )
                     self.gateway.cancel_order(ord_rec.symbol, ord_rec.client_order_id)
 
             for p_rec in list(self.parent_orders.values()):
                 if p_rec.status in (
+                    OrderLifecycleState.PENDING_NEW,
+                    OrderLifecycleState.PENDING_SUBMIT,
                     OrderLifecycleState.NEW,
                     OrderLifecycleState.PARTIALLY_FILLED,
                 ):
@@ -3206,19 +3484,26 @@ class VolatilityMicroOrderDispatcher:
 
             flattening_orders: list[VolatilityOrderRecord] = []
 
-            # 2. Micro-chunked flattening of open positions
+            # 2. Micro-chunked flattening of open positions (both LONG and SHORT)
             for sym, pos_qty in list(self.reconciler.positions.items()):
-                if pos_qty <= Decimal("0"):
+                if pos_qty == Decimal("0"):
                     continue
 
                 book = self.gateway.books.get(sym, {})
-                px = book.get("bid_price", Decimal("100.0"))
+                is_long = pos_qty > Decimal("0")
+                close_side = OrderSide.SELL if is_long else OrderSide.BUY
+                px = (
+                    book.get("bid_price", Decimal("100.0"))
+                    if is_long
+                    else book.get("ask_price", Decimal("100.0"))
+                )
 
                 # Chunk <= 5.00 USDT
                 chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / px).quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
-                rem_qty = pos_qty
+                chunk_qty = max(Decimal("0.00000001"), chunk_qty)
+                rem_qty = abs(pos_qty)
 
                 while rem_qty > Decimal("0"):
                     cur_qty = min(rem_qty, chunk_qty)
@@ -3226,7 +3511,7 @@ class VolatilityMicroOrderDispatcher:
                     fo = self.dispatch_micro_order(
                         candidate_id=f"cand-{sym.lower()}",
                         symbol=sym,
-                        side=OrderSide.SELL,
+                        side=close_side,
                         order_type=OrderType.MARKET,
                         quantity=cur_qty,
                         price=px,
