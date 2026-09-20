@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 import signal
 import sqlite3
@@ -1444,6 +1443,7 @@ class LiquidityStreamSequencer:
         self.sequence_wrap_threshold = sequence_wrap_threshold
         self.highest_arrival_sequence = 0
         self.processed_trade_ids: set[str] = set()
+        self.processed_event_keys: set[str] = set()
         self.deduplicated_count = 0
         self.out_of_order_count = 0
         self.sequence_wrap_count = 0
@@ -1477,19 +1477,31 @@ class LiquidityStreamSequencer:
                 cid = None
                 sym = None
                 st = None
+                has_valid_trade_id = False
+                event_key = None
 
                 if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
                     o = pkt.get("o", {})
-                    t_id = str(o.get("t", ""))
+                    raw_tid = o.get("t")
+                    t_str = str(raw_tid) if raw_tid is not None else ""
+                    if t_str and t_str != "0":
+                        t_id = t_str
+                        has_valid_trade_id = True
                     cid = str(o.get("c", ""))
                     sym = str(o.get("s", ""))
                     st = str(o.get("X", ""))
+                    event_key = f"{e_type}:{cid}:{st}:{pkt.get('T', 0)}:{seq}"
+                else:
+                    event_key = f"{e_type}:{pkt.get('T', 0)}:{seq}"
 
                 is_dup = False
                 is_ooo = False
 
-                # Trade deduplication
-                if t_id and t_id in self.processed_trade_ids:
+                # Trade and event deduplication
+                if has_valid_trade_id and t_id in self.processed_trade_ids:
+                    is_dup = True
+                    self.deduplicated_count += 1
+                elif event_key in self.processed_event_keys:
                     is_dup = True
                     self.deduplicated_count += 1
 
@@ -1509,8 +1521,11 @@ class LiquidityStreamSequencer:
                 elif seq > 0:
                     self.highest_arrival_sequence = seq
 
-                if t_id and not is_dup:
-                    self.processed_trade_ids.add(t_id)
+                if not is_dup:
+                    if has_valid_trade_id and t_id:
+                        self.processed_trade_ids.add(t_id)
+                    if event_key:
+                        self.processed_event_keys.add(event_key)
 
                 if telemetry_store is not None:
                     telemetry_store.record_websocket_event(
@@ -2926,40 +2941,79 @@ class LiquidityMicroOrderDispatcher:
 
             # Dynamic TWAP / Iceberg Micro-Slicing:
             # Slice into sequential micro-chunks <= 2.50 USDT child orders
-            parent_cid = generate_canary_client_order_id(symbol)
             child_chunk_cap = DYNAMIC_SLICING_MAX_CHUNK_USDT
             min_chunk_floor = MIN_MICRO_NOTIONAL_CAP_USDT
 
-            total_steps = int(round(raw_qty / step))
-            num_chunks = max(2, int(math.ceil(float(total_notional / child_chunk_cap))))
+            curr_steps = int(round(raw_qty / step))
+            child_quantities: list[Decimal] = []
+            valid_k: int | None = None
 
-            while True:
-                base_steps = total_steps // num_chunks
-                rem_steps = total_steps % num_chunks
-                if base_steps <= 0:
-                    break
-                max_chunk_notional = (
-                    (base_steps + (1 if rem_steps > 0 else 0)) * step * limit_px
-                ).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-                min_chunk_notional = (base_steps * step * limit_px).quantize(
+            while curr_steps > 0:
+                tot_n = (curr_steps * step * limit_px).quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
-                if max_chunk_notional > child_chunk_cap:
-                    num_chunks += 1
-                    continue
-                if min_chunk_notional < min_chunk_floor and num_chunks > 2:
-                    num_chunks -= 1
+                if tot_n < min_chunk_floor:
                     break
-                break
+                if tot_n <= child_chunk_cap:
+                    valid_k = 1
+                    child_quantities = [Decimal(curr_steps) * step]
+                    break
 
-            base_steps = total_steps // num_chunks
-            rem_steps = total_steps % num_chunks
-            child_quantities: list[Decimal] = []
-            for i in range(num_chunks):
-                s = base_steps + (1 if i < rem_steps else 0)
-                if s > 0:
-                    child_quantities.append(Decimal(s) * step)
+                found_k = None
+                for k in range(2, curr_steps + 1):
+                    b = curr_steps // k
+                    r = curr_steps % k
+                    if b <= 0:
+                        break
+                    max_chunk_n = ((b + (1 if r > 0 else 0)) * step * limit_px).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+                    min_chunk_n = (b * step * limit_px).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+                    if max_chunk_n <= child_chunk_cap and min_chunk_n >= min_chunk_floor:
+                        found_k = k
+                        break
 
+                if found_k is not None:
+                    valid_k = found_k
+                    b = curr_steps // found_k
+                    r = curr_steps % found_k
+                    child_quantities = [
+                        Decimal(b + (1 if i < r else 0)) * step for i in range(found_k)
+                    ]
+                    break
+
+                # Step-quantized decrement (ROUND_DOWN) for discrete boundary mismatch
+                curr_steps -= 1
+
+            if valid_k == 1 or len(child_quantities) <= 1:
+                single_qty = child_quantities[0] if child_quantities else raw_qty
+                ord_res = self.dispatch_micro_order(
+                    candidate_id=candidate_id,
+                    symbol=symbol,
+                    side=side,
+                    order_type=order_type,
+                    quantity=single_qty,
+                    price=limit_px,
+                    liquidity_regime=regime,
+                    estimated_slippage_bps=est_slippage_bps,
+                    limit_offset_usdt=offset,
+                )
+                return None, [ord_res]
+
+            if not child_quantities:
+                raise OrderSlicingError(
+                    f"Order notional cannot be safely sliced within micro floor "
+                    f"{MIN_MICRO_NOTIONAL_CAP_USDT} USDT and chunk cap "
+                    f"{DYNAMIC_SLICING_MAX_CHUNK_USDT} USDT"
+                )
+
+            raw_qty = sum(child_quantities, Decimal("0"))
+            total_notional = (raw_qty * limit_px).quantize(
+                Decimal("0.00000001"), rounding=ROUND_DOWN
+            )
+            parent_cid = generate_canary_client_order_id(symbol)
             parent_rec = ParentOrderRecord(
                 parent_client_order_id=parent_cid,
                 track_id=self.track_id,
@@ -3231,6 +3285,24 @@ class LiquidityMicroOrderDispatcher:
                             self.jsonl_sink.record_order_event(
                                 "ORDER_REJECTED", ord_rec.model_dump(mode="json")
                             )
+                    elif stat_str == "EXPIRED":
+                        if ord_rec.status != OrderLifecycleState.EXPIRED:
+                            ord_rec.status = OrderLifecycleState.EXPIRED
+                            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                            self.telemetry_store.record_transition(
+                                OrderLifecycleTransition(
+                                    track_id=self.track_id,
+                                    order_id=oid,
+                                    client_order_id=cid,
+                                    from_state=prev_status,
+                                    to_state=OrderLifecycleState.EXPIRED,
+                                    trigger_reason="STREAM_ORDER_EXPIRED",
+                                )
+                            )
+                            self.telemetry_store.record_order(ord_rec)
+                            self.jsonl_sink.record_order_event(
+                                "ORDER_EXPIRED", ord_rec.model_dump(mode="json")
+                            )
 
             return sorted_events
 
@@ -3312,6 +3384,86 @@ class LiquidityMicroOrderDispatcher:
                                     "ORDER_PARTIALLY_FILLED_VIA_REST",
                                     ord_rec.model_dump(mode="json"),
                                 )
+                            backfilled.append(cid)
+                        elif rest_status in ("CANCELED", "CANCELLED"):
+                            prev_st = ord_rec.status
+                            already_filled = Decimal(str(ord_rec.executed_quantity))
+                            cum_qty = Decimal(str(rest_data.get("executedQty", "0")))
+                            incremental_qty = max(Decimal("0"), cum_qty - already_filled)
+                            px = Decimal(str(rest_data.get("price", ord_rec.price)))
+
+                            if incremental_qty > Decimal("0"):
+                                fee = (px * incremental_qty * DEFAULT_TAKER_FEE_RATE).quantize(
+                                    Decimal("0.00000001"), rounding=ROUND_DOWN
+                                )
+                                self.reconciler.apply_fill(
+                                    symbol=ord_rec.symbol,
+                                    side=ord_rec.side,
+                                    price=px,
+                                    quantity=incremental_qty,
+                                    fee=fee,
+                                    is_closing=ord_rec.is_closing,
+                                )
+                                self.sequencer.record_order_fill(cid, cum_qty)
+                                self.sequencer.processed_trade_ids.add(f"rest_{cid}_{cum_qty}")
+                                ord_rec.executed_quantity = str(cum_qty)
+
+                            ord_rec.status = OrderLifecycleState.CANCELLED
+                            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                            self.orders_cancelled_count += 1
+                            self.telemetry_store.record_order(ord_rec)
+                            self.telemetry_store.record_transition(
+                                OrderLifecycleTransition(
+                                    track_id=self.track_id,
+                                    order_id=ord_rec.order_id,
+                                    client_order_id=cid,
+                                    from_state=prev_st,
+                                    to_state=OrderLifecycleState.CANCELLED,
+                                    trigger_reason="REST_BACKFILL_CANCEL_SYNC",
+                                )
+                            )
+                            self.jsonl_sink.record_order_event(
+                                "ORDER_CANCELLED_VIA_REST", ord_rec.model_dump(mode="json")
+                            )
+                            backfilled.append(cid)
+                        elif rest_status == "REJECTED":
+                            prev_st = ord_rec.status
+                            ord_rec.status = OrderLifecycleState.REJECTED
+                            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                            self.orders_rejected_count += 1
+                            self.telemetry_store.record_order(ord_rec)
+                            self.telemetry_store.record_transition(
+                                OrderLifecycleTransition(
+                                    track_id=self.track_id,
+                                    order_id=ord_rec.order_id,
+                                    client_order_id=cid,
+                                    from_state=prev_st,
+                                    to_state=OrderLifecycleState.REJECTED,
+                                    trigger_reason="REST_BACKFILL_REJECT_SYNC",
+                                )
+                            )
+                            self.jsonl_sink.record_order_event(
+                                "ORDER_REJECTED_VIA_REST", ord_rec.model_dump(mode="json")
+                            )
+                            backfilled.append(cid)
+                        elif rest_status == "EXPIRED":
+                            prev_st = ord_rec.status
+                            ord_rec.status = OrderLifecycleState.EXPIRED
+                            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                            self.telemetry_store.record_order(ord_rec)
+                            self.telemetry_store.record_transition(
+                                OrderLifecycleTransition(
+                                    track_id=self.track_id,
+                                    order_id=ord_rec.order_id,
+                                    client_order_id=cid,
+                                    from_state=prev_st,
+                                    to_state=OrderLifecycleState.EXPIRED,
+                                    trigger_reason="REST_BACKFILL_EXPIRED_SYNC",
+                                )
+                            )
+                            self.jsonl_sink.record_order_event(
+                                "ORDER_EXPIRED_VIA_REST", ord_rec.model_dump(mode="json")
+                            )
                             backfilled.append(cid)
                     except Exception as exc:
                         logger.warning("REST order sync failed for %s: %s", cid, exc)

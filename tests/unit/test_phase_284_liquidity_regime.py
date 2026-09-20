@@ -1468,3 +1468,323 @@ def test_adversarial_committed_working_margin_parent_reservation(
             quantity=Decimal("0.0007"),  # 2.10 USDT
             client_order_id=new_cid,
         )
+
+
+# =====================================================================
+# 14. Adversarial Reviewer Tests (Round 2)
+# =====================================================================
+
+
+@pytest.mark.parametrize(
+    ("symbol", "ref_px", "desired_notional", "avail_depth"),
+    [
+        # BTC at 85,000 USDT: 1 step = 0.85 USDT. 5 steps = 4.25 USDT. Odd steps boundary.
+        ("BTCUSDT", Decimal("85000.00"), Decimal("4.30"), Decimal("0.00003")),
+        # BTC at 85,000 USDT: 3 steps = 2.55 USDT with shallow depth.
+        ("BTCUSDT", Decimal("85000.00"), Decimal("2.60"), Decimal("0.00002")),
+        # BTC at 95,000 USDT: 1 step = 0.95 USDT. 5 steps = 4.75 USDT.
+        ("BTCUSDT", Decimal("95000.00"), Decimal("4.80"), Decimal("0.00003")),
+        # ETH at 9,000 USDT: 1 step = 0.90 USDT. 5 steps = 4.50 USDT.
+        ("ETHUSDT", Decimal("9000.00"), Decimal("4.50"), Decimal("0.0003")),
+        # ETH at 9,000 USDT: 3 steps = 2.70 USDT.
+        ("ETHUSDT", Decimal("9000.00"), Decimal("2.70"), Decimal("0.0002")),
+        # SOL at 850 USDT: 1 step = 0.85 USDT. 5 steps = 4.25 USDT.
+        ("SOLUSDT", Decimal("850.00"), Decimal("4.25"), Decimal("0.003")),
+        # SOL at 850 USDT: 3 steps = 2.55 USDT.
+        ("SOLUSDT", Decimal("850.00"), Decimal("2.60"), Decimal("0.002")),
+    ],
+)
+def test_adversarial_slicing_discrete_quantization_boundary_edge_cases(
+    temp_telemetry_store,
+    temp_jsonl_sink,
+    symbol: str,
+    ref_px: Decimal,
+    desired_notional: Decimal,
+    avail_depth: Decimal,
+):
+    """Adversarially probe boundary conditions where discrete step quantization makes
+    odd step partitioning challenging. Verify that every emitted child order is strictly
+    within [1.00 USDT, 2.50 USDT] and no cap or floor violations occur.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_adv2_slicing", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_adv2_slicing"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    spread_delta = ref_px * Decimal("0.0005")  # 5 bps
+    regime_eng.update_book(
+        symbol,
+        bid_price=ref_px,
+        ask_price=ref_px + spread_delta,
+        bid_depth=avail_depth,
+        ask_depth=avail_depth,
+        volume_velocity=Decimal("80.0"),
+    )
+    gateway.set_book(
+        symbol,
+        bid_price=ref_px,
+        ask_price=ref_px + spread_delta,
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_adv2_slicing",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_adv2_slicing",
+        regime_engine=regime_eng,
+    )
+
+    parent_rec, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id=f"cand-{symbol.lower()}",
+        symbol=symbol,
+        side=OrderSide.BUY,
+        desired_notional=desired_notional,
+    )
+
+    assert len(children) >= 1
+    for ch in children:
+        ch_n = Decimal(ch.notional_usdt)
+        assert ch.status == OrderLifecycleState.FILLED
+        if parent_rec is not None:
+            # Sliced child order must adhere strictly to [1.00, 2.50] USDT
+            assert ch_n <= DYNAMIC_SLICING_MAX_CHUNK_USDT, (
+                f"Child notional {ch_n} exceeds cap {DYNAMIC_SLICING_MAX_CHUNK_USDT}"
+            )
+            assert ch_n >= MIN_MICRO_NOTIONAL_CAP_USDT, (
+                f"Child notional {ch_n} violates floor {MIN_MICRO_NOTIONAL_CAP_USDT}"
+            )
+        else:
+            # Single micro order
+            assert ch_n <= HARD_MICRO_NOTIONAL_CAP_USDT
+            assert ch_n >= MIN_MICRO_NOTIONAL_CAP_USDT
+
+    if parent_rec is not None:
+        assert parent_rec.status == OrderLifecycleState.FILLED
+        assert parent_rec.child_count == len(children)
+        total_child_qty = sum(Decimal(c.quantity) for c in children)
+        assert total_child_qty == Decimal(parent_rec.total_quantity)
+
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_adversarial_stream_sequencer_non_trade_zero_id_deduplication():
+    """Adversarially probe stream sequencer deduplication with non-trade events (t=0):
+    - Distinct order cancellation packets (t=0) MUST NOT be falsely dropped as duplicate trades.
+    - True duplicates of non-trade packets MUST be dropped.
+    - True duplicates of trade fills MUST be dropped.
+    """
+    seq = LiquidityStreamSequencer()
+
+    pkt_cancel_a = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 1000,
+        "T": 1000,
+        "u": 1,
+        "o": {"s": "BTCUSDT", "c": "order-A", "x": "CANCELED", "X": "CANCELED", "t": 0},
+    }
+    pkt_cancel_b = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 1001,
+        "T": 1001,
+        "u": 2,
+        "o": {"s": "BTCUSDT", "c": "order-B", "x": "CANCELED", "X": "CANCELED", "t": 0},
+    }
+    pkt_cancel_a_dup = dict(pkt_cancel_a)
+
+    pkt_trade_1 = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 1002,
+        "T": 1002,
+        "u": 3,
+        "o": {"s": "BTCUSDT", "c": "order-C", "x": "TRADE", "X": "FILLED", "t": 99999},
+    }
+    pkt_trade_1_dup = dict(pkt_trade_1)
+
+    batch = [pkt_cancel_a, pkt_cancel_b, pkt_cancel_a_dup, pkt_trade_1, pkt_trade_1_dup]
+    admitted = seq.sort_and_deduplicate_batch(batch)
+
+    # Expected: pkt_cancel_a admitted, pkt_cancel_b admitted, pkt_trade_1 admitted
+    # Duplicates dropped: pkt_cancel_a_dup and pkt_trade_1_dup
+    assert len(admitted) == 3
+    admitted_cids = [p["o"]["c"] for p in admitted]
+    assert "order-A" in admitted_cids
+    assert "order-B" in admitted_cids
+    assert "order-C" in admitted_cids
+    assert seq.deduplicated_count == 2
+
+
+def test_adversarial_rest_reconciliation_cancelled_and_rejected_terminal_states(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify that REST reconciliation backfills CANCELLED, REJECTED, and EXPIRED terminal states,
+    updating local order records, releasing working margin, and updating telemetry counters.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_rest_term", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_rest_term"
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_rest_term",
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_rest_term",
+    )
+
+    # 1. Place order while stream disconnected
+    gateway.disconnect_stream()
+    ord_c1 = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00004"),
+        price=Decimal("60000.00"),
+    )
+    assert ord_c1.status == OrderLifecycleState.NEW
+    assert interlock.get_working_committed_margin() > Decimal("0")
+
+    # Cancel order on gateway directly
+    gateway.cancel_order("BTCUSDT", ord_c1.client_order_id)
+    assert gateway.query_order("BTCUSDT", ord_c1.client_order_id)["status"] == "CANCELED"
+
+    # REST reconciliation must pick up CANCELED status
+    backfilled = dispatcher.reconcile_via_rest()
+    assert ord_c1.client_order_id in backfilled
+    assert dispatcher.orders[ord_c1.client_order_id].status == OrderLifecycleState.CANCELLED
+    assert dispatcher.orders_cancelled_count == 1
+    # Committed working margin must now be 0
+    assert interlock.get_working_committed_margin() == Decimal("0")
+
+    # 2. Test REJECTED status via REST
+    ord_c2 = dispatcher.dispatch_micro_order(
+        candidate_id="cand-eth",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.0007"),
+        price=Decimal("3000.00"),
+    )
+    assert ord_c2.status == OrderLifecycleState.NEW
+    # Mock gateway order to REJECTED
+    gateway.orders[ord_c2.client_order_id]["status"] = "REJECTED"
+
+    backfilled_2 = dispatcher.reconcile_via_rest()
+    assert ord_c2.client_order_id in backfilled_2
+    assert dispatcher.orders[ord_c2.client_order_id].status == OrderLifecycleState.REJECTED
+    assert dispatcher.orders_rejected_count == 1
+    assert interlock.get_working_committed_margin() == Decimal("0")
+
+
+def test_adversarial_stream_expired_order_transition(temp_telemetry_store, temp_jsonl_sink):
+    """Verify that WebSocket stream ORDER_TRADE_UPDATE with EXPIRED status cleanly
+    transitions local order to OrderLifecycleState.EXPIRED.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_expired", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_expired"
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_expired",
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_expired",
+    )
+
+    # Disconnect stream to keep order in NEW locally
+    gateway.disconnect_stream()
+    ord_rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00004"),
+        price=Decimal("60000.00"),
+    )
+    assert ord_rec.status == OrderLifecycleState.NEW
+
+    # Reconnect and inject EXPIRED packet
+    gateway.reconnect_stream()
+    expired_pkt = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 2000,
+        "T": 2000,
+        "u": 10,
+        "o": {
+            "s": "BTCUSDT",
+            "c": ord_rec.client_order_id,
+            "i": ord_rec.order_id,
+            "S": "BUY",
+            "o": "LIMIT",
+            "f": "IOC",
+            "q": ord_rec.quantity,
+            "p": ord_rec.price,
+            "x": "EXPIRED",
+            "X": "EXPIRED",
+            "l": "0",
+            "z": "0",
+            "L": "0",
+            "n": "0",
+            "N": "USDT",
+            "T": 2000,
+            "t": 0,
+        },
+    }
+    gateway.ws_event_queue.append(expired_pkt)
+    dispatcher.drain_and_reconcile_stream()
+
+    assert dispatcher.orders[ord_rec.client_order_id].status == OrderLifecycleState.EXPIRED
