@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -59,8 +60,12 @@ from autonomous_futures.feed.market_impact import (  # noqa: E402
     CANARY_STAGED_SYMBOLS,
     DEFAULT_PHASE289_OUTPUT_DIR,
     DOUBLE_ENTRY_MAX_DRIFT,
+    MAX_LAMBDA_BOUND,
+    MIN_LAMBDA_TRADE_NOTIONAL_USDT,
+    ORDERED_EXPANSION_STAGES,
     SEQUENCE_WRAP_THRESHOLD,
     STAGE_10_MARKET_IMPACT_EXPANSION_CAP_USDT,
+    STAGE_EXPOSURE_CAPS,
     AggregateExposureCapExceededError,
     AggressiveOrderRejectedError,
     CanaryMarketImpactError,
@@ -1483,3 +1488,280 @@ def test_emergency_liquidation_cleans_all_committed_and_parent_margin(
     assert len(interlock._parent_order_working_notionals) == 0
     assert all(v == Decimal("0.0") for v in dispatcher._order_committed_notionals.values())
     assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+# ---------------------------------------------------------------------------
+# 11. Adversarial Kyle's Lambda, EWMA, Concurrency & Stage Scaling Tests
+# ---------------------------------------------------------------------------
+
+
+def test_adversarial_kyles_lambda_low_and_sparse_volume_trade_filtering():
+    """Verify low and sparse volume trades do not trigger false-positive SEVERE_CONTROLS."""
+    engine = MarketImpactEngine()
+    px = Decimal("60000.00")
+
+    # Reference trade
+    assert MIN_LAMBDA_TRADE_NOTIONAL_USDT == Decimal("1.00")
+    engine.process_trade("BTCUSDT", px, Decimal("0.001"), OrderSide.BUY)
+    assert engine.get_lambda("BTCUSDT") <= Decimal("0.40")
+    assert engine.get_regime("BTCUSDT") == MarketImpactRegime.NOMINAL
+
+    # Dust trade: 1-tick move (50.00 USD, ~8.3 bps) on negligible volume (0.000001 BTC, 0.06 USDT)
+    px_new = Decimal("60050.00")
+    qty_dust = Decimal("0.000001")
+    engine.process_trade("BTCUSDT", px_new, qty_dust, OrderSide.BUY)
+
+    # Effective notional floor (1.00 USDT) and volume-adaptive EWMA prevent runaway spike
+    cur_lambda = engine.get_lambda("BTCUSDT")
+    assert cur_lambda <= Decimal("0.40")
+    assert engine.get_regime("BTCUSDT") == MarketImpactRegime.NOMINAL
+
+    # Extreme dust trade: 1 satoshi with huge price delta
+    px_satoshi = Decimal("65000.00")
+    qty_satoshi = Decimal("0.00000001")
+    engine.process_trade("BTCUSDT", px_satoshi, qty_satoshi, OrderSide.BUY)
+
+    # Lambda remains strictly bounded by max_lambda_bound and regime does not flap violently
+    cur_lambda_2 = engine.get_lambda("BTCUSDT")
+    assert cur_lambda_2 <= MAX_LAMBDA_BOUND
+    assert cur_lambda_2 < Decimal("1.50")
+
+
+def test_adversarial_adaptive_ewma_smoothing_and_trade_size_weighting():
+    """Verify adaptive EWMA scales alpha with trade volume and smooths parameter estimation."""
+    engine = MarketImpactEngine(base_ewma_alpha=Decimal("0.20"))
+    px = Decimal("60000.00")
+
+    # Initial trade
+    engine.process_trade("BTCUSDT", px, Decimal("0.001"), OrderSide.BUY)
+    l_init = engine.get_lambda("BTCUSDT")
+    assert l_init <= Decimal("0.40")
+
+    # Small print (2.00 USDT) with 6 bps displacement
+    px_2 = Decimal("60036.00")
+    qty_small = Decimal("2.00") / px_2
+    engine.process_trade("BTCUSDT", px_2, qty_small, OrderSide.BUY)
+    l_small = engine.get_lambda("BTCUSDT")
+
+    # Large print (30.00 USDT) with 6 bps displacement
+    px_3 = Decimal("60072.00")
+    qty_large = Decimal("30.00") / px_3
+    engine.process_trade("BTCUSDT", px_3, qty_large, OrderSide.BUY)
+    l_large = engine.get_lambda("BTCUSDT")
+
+    # Both updates are bounded and smoothly adapted
+    assert l_small >= Decimal("0.0")
+    assert l_large >= Decimal("0.0")
+    assert l_large <= MAX_LAMBDA_BOUND
+
+
+def test_adversarial_concurrent_multi_symbol_updates_without_lock_contention(
+    temp_telemetry_store,
+):
+    """Verify high-frequency concurrent trade processing across symbols without lock contention."""
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+    errors: list[Exception] = []
+
+    def writer_worker(sym: str, start_px: Decimal, count: int) -> None:
+        try:
+            for i in range(count):
+                curr_px = start_px + Decimal(i * 2)
+                engine.process_trade(
+                    sym,
+                    curr_px,
+                    Decimal("0.001"),
+                    OrderSide.BUY if i % 2 == 0 else OrderSide.SELL,
+                )
+        except Exception as exc:
+            errors.append(exc)
+
+    def reader_worker(sym: str, count: int) -> None:
+        try:
+            for _ in range(count):
+                _ = engine.get_lambda(sym)
+                _ = engine.get_regime(sym)
+                _ = engine.get_spillover_coefficients(sym)
+        except Exception as exc:
+            errors.append(exc)
+
+    threads: list[threading.Thread] = []
+    symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    base_prices = {
+        "BTCUSDT": Decimal("60000.00"),
+        "ETHUSDT": Decimal("3000.00"),
+        "SOLUSDT": Decimal("150.00"),
+    }
+
+    # Spawn 6 writer threads and 6 reader threads
+    for sym in symbols:
+        threads.append(threading.Thread(target=writer_worker, args=(sym, base_prices[sym], 25)))
+        threads.append(
+            threading.Thread(target=writer_worker, args=(sym, base_prices[sym] + Decimal("50"), 25))
+        )
+        threads.append(threading.Thread(target=reader_worker, args=(sym, 50)))
+        threads.append(threading.Thread(target=reader_worker, args=(sym, 50)))
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10.0)
+
+    assert len(errors) == 0, f"Encountered concurrency errors: {errors}"
+    for sym in symbols:
+        assert engine.get_lambda(sym) >= Decimal("0.0")
+        assert engine.get_regime(sym) in list(MarketImpactRegime)
+
+
+def test_adversarial_stepped_exposure_scaling_progression_stages_1_to_10():
+    """Verify stepped exposure scaling progression across all 10 stages and transition guards."""
+    reconciler = MarketImpactUserDataStreamReconciler()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine()
+
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_1_SEED_PROBE,
+    )
+
+    # 1. Verify stage progression caps for all 10 stages
+    assert len(ORDERED_EXPANSION_STAGES) == 10
+    assert all(s in STAGE_EXPOSURE_CAPS for s in ORDERED_EXPANSION_STAGES)
+    expected_caps = [
+        (CapitalExpansionStage.STAGE_1_SEED_PROBE, Decimal("5.00")),
+        (CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT, Decimal("10.00")),
+        (CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION, Decimal("15.00")),
+        (CapitalExpansionStage.STAGE_4_ADAPTIVE_EXPANSION, Decimal("20.00")),
+        (CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION, Decimal("25.00")),
+        (CapitalExpansionStage.STAGE_6_VOLATILITY_EXPANSION, Decimal("30.00")),
+        (CapitalExpansionStage.STAGE_7_LIQUIDITY_SHOCK_EXPANSION, Decimal("35.00")),
+        (CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION, Decimal("40.00")),
+        (CapitalExpansionStage.STAGE_9_FLOW_TOXICITY_EXPANSION, Decimal("45.00")),
+        (CapitalExpansionStage.STAGE_10_MARKET_IMPACT_EXPANSION, Decimal("50.00")),
+    ]
+
+    for stage, cap in expected_caps:
+        assert interlock.get_stage_exposure_cap(stage) == cap
+        new_cap = interlock.transition_to_stage(stage)
+        assert new_cap == cap
+        assert interlock.expansion_stage == stage
+
+    # 2. Allocate 12.00 USDT margin (incurring active exposure)
+    reconciler.allocated_margin = Decimal("12.00")
+
+    # Downscaling to Stage 2 (10.00 USDT) must fail-closed
+    assert not interlock.can_transition_to(CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT)
+    with pytest.raises(AggregateExposureCapExceededError):
+        interlock.transition_to_stage(CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT)
+
+    # Downscaling to Stage 1 (5.00 USDT) must fail-closed
+    assert not interlock.can_transition_to(CapitalExpansionStage.STAGE_1_SEED_PROBE)
+    with pytest.raises(AggregateExposureCapExceededError):
+        interlock.transition_to_stage(CapitalExpansionStage.STAGE_1_SEED_PROBE)
+
+    # Downscaling to Stage 3 (15.00 USDT) is permitted (12.00 <= 15.00)
+    assert interlock.can_transition_to(CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION)
+    cap_3 = interlock.transition_to_stage(CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION)
+    assert cap_3 == Decimal("15.00")
+    assert interlock.expansion_stage == CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION
+
+
+def test_adversarial_reconciler_residual_margin_sweep_on_flattening():
+    """Verify residual rounding margin is swept back to cash on complete portfolio flattening."""
+    reconciler = MarketImpactUserDataStreamReconciler(starting_equity=Decimal("100.00"))
+
+    # Execute irrational repeating fractional fills across 3 assets
+    reconciler.record_fill("BTCUSDT", OrderSide.BUY, Decimal("60000.00"), Decimal("0.00033333"))
+    reconciler.record_fill("ETHUSDT", OrderSide.BUY, Decimal("3000.00"), Decimal("0.00333333"))
+    reconciler.record_fill("SOLUSDT", OrderSide.BUY, Decimal("150.00"), Decimal("0.06666666"))
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # Partially close each asset in steps
+    reconciler.record_fill("BTCUSDT", OrderSide.SELL, Decimal("60500.00"), Decimal("0.00011111"))
+    reconciler.record_fill("BTCUSDT", OrderSide.SELL, Decimal("61000.00"), Decimal("0.00011111"))
+    reconciler.record_fill("ETHUSDT", OrderSide.SELL, Decimal("3050.00"), Decimal("0.00166666"))
+    reconciler.record_fill("SOLUSDT", OrderSide.SELL, Decimal("155.00"), Decimal("0.03333333"))
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # Completely close all remaining quantities to reach flat portfolio
+    rem_btc = reconciler.positions["BTCUSDT"]
+    rem_eth = reconciler.positions["ETHUSDT"]
+    rem_sol = reconciler.positions["SOLUSDT"]
+    reconciler.record_fill("BTCUSDT", OrderSide.SELL, Decimal("61500.00"), rem_btc)
+    reconciler.record_fill("ETHUSDT", OrderSide.SELL, Decimal("3100.00"), rem_eth)
+    reconciler.record_fill("SOLUSDT", OrderSide.SELL, Decimal("160.00"), rem_sol)
+
+    # Portfolio is completely flat
+    assert all(p == Decimal("0.0") for p in reconciler.positions.values())
+    assert reconciler.allocated_margin == Decimal("0.0")
+    assert all(m == Decimal("0.0") for m in reconciler.per_asset_margin.values())
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_adversarial_twap_slice_downscaling_and_limit_cushion_under_impact(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify TWAP child slices downscale and widen limit cushion under market impact surges."""
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_10_MARKET_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # 1. NOMINAL regime: 4.50 USDT sliced with base chunk 2.50 USDT -> 2 slices of 2.25 USDT
+    p_nom = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-eth",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("4.50"),
+        limit_price=Decimal("3000.00"),
+        slice_chunk_notional=Decimal("2.50"),
+    )
+    assert p_nom.child_count == 2
+
+    # Flatten position
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-eth",
+        symbol="ETHUSDT",
+        side=OrderSide.SELL,
+        order_type=OrderType.LIMIT,
+        quantity=reconciler.positions["ETHUSDT"],
+        price=Decimal("3000.00"),
+        client_order_id=generate_canary_client_order_id("ETHUSDT"),
+        is_closing=True,
+    )
+
+    # 2. Surge to ELEVATED_IMPACT: chunk cap downscales to 1.75 USDT -> 3 slices
+    engine.record_impact_surge("ETHUSDT", lambda_value=Decimal("0.55"))
+    assert engine.get_regime("ETHUSDT") == MarketImpactRegime.ELEVATED_IMPACT
+    p_elev = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-eth",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("4.50"),
+        limit_price=Decimal("3000.00"),
+        slice_chunk_notional=Decimal("2.50"),
+    )
+    assert p_elev.child_count >= 3
+
+    # Child order price received cushion widening (2 bps passive cushion for BUY: 2999.40)
+    c_ids = json.loads(p_elev.child_order_ids_json)
+    first_child = dispatcher.orders[c_ids[0]]
+    assert Decimal(first_child.price) == Decimal("2999.40")

@@ -158,6 +158,14 @@ SEVERE_LAMBDA_THRESHOLD: Decimal = Decimal("0.70")  # Lambda > 0.70 triggers sev
 NOMINAL_RECOVERY_THRESHOLD: Decimal = Decimal("0.35")  # De-escalation hysteresis to nominal
 ELEVATED_RECOVERY_THRESHOLD: Decimal = Decimal("0.65")  # De-escalation hysteresis to elevated
 
+# Kyle's Lambda Estimation, Low-Volume Bounds & Adaptive EWMA Boundaries
+MIN_LAMBDA_TRADE_NOTIONAL_USDT: Decimal = Decimal("1.00")  # Minimum trade notional floor for lambda
+DEFAULT_LAMBDA_EWMA_ALPHA: Decimal = Decimal("0.20")  # Nominal EWMA smoothing alpha
+MIN_LAMBDA_EWMA_ALPHA: Decimal = Decimal("0.05")  # Minimum alpha for sparse / low-volume prints
+MAX_LAMBDA_EWMA_ALPHA: Decimal = Decimal("0.50")  # Maximum alpha for large institutional prints
+MIN_LAMBDA_BOUND: Decimal = Decimal("0.0")  # Absolute lower bound for lambda
+MAX_LAMBDA_BOUND: Decimal = Decimal("5.0000")  # Upper bound clamp for lambda
+
 # Transient Resilience & Replenishment Governance
 BASE_RESILIENCE_HALF_LIFE_SECONDS: float = 1.5  # Nominal recovery half-life (seconds)
 MAX_RESILIENCE_HALF_LIFE_SECONDS: float = 5.0  # Beyond this, displacement is permanent
@@ -377,6 +385,42 @@ class CapitalExpansionStage(StrEnum):
     STAGE_8_DEPTH_IMBALANCE_EXPANSION = "STAGE_8_DEPTH_IMBALANCE_EXPANSION"  # 40.00 USDT
     STAGE_9_FLOW_TOXICITY_EXPANSION = "STAGE_9_FLOW_TOXICITY_EXPANSION"  # 45.00 USDT
     STAGE_10_MARKET_IMPACT_EXPANSION = "STAGE_10_MARKET_IMPACT_EXPANSION"  # 50.00 USDT
+
+
+# Stepped Exposure Scaling Stage Mapping & Ordered Progression (Phase 289)
+STAGE_EXPOSURE_CAPS: dict[CapitalExpansionStage, Decimal] = {
+    CapitalExpansionStage.STAGE_1_SEED_PROBE: STAGE_1_CONCURRENT_EXPOSURE_CAP_USDT,
+    CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT: (STAGE_2_CONCURRENT_EXPOSURE_CAP_USDT),
+    CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION: (STAGE_3_CONTINUOUS_EXPOSURE_CAP_USDT),
+    CapitalExpansionStage.STAGE_4_ADAPTIVE_EXPANSION: (STAGE_4_ADAPTIVE_EXPOSURE_CAP_USDT),
+    CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION: (STAGE_5_LIQUIDITY_EXPANSION_CAP_USDT),
+    CapitalExpansionStage.STAGE_6_VOLATILITY_EXPANSION: (STAGE_6_VOLATILITY_EXPANSION_CAP_USDT),
+    CapitalExpansionStage.STAGE_7_LIQUIDITY_SHOCK_EXPANSION: (
+        STAGE_7_LIQUIDITY_SHOCK_EXPANSION_CAP_USDT
+    ),
+    CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION: (
+        STAGE_8_DEPTH_IMBALANCE_EXPANSION_CAP_USDT
+    ),
+    CapitalExpansionStage.STAGE_9_FLOW_TOXICITY_EXPANSION: (
+        STAGE_9_FLOW_TOXICITY_EXPANSION_CAP_USDT
+    ),
+    CapitalExpansionStage.STAGE_10_MARKET_IMPACT_EXPANSION: (
+        STAGE_10_MARKET_IMPACT_EXPANSION_CAP_USDT
+    ),
+}
+
+ORDERED_EXPANSION_STAGES: list[CapitalExpansionStage] = [
+    CapitalExpansionStage.STAGE_1_SEED_PROBE,
+    CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+    CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION,
+    CapitalExpansionStage.STAGE_4_ADAPTIVE_EXPANSION,
+    CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+    CapitalExpansionStage.STAGE_6_VOLATILITY_EXPANSION,
+    CapitalExpansionStage.STAGE_7_LIQUIDITY_SHOCK_EXPANSION,
+    CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION,
+    CapitalExpansionStage.STAGE_9_FLOW_TOXICITY_EXPANSION,
+    CapitalExpansionStage.STAGE_10_MARKET_IMPACT_EXPANSION,
+]
 
 
 class CircuitBreakerState(StrEnum):
@@ -1459,6 +1503,10 @@ class MarketImpactEngine:
         max_resilience_half_life_seconds: float = MAX_RESILIENCE_HALF_LIFE_SECONDS,
         min_replenishment_velocity_usdt: Decimal = MIN_REPLENISHMENT_VELOCITY_USDT,
         telemetry_store: SqliteCanaryMarketImpactTelemetryStore | None = None,
+        min_trade_notional_usdt: Decimal = MIN_LAMBDA_TRADE_NOTIONAL_USDT,
+        base_ewma_alpha: Decimal = DEFAULT_LAMBDA_EWMA_ALPHA,
+        min_lambda_bound: Decimal = MIN_LAMBDA_BOUND,
+        max_lambda_bound: Decimal = MAX_LAMBDA_BOUND,
     ) -> None:
         self.nominal_lambda_threshold = nominal_lambda_threshold
         self.elevated_lambda_threshold = elevated_lambda_threshold
@@ -1469,7 +1517,17 @@ class MarketImpactEngine:
         self.max_resilience_half_life_seconds = max_resilience_half_life_seconds
         self.min_replenishment_velocity_usdt = min_replenishment_velocity_usdt
         self.telemetry_store = telemetry_store
-        self._lock = threading.RLock()
+        self.min_trade_notional_usdt = min_trade_notional_usdt
+        self.base_ewma_alpha = base_ewma_alpha
+        self.min_lambda_bound = min_lambda_bound
+        self.max_lambda_bound = max_lambda_bound
+
+        # Fine-grained per-symbol concurrency locks to eliminate cross-symbol lock contention
+        self._global_lock = threading.RLock()
+        self._lock = self._global_lock  # Backwards-compatible alias
+        self._symbol_locks: dict[str, threading.RLock] = {
+            s: threading.RLock() for s in CANARY_STAGED_SYMBOLS
+        }
 
         # Per symbol state
         self._reference_prices: dict[str, Decimal] = {}
@@ -1493,16 +1551,27 @@ class MarketImpactEngine:
         }
 
         for sym in CANARY_STAGED_SYMBOLS:
-            self._reference_prices[sym] = DEFAULT_REFERENCE_PRICES.get(sym, Decimal("100.0"))
-            self._rolling_lambdas[sym] = deque(maxlen=20)
-            self._rolling_lambdas[sym].append(Decimal("0.10"))
-            self._current_lambdas[sym] = Decimal("0.10")
-            self._regimes[sym] = MarketImpactRegime.NOMINAL
-            self._absorption_states[sym] = DisplacementAbsorptionState.NORMAL
-            self._resilience_half_lives[sym] = self.base_resilience_half_life_seconds
-            self._replenishment_velocities[sym] = NOMINAL_REPLENISHMENT_VELOCITY_USDT
-            self._transient_displacements[sym] = Decimal("0.0")
-            self._permanent_displacements[sym] = Decimal("0.0")
+            self._init_symbol_state(sym)
+
+    def _init_symbol_state(self, sym: str) -> None:
+        self._reference_prices[sym] = DEFAULT_REFERENCE_PRICES.get(sym, Decimal("100.0"))
+        self._rolling_lambdas[sym] = deque(maxlen=20)
+        self._rolling_lambdas[sym].append(Decimal("0.10"))
+        self._current_lambdas[sym] = Decimal("0.10")
+        self._regimes[sym] = MarketImpactRegime.NOMINAL
+        self._absorption_states[sym] = DisplacementAbsorptionState.NORMAL
+        self._resilience_half_lives[sym] = self.base_resilience_half_life_seconds
+        self._replenishment_velocities[sym] = NOMINAL_REPLENISHMENT_VELOCITY_USDT
+        self._transient_displacements[sym] = Decimal("0.0")
+        self._permanent_displacements[sym] = Decimal("0.0")
+
+    def _get_symbol_lock(self, symbol: str) -> threading.RLock:
+        sym = symbol.strip().upper()
+        if sym not in self._symbol_locks:
+            with self._global_lock:
+                if sym not in self._symbol_locks:
+                    self._symbol_locks[sym] = threading.RLock()
+        return self._symbol_locks[sym]
 
     def process_trade(
         self,
@@ -1515,22 +1584,15 @@ class MarketImpactEngine:
     ) -> None:
         """Process incoming trade mark and calculate Kyle's Lambda (λ = ΔP / Q)."""
         sym = symbol.strip().upper()
-        with self._lock:
+        snap: MarketImpactSnapshot | None = None
+        with self._get_symbol_lock(sym):
             px = _safe_decimal(price)
             qty = _safe_decimal(quantity)
             if px <= Decimal("0") or qty <= Decimal("0"):
                 return
             if sym not in self._reference_prices:
+                self._init_symbol_state(sym)
                 self._reference_prices[sym] = px
-                self._rolling_lambdas[sym] = deque(maxlen=20)
-                self._rolling_lambdas[sym].append(Decimal("0.10"))
-                self._current_lambdas[sym] = Decimal("0.10")
-                self._regimes[sym] = MarketImpactRegime.NOMINAL
-                self._absorption_states[sym] = DisplacementAbsorptionState.NORMAL
-                self._resilience_half_lives[sym] = self.base_resilience_half_life_seconds
-                self._replenishment_velocities[sym] = NOMINAL_REPLENISHMENT_VELOCITY_USDT
-                self._transient_displacements[sym] = Decimal("0.0")
-                self._permanent_displacements[sym] = Decimal("0.0")
 
             prev_px = self._reference_prices[sym]
             self._reference_prices[sym] = px
@@ -1542,17 +1604,34 @@ class MarketImpactEngine:
             )
 
             # Kyle's Lambda: ΔP_bps / Q_notional
-            if notional > Decimal("0"):
-                inst_lambda = (delta_bps / notional).quantize(Decimal("0.0001"))
+            # Floor effective notional at min_trade_notional_usdt to prevent zero-division
+            eff_notional = max(notional, self.min_trade_notional_usdt)
+            if eff_notional > Decimal("0"):
+                raw_lambda = (delta_bps / eff_notional).quantize(Decimal("0.0001"))
             else:
-                inst_lambda = Decimal("0.0")
+                raw_lambda = Decimal("0.0")
 
+            inst_lambda = min(self.max_lambda_bound, max(self.min_lambda_bound, raw_lambda))
             self._rolling_lambdas[sym].append(inst_lambda)
-            rolling_lambda = (
-                sum(self._rolling_lambdas[sym], Decimal("0"))
-                / Decimal(len(self._rolling_lambdas[sym]))
-            ).quantize(Decimal("0.0001"))
-            self._current_lambdas[sym] = rolling_lambda
+
+            # Adaptive EWMA smoothing:
+            # Scale alpha with trade notional relative to baseline notional (10.00 USDT)
+            # Large prints get higher statistical confidence; sparse prints get dampened alpha
+            prev_lambda = self._current_lambdas[sym]
+            vol_scale = min(Decimal("2.5"), max(Decimal("0.25"), notional / Decimal("10.00")))
+            alpha = min(
+                MAX_LAMBDA_EWMA_ALPHA,
+                max(
+                    MIN_LAMBDA_EWMA_ALPHA,
+                    (self.base_ewma_alpha * vol_scale).quantize(Decimal("0.0001")),
+                ),
+            )
+            ewma_lambda = (alpha * inst_lambda + (Decimal("1.0") - alpha) * prev_lambda).quantize(
+                Decimal("0.0001")
+            )
+            self._current_lambdas[sym] = min(
+                self.max_lambda_bound, max(self.min_lambda_bound, ewma_lambda)
+            )
 
             # Update transient and permanent displacement estimates
             transient_bps = (delta_bps * Decimal("0.70")).quantize(Decimal("0.0001"))
@@ -1560,7 +1639,11 @@ class MarketImpactEngine:
             self._transient_displacements[sym] = transient_bps
             self._permanent_displacements[sym] = perm_bps
 
-            self._recalculate_symbol_state(sym, track_id, timestamp_utc)
+            snap = self._recalculate_symbol_state(sym, track_id, timestamp_utc)
+
+        # Record snapshot outside of in-memory symbol lock to prevent lock contention on DB writes
+        if self.telemetry_store and snap is not None:
+            self.telemetry_store.record_impact_snapshot(snap)
 
     def record_impact_surge(
         self,
@@ -1573,8 +1656,14 @@ class MarketImpactEngine:
     ) -> None:
         """Explicitly simulate severe price displacement surge for testing."""
         sym = symbol.strip().upper()
-        with self._lock:
-            val = max(Decimal("0.0"), _safe_decimal(lambda_value))
+        snap: MarketImpactSnapshot | None = None
+        with self._get_symbol_lock(sym):
+            if sym not in self._reference_prices:
+                self._init_symbol_state(sym)
+            val = min(
+                self.max_lambda_bound,
+                max(self.min_lambda_bound, _safe_decimal(lambda_value)),
+            )
             try:
                 hl = float(resilience_half_life)
                 if math.isnan(hl) or math.isinf(hl) or hl <= 0.0:
@@ -1585,7 +1674,10 @@ class MarketImpactEngine:
             self._rolling_lambdas[sym].append(val)
             self._resilience_half_lives[sym] = hl
             self._replenishment_velocities[sym] = _safe_decimal(replenishment_velocity)
-            self._recalculate_symbol_state(sym, track_id, timestamp_utc)
+            snap = self._recalculate_symbol_state(sym, track_id, timestamp_utc)
+
+        if self.telemetry_store and snap is not None:
+            self.telemetry_store.record_impact_snapshot(snap)
 
     def record_replenishment(
         self,
@@ -1596,7 +1688,10 @@ class MarketImpactEngine:
     ) -> None:
         """Record order book replenishment speed."""
         sym = symbol.strip().upper()
-        with self._lock:
+        snap: MarketImpactSnapshot | None = None
+        with self._get_symbol_lock(sym):
+            if sym not in self._reference_prices:
+                self._init_symbol_state(sym)
             try:
                 sec_f = float(time_delta_seconds)
                 if math.isnan(sec_f) or math.isinf(sec_f) or sec_f <= 0.0:
@@ -1607,14 +1702,17 @@ class MarketImpactEngine:
             delta_d = _safe_decimal(depth_delta_usdt)
             vel = (delta_d / Decimal(str(sec))).quantize(Decimal("0.01"))
             self._replenishment_velocities[sym] = vel
-            self._recalculate_symbol_state(sym, track_id)
+            snap = self._recalculate_symbol_state(sym, track_id)
+
+        if self.telemetry_store and snap is not None:
+            self.telemetry_store.record_impact_snapshot(snap)
 
     def _recalculate_symbol_state(
         self,
         symbol: str,
         track_id: str,
         timestamp_utc: str | None = None,
-    ) -> None:
+    ) -> MarketImpactSnapshot | None:
         """Recalculate regime, resilience decay, and absorption state with hysteresis."""
         sym = symbol
         cur_lambda = self._current_lambdas[sym]
@@ -1664,7 +1762,7 @@ class MarketImpactEngine:
         self._absorption_states[sym] = absorption_state
 
         if self.telemetry_store:
-            snap = MarketImpactSnapshot(
+            return MarketImpactSnapshot(
                 track_id=track_id,
                 symbol=sym,
                 timestamp_utc=timestamp_utc or datetime.now(UTC).isoformat(),
@@ -1685,37 +1783,36 @@ class MarketImpactEngine:
                 limit_offset_cushion_bps=str(self.get_limit_offset_cushion_bps(sym)),
                 spillover_json=json.dumps(self.get_spillover_coefficients(sym)),
             )
-            self.telemetry_store.record_impact_snapshot(snap)
+        return None
 
     def get_lambda(self, symbol: str) -> Decimal:
-        with self._lock:
-            return self._current_lambdas.get(symbol.strip().upper(), Decimal("0.10"))
+        sym = symbol.strip().upper()
+        with self._get_symbol_lock(sym):
+            return self._current_lambdas.get(sym, Decimal("0.10"))
 
     get_vpin = get_lambda  # Backward compat alias
 
     def get_regime(self, symbol: str) -> MarketImpactRegime:
-        with self._lock:
-            return self._regimes.get(symbol.strip().upper(), MarketImpactRegime.NOMINAL)
+        sym = symbol.strip().upper()
+        with self._get_symbol_lock(sym):
+            return self._regimes.get(sym, MarketImpactRegime.NOMINAL)
 
     def get_absorption_state(self, symbol: str) -> DisplacementAbsorptionState:
-        with self._lock:
-            return self._absorption_states.get(
-                symbol.strip().upper(), DisplacementAbsorptionState.NORMAL
-            )
+        sym = symbol.strip().upper()
+        with self._get_symbol_lock(sym):
+            return self._absorption_states.get(sym, DisplacementAbsorptionState.NORMAL)
 
     get_adverse_state = get_absorption_state  # Backward compat alias
 
     def get_resilience_half_life(self, symbol: str) -> float:
-        with self._lock:
-            return self._resilience_half_lives.get(
-                symbol.strip().upper(), self.base_resilience_half_life_seconds
-            )
+        sym = symbol.strip().upper()
+        with self._get_symbol_lock(sym):
+            return self._resilience_half_lives.get(sym, self.base_resilience_half_life_seconds)
 
     def get_replenishment_velocity(self, symbol: str) -> Decimal:
-        with self._lock:
-            return self._replenishment_velocities.get(
-                symbol.strip().upper(), NOMINAL_REPLENISHMENT_VELOCITY_USDT
-            )
+        sym = symbol.strip().upper()
+        with self._get_symbol_lock(sym):
+            return self._replenishment_velocities.get(sym, NOMINAL_REPLENISHMENT_VELOCITY_USDT)
 
     def get_pacing_interval_ms(self, symbol: str) -> float:
         regime = self.get_regime(symbol)
@@ -1737,7 +1834,7 @@ class MarketImpactEngine:
         """Calculate pairwise cross-symbol market impact transmission coefficients."""
         src = source_symbol.strip().upper()
         res: dict[str, str] = {}
-        with self._lock:
+        with self._global_lock:
             for other in CANARY_STAGED_SYMBOLS:
                 if other == src:
                     continue
@@ -1791,8 +1888,9 @@ class MarketImpactEngine:
     validate_order_pacing_and_adverse_risk = validate_order_pacing_and_impact_risk
 
     def set_regime_override(self, symbol: str, regime: MarketImpactRegime) -> None:
-        with self._lock:
-            self._regimes[symbol.strip().upper()] = regime
+        sym = symbol.strip().upper()
+        with self._get_symbol_lock(sym):
+            self._regimes[sym] = regime
 
 
 FlowToxicityEngine = MarketImpactEngine
@@ -2163,7 +2261,11 @@ class MarketImpactUserDataStreamReconciler:
                     self.positions[sym_key] = -excess_qty if not is_short_prior else excess_qty
 
                 if all(p == Decimal("0.0") for p in self.positions.values()):
-                    self.allocated_margin = Decimal("0.0")
+                    if self.allocated_margin > Decimal("0.0"):
+                        self.cash += self.allocated_margin
+                        self.allocated_margin = Decimal("0.0")
+                    for s in self.per_asset_margin:
+                        self.per_asset_margin[s] = Decimal("0.0")
             else:
                 self.cash -= notional
                 self.allocated_margin += notional
@@ -2376,37 +2478,72 @@ class MarketImpactOrderDispatchInterlock:
                 self.parent_working_margin.values(), Decimal("0.0")
             )
 
-    def get_stage_exposure_cap(self) -> Decimal:
+    def get_stage_exposure_cap(self, stage: CapitalExpansionStage | None = None) -> Decimal:
         """Retrieve active exposure cap based on expansion stage."""
-        stage_caps = {
-            CapitalExpansionStage.STAGE_1_SEED_PROBE: STAGE_1_CONCURRENT_EXPOSURE_CAP_USDT,
-            CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT: (
-                STAGE_2_CONCURRENT_EXPOSURE_CAP_USDT
-            ),
-            CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION: (
-                STAGE_3_CONTINUOUS_EXPOSURE_CAP_USDT
-            ),
-            CapitalExpansionStage.STAGE_4_ADAPTIVE_EXPANSION: (STAGE_4_ADAPTIVE_EXPOSURE_CAP_USDT),
-            CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION: (
-                STAGE_5_LIQUIDITY_EXPANSION_CAP_USDT
-            ),
-            CapitalExpansionStage.STAGE_6_VOLATILITY_EXPANSION: (
-                STAGE_6_VOLATILITY_EXPANSION_CAP_USDT
-            ),
-            CapitalExpansionStage.STAGE_7_LIQUIDITY_SHOCK_EXPANSION: (
-                STAGE_7_LIQUIDITY_SHOCK_EXPANSION_CAP_USDT
-            ),
-            CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION: (
-                STAGE_8_DEPTH_IMBALANCE_EXPANSION_CAP_USDT
-            ),
-            CapitalExpansionStage.STAGE_9_FLOW_TOXICITY_EXPANSION: (
-                STAGE_9_FLOW_TOXICITY_EXPANSION_CAP_USDT
-            ),
-            CapitalExpansionStage.STAGE_10_MARKET_IMPACT_EXPANSION: (
-                STAGE_10_MARKET_IMPACT_EXPANSION_CAP_USDT
-            ),
-        }
-        return stage_caps.get(self.expansion_stage, AGGREGATE_CONCURRENT_EXPOSURE_CAP_USDT)
+        st = stage or self.expansion_stage
+        return STAGE_EXPOSURE_CAPS.get(st, AGGREGATE_CONCURRENT_EXPOSURE_CAP_USDT)
+
+    def transition_to_stage(
+        self, new_stage: CapitalExpansionStage | str, track_id: str = "market_impact"
+    ) -> Decimal:
+        """Safely transition to target capital expansion stage with exposure verification."""
+        with self._lock:
+            stage_enum = (
+                new_stage
+                if isinstance(new_stage, CapitalExpansionStage)
+                else CapitalExpansionStage(str(new_stage))
+            )
+            target_cap = STAGE_EXPOSURE_CAPS.get(stage_enum, AGGREGATE_CONCURRENT_EXPOSURE_CAP_USDT)
+            curr_allocated = self.reconciler.allocated_margin
+            curr_committed = self.get_total_committed_margin()
+            current_active_exposure = curr_allocated + curr_committed
+
+            # Invariant check: active exposure cannot exceed target stage exposure ceiling
+            if current_active_exposure > target_cap:
+                self.interlock_blocks_count += 1
+                self._record_interlock(
+                    track_id,
+                    InterlockType.AGGREGATE_CAP,
+                    False,
+                    "PORTFOLIO",
+                    current_active_exposure,
+                    f"Cannot downscale stage to {stage_enum.value}: active exposure "
+                    f"{current_active_exposure} > cap {target_cap}",
+                )
+                raise AggregateExposureCapExceededError(
+                    f"Cannot transition to stage {stage_enum.value}: current active exposure "
+                    f"{current_active_exposure} USDT exceeds target stage cap {target_cap} USDT"
+                )
+
+            old_stage = self.expansion_stage
+            self.expansion_stage = stage_enum
+            self._record_interlock(
+                track_id,
+                InterlockType.AGGREGATE_CAP,
+                True,
+                "PORTFOLIO",
+                target_cap,
+                (
+                    f"Transitioned from {old_stage.value} to {stage_enum.value} "
+                    f"(cap: {target_cap} USDT)"
+                ),
+            )
+            return target_cap
+
+    def can_transition_to(self, target_stage: CapitalExpansionStage | str) -> bool:
+        """Check if transition to target stage is permitted given current exposure."""
+        with self._lock:
+            try:
+                stage_enum = (
+                    target_stage
+                    if isinstance(target_stage, CapitalExpansionStage)
+                    else CapitalExpansionStage(str(target_stage))
+                )
+            except Exception:
+                return False
+            target_cap = STAGE_EXPOSURE_CAPS.get(stage_enum, AGGREGATE_CONCURRENT_EXPOSURE_CAP_USDT)
+            curr_exposure = self.reconciler.allocated_margin + self.get_total_committed_margin()
+            return curr_exposure <= target_cap
 
     def evaluate_order_dispatch(
         self,
@@ -3094,11 +3231,34 @@ class MarketImpactMicroOrderDispatcher:
             )
 
             try:
-                total_qty = (t_notional / l_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-                chunk_cap = max(
-                    MIN_MICRO_NOTIONAL_CAP_USDT,
-                    min(_safe_decimal(slice_chunk_notional), DYNAMIC_SLICING_MAX_CHUNK_USDT),
+                regime = self.interlock.engine.get_regime(sym)
+                cushion_bps = self.interlock.engine.get_limit_offset_cushion_bps(sym)
+                if cushion_bps > Decimal("0") and order_type == OrderType.LIMIT:
+                    if side == OrderSide.BUY:
+                        effective_l_px = (
+                            l_px * (Decimal("1.0") - cushion_bps / Decimal("10000"))
+                        ).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                    else:
+                        effective_l_px = (
+                            l_px * (Decimal("1.0") + cushion_bps / Decimal("10000"))
+                        ).quantize(Decimal("0.01"), rounding=ROUND_UP)
+                else:
+                    effective_l_px = l_px
+
+                total_qty = (t_notional / effective_l_px).quantize(
+                    Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
+                base_chunk = min(
+                    _safe_decimal(slice_chunk_notional), DYNAMIC_SLICING_MAX_CHUNK_USDT
+                )
+                # Automatically downscale order slice sizing under elevated/severe impact
+                if regime == MarketImpactRegime.SEVERE_CONTROLS:
+                    scaled_chunk = min(base_chunk, Decimal("1.25"))
+                elif regime == MarketImpactRegime.ELEVATED_IMPACT:
+                    scaled_chunk = min(base_chunk, Decimal("1.75"))
+                else:
+                    scaled_chunk = base_chunk
+                chunk_cap = max(MIN_MICRO_NOTIONAL_CAP_USDT, scaled_chunk)
 
                 # Partition into sequential child slices <= 2.50 USDT with >= 1.00 USDT floor
                 max_slices = max(1, int(t_notional // MIN_MICRO_NOTIONAL_CAP_USDT))
@@ -3151,10 +3311,10 @@ class MarketImpactMicroOrderDispatcher:
 
                 try:
                     for idx, c_notional in enumerate(child_notionals):
-                        c_qty = (c_notional / l_px).quantize(
+                        c_qty = (c_notional / effective_l_px).quantize(
                             Decimal("0.00000001"), rounding=ROUND_DOWN
                         )
-                        c_notional_val = (c_qty * l_px).quantize(
+                        c_notional_val = (c_qty * effective_l_px).quantize(
                             Decimal("0.00000001"), rounding=ROUND_DOWN
                         )
                         if (
@@ -3162,7 +3322,7 @@ class MarketImpactMicroOrderDispatcher:
                             and c_notional_val < MIN_MICRO_NOTIONAL_CAP_USDT
                         ):
                             candidate_c_qty = c_qty + Decimal("0.00000001")
-                            if (candidate_c_qty * l_px).quantize(
+                            if (candidate_c_qty * effective_l_px).quantize(
                                 Decimal("0.00000001"), rounding=ROUND_DOWN
                             ) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
                                 c_qty = candidate_c_qty
@@ -3180,7 +3340,7 @@ class MarketImpactMicroOrderDispatcher:
                             side=side,
                             order_type=order_type,
                             quantity=c_qty,
-                            price=l_px,
+                            price=effective_l_px,
                             client_order_id=child_cid,
                             track_id=track_id,
                         )
