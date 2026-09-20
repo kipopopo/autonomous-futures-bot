@@ -480,6 +480,7 @@ class ParentOrderRecord(DomainModel):
     slicing_mode: OrderSlicingMode = OrderSlicingMode.NONE
     child_order_ids: list[str] = Field(default_factory=list)
     child_count: int = 0
+    dispatch_complete: bool = False
     liquidity_regime: LiquidityRegime = LiquidityRegime.NORMAL
     estimated_slippage_bps: str = "0.0000"
     total_fees_usdt: str = "0.00000000"
@@ -781,6 +782,7 @@ class SqliteCanaryLiquidityRegimeTelemetryStore:
                     status TEXT NOT NULL,
                     slicing_mode TEXT NOT NULL,
                     child_count INTEGER NOT NULL DEFAULT 0,
+                    dispatch_complete INTEGER NOT NULL DEFAULT 0,
                     liquidity_regime TEXT NOT NULL,
                     estimated_slippage_bps TEXT NOT NULL,
                     total_fees_usdt TEXT NOT NULL DEFAULT '0.00000000',
@@ -993,10 +995,10 @@ class SqliteCanaryLiquidityRegimeTelemetryStore:
                     parent_client_order_id, track_id, candidate_id, symbol,
                     side, order_type, total_quantity, total_notional_usdt,
                     executed_quantity, executed_notional_usdt, status,
-                    slicing_mode, child_count, liquidity_regime,
+                    slicing_mode, child_count, dispatch_complete, liquidity_regime,
                     estimated_slippage_bps, total_fees_usdt, total_slippage_usdt,
                     created_at_utc, updated_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.parent_client_order_id,
@@ -1016,6 +1018,7 @@ class SqliteCanaryLiquidityRegimeTelemetryStore:
                     if isinstance(record.slicing_mode, OrderSlicingMode)
                     else str(record.slicing_mode),
                     record.child_count,
+                    1 if record.dispatch_complete else 0,
                     record.liquidity_regime.value
                     if isinstance(record.liquidity_regime, LiquidityRegime)
                     else str(record.liquidity_regime),
@@ -1490,7 +1493,8 @@ class LiquidityStreamSequencer:
                     cid = str(o.get("c", ""))
                     sym = str(o.get("s", ""))
                     st = str(o.get("X", ""))
-                    event_key = f"{e_type}:{cid}:{st}:{pkt.get('T', 0)}:{seq}"
+                    x_type = str(o.get("x", ""))
+                    event_key = f"{e_type}:{cid}:{st}:{x_type}:{pkt.get('T', 0)}:{seq}"
                 else:
                     event_key = f"{e_type}:{pkt.get('T', 0)}:{seq}"
 
@@ -2359,6 +2363,8 @@ class LiquidityOrderDispatchInterlock:
                         OrderLifecycleState.NEW,
                         OrderLifecycleState.PARTIALLY_FILLED,
                     ):
+                        if p_rec.dispatch_complete:
+                            continue
                         active_children_notional = Decimal("0")
                         for ch_cid in p_rec.child_order_ids:
                             if (
@@ -2688,6 +2694,145 @@ class LiquidityMicroOrderDispatcher:
         # Connect interlock to working orders provider
         self.interlock.set_orders_provider(lambda: self.orders)
         self.interlock.set_parent_orders_provider(lambda: self.parent_orders)
+
+    def _sync_parent_order_state(self, parent_client_order_id: str) -> ParentOrderRecord | None:
+        """Atomically aggregate child order lifecycle states into the parent order."""
+        parent_rec = self.parent_orders.get(parent_client_order_id)
+        if not parent_rec:
+            return None
+
+        children = [
+            self.orders[ch_id] for ch_id in parent_rec.child_order_ids if ch_id in self.orders
+        ]
+        if not children:
+            return parent_rec
+
+        total_exec_qty = Decimal("0")
+        total_exec_notional = Decimal("0")
+        total_fees = Decimal("0")
+
+        for ch in children:
+            ch_exec_q = _safe_decimal(ch.executed_quantity)
+            total_exec_qty += ch_exec_q
+            ch_px = _safe_decimal(ch.price)
+            total_exec_notional += (ch_exec_q * ch_px).quantize(
+                Decimal("0.00000001"), rounding=ROUND_DOWN
+            )
+            total_fees += (ch_exec_q * ch_px * DEFAULT_TAKER_FEE_RATE).quantize(
+                Decimal("0.00000001"), rounding=ROUND_DOWN
+            )
+
+        parent_rec.executed_quantity = str(total_exec_qty)
+        parent_rec.executed_notional_usdt = str(total_exec_notional)
+        parent_rec.total_fees_usdt = str(total_fees)
+
+        p_total_qty = _safe_decimal(parent_rec.total_quantity)
+
+        terminal_states = (
+            OrderLifecycleState.FILLED,
+            OrderLifecycleState.CANCELLED,
+            OrderLifecycleState.REJECTED,
+            OrderLifecycleState.EXPIRED,
+        )
+        all_dispatched = (
+            parent_rec.dispatch_complete
+            or len(parent_rec.child_order_ids) >= parent_rec.child_count
+        )
+        all_terminal = all_dispatched and all(ch.status in terminal_states for ch in children)
+
+        prev_status = parent_rec.status
+        new_status = prev_status
+
+        if total_exec_qty >= p_total_qty and p_total_qty > Decimal("0"):
+            new_status = OrderLifecycleState.FILLED
+        elif all_terminal:
+            if total_exec_qty > Decimal("0"):
+                new_status = OrderLifecycleState.PARTIALLY_FILLED
+            else:
+                if all(ch.status == OrderLifecycleState.REJECTED for ch in children):
+                    new_status = OrderLifecycleState.REJECTED
+                elif all(ch.status == OrderLifecycleState.EXPIRED for ch in children):
+                    new_status = OrderLifecycleState.EXPIRED
+                else:
+                    new_status = OrderLifecycleState.CANCELLED
+        else:
+            if total_exec_qty > Decimal("0"):
+                new_status = OrderLifecycleState.PARTIALLY_FILLED
+            else:
+                new_status = OrderLifecycleState.NEW
+
+        parent_rec.updated_at_utc = datetime.now(UTC).isoformat()
+        if parent_rec.status != new_status:
+            parent_rec.status = new_status
+            self.telemetry_store.record_parent_order(parent_rec)
+            self.jsonl_sink.record_order_event(
+                f"PARENT_{new_status.value}", parent_rec.model_dump(mode="json")
+            )
+        else:
+            self.telemetry_store.record_parent_order(parent_rec)
+
+        return parent_rec
+
+    def cancel_micro_order(self, client_order_id: str) -> LiquidityOrderRecord | None:
+        """Cancel an open micro order fail-closed and synchronize parent state if applicable."""
+        with self._lock:
+            ord_rec = self.orders.get(client_order_id)
+            if not ord_rec:
+                return None
+            if ord_rec.status in (
+                OrderLifecycleState.FILLED,
+                OrderLifecycleState.CANCELLED,
+                OrderLifecycleState.REJECTED,
+                OrderLifecycleState.EXPIRED,
+            ):
+                return ord_rec
+
+            try:
+                self.gateway.cancel_order(symbol=ord_rec.symbol, client_order_id=client_order_id)
+            except Exception as exc:
+                logger.warning("Gateway cancel failed for %s: %s", client_order_id, exc)
+
+            prev_st = ord_rec.status
+            ord_rec.status = OrderLifecycleState.CANCELLED
+            ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
+            self.orders_cancelled_count += 1
+            self.telemetry_store.record_order(ord_rec)
+            self.telemetry_store.record_transition(
+                OrderLifecycleTransition(
+                    track_id=self.track_id,
+                    order_id=ord_rec.order_id,
+                    client_order_id=client_order_id,
+                    from_state=prev_st,
+                    to_state=OrderLifecycleState.CANCELLED,
+                    trigger_reason="MANUAL_CANCEL",
+                )
+            )
+            self.jsonl_sink.record_order_event("ORDER_CANCELLED", ord_rec.model_dump(mode="json"))
+
+            if ord_rec.parent_client_order_id:
+                self._sync_parent_order_state(ord_rec.parent_client_order_id)
+
+            return ord_rec
+
+    def cancel_parent_order(self, parent_client_order_id: str) -> ParentOrderRecord | None:
+        """Cancel all working child chunks for a parent order fail-closed."""
+        with self._lock:
+            p_rec = self.parent_orders.get(parent_client_order_id)
+            if not p_rec:
+                return None
+
+            p_rec.dispatch_complete = True
+            for ch_cid in list(p_rec.child_order_ids):
+                ch = self.orders.get(ch_cid)
+                if ch and ch.status in (
+                    OrderLifecycleState.PENDING_NEW,
+                    OrderLifecycleState.PENDING_SUBMIT,
+                    OrderLifecycleState.NEW,
+                    OrderLifecycleState.PARTIALLY_FILLED,
+                ):
+                    self.cancel_micro_order(ch_cid)
+
+            return self._sync_parent_order_state(parent_client_order_id)
 
     def dispatch_micro_order(
         self,
@@ -3037,9 +3182,6 @@ class LiquidityMicroOrderDispatcher:
             self.telemetry_store.record_parent_order(parent_rec)
 
             child_orders: list[LiquidityOrderRecord] = []
-            cum_child_qty = Decimal("0")
-            cum_child_notional = Decimal("0")
-            cum_fees = Decimal("0")
             dispatch_error: Exception | None = None
 
             for idx, c_qty in enumerate(child_quantities, start=1):
@@ -3063,42 +3205,21 @@ class LiquidityMicroOrderDispatcher:
                     )
                     child_orders.append(child_ord)
 
-                    # Aggregate child fills atomically into parent state
-                    if child_ord.status == OrderLifecycleState.FILLED:
-                        exec_q = _safe_decimal(child_ord.executed_quantity)
-                        cum_child_qty += exec_q
-                        cum_child_notional += (exec_q * limit_px).quantize(
-                            Decimal("0.00000001"), rounding=ROUND_DOWN
-                        )
-                        cum_fees += (exec_q * limit_px * DEFAULT_TAKER_FEE_RATE).quantize(
-                            Decimal("0.00000001"), rounding=ROUND_DOWN
-                        )
-                        parent_rec.executed_quantity = str(cum_child_qty)
-                        parent_rec.executed_notional_usdt = str(cum_child_notional)
-                        parent_rec.total_fees_usdt = str(cum_fees)
-                        parent_rec.status = (
-                            OrderLifecycleState.FILLED
-                            if cum_child_qty >= raw_qty
-                            else OrderLifecycleState.PARTIALLY_FILLED
-                        )
-                        parent_rec.updated_at_utc = datetime.now(UTC).isoformat()
-                        self.telemetry_store.record_parent_order(parent_rec)
+                    self._sync_parent_order_state(parent_cid)
                 except Exception as exc:
                     dispatch_error = exc
                     # Abort subsequent child chunks on failure
                     break
 
-            parent_rec.executed_quantity = str(cum_child_qty)
-            parent_rec.executed_notional_usdt = str(cum_child_notional)
-            parent_rec.total_fees_usdt = str(cum_fees)
-            if cum_child_qty >= raw_qty:
-                parent_rec.status = OrderLifecycleState.FILLED
-            elif cum_child_qty > Decimal("0"):
-                parent_rec.status = OrderLifecycleState.PARTIALLY_FILLED
-            else:
+            parent_rec.dispatch_complete = True
+            if dispatch_error is not None:
+                parent_rec.child_count = len(parent_rec.child_order_ids)
+
+            self._sync_parent_order_state(parent_cid)
+            if not child_orders and parent_rec.status != OrderLifecycleState.FILLED:
                 parent_rec.status = OrderLifecycleState.REJECTED
-            parent_rec.updated_at_utc = datetime.now(UTC).isoformat()
-            self.telemetry_store.record_parent_order(parent_rec)
+                parent_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                self.telemetry_store.record_parent_order(parent_rec)
 
             if dispatch_error is not None:
                 raise dispatch_error
@@ -3156,6 +3277,14 @@ class LiquidityMicroOrderDispatcher:
                             continue
                         self.sequencer.record_order_fill(cid, cum_qty)
 
+                    incremental_fill = max(Decimal("0"), cum_qty - already_executed)
+                    if fill_qty <= Decimal("0") and incremental_fill > Decimal("0"):
+                        fill_qty = incremental_fill
+                    if fee <= Decimal("0") and fill_qty > Decimal("0"):
+                        fee = (px * fill_qty * DEFAULT_TAKER_FEE_RATE).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
+
                     if stat_str == "FILLED":
                         ord_rec.status = OrderLifecycleState.FILLED
                         ord_rec.executed_quantity = str(cum_qty)
@@ -3202,6 +3331,8 @@ class LiquidityMicroOrderDispatcher:
                         self.jsonl_sink.record_order_event(
                             "ORDER_FILLED", ord_rec.model_dump(mode="json")
                         )
+                        if ord_rec.parent_client_order_id:
+                            self._sync_parent_order_state(ord_rec.parent_client_order_id)
                     elif stat_str == "PARTIALLY_FILLED":
                         ord_rec.status = OrderLifecycleState.PARTIALLY_FILLED
                         ord_rec.executed_quantity = str(cum_qty)
@@ -3247,6 +3378,8 @@ class LiquidityMicroOrderDispatcher:
                         self.jsonl_sink.record_order_event(
                             "ORDER_PARTIALLY_FILLED", ord_rec.model_dump(mode="json")
                         )
+                        if ord_rec.parent_client_order_id:
+                            self._sync_parent_order_state(ord_rec.parent_client_order_id)
                     elif stat_str in ("CANCELED", "CANCELLED"):
                         if ord_rec.status != OrderLifecycleState.CANCELLED:
                             ord_rec.status = OrderLifecycleState.CANCELLED
@@ -3266,6 +3399,8 @@ class LiquidityMicroOrderDispatcher:
                             self.jsonl_sink.record_order_event(
                                 "ORDER_CANCELLED", ord_rec.model_dump(mode="json")
                             )
+                            if ord_rec.parent_client_order_id:
+                                self._sync_parent_order_state(ord_rec.parent_client_order_id)
                     elif stat_str == "REJECTED":
                         if ord_rec.status != OrderLifecycleState.REJECTED:
                             ord_rec.status = OrderLifecycleState.REJECTED
@@ -3285,6 +3420,8 @@ class LiquidityMicroOrderDispatcher:
                             self.jsonl_sink.record_order_event(
                                 "ORDER_REJECTED", ord_rec.model_dump(mode="json")
                             )
+                            if ord_rec.parent_client_order_id:
+                                self._sync_parent_order_state(ord_rec.parent_client_order_id)
                     elif stat_str == "EXPIRED":
                         if ord_rec.status != OrderLifecycleState.EXPIRED:
                             ord_rec.status = OrderLifecycleState.EXPIRED
@@ -3303,6 +3440,8 @@ class LiquidityMicroOrderDispatcher:
                             self.jsonl_sink.record_order_event(
                                 "ORDER_EXPIRED", ord_rec.model_dump(mode="json")
                             )
+                            if ord_rec.parent_client_order_id:
+                                self._sync_parent_order_state(ord_rec.parent_client_order_id)
 
             return sorted_events
 
@@ -3367,6 +3506,8 @@ class LiquidityMicroOrderDispatcher:
                                 self.jsonl_sink.record_order_event(
                                     "ORDER_FILLED_VIA_REST", ord_rec.model_dump(mode="json")
                                 )
+                                if ord_rec.parent_client_order_id:
+                                    self._sync_parent_order_state(ord_rec.parent_client_order_id)
                             else:
                                 ord_rec.status = OrderLifecycleState.PARTIALLY_FILLED
                                 self.telemetry_store.record_order(ord_rec)
@@ -3384,6 +3525,8 @@ class LiquidityMicroOrderDispatcher:
                                     "ORDER_PARTIALLY_FILLED_VIA_REST",
                                     ord_rec.model_dump(mode="json"),
                                 )
+                                if ord_rec.parent_client_order_id:
+                                    self._sync_parent_order_state(ord_rec.parent_client_order_id)
                             backfilled.append(cid)
                         elif rest_status in ("CANCELED", "CANCELLED"):
                             prev_st = ord_rec.status
@@ -3425,6 +3568,8 @@ class LiquidityMicroOrderDispatcher:
                             self.jsonl_sink.record_order_event(
                                 "ORDER_CANCELLED_VIA_REST", ord_rec.model_dump(mode="json")
                             )
+                            if ord_rec.parent_client_order_id:
+                                self._sync_parent_order_state(ord_rec.parent_client_order_id)
                             backfilled.append(cid)
                         elif rest_status == "REJECTED":
                             prev_st = ord_rec.status
@@ -3445,6 +3590,8 @@ class LiquidityMicroOrderDispatcher:
                             self.jsonl_sink.record_order_event(
                                 "ORDER_REJECTED_VIA_REST", ord_rec.model_dump(mode="json")
                             )
+                            if ord_rec.parent_client_order_id:
+                                self._sync_parent_order_state(ord_rec.parent_client_order_id)
                             backfilled.append(cid)
                         elif rest_status == "EXPIRED":
                             prev_st = ord_rec.status
@@ -3464,6 +3611,8 @@ class LiquidityMicroOrderDispatcher:
                             self.jsonl_sink.record_order_event(
                                 "ORDER_EXPIRED_VIA_REST", ord_rec.model_dump(mode="json")
                             )
+                            if ord_rec.parent_client_order_id:
+                                self._sync_parent_order_state(ord_rec.parent_client_order_id)
                             backfilled.append(cid)
                     except Exception as exc:
                         logger.warning("REST order sync failed for %s: %s", cid, exc)
@@ -3559,6 +3708,30 @@ class LiquidityMicroOrderDispatcher:
                         "ORDER_CANCELLED", o_rec.model_dump(mode="json")
                     )
                     self.orders_cancelled_count += 1
+                    if o_rec.parent_client_order_id:
+                        self._sync_parent_order_state(o_rec.parent_client_order_id)
+
+            # Step 1b: Cancel and finalize any active parent orders
+            for p_cid, p_rec in list(self.parent_orders.items()):
+                if p_rec.status in (
+                    OrderLifecycleState.PENDING_NEW,
+                    OrderLifecycleState.PENDING_SUBMIT,
+                    OrderLifecycleState.NEW,
+                    OrderLifecycleState.PARTIALLY_FILLED,
+                ):
+                    p_rec.dispatch_complete = True
+                    self._sync_parent_order_state(p_cid)
+                    if p_rec.status in (
+                        OrderLifecycleState.PENDING_NEW,
+                        OrderLifecycleState.PENDING_SUBMIT,
+                        OrderLifecycleState.NEW,
+                    ):
+                        p_rec.status = OrderLifecycleState.CANCELLED
+                        p_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        self.telemetry_store.record_parent_order(p_rec)
+                        self.jsonl_sink.record_order_event(
+                            "PARENT_CANCELLED", p_rec.model_dump(mode="json")
+                        )
 
             # Step 2: Drain stream and reconcile via REST
             self.drain_and_reconcile_stream()

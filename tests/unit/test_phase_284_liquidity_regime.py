@@ -1788,3 +1788,748 @@ def test_adversarial_stream_expired_order_transition(temp_telemetry_store, temp_
     dispatcher.drain_and_reconcile_stream()
 
     assert dispatcher.orders[ord_rec.client_order_id].status == OrderLifecycleState.EXPIRED
+
+
+# =====================================================================
+# 15. Round 3 Adversarial Reviewer Hardening Test Suite (R2 & R3)
+# =====================================================================
+
+
+def test_adversarial_parent_child_lifecycle_stream_fill_aggregation(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify atomic parent-child lifecycle state tracking when child orders are
+    initially resting (NEW) and subsequent fills arrive via WebSocket stream.
+    Parent must transition NEW -> PARTIALLY_FILLED -> FILLED, aggregating notionals.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_stream_agg", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_stream_agg"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    regime_eng.update_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("0.00003"),
+        ask_depth=Decimal("0.00003"),
+    )
+    gateway.set_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_stream_agg",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_stream_agg",
+        regime_engine=regime_eng,
+    )
+
+    gateway.disconnect_stream()
+
+    parent_rec, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("4.80"),
+    )
+    assert parent_rec is not None
+    assert len(children) == 2
+    assert parent_rec.child_count == 2
+    for ch in children:
+        assert ch.status == OrderLifecycleState.NEW
+
+    # Critical requirement: Parent order MUST be NEW, not falsely marked REJECTED!
+    assert parent_rec.status == OrderLifecycleState.NEW
+    assert Decimal(parent_rec.executed_quantity) == Decimal("0")
+
+    # Reconnect stream and feed fill for child 1
+    gateway.reconnect_stream()
+    ch1 = children[0]
+    ch2 = children[1]
+    pkt_fill1 = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 1000,
+        "T": 1000,
+        "u": 1,
+        "o": {
+            "s": "BTCUSDT",
+            "c": ch1.client_order_id,
+            "i": ch1.order_id,
+            "S": "BUY",
+            "o": "LIMIT",
+            "f": "GTC",
+            "q": ch1.quantity,
+            "p": ch1.price,
+            "x": "TRADE",
+            "X": "FILLED",
+            "l": ch1.quantity,
+            "z": ch1.quantity,
+            "L": ch1.price,
+            "n": "0.00096000",
+            "N": "USDT",
+            "T": 1000,
+            "t": 9001,
+        },
+    }
+    gateway.ws_event_queue.append(pkt_fill1)
+    dispatcher.drain_and_reconcile_stream()
+
+    assert dispatcher.orders[ch1.client_order_id].status == OrderLifecycleState.FILLED
+    assert parent_rec.status == OrderLifecycleState.PARTIALLY_FILLED
+    assert Decimal(parent_rec.executed_quantity) == Decimal(ch1.quantity)
+
+    # Feed fill for child 2
+    pkt_fill2 = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 1001,
+        "T": 1001,
+        "u": 2,
+        "o": {
+            "s": "BTCUSDT",
+            "c": ch2.client_order_id,
+            "i": ch2.order_id,
+            "S": "BUY",
+            "o": "LIMIT",
+            "f": "GTC",
+            "q": ch2.quantity,
+            "p": ch2.price,
+            "x": "TRADE",
+            "X": "FILLED",
+            "l": ch2.quantity,
+            "z": ch2.quantity,
+            "L": ch2.price,
+            "n": "0.00096000",
+            "N": "USDT",
+            "T": 1001,
+            "t": 9002,
+        },
+    }
+    gateway.ws_event_queue.append(pkt_fill2)
+    dispatcher.drain_and_reconcile_stream()
+
+    assert dispatcher.orders[ch2.client_order_id].status == OrderLifecycleState.FILLED
+    assert parent_rec.status == OrderLifecycleState.FILLED
+    assert Decimal(parent_rec.executed_quantity) == Decimal(parent_rec.total_quantity)
+
+
+def test_adversarial_parent_child_lifecycle_rest_fill_aggregation(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify that when child orders are backfilled via REST reconciliation,
+    the parent order atomically synchronizes and transitions to FILLED with full notionals.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_rest_agg", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_rest_agg"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    regime_eng.update_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("0.00003"),
+        ask_depth=Decimal("0.00003"),
+    )
+    gateway.set_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_rest_agg",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_rest_agg",
+        regime_engine=regime_eng,
+    )
+
+    gateway.disconnect_stream()
+    parent_rec, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("4.80"),
+    )
+    assert parent_rec is not None
+    assert parent_rec.status == OrderLifecycleState.NEW
+
+    backfilled = dispatcher.reconcile_via_rest()
+    assert len(backfilled) == len(children)
+
+    assert parent_rec.status == OrderLifecycleState.FILLED
+    assert Decimal(parent_rec.executed_quantity) == Decimal(parent_rec.total_quantity)
+
+
+def test_adversarial_parent_child_lifecycle_stream_cancel_and_reject_aggregation(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify that when child 1 fills and child 2 is cancelled via stream,
+    parent order state reflects PARTIALLY_FILLED and committed working margin is 0.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_cancel_agg", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_cancel_agg"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    regime_eng.update_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("0.00003"),
+        ask_depth=Decimal("0.00003"),
+    )
+    gateway.set_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_cancel_agg",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_cancel_agg",
+        regime_engine=regime_eng,
+    )
+
+    gateway.disconnect_stream()
+    parent_rec, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("4.80"),
+    )
+    assert parent_rec is not None
+    ch1, ch2 = children[0], children[1]
+
+    gateway.reconnect_stream()
+    pkt_fill = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 1000,
+        "T": 1000,
+        "u": 1,
+        "o": {
+            "s": "BTCUSDT",
+            "c": ch1.client_order_id,
+            "i": ch1.order_id,
+            "S": "BUY",
+            "o": "LIMIT",
+            "f": "GTC",
+            "q": ch1.quantity,
+            "p": ch1.price,
+            "x": "TRADE",
+            "X": "FILLED",
+            "l": ch1.quantity,
+            "z": ch1.quantity,
+            "L": ch1.price,
+            "n": "0.00096000",
+            "N": "USDT",
+            "T": 1000,
+            "t": 9101,
+        },
+    }
+    pkt_cancel = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 1001,
+        "T": 1001,
+        "u": 2,
+        "o": {
+            "s": "BTCUSDT",
+            "c": ch2.client_order_id,
+            "i": ch2.order_id,
+            "S": "BUY",
+            "o": "LIMIT",
+            "f": "GTC",
+            "q": ch2.quantity,
+            "p": ch2.price,
+            "x": "CANCELED",
+            "X": "CANCELED",
+            "l": "0",
+            "z": "0",
+            "L": "0",
+            "n": "0",
+            "N": "USDT",
+            "T": 1001,
+            "t": 0,
+        },
+    }
+    gateway.ws_event_queue.extend([pkt_fill, pkt_cancel])
+    dispatcher.drain_and_reconcile_stream()
+
+    assert dispatcher.orders[ch1.client_order_id].status == OrderLifecycleState.FILLED
+    assert dispatcher.orders[ch2.client_order_id].status == OrderLifecycleState.CANCELLED
+    assert parent_rec.status == OrderLifecycleState.PARTIALLY_FILLED
+
+    working_m = interlock.get_working_committed_margin()
+    assert working_m == Decimal("0")
+
+
+def test_adversarial_no_phantom_working_margin_leak_after_all_children_fill(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify that committed working margin drops to 0 after all children are filled,
+    allowing subsequent orders to fully utilize headroom without false capacity blocks.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_no_leak", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_no_leak"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    regime_eng.update_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("0.00003"),
+        ask_depth=Decimal("0.00003"),
+    )
+    gateway.set_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_no_leak",
+        expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,  # Cap <= 5.00 USDT
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_no_leak",
+        regime_engine=regime_eng,
+    )
+
+    parent_rec, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("4.80"),
+    )
+    assert parent_rec is not None
+    assert parent_rec.status == OrderLifecycleState.FILLED
+
+    working_m = interlock.get_working_committed_margin()
+    assert working_m == Decimal("0")
+
+    dispatcher.unwind_symbol_position_micro_chunked(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        price=Decimal("60000.00"),
+    )
+    assert reconciler.allocated_margin == Decimal("0")
+    assert interlock.get_working_committed_margin() == Decimal("0")
+
+    ord2 = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00004"),
+        price=Decimal("60000.00"),
+    )
+    assert ord2.status == OrderLifecycleState.FILLED
+
+
+def test_adversarial_no_phantom_working_margin_leak_after_mid_slicing_abort(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify that when slicing aborts mid-execution, no un-dispatched margin remains locked."""
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_abort_leak", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_abort_leak"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    regime_eng.update_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60020.00"),
+        bid_depth=Decimal("0.00003"),
+        ask_depth=Decimal("0.00003"),
+    )
+    gateway.set_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60020.00"),
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_abort_leak",
+        expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,  # Cap <= 5.00 USDT
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_abort_leak",
+        regime_engine=regime_eng,
+    )
+
+    orig_dispatch = dispatcher.dispatch_micro_order
+    call_count = 0
+
+    def mock_dispatch(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        res = orig_dispatch(*args, **kwargs)
+        if call_count == 1:
+            regime_eng.update_book(
+                "BTCUSDT",
+                bid_price=Decimal("60000.00"),
+                ask_price=Decimal("60020.00"),
+                bid_depth=Decimal("0.00001"),
+                ask_depth=Decimal("0.00001"),
+            )
+        return res
+
+    dispatcher.dispatch_micro_order = mock_dispatch
+
+    with pytest.raises(DepthExhaustionError):
+        dispatcher.dispatch_signal_order_with_dynamic_slicing(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            desired_notional=Decimal("4.80"),
+        )
+
+    parent = list(dispatcher.parent_orders.values())[0]
+    assert parent.status == OrderLifecycleState.PARTIALLY_FILLED
+    assert parent.dispatch_complete is True
+
+    working_m = interlock.get_working_committed_margin()
+    assert working_m == Decimal("0")
+
+
+def test_adversarial_emergency_flattening_cancels_active_parent_orders(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify that execute_emergency_flattening cancels resting child chunks and transitions
+    active parent orders to CANCELLED, ensuring no orphan working parent orders remain.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_emg_parent", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_emg_parent"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    regime_eng.update_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("0.00003"),
+        ask_depth=Decimal("0.00003"),
+    )
+    gateway.set_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_emg_parent",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_emg_parent",
+        regime_engine=regime_eng,
+    )
+
+    gateway.disconnect_stream()
+    parent_rec, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("4.80"),
+    )
+    assert parent_rec is not None
+    assert parent_rec.status == OrderLifecycleState.NEW
+
+    dispatcher.execute_emergency_flattening()
+
+    for ch in children:
+        assert dispatcher.orders[ch.client_order_id].status == OrderLifecycleState.CANCELLED
+
+    assert parent_rec.status == OrderLifecycleState.CANCELLED
+    assert interlock.get_working_committed_margin() == Decimal("0")
+
+
+def test_adversarial_cancel_parent_order_and_cancel_micro_order(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify dispatcher cancel_micro_order and cancel_parent_order methods."""
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_cancel_ops", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_cancel_ops"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    regime_eng.update_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("0.00003"),
+        ask_depth=Decimal("0.00003"),
+    )
+    gateway.set_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60015.00"),
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_cancel_ops",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_cancel_ops",
+        regime_engine=regime_eng,
+    )
+
+    # Test single micro order cancellation
+    gateway.disconnect_stream()
+    single_ord = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00004"),
+        price=Decimal("60000.00"),
+    )
+    assert single_ord.status == OrderLifecycleState.NEW
+    cancelled_ord = dispatcher.cancel_micro_order(single_ord.client_order_id)
+    assert cancelled_ord is not None
+    assert cancelled_ord.status == OrderLifecycleState.CANCELLED
+
+    # Test parent order cancellation
+    parent_rec, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("4.80"),
+    )
+    assert parent_rec is not None
+    cancelled_parent = dispatcher.cancel_parent_order(parent_rec.parent_client_order_id)
+    assert cancelled_parent is not None
+    assert cancelled_parent.status == OrderLifecycleState.CANCELLED
+    for ch in children:
+        assert dispatcher.orders[ch.client_order_id].status == OrderLifecycleState.CANCELLED
+
+
+def test_adversarial_stream_fill_packet_missing_l_fallback_to_incremental_qty(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify that when a stream packet has l missing/0 but z > already_executed,
+    drain_and_reconcile_stream calculates incremental fill quantity and records the fill on ledger.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_missing_l", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_missing_l"
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_missing_l",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_missing_l",
+    )
+
+    gateway.disconnect_stream()
+    ord_rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00004"),
+        price=Decimal("60000.00"),
+    )
+    assert ord_rec.status == OrderLifecycleState.NEW
+
+    gateway.reconnect_stream()
+    pkt_no_l = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 1500,
+        "T": 1500,
+        "u": 5,
+        "o": {
+            "s": "BTCUSDT",
+            "c": ord_rec.client_order_id,
+            "i": ord_rec.order_id,
+            "S": "BUY",
+            "o": "LIMIT",
+            "f": "GTC",
+            "q": ord_rec.quantity,
+            "p": ord_rec.price,
+            "x": "TRADE",
+            "X": "FILLED",
+            "l": "0",  # Omitted or 0
+            "z": "0.00004",  # Cumulative filled
+            "L": "60000.00",
+            "n": "0",
+            "N": "USDT",
+            "T": 1500,
+            "t": 9901,
+        },
+    }
+    gateway.ws_event_queue.append(pkt_no_l)
+    dispatcher.drain_and_reconcile_stream()
+
+    assert dispatcher.orders[ord_rec.client_order_id].status == OrderLifecycleState.FILLED
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00004")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
