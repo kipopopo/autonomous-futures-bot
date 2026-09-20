@@ -61,10 +61,13 @@ from autonomous_futures.feed.market_impact import (  # noqa: E402
     DOUBLE_ENTRY_MAX_DRIFT,
     SEQUENCE_WRAP_THRESHOLD,
     STAGE_10_MARKET_IMPACT_EXPANSION_CAP_USDT,
+    AggregateExposureCapExceededError,
     AggressiveOrderRejectedError,
     CapitalExpansionStage,
+    CircuitBreakerState,
     DisplacementAbsorptionState,
     GatewayHeartbeatMonitor,
+    HeartbeatFreezeActiveError,
     HeartbeatStatus,
     IndividualMicroCapExceededError,
     IntraPhaseLossCeilingExceededError,
@@ -747,3 +750,398 @@ def test_cli_runner_simulate_adverse_drift_failure(tmp_path: Path):
         ]
     )
     assert code == 1
+
+
+# ---------------------------------------------------------------------------
+# 12. Adversarial Edge Cases & Microstructural Stress
+# ---------------------------------------------------------------------------
+
+
+def test_boundary_hysteresis_oscillations_under_rapid_order_placement_and_cancel(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_10_MARKET_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # 1. Oscillations around [0.35, 0.40] band:
+    # 0.30 -> NOMINAL
+    # 0.38 -> still NOMINAL (not > 0.40)
+    # 0.42 -> ELEVATED_IMPACT (> 0.40)
+    # 0.37 -> still ELEVATED_IMPACT (not <= 0.35)
+    # 0.34 -> NOMINAL (<= 0.35)
+    sequence = [
+        (Decimal("0.30"), MarketImpactRegime.NOMINAL),
+        (Decimal("0.38"), MarketImpactRegime.NOMINAL),
+        (Decimal("0.42"), MarketImpactRegime.ELEVATED_IMPACT),
+        (Decimal("0.37"), MarketImpactRegime.ELEVATED_IMPACT),
+        (Decimal("0.34"), MarketImpactRegime.NOMINAL),
+    ]
+
+    for lambda_val, expected_regime in sequence:
+        engine.record_impact_surge("BTCUSDT", lambda_value=lambda_val)
+        assert engine.get_regime("BTCUSDT") == expected_regime
+
+        # Rapid order placement and cancel
+        cid = generate_canary_client_order_id("BTCUSDT")
+        ord_rec = dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("60000.00"),
+            client_order_id=cid,
+            simulate_fill_immediately=False,
+        )
+        assert ord_rec.impact_regime == expected_regime
+        assert interlock.committed_margin["BTCUSDT"] == Decimal("3.00000000")
+
+        # Cancel cleanly releases committed margin
+        dispatcher.cancel_micro_order(cid)
+        assert interlock.committed_margin["BTCUSDT"] == Decimal("0.0")
+
+    assert interlock.committed_margin["BTCUSDT"] == Decimal("0.0")
+
+
+def test_child_twap_partial_fills_and_multiple_fills(temp_telemetry_store, temp_jsonl_sink):
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_10_MARKET_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    cid = generate_canary_client_order_id("SOLUSDT")
+    # Place resting order of 0.02 SOL @ 150.00 = 3.00 USDT
+    ord_rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-solusdt",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.02"),
+        price=Decimal("150.00"),
+        client_order_id=cid,
+        simulate_fill_immediately=False,
+    )
+    assert ord_rec.status == OrderLifecycleState.NEW
+    assert interlock.committed_margin["SOLUSDT"] == Decimal("3.00000000")
+
+    # Partial fill 1: 0.008 SOL (1.20 USDT)
+    disp_rec1 = dispatcher.simulate_order_fill(cid, fill_qty=Decimal("0.008"))
+    assert disp_rec1.status == OrderLifecycleState.PARTIALLY_FILLED
+    assert disp_rec1.executed_quantity == "0.008"
+    assert interlock.committed_margin["SOLUSDT"] == Decimal("1.80000000")
+    assert reconciler.positions["SOLUSDT"] == Decimal("0.008")
+    assert reconciler.allocated_margin == Decimal("1.20000000")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # Partial fill 2: 0.007 SOL (1.05 USDT)
+    disp_rec2 = dispatcher.simulate_order_fill(cid, fill_qty=Decimal("0.007"))
+    assert disp_rec2.status == OrderLifecycleState.PARTIALLY_FILLED
+    assert disp_rec2.executed_quantity == "0.015"
+    assert interlock.committed_margin["SOLUSDT"] == Decimal("0.75000000")
+    assert reconciler.positions["SOLUSDT"] == Decimal("0.015")
+    assert reconciler.allocated_margin == Decimal("2.25000000")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # Cancel remaining 0.005 SOL (0.75 USDT)
+    cancel_rec = dispatcher.cancel_micro_order(cid)
+    assert cancel_rec.status == OrderLifecycleState.CANCELLED
+    assert interlock.committed_margin["SOLUSDT"] == Decimal("0.0")
+    assert reconciler.positions["SOLUSDT"] == Decimal("0.015")
+    assert reconciler.allocated_margin == Decimal("2.25000000")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_concurrent_parent_and_child_committed_margin_tracking_no_double_counting(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_10_MARKET_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # Set initial allocated margin to 47.00 USDT (3.00 USDT headroom before 50.00 USDT cap)
+    reconciler.allocated_margin = Decimal("47.00")
+
+    # Target notional 4.50 USDT > 3.00 USDT remaining capacity
+    # Parent order must fail upfront BEFORE dispatching any child slices
+    with pytest.raises(AggregateExposureCapExceededError):
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-ethusdt",
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=Decimal("4.50"),
+            limit_price=Decimal("3000.00"),
+            slice_chunk_notional=Decimal("2.25"),
+        )
+    # Ensure zero committed margin remains after upfront rejection
+    assert interlock.get_total_committed_margin() == Decimal("0.0")
+    assert len(dispatcher.orders) == 0
+
+    # Now reset allocated margin to 0.0 USDT and dispatch valid parent order
+    reconciler.allocated_margin = Decimal("0.0")
+    parent = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-ethusdt",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("4.50"),
+        limit_price=Decimal("3000.00"),
+        slice_chunk_notional=Decimal("2.25"),
+    )
+    assert parent.status == OrderLifecycleState.FILLED
+    assert parent.child_count == 2
+    # All child slices filled, so all working margin released
+    assert interlock.get_total_committed_margin() == Decimal("0.0")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_partial_fills_concurrent_with_loss_breach_and_emergency_liquidation(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        loss_ceiling_usdt=Decimal("6.00"),
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # 1. Open and partially fill an order on ETHUSDT:
+    # 0.0016 ETH @ 3000 = 4.80 USDT order, partially fill 0.001 ETH (3.00 USDT)
+    cid_eth = generate_canary_client_order_id("ETHUSDT")
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-ethusdt",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.0016"),
+        price=Decimal("3000.00"),
+        client_order_id=cid_eth,
+        simulate_fill_immediately=False,
+    )
+    dispatcher.simulate_order_fill(cid_eth, fill_qty=Decimal("0.001"))
+    assert reconciler.positions["ETHUSDT"] == Decimal("0.001")
+    assert interlock.committed_margin["ETHUSDT"] == Decimal("1.80000000")
+
+    # 2. Open another resting BUY order on SOLUSDT (unfilled)
+    cid_sol = generate_canary_client_order_id("SOLUSDT")
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-solusdt",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.02"),
+        price=Decimal("150.00"),
+        client_order_id=cid_sol,
+        simulate_fill_immediately=False,
+    )
+    assert interlock.committed_margin["SOLUSDT"] == Decimal("3.00000000")
+
+    # 3. Simulate cumulative loss breach (6.10 USDT > 6.00 USDT ceiling)
+    reconciler.cumulative_realized_loss = Decimal("6.10")
+
+    # 4. Trigger emergency liquidation
+    dispatcher.emergency_micro_chunk_liquidate_all(
+        candidate_ids={"ETHUSDT": "cand-ethusdt", "SOLUSDT": "cand-solusdt"},
+        prices={"ETHUSDT": Decimal("3000.00"), "SOLUSDT": Decimal("150.00")},
+    )
+
+    # All working orders must have been cancelled
+    assert dispatcher.orders[cid_eth].status == OrderLifecycleState.CANCELLED
+    assert dispatcher.orders[cid_sol].status == OrderLifecycleState.CANCELLED
+    # All committed margins must be zero
+    assert interlock.committed_margin["ETHUSDT"] == Decimal("0.0")
+    assert interlock.committed_margin["SOLUSDT"] == Decimal("0.0")
+    assert interlock.get_total_committed_margin() == Decimal("0.0")
+    # All positions must be flat
+    assert reconciler.positions["ETHUSDT"] == Decimal("0.0")
+    assert reconciler.positions["SOLUSDT"] == Decimal("0.0")
+    assert reconciler.allocated_margin == Decimal("0.0")
+    # Drift must be zero
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+    assert interlock.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+
+
+def test_gateway_heartbeat_latency_hysteresis_freeze_rejection(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor(
+        max_age_ms=500.0,
+        recovery_ms=450.0,
+        max_clock_skew_ms=250.0,
+    )
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_10_MARKET_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    now_ms = int(time.time() * 1000)
+
+    # 1. Trigger backward clock skew freeze (> 250 ms)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=now_ms + 350,
+        latency_ms=10.0,
+        local_time_ms=now_ms,
+        track_id="test_freeze",
+    )
+    assert heartbeat_mon.is_frozen
+
+    # 2. Next heartbeat arrives: normal skew (5 ms), latency 460 ms (> 450 ms recovery)
+    rec_slow = heartbeat_mon.record_heartbeat(
+        server_time_ms=now_ms + 1000 - 5,
+        latency_ms=460.0,
+        local_time_ms=now_ms + 1000,
+        track_id="test_freeze",
+    )
+    assert rec_slow.status == HeartbeatStatus.HYSTERESIS_FROZEN
+    assert heartbeat_mon.is_frozen
+
+    # Order placement blocked fail-closed under active hysteresis freeze
+    with pytest.raises(HeartbeatFreezeActiveError):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-solusdt",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.02"),
+            price=Decimal("150.00"),
+            client_order_id=generate_canary_client_order_id("SOLUSDT"),
+            current_time_ms=now_ms + 1000,
+        )
+
+    # 3. Clean heartbeat arrives: latency 20 ms (<= 450 ms) and normal clock skew
+    rec_clean = heartbeat_mon.record_heartbeat(
+        server_time_ms=now_ms + 1100 - 5,
+        latency_ms=20.0,
+        local_time_ms=now_ms + 1100,
+        track_id="test_freeze",
+    )
+    assert rec_clean.status == HeartbeatStatus.HEALTHY
+    assert not heartbeat_mon.is_frozen
+
+    # Order placement now succeeds
+    cid = generate_canary_client_order_id("SOLUSDT")
+    ord_rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-solusdt",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.02"),
+        price=Decimal("150.00"),
+        client_order_id=cid,
+        current_time_ms=now_ms + 1100,
+    )
+    assert ord_rec.status == OrderLifecycleState.FILLED
+
+
+def test_extreme_stress_double_entry_balance_reconciliation(temp_telemetry_store):
+    import random
+
+    reconciler = MarketImpactUserDataStreamReconciler(
+        starting_equity=Decimal("100.00"),
+        telemetry_store=temp_telemetry_store,
+    )
+
+    symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    prices = {
+        "BTCUSDT": Decimal("63421.50"),
+        "ETHUSDT": Decimal("3124.75"),
+        "SOLUSDT": Decimal("148.33"),
+    }
+
+    rng = random.Random(42)
+
+    for _ in range(150):
+        sym = rng.choice(symbols)
+        px = prices[sym] + Decimal(str(rng.randint(-50, 50))) / Decimal("10")
+        curr_pos = reconciler.positions[sym]
+
+        if abs(curr_pos) < Decimal("0.00000001"):
+            side = rng.choice([OrderSide.BUY, OrderSide.SELL])
+            qty = Decimal(str(rng.randint(1, 10))) / Decimal("1000")
+            reconciler.record_fill(sym, side, px, qty, is_closing=False)
+        else:
+            if rng.random() < 0.65:
+                side = OrderSide.SELL if curr_pos > 0 else OrderSide.BUY
+                close_qty = min(abs(curr_pos), Decimal(str(rng.randint(1, 10))) / Decimal("2000"))
+                reconciler.record_fill(sym, side, px, close_qty, is_closing=True)
+            else:
+                side = OrderSide.BUY if curr_pos > 0 else OrderSide.SELL
+                qty = Decimal(str(rng.randint(1, 5))) / Decimal("2000")
+                reconciler.record_fill(sym, side, px, qty, is_closing=False)
+
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT

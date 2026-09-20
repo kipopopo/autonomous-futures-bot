@@ -1372,20 +1372,20 @@ class GatewayHeartbeatMonitor:
                     details=details,
                 )
 
-            # Check hysteresis recovery: if frozen, require freshness <= 450 ms and normal skew
+            # Check hysteresis recovery: if frozen, require latency <= 450 ms and normal skew
             if self.is_frozen:
-                age = float(now_ms - self.last_heartbeat_time_ms)
-                if age <= self.recovery_ms and abs(clock_skew) <= self.max_clock_skew_ms:
+                if latency_ms <= self.recovery_ms and abs(clock_skew) <= self.max_clock_skew_ms:
                     self.is_frozen = False
                     status = HeartbeatStatus.HEALTHY
                     details = (
-                        f"Recovered from heartbeat freeze: age={age:.1f}ms, skew={clock_skew:.1f}ms"
+                        f"Recovered from heartbeat freeze: latency={latency_ms:.1f}ms, "
+                        f"skew={clock_skew:.1f}ms"
                     )
                 else:
                     status = HeartbeatStatus.HYSTERESIS_FROZEN
                     details = (
-                        f"Heartbeat hysteresis active: requires age <= {self.recovery_ms} ms, "
-                        f"got {age:.1f} ms"
+                        f"Heartbeat hysteresis active: requires latency <= {self.recovery_ms} ms, "
+                        f"got {latency_ms:.1f} ms"
                     )
                     return GatewayHeartbeatRecord(
                         track_id=track_id,
@@ -1871,10 +1871,18 @@ class MockBinanceMarketImpactGateway:
             if client_order_id not in self.orders:
                 return None
             ord_entry = self.orders[client_order_id]
-            qty_to_fill = str(fill_qty) if fill_qty is not None else ord_entry["origQty"]
+            orig_qty = _safe_decimal(ord_entry["origQty"])
+            curr_exec_qty = _safe_decimal(ord_entry.get("executedQty", "0.0"))
+            qty_slice = (
+                _safe_decimal(fill_qty) if fill_qty is not None else (orig_qty - curr_exec_qty)
+            )
             px_to_fill = str(fill_price) if fill_price is not None else ord_entry["price"]
-            ord_entry["executedQty"] = qty_to_fill
-            ord_entry["status"] = "FILLED"
+            new_exec_qty = curr_exec_qty + qty_slice
+            ord_entry["executedQty"] = str(new_exec_qty)
+            if new_exec_qty < orig_qty:
+                ord_entry["status"] = "PARTIALLY_FILLED"
+            else:
+                ord_entry["status"] = "FILLED"
             self.trade_counter += 1
             return {
                 "tradeId": f"trd-{self.trade_counter}",
@@ -1883,7 +1891,7 @@ class MockBinanceMarketImpactGateway:
                 "symbol": ord_entry["symbol"],
                 "side": ord_entry["side"],
                 "price": px_to_fill,
-                "quantity": qty_to_fill,
+                "quantity": str(qty_slice),
                 "commission": "0.001000",
                 "transactTime": int(time.time() * 1000),
             }
@@ -1895,8 +1903,9 @@ class MockBinanceMarketImpactGateway:
     def cancel_order(self, client_order_id: str) -> bool:
         with self._lock:
             if client_order_id in self.orders:
-                self.orders[client_order_id]["status"] = "CANCELLED"
-                return True
+                if self.orders[client_order_id]["status"] in ("NEW", "PARTIALLY_FILLED"):
+                    self.orders[client_order_id]["status"] = "CANCELLED"
+                    return True
             return False
 
 
@@ -2257,6 +2266,9 @@ class MarketImpactOrderDispatchInterlock:
         self.committed_margin: dict[str, Decimal] = {
             s: Decimal("0.0") for s in CANARY_STAGED_SYMBOLS
         }
+        self.parent_working_margin: dict[str, Decimal] = {
+            s: Decimal("0.0") for s in CANARY_STAGED_SYMBOLS
+        }
 
     def reserve_committed_margin(self, symbol: str, notional: Decimal) -> None:
         with self._lock:
@@ -2269,6 +2281,35 @@ class MarketImpactOrderDispatchInterlock:
             sym = symbol.strip().upper()
             curr = self.committed_margin.get(sym, Decimal("0.0"))
             self.committed_margin[sym] = max(Decimal("0.0"), curr - notional)
+
+    def reserve_parent_working_margin(self, symbol: str, notional: Decimal) -> None:
+        with self._lock:
+            sym = symbol.strip().upper()
+            self.parent_working_margin[sym] = (
+                self.parent_working_margin.get(sym, Decimal("0.0")) + notional
+            )
+
+    def deduct_parent_working_margin(self, symbol: str, notional: Decimal) -> None:
+        with self._lock:
+            sym = symbol.strip().upper()
+            curr = self.parent_working_margin.get(sym, Decimal("0.0"))
+            self.parent_working_margin[sym] = max(Decimal("0.0"), curr - notional)
+
+    def release_all_parent_working_margin(self) -> None:
+        with self._lock:
+            for s in self.parent_working_margin:
+                self.parent_working_margin[s] = Decimal("0.0")
+
+    def get_total_committed_margin(self, symbol: str | None = None) -> Decimal:
+        with self._lock:
+            if symbol is not None:
+                sym = symbol.strip().upper()
+                c_margin = self.committed_margin.get(sym, Decimal("0.0"))
+                p_margin = self.parent_working_margin.get(sym, Decimal("0.0"))
+                return c_margin + p_margin
+            return sum(self.committed_margin.values(), Decimal("0.0")) + sum(
+                self.parent_working_margin.values(), Decimal("0.0")
+            )
 
     def get_stage_exposure_cap(self) -> Decimal:
         """Retrieve active exposure cap based on expansion stage."""
@@ -2507,7 +2548,7 @@ class MarketImpactOrderDispatchInterlock:
             # 5. Stepped Exposure Ceiling (Phase 289: up to 50.00 USDT)
             active_cap = self.get_stage_exposure_cap()
             curr_allocated = self.reconciler.allocated_margin
-            curr_committed = sum(self.committed_margin.values())
+            curr_committed = self.get_total_committed_margin()
             projected_total = curr_allocated + curr_committed + notional
             if projected_total > active_cap:
                 self.interlock_blocks_count += 1
@@ -2527,7 +2568,7 @@ class MarketImpactOrderDispatchInterlock:
             # 6. Candidate Specific Clamping under Elevated/Severe Impact
             regime = self.engine.get_regime(sym)
             if regime in (MarketImpactRegime.ELEVATED_IMPACT, MarketImpactRegime.SEVERE_CONTROLS):
-                cand_committed = self.committed_margin.get(sym, Decimal("0.0"))
+                cand_committed = self.get_total_committed_margin(sym)
                 cand_pos_notional = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * px
                 if (
                     cand_committed + cand_pos_notional + notional
@@ -2568,7 +2609,7 @@ class MarketImpactOrderDispatchInterlock:
 
             cand_margin = (
                 abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * px
-                + self.committed_margin.get(sym, Decimal("0.0"))
+                + self.get_total_committed_margin(sym)
                 + notional
             )
             if cand_margin > max_per_asset_margin:
@@ -2660,6 +2701,7 @@ class MarketImpactMicroOrderDispatcher:
 
         self.orders: dict[str, MarketImpactOrderRecord] = {}
         self.parent_orders: dict[str, ParentOrderRecord] = {}
+        self._order_committed_notionals: dict[str, Decimal] = {}
         self.orders_placed_count: int = 0
         self.orders_filled_count: int = 0
         self.orders_cancelled_count: int = 0
@@ -2678,6 +2720,7 @@ class MarketImpactMicroOrderDispatcher:
         is_closing: bool = False,
         track_id: str = "market_impact",
         simulate_fill_immediately: bool = True,
+        current_time_ms: int | None = None,
     ) -> MarketImpactOrderRecord:
         """Evaluate pre-dispatch interlocks and submit micro-order."""
         with self._lock:
@@ -2697,6 +2740,7 @@ class MarketImpactMicroOrderDispatcher:
                     client_order_id=client_order_id,
                     is_closing=is_closing,
                     track_id=track_id,
+                    current_time_ms=current_time_ms,
                 )
             except CanaryMarketImpactError as exc:
                 self.orders_rejected_count += 1
@@ -2748,6 +2792,9 @@ class MarketImpactMicroOrderDispatcher:
 
             if not is_closing:
                 self.interlock.reserve_committed_margin(sym, notional)
+                self._order_committed_notionals[client_order_id] = notional
+            else:
+                self._order_committed_notionals[client_order_id] = Decimal("0.0")
 
             ord_rec = MarketImpactOrderRecord(
                 client_order_id=client_order_id,
@@ -2808,10 +2855,12 @@ class MarketImpactMicroOrderDispatcher:
             self.stream_events_count += 1
 
             if not ord_rec.is_closing:
-                self.interlock.release_committed_margin(
-                    ord_rec.symbol, Decimal(ord_rec.notional_usdt)
-                )
+                rem_committed = self._order_committed_notionals.get(client_order_id, Decimal("0.0"))
+                if rem_committed > Decimal("0.0"):
+                    self.interlock.release_committed_margin(ord_rec.symbol, rem_committed)
+                self._order_committed_notionals[client_order_id] = Decimal("0.0")
 
+            prev_state = ord_rec.status
             ord_rec.status = OrderLifecycleState.CANCELLED
             self.telemetry_store.record_order(ord_rec)
             self.jsonl_sink.record_order(ord_rec)
@@ -2820,7 +2869,7 @@ class MarketImpactMicroOrderDispatcher:
                 track_id=track_id,
                 order_id=ord_rec.order_id,
                 client_order_id=client_order_id,
-                from_state=OrderLifecycleState.NEW,
+                from_state=prev_state,
                 to_state=OrderLifecycleState.CANCELLED,
                 trigger_reason="Order cancelled by operator or client",
             )
@@ -2838,26 +2887,58 @@ class MarketImpactMicroOrderDispatcher:
             if client_order_id not in self.orders:
                 raise OrderCorrelationError(f"Order {client_order_id} not found to fill")
             ord_rec = self.orders[client_order_id]
-            if ord_rec.status != OrderLifecycleState.NEW:
+            if ord_rec.status not in (
+                OrderLifecycleState.NEW,
+                OrderLifecycleState.PARTIALLY_FILLED,
+            ):
                 raise OrderCorrelationError(
                     f"Cannot fill order {client_order_id} in state {ord_rec.status.value}"
                 )
 
-            qty = fill_qty if fill_qty is not None else Decimal(ord_rec.quantity)
-            px = fill_price if fill_price is not None else Decimal(ord_rec.price)
-            fill_trade = self.gateway.simulate_fill(client_order_id, fill_price=px, fill_qty=qty)
+            orig_qty = _safe_decimal(ord_rec.quantity)
+            prev_exec_qty = _safe_decimal(ord_rec.executed_quantity or "0.0")
+            rem_qty = max(Decimal("0.0"), orig_qty - prev_exec_qty)
+            qty_slice = min(
+                rem_qty,
+                _safe_decimal(fill_qty) if fill_qty is not None else rem_qty,
+            )
+            px = (
+                _safe_decimal(fill_price)
+                if fill_price is not None
+                else _safe_decimal(ord_rec.price)
+            )
+            new_exec_qty = prev_exec_qty + qty_slice
+
+            fill_trade = self.gateway.simulate_fill(
+                client_order_id, fill_price=px, fill_qty=qty_slice
+            )
             if not fill_trade:
                 raise OrderCorrelationError(f"Gateway fill simulation failed for {client_order_id}")
 
             self.stream_events_count += 1
             if not ord_rec.is_closing:
-                self.interlock.release_committed_margin(
-                    ord_rec.symbol, Decimal(ord_rec.notional_usdt)
+                slice_notional = (px * qty_slice).quantize(
+                    Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
+                rem_committed = self._order_committed_notionals.get(client_order_id, Decimal("0.0"))
+                if new_exec_qty >= orig_qty:
+                    release_amt = rem_committed
+                else:
+                    release_amt = min(slice_notional, rem_committed)
+                self._order_committed_notionals[client_order_id] = max(
+                    Decimal("0.0"), rem_committed - release_amt
+                )
+                if release_amt > Decimal("0.0"):
+                    self.interlock.release_committed_margin(ord_rec.symbol, release_amt)
 
-            ord_rec.status = OrderLifecycleState.FILLED
-            ord_rec.executed_quantity = str(qty)
-            self.orders_filled_count += 1
+            prev_state = ord_rec.status
+            if new_exec_qty < orig_qty:
+                ord_rec.status = OrderLifecycleState.PARTIALLY_FILLED
+            else:
+                ord_rec.status = OrderLifecycleState.FILLED
+                self.orders_filled_count += 1
+
+            ord_rec.executed_quantity = str(new_exec_qty)
             self.telemetry_store.record_order(ord_rec)
             self.jsonl_sink.record_order(ord_rec)
 
@@ -2865,7 +2946,7 @@ class MarketImpactMicroOrderDispatcher:
                 symbol=ord_rec.symbol,
                 side=ord_rec.side,
                 price=px,
-                quantity=qty,
+                quantity=qty_slice,
                 is_closing=ord_rec.is_closing,
                 track_id=ord_rec.track_id,
             )
@@ -2874,8 +2955,8 @@ class MarketImpactMicroOrderDispatcher:
                 track_id=ord_rec.track_id,
                 order_id=ord_rec.order_id,
                 client_order_id=client_order_id,
-                from_state=OrderLifecycleState.NEW,
-                to_state=OrderLifecycleState.FILLED,
+                from_state=prev_state,
+                to_state=ord_rec.status,
                 trigger_reason="Trade executed and reconciled",
             )
             self.telemetry_store.record_lifecycle_transition(fill_trans)
@@ -2907,6 +2988,40 @@ class MarketImpactMicroOrderDispatcher:
                     f"Target notional {target_notional} violates micro floor "
                     f"{MIN_MICRO_NOTIONAL_CAP_USDT} USDT"
                 )
+
+            # Pre-validate parent order target notional against caps and headroom
+            curr_allocated = self.reconciler.allocated_margin
+            curr_committed = self.interlock.get_total_committed_margin()
+            active_cap = self.interlock.get_stage_exposure_cap()
+            projected_total = curr_allocated + curr_committed + t_notional
+            if projected_total > active_cap:
+                raise AggregateExposureCapExceededError(
+                    f"Projected exposure {projected_total} exceeds "
+                    f"active stage cap {active_cap} USDT"
+                )
+
+            starting_eq = self.reconciler.starting_equity
+            max_aggregate_margin = starting_eq * MAX_AGGREGATE_MARGIN_PCT  # 60%
+            max_per_asset_margin = starting_eq * MAX_PER_ASSET_MARGIN_PCT  # 20%
+            if projected_total > max_aggregate_margin:
+                raise MarginAllocationExceededError(
+                    f"Projected margin {projected_total} exceeds aggregate "
+                    f"60% ceiling {max_aggregate_margin} USDT"
+                )
+
+            cand_margin = (
+                abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * l_px
+                + self.interlock.get_total_committed_margin(sym)
+                + t_notional
+            )
+            if cand_margin > max_per_asset_margin:
+                raise MarginAllocationExceededError(
+                    f"Candidate {sym} margin {cand_margin} exceeds per-asset "
+                    f"20% ceiling {max_per_asset_margin} USDT"
+                )
+
+            # Reserve parent working margin
+            self.interlock.reserve_parent_working_margin(sym, t_notional)
 
             total_qty = (t_notional / l_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
             parent_cid = f"parent-{uuid4().hex[:12]}"
@@ -2981,6 +3096,10 @@ class MarketImpactMicroOrderDispatcher:
                     child_cid = generate_canary_client_order_id(sym)
                     child_ids.append(child_cid)
 
+                    # Deduct this child slice from parent working margin before dispatching child
+                    # to prevent double-counting committed margin
+                    self.interlock.deduct_parent_working_margin(sym, c_notional)
+
                     c_ord = self.dispatch_micro_order(
                         candidate_id=candidate_id,
                         symbol=sym,
@@ -3006,6 +3125,10 @@ class MarketImpactMicroOrderDispatcher:
                 parent_rec.dispatch_complete = True
                 self.telemetry_store.record_parent_order(parent_rec)
             except Exception:
+                # Release any remaining un-dispatched parent working margin
+                rem_unallocated = t_notional - cum_exec_notional
+                if rem_unallocated > Decimal("0.0"):
+                    self.interlock.deduct_parent_working_margin(sym, rem_unallocated)
                 parent_rec.executed_quantity = str(cum_exec_qty)
                 parent_rec.executed_notional_usdt = str(cum_exec_notional)
                 parent_rec.child_order_ids_json = json.dumps(child_ids)
@@ -3032,6 +3155,24 @@ class MarketImpactMicroOrderDispatcher:
             effective_chunk_cap = min(_safe_decimal(chunk_cap), HARD_MICRO_NOTIONAL_CAP_USDT)
             if self.interlock.circuit_state == CircuitBreakerState.NORMAL:
                 self.interlock.circuit_state = CircuitBreakerState.EMERGENCY_FLATTENING
+
+            # 1. Cancel all active working / resting orders first to prevent post-lockout fills
+            for cid, ord_rec in list(self.orders.items()):
+                if (
+                    ord_rec.status
+                    in (
+                        OrderLifecycleState.NEW,
+                        OrderLifecycleState.PARTIALLY_FILLED,
+                    )
+                    and not ord_rec.is_closing
+                ):
+                    try:
+                        self.cancel_micro_order(cid, track_id=track_id)
+                    except Exception:
+                        pass
+
+            # 2. Release any un-dispatched parent working margin
+            self.interlock.release_all_parent_working_margin()
 
             try:
                 for sym, pos_qty in list(self.reconciler.positions.items()):
@@ -3067,12 +3208,6 @@ class MarketImpactMicroOrderDispatcher:
                         )
                         liquidated_orders.append(ord_rec)
                         remaining_qty -= actual_slice_qty
-
-                self.reconciler.allocated_margin = Decimal("0.0")
-                for s in self.reconciler.positions:
-                    self.reconciler.positions[s] = Decimal("0.0")
-                    self.reconciler.per_asset_margin[s] = Decimal("0.0")
-                    self.reconciler.entry_prices[s] = Decimal("0.0")
 
                 if self.interlock.circuit_state == CircuitBreakerState.EMERGENCY_FLATTENING:
                     self.interlock.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
