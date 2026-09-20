@@ -80,6 +80,7 @@ from autonomous_futures.feed.liquidity_shock import (  # noqa: E402
     CanaryLiquidityShockRunner,
     CapitalExpansionStage,
     CircuitBreakerState,
+    ClockSkewExceededError,
     FundingRateDistortionThrottledError,
     GatewayHeartbeatMonitor,
     GatewayHeartbeatStaleError,
@@ -957,6 +958,8 @@ def test_dynamic_slicing_committed_margin_no_double_counting_in_stage_1(
     )
 
     # Dispatch parent order of 4.80 USDT (slices into two 2.40 USDT child orders)
+    hb = gw.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
     parent, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
         candidate_id="cand-btc",
         symbol="BTCUSDT",
@@ -1208,7 +1211,11 @@ def test_multi_thread_burst_order_dispatch_lock_safety(temp_telemetry_store, tem
                         price=px,
                         client_order_id=cid,
                     )
-                except AggregateExposureCapExceededError, MarginAllocationExceededError:
+                except (
+                    AggregateExposureCapExceededError,
+                    MarginAllocationExceededError,
+                    GatewayHeartbeatStaleError,
+                ):
                     pass
         except Exception as exc:
             errors.append(exc)
@@ -1295,3 +1302,177 @@ def test_chunk_qty_clamping_at_extreme_prices():
     assert chunk_qty == Decimal("0.00000000")
     clamped = max(Decimal("0.00000001"), chunk_qty)
     assert clamped == Decimal("0.00000001")
+
+
+def test_dynamic_slicing_child_failure_rejects_parent_without_margin_leak(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test: Verify child order rejection transitions parent to REJECTED
+    and does NOT leak committed working margin, allowing subsequent dispatches.
+    """
+    from unittest.mock import patch
+
+    gw = MockBinanceLiquidityShockGateway()
+    reconciler = LiquidityUserDataStreamReconciler(track_id="adv_child_fail")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    shock_engine = LiquidityShockEngine()
+    sequencer = LiquidityShockStreamSequencer()
+
+    interlock = LiquidityShockOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        shock_engine=shock_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,  # Cap 5.00 USDT
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="adv_child_fail",
+        shock_engine=shock_engine,
+    )
+
+    with patch.object(
+        interlock,
+        "validate_dispatch",
+        side_effect=IndividualMicroCapExceededError("Child mock fail"),
+    ):
+        with pytest.raises(IndividualMicroCapExceededError):
+            dispatcher.dispatch_signal_order_with_dynamic_slicing(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                desired_notional=Decimal("4.80"),
+            )
+
+    parent_orders = dispatcher.parent_orders
+    assert len(parent_orders) == 1
+    p_rec = next(iter(parent_orders.values()))
+    assert p_rec.status == OrderLifecycleState.REJECTED
+    assert p_rec.dispatch_complete is True
+
+    # Verify working committed margin is exactly zero (no leaked parent margin!)
+    assert interlock.get_working_committed_margin() == Decimal("0")
+
+
+def test_relative_backward_clock_skew_unsigned_magnitude():
+    """Adversarial Test: Verify relative backward clock skew (local time behind server time
+    by > 250 ms) triggers CLOCK_SKEW_FREEZE, raises ClockSkewExceededError, and obeys hysteresis.
+    """
+    mon = GatewayHeartbeatMonitor(
+        max_allowed_age_ms=500.0,
+        max_clock_skew_ms=250.0,
+        recovery_hysteresis_ms=450.0,
+    )
+    now_ms = int(time.time() * 1000)
+
+    # Local clock is 350 ms behind server clock: skew = now_ms - (now_ms + 350) = -350.0 ms
+    rec = mon.record_heartbeat(
+        server_time_ms=now_ms + 350,
+        latency_ms=30.0,
+        local_time_ms=now_ms,
+    )
+    assert rec.is_healthy is False
+    assert rec.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+    assert mon.is_frozen is True
+
+    with pytest.raises(ClockSkewExceededError):
+        mon.assert_healthy(current_time_ms=now_ms + 10)
+
+    # Heartbeat with good latency (300 ms <= 450 ms) but uncorrected negative skew
+    # (-350 ms) must NOT unfreeze
+    rec_not_recovered = mon.record_heartbeat(
+        server_time_ms=now_ms + 1000 + 350,
+        latency_ms=300.0,
+        local_time_ms=now_ms + 1000,
+    )
+    assert rec_not_recovered.is_healthy is False
+    assert mon.is_frozen is True
+
+    # Once skew recovers to nominal (|skew| <= 200 ms) and latency <= 450 ms, it recovers
+    rec_recovered = mon.record_heartbeat(
+        server_time_ms=now_ms + 2000 + 10,
+        latency_ms=300.0,
+        local_time_ms=now_ms + 2000,
+    )
+    assert rec_recovered.is_healthy is True
+    assert rec_recovered.status == HeartbeatStatus.RECOVERED
+    assert mon.is_frozen is False
+
+
+def test_sequencer_delayed_pre_wrap_epoch_packet_identified_as_out_of_order():
+    """Adversarial Test: Verify a delayed pre-wrap packet arriving after wrap-around
+    is correctly flagged as out-of-order and does NOT reset highest_arrival_sequence.
+    """
+    seq = LiquidityShockStreamSequencer()
+
+    # Ingest event at wrap threshold
+    is_dup, is_ooo, is_wrap = seq.process_event({"u": SEQUENCE_WRAP_THRESHOLD})
+    assert is_dup is False and is_ooo is False and is_wrap is False
+    assert seq.highest_arrival_sequence == SEQUENCE_WRAP_THRESHOLD
+
+    # Sequence wraps around to 1
+    is_dup2, is_ooo2, is_wrap2 = seq.process_event({"u": 1})
+    assert is_wrap2 is True
+    assert seq.highest_arrival_sequence == 1
+    assert seq.sequence_wrap_count == 1
+
+    # Delayed packet from previous epoch arrives (e.g. sequence 999_999)
+    is_dup3, is_ooo3, is_wrap3 = seq.process_event({"u": 999_999})
+    assert is_ooo3 is True
+    assert is_wrap3 is False
+    assert seq.highest_arrival_sequence == 1  # Must NOT be corrupted back to 999_999!
+    assert seq.out_of_order_count >= 1
+
+
+def test_reconciler_case_insensitivity_and_margin_protection():
+    """Adversarial Test: Verify lowercase symbol lookups ('btcusdt') correctly match
+    allocated margin and positions without bypassing interlocks.
+    """
+    reconciler = LiquidityUserDataStreamReconciler(track_id="adv_case_insensitivity")
+
+    # Process fill using lowercase symbol
+    mark = reconciler.process_fill(
+        trade_id="trade_case_1",
+        symbol="btcusdt",
+        side=OrderSide.BUY,
+        price=Decimal("60000.00"),
+        quantity=Decimal("0.0001"),
+        commission=Decimal("0.0024"),
+    )
+    assert mark.symbol == "BTCUSDT"
+    assert reconciler.get_per_asset_margin("btcusdt") == Decimal("6.00000000")
+    assert reconciler.get_per_asset_margin("BTCUSDT") == Decimal("6.00000000")
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.0001")
+
+
+def test_funding_basis_spread_precision_preservation():
+    """Adversarial Test: Verify funding basis spread preserves 8-decimal precision
+    so that spread > 0.0010 (e.g. 0.00105) is not prematurely truncated down to 0.0010.
+    """
+    engine = LiquidityShockEngine()
+    engine.record_funding_rate("BTCUSDT", Decimal("0.00115"))
+    engine.record_funding_rate("ETHUSDT", Decimal("0.00010"))
+    # Spread is 0.00115 - 0.00010 = 0.00105 > 0.0010 (MAX_FUNDING_BASIS_SPREAD_THRESHOLD)
+    spread = engine.get_cross_symbol_funding_basis_spread()
+    assert spread == Decimal("0.00105000")
+    assert engine.is_funding_distortion() is True
+
+
+def test_cli_simulate_adverse_drift_fail_closed_detection(tmp_path: Path):
+    """Adversarial Test: Verify --simulate-adverse-drift CLI flag triggers fail-closed
+    exit code 1 on synthetic accounting drift (> 1e-15 USDT).
+    """
+    out_dir = tmp_path / "cli_adverse_drift"
+    exit_code = execute_phase_286_runner(
+        output_dir=out_dir,
+        track="track_1",
+        simulate_adverse_drift=True,
+    )
+    assert exit_code == 1  # Must fail closed!

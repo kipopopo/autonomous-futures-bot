@@ -811,6 +811,8 @@ class SqliteCanaryLiquidityShockTelemetryStore:
         self._lock = threading.RLock()
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL;")
+        self.conn.execute("PRAGMA synchronous=NORMAL;")
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -1413,7 +1415,7 @@ class GatewayHeartbeatMonitor:
                 backward_drift = True
             elif prev_heartbeat > 0 and (prev_heartbeat - now_ms) > self.max_clock_skew_ms:
                 backward_drift = True
-            elif skew > self.max_clock_skew_ms:
+            elif abs(skew) > self.max_clock_skew_ms:
                 backward_drift = True
 
             if backward_drift:
@@ -1431,7 +1433,7 @@ class GatewayHeartbeatMonitor:
                 # Recovery hysteresis: only unfreeze when latency <= 450 ms and skew nominal
                 if (
                     latency_ms <= self.recovery_hysteresis_ms
-                    and skew <= (self.max_clock_skew_ms - 50.0)
+                    and abs(skew) <= (self.max_clock_skew_ms - 50.0)
                     and not backward_drift
                 ):
                     self.is_frozen = False
@@ -1492,7 +1494,9 @@ class GatewayHeartbeatMonitor:
     def assert_healthy(self, current_time_ms: int | None = None) -> None:
         healthy, reason = self.check_health(current_time_ms)
         if not healthy:
-            if "frozen" in reason or "Clock skew" in reason or "Backward NTP" in reason:
+            if "Clock skew" in reason or "Backward NTP" in reason or "clock jump" in reason.lower():
+                raise ClockSkewExceededError(reason)
+            if "frozen" in reason:
                 raise HeartbeatFreezeActiveError(reason)
             raise GatewayHeartbeatStaleError(reason)
 
@@ -1600,7 +1604,7 @@ class LiquidityShockEngine:
                     spread = abs(self.funding_rates[s1] - self.funding_rates[s2])
                     if spread > max_spread:
                         max_spread = spread
-            return max_spread.quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+            return max_spread.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
     def get_depth_depletion_ratio(self, symbol: str) -> Decimal:
         """Calculate depth evaporation ratio: max(0, 1 - current_depth / baseline_depth)."""
@@ -2149,6 +2153,14 @@ class LiquidityShockStreamSequencer:
                     self.sequence_wrap_count += 1
                     self.highest_arrival_sequence = seq
                     self.processed_sequences.clear()
+                elif (
+                    self.highest_arrival_sequence < (SEQUENCE_WRAP_THRESHOLD // 2)
+                    and seq >= (SEQUENCE_WRAP_THRESHOLD // 2)
+                    and self.sequence_wrap_count > 0
+                ):
+                    # Delayed packet from previous epoch before sequence wrap
+                    is_ooo = True
+                    self.out_of_order_count += 1
                 elif seq < self.highest_arrival_sequence:
                     is_ooo = True
                     self.out_of_order_count += 1
@@ -2245,7 +2257,8 @@ class LiquidityUserDataStreamReconciler:
 
     def get_per_asset_margin(self, symbol: str) -> Decimal:
         with self._lock:
-            return self.per_asset_margin.get(symbol, Decimal("0"))
+            sym_key = str(symbol).strip().upper()
+            return self.per_asset_margin.get(sym_key, Decimal("0"))
 
     def get_per_asset_margin_snapshot(self) -> dict[str, Decimal]:
         with self._lock:
@@ -2262,13 +2275,14 @@ class LiquidityUserDataStreamReconciler:
         is_closing: bool = False,
     ) -> ExecutionMark:
         with self._lock:
+            sym_key = str(symbol).strip().upper()
             if trade_id in self.processed_trades:
                 return ExecutionMark(
                     trade_id=trade_id,
                     track_id=self.track_id,
                     order_id="0",
                     client_order_id="",
-                    symbol=symbol,
+                    symbol=sym_key,
                     side=str(side),
                     price=str(price),
                     quantity=str(quantity),
@@ -2285,7 +2299,7 @@ class LiquidityUserDataStreamReconciler:
             self.total_fees += commission
             realized_pnl_trade = Decimal("0")
 
-            curr_qty = self.positions.get(symbol, Decimal("0"))
+            curr_qty = self.positions.get(sym_key, Decimal("0"))
             is_short_prior = curr_qty < Decimal("0")
             is_reducing = (
                 is_closing
@@ -2294,7 +2308,7 @@ class LiquidityUserDataStreamReconciler:
             )
 
             if is_reducing and abs(curr_qty) > Decimal("0"):
-                entry_px = self.entry_prices.get(symbol, price)
+                entry_px = self.entry_prices.get(sym_key, price)
                 close_qty = min(abs(curr_qty), quantity)
                 excess_qty = quantity - close_qty
 
@@ -2308,23 +2322,23 @@ class LiquidityUserDataStreamReconciler:
                 )
 
                 if close_qty == abs(curr_qty):
-                    margin_released = self.per_asset_margin.get(symbol, Decimal("0"))
-                    self.per_asset_margin[symbol] = Decimal("0")
-                    self.entry_prices[symbol] = Decimal("0")
+                    margin_released = self.per_asset_margin.get(sym_key, Decimal("0"))
+                    self.per_asset_margin[sym_key] = Decimal("0")
+                    self.entry_prices[sym_key] = Decimal("0")
                     rem_qty = Decimal("0")
                 else:
-                    curr_margin = self.per_asset_margin.get(symbol, Decimal("0"))
+                    curr_margin = self.per_asset_margin.get(sym_key, Decimal("0"))
                     ratio = close_qty / max(abs(curr_qty), Decimal("0.00000001"))
                     margin_released = min(
                         curr_margin,
                         (curr_margin * ratio).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN),
                     )
-                    self.per_asset_margin[symbol] = curr_margin - margin_released
+                    self.per_asset_margin[sym_key] = curr_margin - margin_released
                     rem_abs_qty = max(Decimal("0"), abs(curr_qty) - close_qty)
                     rem_qty = -rem_abs_qty if is_short_prior else rem_abs_qty
 
                 self.allocated_margin = max(Decimal("0"), self.allocated_margin - margin_released)
-                self.positions[symbol] = rem_qty
+                self.positions[sym_key] = rem_qty
                 self.realized_pnl += realized_pnl_trade - commission
 
                 if realized_pnl_trade < Decimal("0"):
@@ -2338,21 +2352,21 @@ class LiquidityUserDataStreamReconciler:
                     )
                     self.cash -= excess_notional
                     self.allocated_margin += excess_notional
-                    self.per_asset_margin[symbol] = excess_notional
-                    self.entry_prices[symbol] = price
-                    self.positions[symbol] = -excess_qty if not is_short_prior else excess_qty
+                    self.per_asset_margin[sym_key] = excess_notional
+                    self.entry_prices[sym_key] = price
+                    self.positions[sym_key] = -excess_qty if not is_short_prior else excess_qty
 
                 if all(p == Decimal("0") for p in self.positions.values()):
                     self.allocated_margin = Decimal("0")
             else:
                 self.cash -= notional
                 self.allocated_margin += notional
-                self.per_asset_margin[symbol] = (
-                    self.per_asset_margin.get(symbol, Decimal("0")) + notional
+                self.per_asset_margin[sym_key] = (
+                    self.per_asset_margin.get(sym_key, Decimal("0")) + notional
                 )
                 self.realized_pnl -= commission
 
-                curr_entry = self.entry_prices.get(symbol, Decimal("0"))
+                curr_entry = self.entry_prices.get(sym_key, Decimal("0"))
                 if side_str == OrderSide.SELL.value:
                     new_qty = curr_qty - quantity
                 else:
@@ -2361,17 +2375,17 @@ class LiquidityUserDataStreamReconciler:
                 abs_curr = abs(curr_qty)
                 abs_new = abs(new_qty)
                 if abs_new > Decimal("0"):
-                    self.entry_prices[symbol] = (
+                    self.entry_prices[sym_key] = (
                         (curr_entry * abs_curr) + (price * quantity)
                     ) / abs_new
-                self.positions[symbol] = new_qty
+                self.positions[sym_key] = new_qty
 
             return ExecutionMark(
                 trade_id=trade_id,
                 track_id=self.track_id,
                 order_id="0",
                 client_order_id="",
-                symbol=symbol,
+                symbol=sym_key,
                 side=side_str,
                 price=str(price),
                 quantity=str(quantity),
@@ -3138,71 +3152,8 @@ class LiquidityMicroOrderDispatcher:
 
             child_orders: list[LiquidityShockOrderRecord] = []
 
-            if not needs_slicing:
-                if self.heartbeat_monitor and hasattr(self.gateway, "generate_heartbeat"):
-                    try:
-                        hb = self.gateway.generate_heartbeat(latency_ms=25.0)
-                        hb_rec = self.heartbeat_monitor.record_heartbeat(
-                            server_time_ms=hb["serverTime"],
-                            latency_ms=hb["latencyMs"],
-                            track_id=self.track_id,
-                        )
-                        if self.telemetry_store:
-                            self.telemetry_store.record_heartbeat(hb_rec)
-                    except Exception:
-                        pass
-                ch = self.dispatch_micro_order(
-                    candidate_id=candidate_id,
-                    symbol=symbol,
-                    side=side,
-                    order_type=OrderType.LIMIT,
-                    quantity=total_qty,
-                    price=limit_px,
-                    parent_client_order_id=parent_cid,
-                    child_index=0,
-                    is_child=False,
-                )
-                child_orders.append(ch)
-                parent_rec.child_order_ids.append(ch.client_order_id)
-                parent_rec.child_count = 1
-                if ch.status == OrderLifecycleState.FILLED:
-                    parent_rec.executed_quantity = str(total_qty)
-                    parent_rec.executed_notional_usdt = str(target_notional)
-                    parent_rec.status = OrderLifecycleState.FILLED
-                    parent_rec.dispatch_complete = True
-            else:
-                parent_rec.slicing_mode = OrderSlicingMode.TWAP_MICRO
-                chunk_notional = min(target_notional / Decimal("2"), DYNAMIC_SLICING_MAX_CHUNK_USDT)
-                chunk_notional = max(MIN_MICRO_NOTIONAL_CAP_USDT, chunk_notional).quantize(
-                    Decimal("0.00000001"), rounding=ROUND_DOWN
-                )
-                rem_notional = target_notional
-                idx = 0
-
-                while rem_notional >= MIN_MICRO_NOTIONAL_CAP_USDT:
-                    cur_notional = min(rem_notional, chunk_notional)
-                    rem_after = rem_notional - cur_notional
-                    if Decimal("0") < rem_after < MIN_MICRO_NOTIONAL_CAP_USDT:
-                        if (cur_notional + rem_after) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
-                            cur_notional = rem_notional
-                        else:
-                            cur_notional = (rem_notional / Decimal("2")).quantize(
-                                Decimal("0.00000001"), rounding=ROUND_DOWN
-                            )
-
-                    c_qty = (cur_notional / limit_px).quantize(
-                        Decimal("0.00000001"), rounding=ROUND_DOWN
-                    )
-                    if (
-                        cur_notional >= MIN_MICRO_NOTIONAL_CAP_USDT
-                        and (c_qty * limit_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-                        < MIN_MICRO_NOTIONAL_CAP_USDT
-                    ):
-                        candidate_c_qty = c_qty + Decimal("0.00000001")
-                        if (candidate_c_qty * limit_px).quantize(
-                            Decimal("0.00000001"), rounding=ROUND_DOWN
-                        ) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
-                            c_qty = candidate_c_qty
+            try:
+                if not needs_slicing:
                     if self.heartbeat_monitor and hasattr(self.gateway, "generate_heartbeat"):
                         try:
                             hb = self.gateway.generate_heartbeat(latency_ms=25.0)
@@ -3220,26 +3171,100 @@ class LiquidityMicroOrderDispatcher:
                         symbol=symbol,
                         side=side,
                         order_type=OrderType.LIMIT,
-                        quantity=c_qty,
+                        quantity=total_qty,
                         price=limit_px,
                         parent_client_order_id=parent_cid,
-                        child_index=idx,
-                        is_child=True,
+                        child_index=0,
+                        is_child=False,
                     )
                     child_orders.append(ch)
                     parent_rec.child_order_ids.append(ch.client_order_id)
-                    rem_notional -= cur_notional
-                    idx += 1
+                    parent_rec.child_count = 1
+                    if ch.status == OrderLifecycleState.FILLED:
+                        parent_rec.executed_quantity = str(total_qty)
+                        parent_rec.executed_notional_usdt = str(target_notional)
+                        parent_rec.status = OrderLifecycleState.FILLED
+                        parent_rec.dispatch_complete = True
+                else:
+                    parent_rec.slicing_mode = OrderSlicingMode.TWAP_MICRO
+                    chunk_notional = min(
+                        target_notional / Decimal("2"), DYNAMIC_SLICING_MAX_CHUNK_USDT
+                    )
+                    chunk_notional = max(MIN_MICRO_NOTIONAL_CAP_USDT, chunk_notional).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+                    rem_notional = target_notional
+                    idx = 0
 
-                parent_rec.child_count = len(child_orders)
-                all_filled = bool(child_orders) and all(
-                    c.status == OrderLifecycleState.FILLED for c in child_orders
-                )
-                if all_filled:
-                    parent_rec.executed_quantity = str(total_qty)
-                    parent_rec.executed_notional_usdt = str(target_notional)
-                    parent_rec.status = OrderLifecycleState.FILLED
-                    parent_rec.dispatch_complete = True
+                    while rem_notional >= MIN_MICRO_NOTIONAL_CAP_USDT:
+                        cur_notional = min(rem_notional, chunk_notional)
+                        rem_after = rem_notional - cur_notional
+                        if Decimal("0") < rem_after < MIN_MICRO_NOTIONAL_CAP_USDT:
+                            if (cur_notional + rem_after) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
+                                cur_notional = rem_notional
+                            else:
+                                cur_notional = (rem_notional / Decimal("2")).quantize(
+                                    Decimal("0.00000001"), rounding=ROUND_DOWN
+                                )
+
+                        c_qty = (cur_notional / limit_px).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
+                        if (
+                            cur_notional >= MIN_MICRO_NOTIONAL_CAP_USDT
+                            and (c_qty * limit_px).quantize(
+                                Decimal("0.00000001"), rounding=ROUND_DOWN
+                            )
+                            < MIN_MICRO_NOTIONAL_CAP_USDT
+                        ):
+                            candidate_c_qty = c_qty + Decimal("0.00000001")
+                            if (candidate_c_qty * limit_px).quantize(
+                                Decimal("0.00000001"), rounding=ROUND_DOWN
+                            ) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
+                                c_qty = candidate_c_qty
+                        if self.heartbeat_monitor and hasattr(self.gateway, "generate_heartbeat"):
+                            try:
+                                hb = self.gateway.generate_heartbeat(latency_ms=25.0)
+                                hb_rec = self.heartbeat_monitor.record_heartbeat(
+                                    server_time_ms=hb["serverTime"],
+                                    latency_ms=hb["latencyMs"],
+                                    track_id=self.track_id,
+                                )
+                                if self.telemetry_store:
+                                    self.telemetry_store.record_heartbeat(hb_rec)
+                            except Exception:
+                                pass
+                        ch = self.dispatch_micro_order(
+                            candidate_id=candidate_id,
+                            symbol=symbol,
+                            side=side,
+                            order_type=OrderType.LIMIT,
+                            quantity=c_qty,
+                            price=limit_px,
+                            parent_client_order_id=parent_cid,
+                            child_index=idx,
+                            is_child=True,
+                        )
+                        child_orders.append(ch)
+                        parent_rec.child_order_ids.append(ch.client_order_id)
+                        rem_notional -= cur_notional
+                        idx += 1
+
+                    parent_rec.child_count = len(child_orders)
+                    all_filled = bool(child_orders) and all(
+                        c.status == OrderLifecycleState.FILLED for c in child_orders
+                    )
+                    if all_filled:
+                        parent_rec.executed_quantity = str(total_qty)
+                        parent_rec.executed_notional_usdt = str(target_notional)
+                        parent_rec.status = OrderLifecycleState.FILLED
+                        parent_rec.dispatch_complete = True
+            except Exception:
+                parent_rec.status = OrderLifecycleState.REJECTED
+                parent_rec.dispatch_complete = True
+                self.telemetry_store.record_parent_order(parent_rec)
+                self.jsonl_sink.record_parent_order(parent_rec)
+                raise
 
             self.telemetry_store.record_parent_order(parent_rec)
             self.jsonl_sink.record_parent_order(parent_rec)
@@ -3432,18 +3457,20 @@ class LiquidityMicroOrderDispatcher:
                     OrderLifecycleState.PARTIALLY_FILLED,
                 ):
                     p_rec.status = OrderLifecycleState.CANCELLED
+                    p_rec.dispatch_complete = True
                     self.telemetry_store.record_parent_order(p_rec)
                     self.jsonl_sink.record_parent_order(p_rec)
 
             flattening_orders: list[LiquidityShockOrderRecord] = []
 
             # 2. Micro-chunked flattening of open positions (both LONG and SHORT)
-            for sym, pos_qty in list(self.reconciler.get_positions_snapshot().items()):
-                if pos_qty == Decimal("0"):
+            for sym in list(self.reconciler.get_positions_snapshot().keys()):
+                live_pos = self.reconciler.positions.get(sym, Decimal("0"))
+                if live_pos == Decimal("0"):
                     continue
 
                 book = self.gateway.books.get(sym, {})
-                is_long = pos_qty > Decimal("0")
+                is_long = live_pos > Decimal("0")
                 close_side = OrderSide.SELL if is_long else OrderSide.BUY
                 px = (
                     book.get("bid_price", Decimal("100.0"))
@@ -3457,7 +3484,7 @@ class LiquidityMicroOrderDispatcher:
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
                 chunk_qty = max(Decimal("0.00000001"), chunk_qty)
-                rem_qty = abs(pos_qty)
+                rem_qty = abs(live_pos)
 
                 while rem_qty > Decimal("0"):
                     cur_qty = min(rem_qty, chunk_qty)
@@ -4052,7 +4079,7 @@ class CanaryLiquidityShockRunner:
             "realized_pnl_usdt": results[0].realized_pnl_usdt if results else "0",
             "total_fees_usdt": f"{total_fees:.6f}",
             "total_slippage_usdt": f"{total_slippage:.6f}",
-            "drift_usdt": "0E-8",
+            "drift_usdt": str(results[0].drift_usdt) if results else "0E-8",
             "zero_balance_drift": all_zero_drift,
             "circuit_state": CircuitBreakerState.NORMAL.value,
             "orders_count": total_orders_placed,
@@ -4311,13 +4338,15 @@ class CanaryLiquidityShockRunner:
 
         # 5. Clean closure of all positions (in <= 5.00 USDT micro chunks)
         for sym, pos_qty in list(reconciler.get_positions_snapshot().items()):
-            if pos_qty > Decimal("0"):
-                px = gateway.books[sym]["bid_price"]
+            if pos_qty != Decimal("0"):
+                is_long = pos_qty > Decimal("0")
+                close_side = OrderSide.SELL if is_long else OrderSide.BUY
+                px = gateway.books[sym]["bid_price"] if is_long else gateway.books[sym]["ask_price"]
                 chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / px).quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
                 chunk_qty = max(Decimal("0.00000001"), chunk_qty)
-                rem_qty = pos_qty
+                rem_qty = abs(pos_qty)
                 while rem_qty > Decimal("0"):
                     cur_qty = min(rem_qty, chunk_qty)
                     hb_c = gateway.generate_heartbeat(latency_ms=25.0)
@@ -4326,18 +4355,18 @@ class CanaryLiquidityShockRunner:
                         latency_ms=hb_c["latencyMs"],
                         track_id=CanaryLiquidityShockTrackId.TRACK_1.value,
                     )
-                    self.active_store.record_heartbeat(hb_rec_c)
                     cid = generate_canary_client_order_id(sym)
                     dispatcher.dispatch_micro_order(
                         candidate_id=manifest.candidates[sym].candidate_id,
                         symbol=sym,
-                        side=OrderSide.SELL,
+                        side=close_side,
                         order_type=OrderType.LIMIT,
                         quantity=cur_qty,
                         price=px,
                         client_order_id=cid,
                         is_closing=True,
                     )
+                    self.active_store.record_heartbeat(hb_rec_c)
                     rem_qty -= cur_qty
 
         assert reconciler.positions["BTCUSDT"] == Decimal("0")
@@ -4552,13 +4581,15 @@ class CanaryLiquidityShockRunner:
 
         # 5. Cleanly close positions (in <= 5.00 USDT micro chunks)
         for sym, pos_qty in list(reconciler.get_positions_snapshot().items()):
-            if pos_qty > Decimal("0"):
-                px = gateway.books[sym]["bid_price"]
+            if pos_qty != Decimal("0"):
+                is_long = pos_qty > Decimal("0")
+                close_side = OrderSide.SELL if is_long else OrderSide.BUY
+                px = gateway.books[sym]["bid_price"] if is_long else gateway.books[sym]["ask_price"]
                 chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / px).quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
                 chunk_qty = max(Decimal("0.00000001"), chunk_qty)
-                rem_qty = pos_qty
+                rem_qty = abs(pos_qty)
                 while rem_qty > Decimal("0"):
                     cur_qty = min(rem_qty, chunk_qty)
                     hb_c = gateway.generate_heartbeat(latency_ms=25.0)
@@ -4567,18 +4598,18 @@ class CanaryLiquidityShockRunner:
                         latency_ms=hb_c["latencyMs"],
                         track_id=CanaryLiquidityShockTrackId.TRACK_2.value,
                     )
-                    self.active_store.record_heartbeat(hb_rec_c)
                     cid = generate_canary_client_order_id(sym)
                     dispatcher.dispatch_micro_order(
                         candidate_id=manifest.candidates[sym].candidate_id,
                         symbol=sym,
-                        side=OrderSide.SELL,
+                        side=close_side,
                         order_type=OrderType.LIMIT,
                         quantity=cur_qty,
                         price=px,
                         client_order_id=cid,
                         is_closing=True,
                     )
+                    self.active_store.record_heartbeat(hb_rec_c)
                     rem_qty -= cur_qty
 
         assert reconciler.allocated_margin == Decimal("0")
@@ -4919,6 +4950,8 @@ class CanaryLiquidityShockRunner:
             )
 
         assert lk_expired is True
+        gateway.inject_listen_key_expired = False
+        gateway.simulated_clock_offset_ms = 0
 
         # 4. Renew WebSocket heartbeat to maintain freshness
         hb_data2 = gateway.generate_heartbeat(latency_ms=35.0)
