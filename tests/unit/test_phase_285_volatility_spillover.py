@@ -39,6 +39,7 @@ Validates:
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 import time
 from decimal import Decimal
@@ -116,6 +117,9 @@ from autonomous_futures.feed.volatility_spillover import (  # noqa: E402
 )
 from autonomous_futures.paper.canary_staging import (  # noqa: E402
     load_and_validate_canary_staging_manifest,
+)
+from autonomous_futures.paper.candidate_registry import (  # noqa: E402
+    DEFAULT_CANDIDATE_REGISTRY_PATH,
 )
 from scripts.run_phase_285_volatility_spillover import (  # noqa: E402
     execute_phase_285_runner,
@@ -1233,3 +1237,200 @@ def test_clock_skew_exceeded_error_raised_during_ntp_drift():
     with pytest.raises(ClockSkewExceededError) as exc_info:
         mon.assert_healthy(now_ms=now_ms)
     assert "backward NTP clock skew" in str(exc_info.value)
+
+
+def test_short_position_lifecycle_profit_loss_and_multi_chunk_liquidation():
+    """Verify short position opening via SELL, marked-to-market valuation,
+    profitable and loss-making settlements, and multi-chunk liquidation with zero drift.
+    """
+    rec = VolatilityUserDataStreamReconciler(
+        track_id="test_short_lifecycle", starting_equity=Decimal("100.0")
+    )
+
+    # 1. Open short position: SELL 0.0030 ETH @ 3000 USDT = 9.00 USDT notional
+    rec.process_fill(
+        trade_id="open_short_1",
+        symbol="ETHUSDT",
+        side=OrderSide.SELL,
+        price=Decimal("3000.00"),
+        quantity=Decimal("0.0030"),
+        commission=Decimal("0.0018"),
+        is_closing=False,
+    )
+    assert rec.positions["ETHUSDT"] == Decimal("-0.0030")
+    assert rec.allocated_margin == Decimal("9.00000000")
+    assert rec.entry_prices["ETHUSDT"] == Decimal("3000.00")
+    assert rec.cash == Decimal("100.0") - Decimal("9.00") - Decimal("0.0018")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 2. Mark price drops to 2900 -> favorable short move (+0.30 USDT unrealized PnL)
+    rec.set_mark_price("ETHUSDT", Decimal("2900.00"))
+    assert rec.unrealized_pnl == Decimal("0.30000000")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 3. Partially close first chunk: BUY 0.0015 ETH @ 2900 USDT (profitable close)
+    m1 = rec.process_fill(
+        trade_id="close_chunk_1",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        price=Decimal("2900.00"),
+        quantity=Decimal("0.0015"),
+        commission=Decimal("0.0009"),
+        is_closing=True,
+    )
+    # Profit = (3000 - 2900) * 0.0015 = +0.15 USDT
+    assert Decimal(m1.realized_pnl_usdt) == Decimal("0.15000000")
+    assert rec.positions["ETHUSDT"] == Decimal("-0.0015")
+    assert rec.allocated_margin == Decimal("4.50000000")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 4. Close second chunk at a loss: price rises to 3100 -> BUY 0.0015 ETH @ 3100 USDT
+    m2 = rec.process_fill(
+        trade_id="close_chunk_2",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        price=Decimal("3100.00"),
+        quantity=Decimal("0.0015"),
+        commission=Decimal("0.0009"),
+        is_closing=True,
+    )
+    # Loss = (3000 - 3100) * 0.0015 = -0.15 USDT
+    assert Decimal(m2.realized_pnl_usdt) == Decimal("-0.15000000")
+    assert rec.positions["ETHUSDT"] == Decimal("0")
+    assert rec.allocated_margin == Decimal("0")
+    assert rec.cumulative_realized_loss >= Decimal("0.15")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_dynamic_slicing_under_stage_1_exposure_cap_no_double_counting(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify a 4.80 USDT signal order slices into micro-chunks under Stage 1 (cap = 5.00 USDT)
+    without being falsely rejected due to parent committed margin double-counting.
+    """
+    gw = MockBinanceVolatilityGateway()
+    gw.set_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60012.00"),
+        bid_depth=Decimal("0.00004"),
+        ask_depth=Decimal("0.00004"),
+    )
+    rec = VolatilityUserDataStreamReconciler(
+        track_id="test_stage1_slicing", starting_equity=Decimal("100.0")
+    )
+    mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    seq = VolatilityStreamSequencer()
+    spill = VolatilitySpilloverEngine()
+    spill.update_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60012.00"),
+        bid_depth=Decimal("0.00004"),
+        ask_depth=Decimal("0.00004"),
+    )
+
+    interlock = VolatilityOrderDispatchInterlock(
+        heartbeat_monitor=mon,
+        reconciler=rec,
+        telemetry_store=temp_telemetry_store,
+        expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+        spillover_engine=spill,
+    )
+    dispatcher = VolatilityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=rec,
+        sequencer=seq,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=mon,
+        interlock=interlock,
+        spillover_engine=spill,
+    )
+
+    parent, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btcusdt-dcb-002",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("4.80"),
+    )
+
+    assert parent.status == OrderLifecycleState.FILLED
+    assert len(children) == 2
+    for ch in children:
+        assert ch.status == OrderLifecycleState.FILLED
+        assert Decimal(ch.notional_usdt) <= DYNAMIC_SLICING_MAX_CHUNK_USDT
+    assert Decimal(parent.executed_notional_usdt) > Decimal("0")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_manual_volatility_and_correlation_setters_update_spillover():
+    """Verify that calling set_realized_volatility and set_pairwise_correlation
+    immediately updates spillover_coefficients and aggregate_spillover_index.
+    """
+    engine = VolatilitySpilloverEngine()
+    initial_agg = engine.aggregate_spillover_index
+
+    # 1. Shock BTC realized volatility 4x higher
+    engine.set_realized_volatility("BTCUSDT", Decimal("0.080"))
+    assert engine.realized_vols["BTCUSDT"] == Decimal("0.080")
+    assert engine.spillover_coefficients[("BTCUSDT", "ETHUSDT")] > Decimal("0.22")
+    assert engine.aggregate_spillover_index > initial_agg
+
+    # 2. Update pairwise correlation and verify recalculation
+    prev_agg = engine.aggregate_spillover_index
+    engine.set_pairwise_correlation("BTCUSDT", "ETHUSDT", Decimal("0.95"))
+    assert engine.get_pairwise_correlation("BTCUSDT", "ETHUSDT") == Decimal("0.9500")
+    assert engine.aggregate_spillover_index >= prev_agg
+
+
+def test_case_insensitive_symbol_correlation_breakdown_and_regime():
+    """Verify that is_correlation_breakdown and classify_spillover_regime correctly
+    handle lowercase symbols.
+    """
+    engine = VolatilitySpilloverEngine()
+    engine.set_pairwise_correlation("BTCUSDT", "ETHUSDT", Decimal("0.10"))
+
+    # Lowercase symbol should correctly identify breakdown
+    assert engine.is_correlation_breakdown("btcusdt") is True
+    assert engine.classify_spillover_regime("btcusdt") == VolatilitySpilloverRegime.SEVERE
+
+    # Other non-broken symbol without decoupling
+    assert engine.is_correlation_breakdown("solusdt") is False
+
+
+def test_fresh_runner_execution_unlinks_prior_artifacts(tmp_path: Path):
+    """Verify that consecutive runner executions into the same output directory
+    unlink prior artifacts to prevent database and log record bloat.
+    """
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_bytes(DEFAULT_CANARY_STAGING_MANIFEST_PATH.read_bytes())
+
+    cfg = CanaryVolatilitySpilloverConfig(
+        manifest_path=manifest_path,
+        registry_path=DEFAULT_CANDIDATE_REGISTRY_PATH,
+        output_dir=tmp_path / "phase285_out",
+        track="track_1",
+    )
+
+    # First run
+    runner1 = CanaryVolatilitySpilloverRunner(cfg)
+    rep1 = runner1.execute_all_tracks()
+    assert rep1.order_stats.get("total_orders_placed") == 13
+
+    # Second run with all tracks into same directory
+    cfg.track = "all"
+    runner2 = CanaryVolatilitySpilloverRunner(cfg)
+    rep2 = runner2.execute_all_tracks()
+    assert rep2.compliance.get("all_criteria_passed") is True
+
+    # Check that sqlite db does not have accumulated duplicates
+    db_file = tmp_path / "phase285_out" / "canary-volatility-spillover-telemetry.sqlite3"
+    conn = sqlite3.connect(db_file)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM lifecycle_transitions")
+    # Fresh run should have exactly the single-session count (59 transitions)
+    assert cur.fetchone()[0] == 59
+    conn.close()

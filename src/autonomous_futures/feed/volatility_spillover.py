@@ -1641,7 +1641,10 @@ class VolatilitySpilloverEngine:
                         key = (min(s1, s2), max(s1, s2))
                         self.pairwise_correlations[key] = corr
 
-        # Update directional spillover transmission coefficients
+        self._update_spillover_coefficients()
+
+    def _update_spillover_coefficients(self) -> None:
+        """Update directional spillover transmission coefficients and aggregate index."""
         base_coeffs = {
             ("BTCUSDT", "ETHUSDT"): Decimal("0.22"),
             ("BTCUSDT", "SOLUSDT"): Decimal("0.18"),
@@ -1691,18 +1694,20 @@ class VolatilitySpilloverEngine:
             }
 
     def set_realized_volatility(self, symbol: str, vol: Any) -> None:
-        """Set realized volatility for a symbol."""
+        """Set realized volatility for a symbol and recompute spillover."""
         with self._lock:
             sym_key = str(symbol).strip().upper()
             self.realized_vols[sym_key] = _safe_decimal(vol)
+            self._update_spillover_coefficients()
 
     def set_pairwise_correlation(self, sym1: str, sym2: str, corr: Any) -> None:
-        """Set rolling pairwise correlation between two assets."""
+        """Set rolling pairwise correlation between two assets and recompute spillover."""
         with self._lock:
             s1 = sym1.strip().upper()
             s2 = sym2.strip().upper()
             c = _safe_decimal(corr)
             self.pairwise_correlations[(min(s1, s2), max(s1, s2))] = c
+            self._update_spillover_coefficients()
 
     def get_pairwise_correlation(self, sym1: str, sym2: str) -> Decimal:
         """Get pairwise correlation between two assets."""
@@ -1757,8 +1762,9 @@ class VolatilitySpilloverEngine:
         with self._lock:
             if self.correlation_breakdown_forced:
                 return True
+            sym_key = str(symbol).strip().upper() if symbol is not None else None
             for (s1, s2), corr in self.pairwise_correlations.items():
-                if symbol is not None and symbol not in (s1, s2):
+                if sym_key is not None and sym_key not in (s1, s2):
                     continue
                 if corr < CORRELATION_BREAKDOWN_THRESHOLD:
                     return True
@@ -1775,7 +1781,8 @@ class VolatilitySpilloverEngine:
         Transition hysteresis ensures regime does not rapidly flutter across boundaries.
         """
         with self._lock:
-            if self.is_correlation_breakdown(symbol):
+            sym_key = str(symbol).strip().upper() if symbol else None
+            if self.is_correlation_breakdown(sym_key):
                 self._current_regime = VolatilitySpilloverRegime.SEVERE
                 return VolatilitySpilloverRegime.SEVERE
 
@@ -1793,14 +1800,13 @@ class VolatilitySpilloverEngine:
             # Check for moderate correlation divergence
             has_mod_div = False
             for (s1, s2), corr in self.pairwise_correlations.items():
-                if symbol is not None and symbol not in (s1, s2):
+                if sym_key is not None and sym_key not in (s1, s2):
                     continue
                 if (BASELINE_PAIRWISE_CORRELATION - corr) >= Decimal("0.20"):
                     has_mod_div = True
                     break
 
             # Check if realized volatility remains elevated even if depth recovers
-            sym_key = str(symbol).strip().upper() if symbol else None
             vol_elevated = False
             if sym_key and sym_key in self.realized_vols and sym_key in self.baseline_realized_vol:
                 vol_elevated = self.realized_vols[sym_key] > (
@@ -2392,36 +2398,50 @@ class VolatilityUserDataStreamReconciler:
 
                 curr_qty = self.positions.get(symbol, Decimal("0"))
                 curr_entry = self.entry_prices.get(symbol, Decimal("0"))
-                new_qty = curr_qty + quantity
-                if new_qty > Decimal("0"):
+                if side_str == OrderSide.SELL.value:
+                    new_qty = curr_qty - quantity
+                else:
+                    new_qty = curr_qty + quantity
+
+                abs_curr = abs(curr_qty)
+                abs_new = abs(new_qty)
+                if abs_new > Decimal("0"):
                     self.entry_prices[symbol] = (
-                        (curr_entry * curr_qty) + (price * quantity)
-                    ) / new_qty
+                        (curr_entry * abs_curr) + (price * quantity)
+                    ) / abs_new
                 self.positions[symbol] = new_qty
             else:
                 # Closing position: return margin and settle realized PnL
                 entry_px = self.entry_prices.get(symbol, price)
                 curr_qty = self.positions.get(symbol, Decimal("0"))
-                close_qty = min(curr_qty, quantity)
+                is_short = curr_qty < Decimal("0")
+                close_qty = min(abs(curr_qty), quantity)
 
-                # Realized PnL: for LONG position, closing via SELL
-                if side_str == OrderSide.SELL.value:
-                    realized_pnl_trade = (price - entry_px) * close_qty
-                else:
+                # Realized PnL:
+                # For LONG position (curr_qty > 0), closing via SELL: (price - entry_px) * close_qty
+                # For SHORT position (curr_qty < 0), closing via BUY: (entry_px - price) * close_qty
+                if is_short:
                     realized_pnl_trade = (entry_px - price) * close_qty
+                else:
+                    realized_pnl_trade = (price - entry_px) * close_qty
 
                 realized_pnl_trade = realized_pnl_trade.quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
                 )
 
-                rem_qty = max(Decimal("0"), curr_qty - close_qty)
+                if is_short:
+                    rem_abs_qty = max(Decimal("0"), abs(curr_qty) - close_qty)
+                    rem_qty = -rem_abs_qty if rem_abs_qty > Decimal("0") else Decimal("0")
+                else:
+                    rem_qty = max(Decimal("0"), curr_qty - close_qty)
+
                 if rem_qty == Decimal("0"):
                     margin_released = self.per_asset_margin.get(symbol, Decimal("0"))
                     self.per_asset_margin[symbol] = Decimal("0")
                     self.entry_prices[symbol] = Decimal("0")
                 else:
                     curr_margin = self.per_asset_margin.get(symbol, Decimal("0"))
-                    ratio = close_qty / max(curr_qty, Decimal("0.00000001"))
+                    ratio = close_qty / max(abs(curr_qty), Decimal("0.00000001"))
                     margin_released = min(
                         curr_margin,
                         (curr_margin * ratio).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN),
@@ -2662,7 +2682,8 @@ class VolatilityOrderDispatchInterlock:
                     OrderLifecycleState.NEW,
                     OrderLifecycleState.PARTIALLY_FILLED,
                 ):
-                    if symbol is not None and ord_rec.symbol != symbol:
+                    sym_filter = symbol.strip().upper() if symbol is not None else None
+                    if sym_filter is not None and ord_rec.symbol.strip().upper() != sym_filter:
                         continue
                     px = _safe_decimal(ord_rec.price)
                     total_qty = _safe_decimal(ord_rec.quantity)
@@ -2676,8 +2697,9 @@ class VolatilityOrderDispatchInterlock:
             # Dynamically account for un-dispatched portions of active parent orders
             if self._parent_orders_provider is not None:
                 parent_orders = self._parent_orders_provider()
+                sym_filter = symbol.strip().upper() if symbol is not None else None
                 for p_rec in list(parent_orders.values()):
-                    if symbol is not None and p_rec.symbol != symbol:
+                    if sym_filter is not None and p_rec.symbol.strip().upper() != sym_filter:
                         continue
                     if p_rec.status in (
                         OrderLifecycleState.PENDING_NEW,
@@ -2687,36 +2709,53 @@ class VolatilityOrderDispatchInterlock:
                     ):
                         if p_rec.dispatch_complete:
                             continue
+
+                        executed_child_notional = Decimal("0")
                         active_children_notional = Decimal("0")
+                        is_current_order_child = False
+
                         for ch_cid in p_rec.child_order_ids:
+                            ch = orders.get(ch_cid)
+                            if not ch:
+                                continue
+                            ch_px = _safe_decimal(ch.price)
+                            ch_qty = _safe_decimal(ch.quantity)
+                            ch_exec = _safe_decimal(ch.executed_quantity)
+                            executed_child_notional += (ch_px * ch_exec).quantize(
+                                Decimal("0.00000001"), rounding=ROUND_DOWN
+                            )
                             if (
                                 exclude_client_order_id is not None
                                 and ch_cid == exclude_client_order_id
                             ):
+                                is_current_order_child = True
                                 continue
-                            ch = orders.get(ch_cid)
-                            if ch and ch.status in (
+                            if ch.status in (
                                 OrderLifecycleState.PENDING_NEW,
                                 OrderLifecycleState.PENDING_SUBMIT,
                                 OrderLifecycleState.NEW,
                                 OrderLifecycleState.PARTIALLY_FILLED,
                             ):
-                                ch_px = _safe_decimal(ch.price)
-                                ch_qty = _safe_decimal(ch.quantity)
-                                ch_exec = _safe_decimal(ch.executed_quantity)
                                 ch_rem_q = max(Decimal("0"), ch_qty - ch_exec)
                                 active_children_notional += (ch_px * ch_rem_q).quantize(
                                     Decimal("0.00000001"), rounding=ROUND_DOWN
                                 )
 
+                        if exclude_client_order_id is not None and not is_current_order_child:
+                            cand_ord = orders.get(exclude_client_order_id)
+                            if (
+                                cand_ord
+                                and cand_ord.parent_client_order_id == p_rec.parent_client_order_id
+                            ):
+                                is_current_order_child = True
+
+                        deduct_notional = (
+                            exclude_notional if is_current_order_child else Decimal("0")
+                        )
                         p_total = _safe_decimal(p_rec.total_notional_usdt)
-                        p_exec = _safe_decimal(p_rec.executed_notional_usdt)
-                        deduct_notional = Decimal("0")
-                        if (
-                            exclude_client_order_id is not None
-                            and exclude_client_order_id in p_rec.child_order_ids
-                        ):
-                            deduct_notional = exclude_notional
+                        p_exec = max(
+                            _safe_decimal(p_rec.executed_notional_usdt), executed_child_notional
+                        )
                         un_dispatched = max(
                             Decimal("0"),
                             p_total - p_exec - active_children_notional - deduct_notional,
@@ -3387,6 +3426,23 @@ class VolatilityMicroOrderDispatcher:
                         mark.client_order_id = ord_rec.client_order_id
                         self.telemetry_store.record_execution_mark(mark)
 
+                        if ord_rec.parent_client_order_id:
+                            p_rec = self.parent_orders.get(ord_rec.parent_client_order_id)
+                            if p_rec is not None:
+                                p_rec.executed_quantity = str(
+                                    _safe_decimal(p_rec.executed_quantity) + fill_qty
+                                )
+                                p_rec.executed_notional_usdt = str(
+                                    _safe_decimal(p_rec.executed_notional_usdt)
+                                    + (fill_px * fill_qty)
+                                )
+                                if _safe_decimal(p_rec.executed_quantity) >= _safe_decimal(
+                                    p_rec.total_quantity
+                                ):
+                                    p_rec.status = OrderLifecycleState.FILLED
+                                    p_rec.dispatch_complete = True
+                                self.telemetry_store.record_parent_order(p_rec)
+
             return events
 
     def reconcile_via_rest(self) -> list[VolatilityOrderRecord]:
@@ -3441,6 +3497,22 @@ class VolatilityMicroOrderDispatcher:
                         mark.client_order_id = cid
                         self.telemetry_store.record_execution_mark(mark)
 
+                        if ord_rec.parent_client_order_id:
+                            p_rec = self.parent_orders.get(ord_rec.parent_client_order_id)
+                            if p_rec is not None:
+                                p_rec.executed_quantity = str(
+                                    _safe_decimal(p_rec.executed_quantity) + qty
+                                )
+                                p_rec.executed_notional_usdt = str(
+                                    _safe_decimal(p_rec.executed_notional_usdt) + notional
+                                )
+                                if _safe_decimal(p_rec.executed_quantity) >= _safe_decimal(
+                                    p_rec.total_quantity
+                                ):
+                                    p_rec.status = OrderLifecycleState.FILLED
+                                    p_rec.dispatch_complete = True
+                                self.telemetry_store.record_parent_order(p_rec)
+
             return reconciled
 
     def execute_emergency_flattening(self) -> list[VolatilityOrderRecord]:
@@ -3470,6 +3542,7 @@ class VolatilityMicroOrderDispatcher:
                             ),
                         )
                     )
+                    self.jsonl_sink.record_order(ord_rec)
                     self.gateway.cancel_order(ord_rec.symbol, ord_rec.client_order_id)
 
             for p_rec in list(self.parent_orders.values()):
@@ -3481,6 +3554,7 @@ class VolatilityMicroOrderDispatcher:
                 ):
                     p_rec.status = OrderLifecycleState.CANCELLED
                     self.telemetry_store.record_parent_order(p_rec)
+                    self.jsonl_sink.record_parent_order(p_rec)
 
             flattening_orders: list[VolatilityOrderRecord] = []
 
@@ -3649,10 +3723,10 @@ def verify_upstream_phase284_qualification(
     except Exception as exc:
         raise PrerequisiteQualificationError(f"Failed to parse {summary_file}: {exc}") from exc
 
-    if sum_data.get("daemon_status") != "LIQUIDITY_REGIME_VERIFIED":
+    sum_status = sum_data.get("liquidity_regime_status") or sum_data.get("daemon_status")
+    if sum_status != "LIQUIDITY_REGIME_VERIFIED":
         raise PrerequisiteQualificationError(
-            f"Phase 284 daemon_status is {sum_data.get('daemon_status')}, "
-            "expected LIQUIDITY_REGIME_VERIFIED"
+            f"Phase 284 status is {sum_status}, expected LIQUIDITY_REGIME_VERIFIED"
         )
 
     try:
@@ -3660,10 +3734,10 @@ def verify_upstream_phase284_qualification(
     except Exception as exc:
         raise PrerequisiteQualificationError(f"Failed to parse {report_file}: {exc}") from exc
 
-    if rep_data.get("daemon_status") != "LIQUIDITY_REGIME_VERIFIED":
+    rep_status = rep_data.get("liquidity_regime_status") or rep_data.get("daemon_status")
+    if rep_status != "LIQUIDITY_REGIME_VERIFIED":
         raise PrerequisiteQualificationError(
-            f"Phase 284 report daemon_status is {rep_data.get('daemon_status')}, "
-            "expected LIQUIDITY_REGIME_VERIFIED"
+            f"Phase 284 report status is {rep_status}, expected LIQUIDITY_REGIME_VERIFIED"
         )
 
     # 2. Check compliance flags
@@ -3795,6 +3869,11 @@ class CanaryVolatilitySpilloverRunner:
 
         db_path = self.output_dir / "canary-volatility-spillover-telemetry.sqlite3"
         jsonl_path = self.output_dir / "canary-orders.jsonl"
+        if self.config.track == "all":
+            if db_path.exists():
+                db_path.unlink()
+            if jsonl_path.exists():
+                jsonl_path.unlink()
         self.active_store = SqliteCanaryVolatilitySpilloverTelemetryStore(db_path)
         self.active_sink = JsonlCanaryOrderSink(jsonl_path)
 
