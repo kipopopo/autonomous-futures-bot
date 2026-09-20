@@ -38,6 +38,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.feed.canary_activation import (  # noqa: E402
     STARTING_EQUITY_USDT,
     OrderSide,
@@ -57,6 +58,7 @@ from autonomous_futures.feed.mainnet_expansion import (  # noqa: E402
     AggregateExposureCapExceededError,
     CanaryMainnetExpansionConfig,
     CanaryMainnetExpansionRunner,
+    CanaryMainnetExpansionTrackResult,
     CapitalExpansionStage,
     CircuitBreakerState,
     GatewayHeartbeatMonitor,
@@ -1446,3 +1448,239 @@ class TestPhase281AdversarialHardenings:
         assert len(orders) == 40
         assert len(transitions) >= 40
         assert len(marks) == 40
+
+
+class TestPhase281Round2AdversarialStress:
+    """Round 2 Adversarial Stress Tests:
+    - Safe handling of None, empty string, and non-numeric trade IDs in event priority.
+    - Multi-event type fingerprinting without false deduplication on ACCOUNT_UPDATE.
+    - Stream reconnection sequence reset, session epoch sorting, and auto-reset heuristics.
+    - Strict fail-closed order side validation on opening and closing orders.
+    - RFC 8259 strict compliance on float infinity in interlock telemetry JSON.
+    - Telemetry store get_track_results and context manager lifecycle.
+    - Safe numeric casting utility robustness against all malformed edge inputs.
+    """
+
+    def test_event_priority_handles_none_empty_trade_id_without_crash(self):
+        sequencer = MainnetStreamSequencer()
+        # Non-trade events or orders with null/empty/string trade IDs must not
+        # crash with TypeError or ValueError
+        pkt_null = {"e": "ORDER_TRADE_UPDATE", "o": {"x": "NEW", "X": "NEW", "t": None}}
+        pkt_empty = {"e": "ORDER_TRADE_UPDATE", "o": {"x": "NEW", "X": "NEW", "t": ""}}
+        pkt_missing = {"e": "ORDER_TRADE_UPDATE", "o": {"x": "CANCELED", "X": "CANCELED"}}
+        pkt_str = {"e": "ORDER_TRADE_UPDATE", "o": {"x": "TRADE", "X": "FILLED", "t": "54321"}}
+
+        assert sequencer._event_sort_priority(pkt_null) == (10, 0)
+        assert sequencer._event_sort_priority(pkt_empty) == (10, 0)
+        assert sequencer._event_sort_priority(pkt_missing) == (40, 0)
+        assert sequencer._event_sort_priority(pkt_str) == (30, 54321)
+
+    def test_multi_event_fingerprint_no_false_dedup_on_account_updates_and_system_events(self):
+        sequencer = MainnetStreamSequencer()
+        t_fixed = int(time.time() * 1000)
+
+        acc1 = {
+            "e": "ACCOUNT_UPDATE",
+            "E": t_fixed,
+            "T": t_fixed,
+            "a": {"B": [{"a": "USDT", "wb": "100.00"}], "P": []},
+        }
+        acc2 = {
+            "e": "ACCOUNT_UPDATE",
+            "E": t_fixed,
+            "T": t_fixed,
+            "a": {"B": [{"a": "USDT", "wb": "95.00"}], "P": []},
+        }
+        acc1_dup = dict(acc1)
+
+        tuples = sequencer.ingest_and_sort_packets([acc1, acc2, acc1_dup])
+        assert len(tuples) == 3
+        # acc1 is new, acc2 has different balance so must NOT be marked duplicate!
+        assert tuples[0][1] is False
+        assert tuples[1][1] is False
+        # acc1_dup is duplicate
+        assert tuples[2][1] is True
+        assert sequencer.deduplicated_count == 1
+
+    def test_stream_reconnect_sequence_reset_and_epoch_ordering(self):
+        sequencer = MainnetStreamSequencer()
+
+        # Session 1: packets up to seq 100
+        p1 = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1000,
+            "T": 1000,
+            "_seq": 100,
+            "o": {"s": "BTCUSDT", "c": "c1", "x": "NEW", "X": "NEW"},
+        }
+        out1 = sequencer.ingest_and_sort_packets([p1])
+        assert out1[0][2] is False  # Not OOO
+        assert sequencer.highest_arrival_sequence == 100
+
+        # Socket drops and reconnects: notify sequencer
+        sequencer.notify_reconnect()
+        assert sequencer.session_epoch == 1
+        assert sequencer.highest_arrival_sequence == 0
+
+        # Session 2: seq starts at 1 with T=2000
+        p2 = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 2000,
+            "T": 2000,
+            "_seq": 1,
+            "o": {"s": "BTCUSDT", "c": "c2", "x": "NEW", "X": "NEW"},
+        }
+        p3 = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 2000,
+            "T": 2000,
+            "_seq": 2,
+            "o": {"s": "BTCUSDT", "c": "c3", "x": "NEW", "X": "NEW"},
+        }
+        out2 = sequencer.ingest_and_sort_packets([p2, p3])
+        assert out2[0][2] is False  # seq=1 in Session 2 must NOT be marked OOO!
+        assert out2[1][2] is False
+        assert sequencer.highest_arrival_sequence == 2
+
+    def test_automatic_sequence_reset_heuristic(self):
+        sequencer = MainnetStreamSequencer()
+
+        # Session 1 elevated sequence
+        p_elevated = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1000,
+            "T": 1000,
+            "_seq": 150,
+            "o": {"s": "BTCUSDT", "c": "c_prev", "x": "NEW", "X": "NEW"},
+        }
+        sequencer.ingest_and_sort_packets([p_elevated])
+        assert sequencer.highest_arrival_sequence == 150
+        assert sequencer.session_epoch == 0
+
+        # Unannounced sequence wrap to 1 at advanced timestamp T=2000
+        p_reset = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 2000,
+            "T": 2000,
+            "_seq": 1,
+            "o": {"s": "BTCUSDT", "c": "c_next", "x": "NEW", "X": "NEW"},
+        }
+        out = sequencer.ingest_and_sort_packets([p_reset])
+        assert sequencer.session_epoch == 1
+        assert out[0][2] is False  # Automatically reset, not flagged OOO!
+
+    def test_validate_dispatch_rejects_invalid_order_side_fail_closed(self, temp_telemetry_store):
+        reconciler = MainnetUserDataStreamReconciler(track_id="test_side")
+        mon = GatewayHeartbeatMonitor()
+        mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000) - 20, latency_ms=20.0, track_id="test"
+        )
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=mon,
+            reconciler=reconciler,
+            telemetry_store=temp_telemetry_store,
+            track_id="test_side",
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        with pytest.raises(DomainViolation) as exc:
+            interlock.validate_dispatch(
+                symbol="BTCUSDT",
+                price=Decimal("50000.00"),
+                quantity=Decimal("0.00005"),
+                client_order_id=cid,
+                side="INVALID_SIDE",
+            )
+        assert "Invalid order side 'INVALID_SIDE'" in str(exc.value)
+
+        # Valid lowercase string converts cleanly
+        cid_valid = generate_canary_client_order_id("BTCUSDT")
+        interlock.validate_dispatch(
+            symbol="BTCUSDT",
+            price=Decimal("50000.00"),
+            quantity=Decimal("0.00005"),
+            client_order_id=cid_valid,
+            side="buy",
+        )
+
+    def test_interlock_details_json_rfc8259_strict_compliance(self, temp_telemetry_store):
+        reconciler = MainnetUserDataStreamReconciler(track_id="test_rfc")
+        mon = GatewayHeartbeatMonitor()  # Never received heartbeat -> age is float('inf')
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=mon,
+            reconciler=reconciler,
+            telemetry_store=temp_telemetry_store,
+            track_id="test_rfc",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        with pytest.raises(GatewayHeartbeatStaleError):
+            interlock.validate_dispatch(
+                symbol="BTCUSDT",
+                price=Decimal("50000.00"),
+                quantity=Decimal("0.00005"),
+                client_order_id=cid,
+                side=OrderSide.BUY,
+            )
+
+        events = temp_telemetry_store.get_interlock_events(track_id="test_rfc")
+        assert len(events) >= 1
+        raw_json = events[0]["details_json"]
+        # Must be valid RFC 8259 JSON (no literal Infinity or NaN)
+        assert "Infinity" not in raw_json
+        parsed = json.loads(raw_json)
+        assert parsed["age_ms"] == "INFINITY"
+
+    def test_sqlite_telemetry_store_get_track_results_and_context_manager(self, tmp_path: Path):
+        db_file = tmp_path / "test_context.sqlite3"
+        tr = CanaryMainnetExpansionTrackResult(
+            track_id="track_test",
+            track_name="Test Track",
+            status="SUCCESS_TEST",
+            starting_equity_usdt="100.00",
+            final_cash_usdt="100.00",
+            allocated_margin_usdt="0.00",
+            unrealized_pnl_usdt="0.00",
+            realized_pnl_usdt="0.00",
+            total_fees_usdt="0.00",
+            total_slippage_usdt="0.00",
+            drift_usdt="0.00",
+            zero_balance_drift=True,
+            orders_placed_count=1,
+            orders_filled_count=1,
+            orders_cancelled_count=0,
+            orders_rejected_count=0,
+            interlock_blocks_count=0,
+            heartbeat_events_count=1,
+            stale_heartbeat_count=0,
+            stream_events_count=2,
+            deduplicated_events_count=0,
+            out_of_order_events_count=0,
+            final_circuit_state="NORMAL",
+            final_expansion_stage="STAGE_2_EXPANDED_CONCURRENT",
+            success=True,
+        )
+
+        with SqliteCanaryMainnetExpansionTelemetryStore(db_file) as store:
+            store.record_mainnet_track(tr)
+            results = store.get_track_results("track_test")
+            assert len(results) == 1
+            assert results[0]["track_id"] == "track_test"
+            assert results[0]["status"] == "SUCCESS_TEST"
+
+    def test_safe_decimal_and_safe_int_against_malformed_inputs(self):
+        from autonomous_futures.feed.mainnet_expansion import _safe_decimal, _safe_int
+
+        assert _safe_int(None, 42) == 42
+        assert _safe_int("", 42) == 42
+        assert _safe_int("   ", 42) == 42
+        assert _safe_int("invalid", 42) == 42
+        assert _safe_int("100") == 100
+        assert _safe_int(200) == 200
+
+        assert _safe_decimal(None, Decimal("42.0")) == Decimal("42.0")
+        assert _safe_decimal("", Decimal("42.0")) == Decimal("42.0")
+        assert _safe_decimal("invalid", Decimal("42.0")) == Decimal("42.0")
+        assert _safe_decimal("123.45") == Decimal("123.45")
+        assert _safe_decimal(Decimal("67.89")) == Decimal("67.89")

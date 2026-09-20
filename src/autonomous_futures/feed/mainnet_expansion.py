@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import sqlite3
 import threading
@@ -430,7 +431,7 @@ class WebSocketPushEventRecord(DomainModel):
 
     event_id: str
     track_id: str
-    event_type: WebSocketEventType
+    event_type: WebSocketEventType | str
     event_time_ms: int
     transaction_time_ms: int
     sequence_number: int
@@ -963,7 +964,7 @@ class SqliteCanaryMainnetExpansionTelemetryStore:
                 (
                     ev.event_id,
                     ev.track_id,
-                    ev.event_type.value,
+                    ev.event_type.value if hasattr(ev.event_type, "value") else str(ev.event_type),
                     ev.event_time_ms,
                     ev.transaction_time_ms,
                     ev.sequence_number,
@@ -2318,7 +2319,9 @@ class MainnetOrderDispatchInterlock:
                 try:
                     valid_side = OrderSide(str(side).upper())
                 except ValueError:
-                    raise DomainViolation(f"Invalid order side '{side}'; must be BUY or SELL")
+                    raise DomainViolation(
+                        f"Invalid order side '{side}'; must be BUY or SELL"
+                    ) from None
 
         # 0.1 Validate closing order invariants
         if is_closing:
@@ -2799,11 +2802,12 @@ class MainnetMicroOrderDispatcher:
 
             sorted_tuples = self.sequencer.ingest_and_sort_packets(raw_packets)
 
-            for pkt, is_dup, is_ooo in sorted_tuples:
+            for pkt in sorted_tuples:
                 self.stream_events_count += 1
-                e_type = pkt.get("e", "")
-                seq = int(pkt.get("_seq", 0))
-                o_data = pkt.get("o", {})
+                pkt_data, is_dup, is_ooo = pkt
+                e_type = str(pkt_data.get("e", ""))
+                seq = _safe_int(pkt_data.get("_seq"), 0)
+                o_data = pkt_data.get("o", {})
                 cid = o_data.get("c")
                 sym = o_data.get("s")
                 ord_status = o_data.get("X")
@@ -2813,13 +2817,13 @@ class MainnetMicroOrderDispatcher:
                     event_id=event_id,
                     track_id=self.track_id,
                     event_type=e_type,
-                    event_time_ms=pkt.get("E", int(time.time() * 1000)),
-                    transaction_time_ms=pkt.get("T", int(time.time() * 1000)),
+                    event_time_ms=_safe_int(pkt_data.get("E"), int(time.time() * 1000)),
+                    transaction_time_ms=_safe_int(pkt_data.get("T"), int(time.time() * 1000)),
                     sequence_number=seq,
                     client_order_id=cid,
                     symbol=sym,
                     order_status=ord_status,
-                    payload_json=json.dumps(pkt, sort_keys=True),
+                    payload_json=json.dumps(pkt_data, sort_keys=True),
                     is_duplicate=is_dup,
                     is_out_of_order=is_ooo,
                     processed_at_utc=datetime.now(UTC).isoformat(),
@@ -2835,8 +2839,8 @@ class MainnetMicroOrderDispatcher:
                     exec_type = o_data.get("x")
 
                     if exec_type == "TRADE":
-                        cum_z = Decimal(str(o_data.get("z", order_rec.quantity)))
-                        current_local_qty = Decimal(str(order_rec.executed_quantity))
+                        cum_z = _safe_decimal(o_data.get("z"), Decimal(str(order_rec.quantity)))
+                        current_local_qty = _safe_decimal(order_rec.executed_quantity, Decimal("0"))
                         delta_qty = cum_z - current_local_qty
 
                         # If order already filled or cum_z <= current_local_qty, skip
@@ -2852,8 +2856,14 @@ class MainnetMicroOrderDispatcher:
                             continue
 
                         fill_px = str(o_data.get("L") or order_rec.price)
+                        raw_t = o_data.get("t")
+                        trade_id = (
+                            str(raw_t)
+                            if raw_t is not None and str(raw_t).strip() not in ("", "0")
+                            else f"tr-ws-{cid}-{self.stream_events_count}"
+                        )
                         mark = MainnetExecutionMark(
-                            trade_id=str(o_data.get("t")),
+                            trade_id=trade_id,
                             track_id=self.track_id,
                             order_id=order_rec.order_id,
                             client_order_id=cid,
@@ -2866,7 +2876,7 @@ class MainnetMicroOrderDispatcher:
                             ),
                             commission_usdt=str(o_data.get("n") or "0"),
                             realized_pnl_usdt=str(o_data.get("rp") or "0"),
-                            trade_time_ms=o_data.get("T", int(time.time() * 1000)),
+                            trade_time_ms=_safe_int(o_data.get("T"), int(time.time() * 1000)),
                             timestamp_utc=datetime.now(UTC).isoformat(),
                         )
                         self.telemetry_store.record_execution_mark(mark)
@@ -2980,6 +2990,7 @@ class MainnetMicroOrderDispatcher:
     def reconcile_via_rest(self) -> list[MainnetExecutionMark]:
         """Perform REST order state reconciliation after a stream flap."""
         with self._lock:
+            self.sequencer.notify_reconnect()
             prev_states = {cid: ord_rec.status for cid, ord_rec in self.orders.items()}
             marks = self.reconciler.reconcile_orders_via_rest(
                 self.gateway, self.orders, sequencer=self.sequencer
