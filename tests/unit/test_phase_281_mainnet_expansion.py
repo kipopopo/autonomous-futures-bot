@@ -25,10 +25,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+import threading
 import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -72,7 +74,9 @@ from autonomous_futures.feed.mainnet_expansion import (  # noqa: E402
     MainnetUserDataStreamReconciler,
     MarginAllocationExceededError,
     MockBinanceMainnetGateway,
+    OrderCorrelationError,
     OrderLifecycleState,
+    OrderLifecycleTransition,
     SqliteCanaryMainnetExpansionTelemetryStore,
     assert_valid_canary_client_order_id,
     generate_canary_client_order_id,
@@ -936,3 +940,509 @@ def test_order_lifecycle_monotonicity_enforcement(manifest, tmp_path: Path):
     # Status must remain FILLED, not demoted to NEW
     assert order.status == OrderLifecycleState.FILLED
     telemetry_store.close()
+
+
+# =====================================================================
+# 11. Adversarial Edge Cases & Stress Invariants Tests
+# =====================================================================
+
+
+class TestPhase281AdversarialHardenings:
+    """Adversarial stress tests for Phase 281 capital expansion and safety interlocks."""
+
+    def test_heartbeat_latency_spike_negative_latency_and_forward_drift(self):
+        mon = GatewayHeartbeatMonitor()
+        now_ms = int(time.time() * 1000)
+
+        # 1. Roundtrip latency spike > 500 ms with fresh server timestamp
+        rec_spike = mon.record_heartbeat(
+            server_time_ms=now_ms - 20,
+            latency_ms=520.0,
+            track_id="test_spike",
+        )
+        assert rec_spike.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+        assert mon.is_fresh() is False
+        with pytest.raises(GatewayHeartbeatStaleError):
+            mon.assert_fresh()
+
+        # Reset monitor
+        mon2 = GatewayHeartbeatMonitor()
+        # 2. Negative latency (< 0.0 ms) -> Clock skew freeze
+        rec_neg = mon2.record_heartbeat(
+            server_time_ms=now_ms,
+            latency_ms=-15.0,
+            track_id="test_neg",
+        )
+        assert rec_neg.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+        assert mon2.is_fresh() is False
+        with pytest.raises(GatewayHeartbeatStaleError):
+            mon2.assert_fresh()
+
+        # Reset monitor
+        mon3 = GatewayHeartbeatMonitor()
+        # 3. Forward clock drift (server timestamp ahead of local by > 250 ms)
+        rec_fwd = mon3.record_heartbeat(
+            server_time_ms=now_ms + 300,
+            latency_ms=20.0,
+            track_id="test_fwd",
+        )
+        assert rec_fwd.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+        assert mon3.is_fresh() is False
+        with pytest.raises(GatewayHeartbeatStaleError):
+            mon3.assert_fresh()
+
+    def test_heartbeat_clock_skew_recovery_hysteresis(self):
+        mon = GatewayHeartbeatMonitor()
+        now_ms = int(time.time() * 1000)
+
+        # 1. Initial healthy heartbeat
+        mon.record_heartbeat(
+            server_time_ms=now_ms - 30,
+            latency_ms=30.0,
+            track_id="hys_init",
+        )
+        assert mon.is_fresh() is True
+
+        # 2. Backward NTP jump > 250 ms -> CLOCK_SKEW_FREEZE
+        rec_skew = mon.record_heartbeat(
+            server_time_ms=now_ms - 350,
+            latency_ms=30.0,
+            track_id="hys_skew",
+        )
+        assert rec_skew.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+        assert mon.is_fresh() is False
+
+        # 3. Next packet with latency 480 ms (> 450 ms recovery ceiling): must remain frozen
+        rec_stale = mon.record_heartbeat(
+            server_time_ms=now_ms - 340,
+            latency_ms=480.0,
+            track_id="hys_mid",
+        )
+        assert rec_stale.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+        assert mon.is_fresh() is False
+
+        # 4. Next packet recovers with latency <= 450 ms (440 ms)
+        rec_recov = mon.record_heartbeat(
+            server_time_ms=now_ms - 330,
+            latency_ms=440.0,
+            track_id="hys_recov",
+        )
+        assert rec_recov.status == HeartbeatStatus.HEALTHY
+        assert mon.is_fresh() is True
+
+    def test_concurrent_closing_order_available_position_interlock(self, temp_telemetry_store):
+        reconciler = MainnetUserDataStreamReconciler(track_id="test_close_guard")
+        # Seed open position of 0.00010 BTC
+        reconciler.positions["BTCUSDT"] = Decimal("0.00010")
+        reconciler.position_entry_prices["BTCUSDT"] = Decimal("60000.00")
+
+        mon = GatewayHeartbeatMonitor()
+        mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000) - 20, latency_ms=20.0, track_id="test"
+        )
+
+        active_orders: dict[str, MainnetOrderRecord] = {}
+
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=mon,
+            reconciler=reconciler,
+            telemetry_store=temp_telemetry_store,
+            track_id="test_close_guard",
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+            orders_provider=lambda: active_orders,
+        )
+
+        cid_1 = generate_canary_client_order_id("BTCUSDT")
+        # First closing order for 0.00007 BTC passes validation
+        interlock.validate_dispatch(
+            symbol="BTCUSDT",
+            price=Decimal("60000.00"),
+            quantity=Decimal("0.00007"),
+            client_order_id=cid_1,
+            is_closing=True,
+            side=OrderSide.SELL,
+        )
+
+        # Register order 1 as active working NEW order
+        active_orders[cid_1] = MainnetOrderRecord(
+            order_id="ord-close-1",
+            client_order_id=cid_1,
+            track_id="test_close_guard",
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL.value,
+            order_type=OrderType.LIMIT.value,
+            time_in_force="GTC",
+            price="60000.00",
+            quantity="0.00007",
+            executed_quantity="0",
+            notional_usdt="4.20",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+            is_closing=True,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+
+        # Second closing order for 0.00005 BTC exceeds remaining available 0.00003 BTC!
+        cid_2 = generate_canary_client_order_id("BTCUSDT")
+        with pytest.raises(OrderCorrelationError) as exc_info:
+            interlock.validate_dispatch(
+                symbol="BTCUSDT",
+                price=Decimal("60000.00"),
+                quantity=Decimal("0.00005"),
+                client_order_id=cid_2,
+                is_closing=True,
+                side=OrderSide.SELL,
+            )
+        assert "exceeds available closeable position" in str(exc_info.value)
+
+        # Third closing order for exactly 0.00003 BTC succeeds
+        cid_3 = generate_canary_client_order_id("BTCUSDT")
+        interlock.validate_dispatch(
+            symbol="BTCUSDT",
+            price=Decimal("60000.00"),
+            quantity=Decimal("0.00003"),
+            client_order_id=cid_3,
+            is_closing=True,
+            side=OrderSide.SELL,
+        )
+
+    def test_exact_boundary_conditions_margin_and_exposure(self, temp_telemetry_store):
+        reconciler = MainnetUserDataStreamReconciler(
+            track_id="test_bounds", starting_equity=Decimal("100.00")
+        )
+        mon = GatewayHeartbeatMonitor()
+        mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000) - 20, latency_ms=20.0, track_id="test"
+        )
+
+        mock_orders: dict[str, MainnetOrderRecord] = {}
+
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=mon,
+            reconciler=reconciler,
+            telemetry_store=temp_telemetry_store,
+            track_id="test_bounds",
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+            orders_provider=lambda: mock_orders,
+        )
+
+        # 1. Micro order cap: exactly 5.00000000 USDT passes
+        cid_exact_5 = generate_canary_client_order_id("BTCUSDT")
+        interlock.validate_dispatch(
+            symbol="BTCUSDT",
+            price=Decimal("50000.00"),
+            quantity=Decimal("0.00010"),  # 5.00000000 USDT
+            client_order_id=cid_exact_5,
+        )
+
+        # Micro order cap: 5.00000001 USDT fails
+        cid_over_5 = generate_canary_client_order_id("BTCUSDT")
+        with pytest.raises(IndividualMicroCapExceededError):
+            interlock.validate_dispatch(
+                symbol="BTCUSDT",
+                price=Decimal("50000.0001"),
+                quantity=Decimal("0.00010"),  # 5.00000001 USDT
+                client_order_id=cid_over_5,
+            )
+
+        # 2. Aggregate exposure cap: exactly 10.00000000 USDT passes
+        mock_orders["ord1"] = MainnetOrderRecord(
+            order_id="ord1",
+            client_order_id="c=canary-p281-BTCUSDT-1-a",
+            track_id="test_bounds",
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force="GTC",
+            price="50000.00",
+            quantity="0.00010",  # 5.00 USDT
+            executed_quantity="0",
+            notional_usdt="5.00",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+
+        cid_agg_exact = generate_canary_client_order_id("ETHUSDT")
+        # Adding 5.00 USDT -> total 10.00 USDT <= 10.00 USDT cap: passes
+        interlock.validate_dispatch(
+            symbol="ETHUSDT",
+            price=Decimal("2500.00"),
+            quantity=Decimal("0.0020"),  # 5.00 USDT
+            client_order_id=cid_agg_exact,
+        )
+
+        # Register order 2 as working order with 5.00 USDT
+        mock_orders["ord2"] = MainnetOrderRecord(
+            order_id="ord2",
+            client_order_id=cid_agg_exact,
+            track_id="test_bounds",
+            candidate_id="cand-eth",
+            symbol="ETHUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force="GTC",
+            price="2500.00",
+            quantity="0.0020",  # 5.00 USDT
+            executed_quantity="0",
+            notional_usdt="5.00",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+
+        # Order 3 notional 0.15 USDT <= 5.00 USDT individual cap,
+        # but pushes aggregate to 10.15 > 10.00 USDT!
+        cid_agg_over = generate_canary_client_order_id("SOLUSDT")
+        with pytest.raises(AggregateExposureCapExceededError):
+            interlock.validate_dispatch(
+                symbol="SOLUSDT",
+                price=Decimal("150.00"),
+                quantity=Decimal("0.0010"),  # 0.15 USDT
+                client_order_id=cid_agg_over,
+            )
+
+    def test_event_sort_priority_trade_fills_and_disordered_sequences(self):
+        sequencer = MainnetStreamSequencer()
+
+        # Check priority levels
+        pkt_new = {"e": "ORDER_TRADE_UPDATE", "o": {"x": "NEW", "X": "NEW", "t": 0}}
+        pkt_partial = {
+            "e": "ORDER_TRADE_UPDATE",
+            "o": {"x": "TRADE", "X": "PARTIALLY_FILLED", "t": 101},
+        }
+        pkt_filled = {
+            "e": "ORDER_TRADE_UPDATE",
+            "o": {"x": "TRADE", "X": "FILLED", "t": 102},
+        }
+        pkt_cancel = {
+            "e": "ORDER_TRADE_UPDATE",
+            "o": {"x": "CANCELED", "X": "CANCELED", "t": 0},
+        }
+
+        assert sequencer._event_sort_priority(pkt_new) == (10, 0)
+        assert sequencer._event_sort_priority(pkt_partial) == (20, 101)
+        assert sequencer._event_sort_priority(pkt_filled) == (30, 102)
+        assert sequencer._event_sort_priority(pkt_cancel) == (40, 0)
+
+        # Ingest packets arriving out-of-order: FILLED with seq 5 arrives before PARTIAL with seq 10
+        t_now = int(time.time() * 1000)
+        p_partial = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": t_now,
+            "T": t_now,
+            "_seq": 10,
+            "o": {
+                "s": "BTCUSDT",
+                "c": "c=canary-p281-BTCUSDT-1-xyz",
+                "x": "TRADE",
+                "X": "PARTIALLY_FILLED",
+                "t": 1,
+                "z": "0.00004",
+            },
+        }
+        p_filled = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": t_now,
+            "T": t_now,
+            "_seq": 5,  # Smaller seq arrived second or disordered
+            "o": {
+                "s": "BTCUSDT",
+                "c": "c=canary-p281-BTCUSDT-1-xyz",
+                "x": "TRADE",
+                "X": "FILLED",
+                "t": 2,
+                "z": "0.00008",
+            },
+        }
+
+        # Passing [p_filled, p_partial]
+        sorted_tuples = sequencer.ingest_and_sort_packets([p_filled, p_partial])
+        # PARTIALLY_FILLED must sort before FILLED
+        assert sorted_tuples[0][0]["o"]["X"] == "PARTIALLY_FILLED"
+        assert sorted_tuples[1][0]["o"]["X"] == "FILLED"
+
+    def test_high_frequency_burst_over_1000_packets_multi_symbol(
+        self, temp_telemetry_store, temp_jsonl_sink
+    ):
+        gateway = MockBinanceMainnetGateway(initial_balance_usdt=Decimal("500.00"))
+        reconciler = MainnetUserDataStreamReconciler(
+            track_id="test_burst", starting_equity=Decimal("500.00")
+        )
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000) - 10, latency_ms=10.0, track_id="test"
+        )
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=temp_telemetry_store,
+            track_id="test_burst",
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=temp_telemetry_store,
+            jsonl_sink=temp_jsonl_sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="test_burst",
+        )
+        assert dispatcher.track_id == "test_burst"
+
+        symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        prices = {"BTCUSDT": "60000.00", "ETHUSDT": "3000.00", "SOLUSDT": "150.00"}
+        quantities = {
+            "BTCUSDT": "0.00004",
+            "ETHUSDT": "0.0008",
+            "SOLUSDT": "0.020",
+        }
+
+        # Generate 1,200 synthetic packets across all 3 canary symbols with identical timestamps
+        t_fixed = int(time.time() * 1000)
+        packets: list[dict[str, Any]] = []
+
+        for i in range(500):
+            sym = symbols[i % 3]
+            cid = f"c=canary-p281-{sym}-{t_fixed}-{i:04d}"
+            # Order NEW event
+            packets.append(
+                {
+                    "e": "ORDER_TRADE_UPDATE",
+                    "E": t_fixed,
+                    "T": t_fixed,
+                    "_seq": 1000 - i,  # Disordered sequences
+                    "o": {
+                        "s": sym,
+                        "c": cid,
+                        "S": "BUY",
+                        "o": "LIMIT",
+                        "f": "GTC",
+                        "q": quantities[sym],
+                        "p": prices[sym],
+                        "x": "NEW",
+                        "X": "NEW",
+                        "i": 900000 + i,
+                        "t": 0,
+                    },
+                }
+            )
+            # Duplicate NEW event for 1 in every 4 packets
+            if i % 4 == 0:
+                packets.append(dict(packets[-1]))
+
+            # Partial trade fill
+            packets.append(
+                {
+                    "e": "ORDER_TRADE_UPDATE",
+                    "E": t_fixed,
+                    "T": t_fixed,
+                    "_seq": 2000 - i,
+                    "o": {
+                        "s": sym,
+                        "c": cid,
+                        "S": "BUY",
+                        "o": "LIMIT",
+                        "f": "GTC",
+                        "q": quantities[sym],
+                        "p": prices[sym],
+                        "x": "TRADE",
+                        "X": "PARTIALLY_FILLED",
+                        "i": 900000 + i,
+                        "t": 800000 + i * 2,
+                        "z": str(Decimal(quantities[sym]) / Decimal("2")),
+                    },
+                }
+            )
+
+        assert len(packets) >= 1000
+
+        # Ingest burst through sequencer
+        sorted_tuples = sequencer.ingest_and_sort_packets(packets)
+        assert len(sorted_tuples) == len(packets)
+        assert sequencer.deduplicated_count >= 100
+        assert sequencer.out_of_order_count >= 100
+
+        # Reconciler mathematical drift remains 0
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    def test_sqlite_telemetry_store_query_methods_and_thread_safety(self, temp_telemetry_store):
+        store = temp_telemetry_store
+        now_utc = datetime.now(UTC).isoformat()
+        now_ms = int(time.time() * 1000)
+
+        # Concurrently record records across threads
+        def worker(thread_idx: int):
+            for i in range(10):
+                cid = f"c=canary-p281-BTCUSDT-{now_ms}-{thread_idx}_{i}"
+                ord_rec = MainnetOrderRecord(
+                    order_id=f"ord-{thread_idx}-{i}",
+                    client_order_id=cid,
+                    track_id="test_concurrent",
+                    candidate_id="cand-btc",
+                    symbol="BTCUSDT",
+                    side="BUY",
+                    order_type="LIMIT",
+                    time_in_force="GTC",
+                    price="60000.00",
+                    quantity="0.00005",
+                    executed_quantity="0",
+                    notional_usdt="3.00",
+                    status=OrderLifecycleState.NEW,
+                    expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+                    created_at_utc=now_utc,
+                    updated_at_utc=now_utc,
+                )
+                store.record_order(ord_rec)
+
+                trans = OrderLifecycleTransition(
+                    transition_id=f"tr-{thread_idx}-{i}",
+                    track_id="test_concurrent",
+                    order_id=ord_rec.order_id,
+                    client_order_id=cid,
+                    from_state=OrderLifecycleState.PENDING_SUBMIT.value,
+                    to_state=OrderLifecycleState.NEW.value,
+                    trigger_reason="ACK",
+                    timestamp_utc=now_utc,
+                )
+                store.record_transition(trans)
+
+                mark = MainnetExecutionMark(
+                    trade_id=f"trd-{thread_idx}-{i}",
+                    track_id="test_concurrent",
+                    order_id=ord_rec.order_id,
+                    client_order_id=cid,
+                    symbol="BTCUSDT",
+                    side="BUY",
+                    price="60000.00",
+                    quantity="0.00005",
+                    quote_quantity="3.00000000",
+                    commission_usdt="0.00120000",
+                    realized_pnl_usdt="0.00000000",
+                    trade_time_ms=now_ms,
+                    timestamp_utc=now_utc,
+                )
+                store.record_execution_mark(mark)
+
+        threads = [threading.Thread(target=worker, args=(t,)) for t in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Query helper methods
+        orders = store.get_orders(track_id="test_concurrent")
+        transitions = store.get_transitions()
+        marks = store.get_execution_marks(track_id="test_concurrent")
+
+        assert len(orders) == 40
+        assert len(transitions) >= 40
+        assert len(marks) == 40

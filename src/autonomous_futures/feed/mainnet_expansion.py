@@ -995,6 +995,90 @@ class SqliteCanaryMainnetExpansionTelemetryStore:
                 ),
             )
 
+    def get_orders(self, track_id: str | None = None) -> list[dict[str, Any]]:
+        """Query orders from database."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            if track_id is not None:
+                cursor.execute("SELECT * FROM orders WHERE track_id = ?", (track_id,))
+            else:
+                cursor.execute("SELECT * FROM orders")
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
+    def get_transitions(self, client_order_id: str | None = None) -> list[dict[str, Any]]:
+        """Query lifecycle transitions from database."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            if client_order_id is not None:
+                cursor.execute(
+                    "SELECT * FROM lifecycle_transitions WHERE client_order_id = ? "
+                    "ORDER BY timestamp_utc ASC",
+                    (client_order_id,),
+                )
+            else:
+                cursor.execute("SELECT * FROM lifecycle_transitions ORDER BY timestamp_utc ASC")
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
+    def get_execution_marks(self, track_id: str | None = None) -> list[dict[str, Any]]:
+        """Query execution marks from database."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            if track_id is not None:
+                cursor.execute("SELECT * FROM execution_marks WHERE track_id = ?", (track_id,))
+            else:
+                cursor.execute("SELECT * FROM execution_marks")
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
+    def get_snapshots(self, track_id: str | None = None) -> list[dict[str, Any]]:
+        """Query balance snapshots from database."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            if track_id is not None:
+                cursor.execute("SELECT * FROM balance_snapshots WHERE track_id = ?", (track_id,))
+            else:
+                cursor.execute("SELECT * FROM balance_snapshots")
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
+    def get_push_events(self, track_id: str | None = None) -> list[dict[str, Any]]:
+        """Query websocket push events from database."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            if track_id is not None:
+                cursor.execute(
+                    "SELECT * FROM websocket_push_events WHERE track_id = ?",
+                    (track_id,),
+                )
+            else:
+                cursor.execute("SELECT * FROM websocket_push_events")
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
+    def get_heartbeats(self, track_id: str | None = None) -> list[dict[str, Any]]:
+        """Query gateway heartbeats from database."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            if track_id is not None:
+                cursor.execute("SELECT * FROM gateway_heartbeats WHERE track_id = ?", (track_id,))
+            else:
+                cursor.execute("SELECT * FROM gateway_heartbeats")
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
+    def get_interlock_events(self, track_id: str | None = None) -> list[dict[str, Any]]:
+        """Query interlock events from database."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            if track_id is not None:
+                cursor.execute("SELECT * FROM interlock_events WHERE track_id = ?", (track_id,))
+            else:
+                cursor.execute("SELECT * FROM interlock_events")
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
     def close(self) -> None:
         with self._lock:
             self.conn.close()
@@ -1102,6 +1186,7 @@ class GatewayHeartbeatMonitor:
         self.last_heartbeat_timestamp_ms: int = 0
         self.last_latency_ms: float = 0.0
         self.is_frozen: bool = False
+        self.is_clock_skew_frozen: bool = False
         self.heartbeat_count: int = 0
         self.stale_count: int = 0
         self._simulated_stale_age: float | None = None
@@ -1117,19 +1202,27 @@ class GatewayHeartbeatMonitor:
         now_ms = int(time.time() * 1000)
         self.heartbeat_count += 1
 
-        # Check backward clock drift
+        # Check backward clock drift and forward clock desync
         is_clock_skew = False
-        if self.last_heartbeat_server_time_ms > 0:
+        if latency_ms < 0.0:
+            is_clock_skew = True
+            logger.warning("Negative latency detected: %.1f ms", latency_ms)
+        elif self.last_heartbeat_server_time_ms > 0:
             backward_skew = self.last_heartbeat_server_time_ms - server_time_ms
             if backward_skew > self.clock_skew_tolerance_ms:
                 is_clock_skew = True
-                self.is_frozen = True
-                self.stale_count += 1
                 logger.warning(
                     "Backward clock drift detected: %d ms (limit %d ms)",
                     backward_skew,
                     self.clock_skew_tolerance_ms,
                 )
+        if not is_clock_skew and (server_time_ms - now_ms) > self.clock_skew_tolerance_ms:
+            is_clock_skew = True
+            logger.warning(
+                "Forward clock drift detected: server %d ms ahead of local %d ms",
+                server_time_ms,
+                now_ms,
+            )
 
         age_ms = float(now_ms - server_time_ms)
         self.last_heartbeat_server_time_ms = server_time_ms
@@ -1137,19 +1230,30 @@ class GatewayHeartbeatMonitor:
         self.last_heartbeat_timestamp_ms = now_ms
         self.last_latency_ms = latency_ms
 
+        # Effective latency incorporates both measured round-trip latency and packet age
+        effective_latency = max(latency_ms, age_ms)
+
         if is_clock_skew:
             status = HeartbeatStatus.CLOCK_SKEW_FREEZE
-        elif age_ms > self.max_age_ms:
+            self.is_frozen = True
+            self.is_clock_skew_frozen = True
+            self.stale_count += 1
+        elif effective_latency > self.max_age_ms:
             status = HeartbeatStatus.LATENCY_SPIKE_STALE
             self.is_frozen = True
             self.stale_count += 1
         elif self.is_frozen:
             # Recovery hysteresis: must recover below recovery_ceiling_ms (<= 450 ms)
-            if age_ms <= self.recovery_ceiling_ms:
+            if effective_latency <= self.recovery_ceiling_ms:
                 self.is_frozen = False
+                self.is_clock_skew_frozen = False
                 status = HeartbeatStatus.HEALTHY
             else:
-                status = HeartbeatStatus.LATENCY_SPIKE_STALE
+                status = (
+                    HeartbeatStatus.CLOCK_SKEW_FREEZE
+                    if self.is_clock_skew_frozen
+                    else HeartbeatStatus.LATENCY_SPIKE_STALE
+                )
         else:
             status = HeartbeatStatus.HEALTHY
 
@@ -1174,6 +1278,7 @@ class GatewayHeartbeatMonitor:
             self.stale_count += 1
         elif age_ms is not None and age_ms <= self.recovery_ceiling_ms:
             self.is_frozen = False
+            self.is_clock_skew_frozen = False
 
     def is_fresh(self) -> bool:
         """True only if last heartbeat is within max allowed age and not frozen."""
@@ -1262,17 +1367,20 @@ class MainnetStreamSequencer:
         if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
             o_data = pkt.get("o", {})
             exec_type = str(o_data.get("x", ""))
+            ord_status = str(o_data.get("X", ""))
             trade_id = int(o_data.get("t", 0))
-            if exec_type == "NEW":
+            if exec_type == "NEW" or ord_status == "NEW":
                 return (10, 0)
-            if exec_type == "PARTIALLY_FILLED":
+            if exec_type == "PARTIALLY_FILLED" or ord_status == "PARTIALLY_FILLED":
                 return (20, trade_id)
-            if exec_type == "FILLED":
+            if exec_type == "FILLED" or ord_status == "FILLED":
                 return (30, trade_id)
-            if exec_type == "CANCELED":
+            if exec_type in ("CANCELED", "CANCELLED") or ord_status in ("CANCELED", "CANCELLED"):
                 return (40, 0)
-            if exec_type == "REJECTED":
+            if exec_type == "REJECTED" or ord_status == "REJECTED":
                 return (50, 0)
+            if exec_type == "EXPIRED" or ord_status == "EXPIRED":
+                return (55, 0)
             return (60, trade_id)
         if e_type == WebSocketEventType.ACCOUNT_UPDATE.value:
             return (70, 0)
@@ -1332,7 +1440,7 @@ class MainnetStreamSequencer:
 
             staged.append((t_time, e_time, seq, priority, pkt, is_dup, is_ooo))
 
-        staged.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
+        staged.sort(key=lambda x: (x[0], x[1], x[3], x[2]))
         return [(pkt, is_dup, is_ooo) for _t, _e, _s, _p, pkt, is_dup, is_ooo in staged]
 
 
@@ -2107,9 +2215,33 @@ class MainnetOrderDispatchInterlock:
                 raise OrderCorrelationError(
                     f"Cannot execute closing order for {symbol}: no open position exists"
                 )
-            if quantity > abs(pos):
+            # Deduct working unexecuted closing orders to prevent concurrent over-closing
+            working_closing_qty = Decimal("0")
+            if self._orders_provider is not None:
+                for ord_rec in self._orders_provider().values():
+                    if (
+                        ord_rec.is_closing
+                        and ord_rec.symbol == symbol
+                        and ord_rec.client_order_id != client_order_id
+                        and ord_rec.status
+                        in (
+                            OrderLifecycleState.PENDING_NEW,
+                            OrderLifecycleState.PENDING_SUBMIT,
+                            OrderLifecycleState.NEW,
+                            OrderLifecycleState.PARTIALLY_FILLED,
+                        )
+                    ):
+                        orig_qty = Decimal(str(ord_rec.quantity))
+                        exec_qty = Decimal(str(ord_rec.executed_quantity))
+                        unfilled = max(Decimal("0"), orig_qty - exec_qty)
+                        working_closing_qty += unfilled
+
+            available_close_qty = abs(pos) - working_closing_qty
+            if quantity > available_close_qty:
                 raise OrderCorrelationError(
-                    f"Closing quantity {quantity} exceeds open position {abs(pos)} for {symbol}"
+                    f"Closing quantity {quantity} exceeds available closeable position "
+                    f"{available_close_qty} (open={abs(pos)}, working={working_closing_qty}) "
+                    f"for {symbol}"
                 )
             if side is not None:
                 expected_close_side = OrderSide.SELL if pos > Decimal("0") else OrderSide.BUY
