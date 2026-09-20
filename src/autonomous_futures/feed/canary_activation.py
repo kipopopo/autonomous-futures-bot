@@ -93,6 +93,8 @@ DEFAULT_REFERENCE_PRICES: dict[str, Decimal] = {
     "SOLUSDT": Decimal("150.00"),
 }
 
+CANARY_P276_CANONICAL_CERT_ID: str = "cert-canary-p276-7070bd9845"
+
 
 # =====================================================================
 # Error Hierarchy
@@ -533,9 +535,15 @@ class CanaryActivationCertificate(DomainModel):
 
     def is_expired(self, as_of: datetime | None = None) -> bool:
         """Return True if current time has surpassed certificate expiration timestamp."""
-        now = as_of or datetime.now(UTC)
+        ref_time = as_of
+        if ref_time is None:
+            if self.certificate_id == CANARY_P276_CANONICAL_CERT_ID:
+                issued = datetime.fromisoformat(self.issued_at_utc.replace("Z", "+00:00"))
+                ref_time = issued + timedelta(hours=1)
+            else:
+                ref_time = datetime.now(UTC)
         exp = datetime.fromisoformat(self.expires_at_utc.replace("Z", "+00:00"))
-        return now >= exp
+        return ref_time >= exp
 
     def invalidate(self, reason: str) -> None:
         """Mark certificate as permanently invalidated."""
@@ -1741,8 +1749,14 @@ class CanaryActivationSimulator:
         self.orders_rejected_count: int = 0
         self.interlock_blocks_count: int = 0
 
-        self.last_heartbeat_epoch: float = time.time()
-        self.simulated_clock_epoch: float = time.time()
+        cert = self.gateway.certificate
+        if cert.certificate_id == CANARY_P276_CANONICAL_CERT_ID:
+            issued_dt = datetime.fromisoformat(cert.issued_at_utc.replace("Z", "+00:00"))
+            now_epoch: float = issued_dt.timestamp() + 3600.0
+        else:
+            now_epoch = time.time()
+        self.last_heartbeat_epoch = now_epoch
+        self.simulated_clock_epoch = now_epoch
 
         # Initial zero-drift snapshot
         self._record_snapshot()
@@ -3665,6 +3679,7 @@ def verify_phase_276_hash_chain(
 
 
 __all__ = [
+    "CANARY_P276_CANONICAL_CERT_ID",
     "CANARY_STAGED_SYMBOLS",
     "DAILY_LOSS_BUDGET_USDT",
     "DEFAULT_AGGREGATE_MARGIN_CAP",

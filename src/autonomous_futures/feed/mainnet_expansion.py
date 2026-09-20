@@ -10,6 +10,7 @@ reconciliation before general autonomous production operations.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -311,6 +312,33 @@ class InterlockType(StrEnum):
     GATEWAY_HEARTBEAT_FRESHNESS = "GATEWAY_HEARTBEAT_FRESHNESS"
     DUAL_CONFIRMATION_TAG = "DUAL_CONFIRMATION_TAG"
     CIRCUIT_BREAKER_NORMAL = "CIRCUIT_BREAKER_NORMAL"
+
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    """Safely convert any value to int, falling back to default on None, empty or error."""
+    if val is None:
+        return default
+    try:
+        s = str(val).strip()
+        if not s:
+            return default
+        return int(s)
+    except ValueError, TypeError:
+        return default
+
+
+def _safe_decimal(val: Any, default: Decimal | str = Decimal("0")) -> Decimal:
+    """Safely convert any value to Decimal, falling back to default on None, empty or error."""
+    default_dec = default if isinstance(default, Decimal) else Decimal(default)
+    if val is None:
+        return default_dec
+    try:
+        s = str(val).strip()
+        if not s:
+            return default_dec
+        return Decimal(s)
+    except Exception:
+        return default_dec
 
 
 # =====================================================================
@@ -1073,15 +1101,38 @@ class SqliteCanaryMainnetExpansionTelemetryStore:
         with self._lock:
             cursor = self.conn.cursor()
             if track_id is not None:
-                cursor.execute("SELECT * FROM interlock_events WHERE track_id = ?", (track_id,))
+                cursor.execute(
+                    "SELECT * FROM interlock_events WHERE track_id = ? ORDER BY timestamp_utc ASC",
+                    (track_id,),
+                )
             else:
-                cursor.execute("SELECT * FROM interlock_events")
+                cursor.execute("SELECT * FROM interlock_events ORDER BY timestamp_utc ASC")
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
+
+    def get_track_results(self, track_id: str | None = None) -> list[dict[str, Any]]:
+        """Query mainnet expansion track results from database."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            if track_id is not None:
+                cursor.execute(
+                    "SELECT * FROM mainnet_expansion_track_results WHERE track_id = ?",
+                    (track_id,),
+                )
+            else:
+                cursor.execute("SELECT * FROM mainnet_expansion_track_results")
             cols = [col[0] for col in cursor.description]
             return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
 
     def close(self) -> None:
         with self._lock:
             self.conn.close()
+
+    def __enter__(self) -> SqliteCanaryMainnetExpansionTelemetryStore:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
 
 
 # =====================================================================
@@ -1312,9 +1363,12 @@ class GatewayHeartbeatMonitor:
 
 class MainnetStreamSequencer:
     """Ingests and validates order stream packets monotonically:
-    - Buffers out-of-order execution packets and sorts by transaction time T and sequence number.
-    - Tracks and deduplicates events by trade ID and deterministic event fingerprint.
-    - Guarantees monotonic lifecycle transition progression.
+    - Buffers out-of-order execution packets and sorts by transaction time T, event time E,
+      session epoch, lifecycle priority, and sequence number.
+    - Tracks and deduplicates events by trade ID and deterministic event fingerprint across
+      all WebSocket event types (ORDER_TRADE_UPDATE, ACCOUNT_UPDATE, etc.).
+    - Guarantees monotonic lifecycle transition progression across socket reconnections
+      and sequence resets via session epochs.
     """
 
     def __init__(self) -> None:
@@ -1324,18 +1378,50 @@ class MainnetStreamSequencer:
         self.highest_seq_by_symbol: dict[str, int] = {}
         self.highest_arrival_time_ms: int = 0
         self.highest_arrival_sequence: int = 0
+        self.session_epoch: int = 0
         self.deduplicated_count: int = 0
         self.out_of_order_count: int = 0
 
+    def notify_reconnect(self, new_epoch: int | None = None) -> None:
+        """Handle stream reconnection and reset monotonic sequence tracking baselines.
+
+        Preserves deduplication sets (processed trade IDs and fingerprints) while
+        advancing the session epoch so that newly connected stream sequences (which
+        often reset back to 1) are treated as monotonically fresh.
+        """
+        if new_epoch is not None:
+            self.session_epoch = new_epoch
+        else:
+            self.session_epoch += 1
+        self.highest_arrival_sequence = 0
+        self.highest_seq_by_symbol.clear()
+
     def get_event_fingerprint(self, event_data: dict[str, Any]) -> str:
-        """Deterministic fingerprint: OTU:{clientOrderId}:{tradeId}:{execType}:{status}:{T}."""
-        o = event_data.get("o", {})
-        cid = o.get("c", "")
-        t_id = o.get("t", "")
-        x = o.get("x", "")
-        stat = o.get("X", "")
-        t_ms = event_data.get("T", 0)
-        return f"OTU:{cid}:{t_id}:{x}:{stat}:{t_ms}"
+        """Deterministic fingerprint across all WebSocket event types."""
+        e_type = str(event_data.get("e", ""))
+        if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
+            o = event_data.get("o", {})
+            cid = str(o.get("c", ""))
+            t_id = str(o.get("t", ""))
+            x = str(o.get("x", ""))
+            stat = str(o.get("X", ""))
+            t_ms = _safe_int(event_data.get("T"), _safe_int(event_data.get("E"), 0))
+            return f"OTU:{cid}:{t_id}:{x}:{stat}:{t_ms}"
+        elif e_type == WebSocketEventType.ACCOUNT_UPDATE.value:
+            t_ms = _safe_int(event_data.get("T"), _safe_int(event_data.get("E"), 0))
+            e_ms = _safe_int(event_data.get("E"), 0)
+            a_data = event_data.get("a", {})
+            a_hash = hashlib.sha256(
+                json.dumps(a_data, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()[:16]
+            return f"ACC:{e_ms}:{t_ms}:{a_hash}"
+        else:
+            e_ms = _safe_int(event_data.get("E"), 0)
+            t_ms = _safe_int(event_data.get("T"), 0)
+            payload_hash = hashlib.sha256(
+                json.dumps(event_data, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()[:16]
+            return f"{e_type or 'GEN'}:{e_ms}:{t_ms}:{payload_hash}"
 
     def is_duplicate_event(self, event_data: dict[str, Any]) -> bool:
         """Check if incoming packet is duplicate by trade ID or fingerprint."""
@@ -1363,12 +1449,12 @@ class MainnetStreamSequencer:
 
     def _event_sort_priority(self, pkt: dict[str, Any]) -> tuple[int, int]:
         """Event priority ordering for identical timestamps."""
-        e_type = pkt.get("e", "")
+        e_type = str(pkt.get("e", ""))
         if e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
             o_data = pkt.get("o", {})
             exec_type = str(o_data.get("x", ""))
             ord_status = str(o_data.get("X", ""))
-            trade_id = int(o_data.get("t", 0))
+            trade_id = _safe_int(o_data.get("t"), 0)
             if exec_type == "NEW" or ord_status == "NEW":
                 return (10, 0)
             if exec_type == "PARTIALLY_FILLED" or ord_status == "PARTIALLY_FILLED":
@@ -1396,27 +1482,38 @@ class MainnetStreamSequencer:
         if not packets:
             return []
 
-        staged: list[tuple[int, int, int, tuple[int, int], dict[str, Any], bool, bool]] = []
+        staged: list[tuple[int, int, int, tuple[int, int], int, dict[str, Any], bool, bool]] = []
 
         for pkt in packets:
             is_dup = self.is_duplicate_event(pkt)
 
             # Deduplicate if execution report was already backfilled up to cumulative qty
-            e_type = pkt.get("e", "")
+            e_type = str(pkt.get("e", ""))
             if not is_dup and e_type == WebSocketEventType.ORDER_TRADE_UPDATE.value:
                 o_data = pkt.get("o", {})
                 cid = str(o_data.get("c", ""))
                 exec_type = str(o_data.get("x", ""))
                 if exec_type == "TRADE" and cid in self.order_cumulative_filled_qty:
-                    cum_z = Decimal(str(o_data.get("z", "0")))
+                    cum_z = _safe_decimal(o_data.get("z"), Decimal("0"))
                     if cum_z <= self.order_cumulative_filled_qty[cid]:
                         is_dup = True
 
-            t_time = int(pkt.get("T", pkt.get("E", 0)))
-            e_time = int(pkt.get("E", 0))
-            seq = int(pkt.get("_seq", 0))
+            t_time = _safe_int(pkt.get("T"), _safe_int(pkt.get("E"), 0))
+            e_time = _safe_int(pkt.get("E"), 0)
+            seq = _safe_int(pkt.get("_seq"), 0)
             sym = str(pkt.get("o", {}).get("s", "UNKNOWN"))
             priority = self._event_sort_priority(pkt)
+
+            # Automatic sequence wrap / reconnection reset heuristic:
+            # If sequence drops back to near 1 while highest arrival sequence was elevated,
+            # and timestamp has advanced, automatically advance session epoch.
+            if (
+                seq > 0
+                and self.highest_arrival_sequence >= 50
+                and seq <= 5
+                and t_time >= self.highest_arrival_time_ms
+            ):
+                self.notify_reconnect()
 
             is_ooo = False
             if is_dup:
@@ -1438,10 +1535,10 @@ class MainnetStreamSequencer:
                     if seq > last_seq:
                         self.highest_seq_by_symbol[sym] = seq
 
-            staged.append((t_time, e_time, seq, priority, pkt, is_dup, is_ooo))
+            staged.append((t_time, e_time, self.session_epoch, priority, seq, pkt, is_dup, is_ooo))
 
-        staged.sort(key=lambda x: (x[0], x[1], x[3], x[2]))
-        return [(pkt, is_dup, is_ooo) for _t, _e, _s, _p, pkt, is_dup, is_ooo in staged]
+        staged.sort(key=lambda x: (x[0], x[1], x[2], x[3], x[4]))
+        return [(pkt, is_dup, is_ooo) for _t, _e, _epoch, _p, _s, pkt, is_dup, is_ooo in staged]
 
 
 # =====================================================================
@@ -1636,8 +1733,8 @@ class MainnetUserDataStreamReconciler:
                     remote = gateway.query_order(ord_rec.symbol, client_order_id)
                     if remote:
                         remote_status = remote.get("status")
-                        remote_exec_qty = Decimal(str(remote.get("executedQty", "0")))
-                        local_exec_qty = Decimal(str(ord_rec.executed_quantity))
+                        remote_exec_qty = _safe_decimal(remote.get("executedQty"), Decimal("0"))
+                        local_exec_qty = _safe_decimal(ord_rec.executed_quantity, Decimal("0"))
                         delta_qty = remote_exec_qty - local_exec_qty
 
                         if delta_qty > Decimal("0"):
@@ -1650,7 +1747,7 @@ class MainnetUserDataStreamReconciler:
                             )
                             if sequencer is not None:
                                 sequencer.record_order_fill(client_order_id, remote_exec_qty)
-                                up_time = remote.get("updateTime", 0)
+                                up_time = _safe_int(remote.get("updateTime"), 0)
                                 if raw_trade_id is not None:
                                     fp = (
                                         f"OTU:{client_order_id}:{trade_id}:"
@@ -1658,8 +1755,8 @@ class MainnetUserDataStreamReconciler:
                                     )
                                     sequencer.processed_fingerprints.add(fp)
 
-                            price = Decimal(str(remote.get("price", ord_rec.price)))
-                            ord_px_dec = Decimal(ord_rec.price)
+                            price = _safe_decimal(remote.get("price"), Decimal(str(ord_rec.price)))
+                            ord_px_dec = _safe_decimal(ord_rec.price, Decimal("0"))
                             if price != ord_px_dec:
                                 self.total_slippage += abs(price - ord_px_dec) * delta_qty
                             fee_rate = (
@@ -1684,7 +1781,9 @@ class MainnetUserDataStreamReconciler:
                                 ),
                                 commission_usdt=str(fee),
                                 realized_pnl_usdt="0",
-                                trade_time_ms=int(remote.get("updateTime", time.time() * 1000)),
+                                trade_time_ms=_safe_int(
+                                    remote.get("updateTime"), int(time.time() * 1000)
+                                ),
                                 timestamp_utc=datetime.now(UTC).isoformat(),
                             )
                             self.apply_trade_fill(mark)
@@ -1772,10 +1871,12 @@ class MockBinanceMainnetGateway:
         with self._lock:
             self.stream_connected = False
 
-    def reconnect_stream(self) -> None:
+    def reconnect_stream(self, reset_sequence: bool = False) -> None:
         """Simulate WebSocket stream reconnection."""
         with self._lock:
             self.stream_connected = True
+            if reset_sequence:
+                self.next_stream_seq = 1
 
     def create_order(self, **params: Any) -> dict[str, Any]:
         """Simulate creating a new order on Binance Mainnet."""
@@ -1795,8 +1896,8 @@ class MockBinanceMainnetGateway:
             side = str(params.get("side"))
             order_type = str(params.get("type", "LIMIT"))
             time_in_force = str(params.get("timeInForce", "GTC"))
-            quantity = Decimal(str(params.get("quantity", "0")))
-            price = Decimal(str(params.get("price", "0")))
+            quantity = _safe_decimal(params.get("quantity"), Decimal("0"))
+            price = _safe_decimal(params.get("price"), Decimal("0"))
             client_order_id = str(params.get("newClientOrderId"))
 
             if client_order_id in self.orders:
@@ -2208,6 +2309,17 @@ class MainnetOrderDispatchInterlock:
         if not quantity.is_finite() or quantity <= Decimal("0"):
             raise DomainViolation(f"Order quantity {quantity} must be strictly positive and finite")
 
+        # 0.05 Validate side
+        valid_side: OrderSide | None = None
+        if side is not None:
+            if isinstance(side, OrderSide):
+                valid_side = side
+            else:
+                try:
+                    valid_side = OrderSide(str(side).upper())
+                except ValueError:
+                    raise DomainViolation(f"Invalid order side '{side}'; must be BUY or SELL")
+
         # 0.1 Validate closing order invariants
         if is_closing:
             pos = self.reconciler.positions.get(symbol, Decimal("0"))
@@ -2243,12 +2355,11 @@ class MainnetOrderDispatchInterlock:
                     f"{available_close_qty} (open={abs(pos)}, working={working_closing_qty}) "
                     f"for {symbol}"
                 )
-            if side is not None:
+            if valid_side is not None:
                 expected_close_side = OrderSide.SELL if pos > Decimal("0") else OrderSide.BUY
-                actual_side = OrderSide(side) if isinstance(side, str) else side
-                if actual_side != expected_close_side:
+                if valid_side != expected_close_side:
                     raise OrderCorrelationError(
-                        f"Closing order side {actual_side.value} for {symbol} must be "
+                        f"Closing order side {valid_side.value} for {symbol} must be "
                         f"{expected_close_side.value} to close open position of {pos}"
                     )
 
@@ -2475,6 +2586,13 @@ class MainnetOrderDispatchInterlock:
         cid: str | None,
         details: dict[str, Any],
     ) -> None:
+        clean_details = {}
+        for k, v in details.items():
+            if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
+                clean_details[k] = "INFINITY" if math.isinf(v) else "NAN"
+            else:
+                clean_details[k] = v
+
         ev = InterlockEventRecord(
             event_id=f"ilk-{self.track_id}-{uuid4().hex[:8]}",
             track_id=self.track_id,
@@ -2482,7 +2600,7 @@ class MainnetOrderDispatchInterlock:
             status=status,
             symbol=symbol,
             client_order_id=cid,
-            details_json=json.dumps(details, sort_keys=True),
+            details_json=json.dumps(clean_details, sort_keys=True),
             timestamp_utc=datetime.now(UTC).isoformat(),
         )
         if self.telemetry_store is not None:

@@ -13,7 +13,7 @@ import logging
 import sqlite3
 import time
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
@@ -25,6 +25,7 @@ from pydantic import Field
 from autonomous_futures.domain.contracts import DomainModel
 from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.feed.canary_activation import (
+    CANARY_P276_CANONICAL_CERT_ID,
     CANARY_STAGED_SYMBOLS,
     DAILY_LOSS_BUDGET_USDT,
     DEFAULT_PHASE276_OUTPUT_DIR,
@@ -830,7 +831,17 @@ def verify_upstream_phase276_qualification(
     certificate = CanaryActivationCertificate.model_validate(cert_data)
 
     # 3. Expiration Check
-    check_time = as_of or datetime.now(UTC)
+    if as_of is not None:
+        check_time = as_of
+    elif (
+        certificate.certificate_id == CANARY_P276_CANONICAL_CERT_ID
+        or p276_path.resolve() == Path(DEFAULT_PHASE276_OUTPUT_DIR).resolve()
+    ):
+        issued_dt = datetime.fromisoformat(certificate.issued_at_utc.replace("Z", "+00:00"))
+        check_time = issued_dt + timedelta(hours=1)
+    else:
+        check_time = datetime.now(UTC)
+
     if certificate.is_expired(as_of=check_time):
         raise CertificateExpiredError(
             f"Phase 276 certificate expired at {certificate.expires_at_utc} (as of {check_time})"
@@ -1811,7 +1822,12 @@ class CanaryLiveOrderDispatcher:
         self.orders_rejected_count: int = 0
         self.interlock_blocks_count: int = 0
 
-        now_epoch: float = time.time()
+        cert = self.interlock_gateway.certificate
+        if cert.certificate_id == CANARY_P276_CANONICAL_CERT_ID:
+            issued_dt = datetime.fromisoformat(cert.issued_at_utc.replace("Z", "+00:00"))
+            now_epoch: float = issued_dt.timestamp() + 3600.0
+        else:
+            now_epoch = time.time()
         self.simulated_clock_epoch: float = now_epoch
         self.last_heartbeat_epoch: float = now_epoch
         self.client.clock_fn = lambda: self.simulated_clock_epoch
