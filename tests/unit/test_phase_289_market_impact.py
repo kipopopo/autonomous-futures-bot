@@ -63,6 +63,7 @@ from autonomous_futures.feed.market_impact import (  # noqa: E402
     STAGE_10_MARKET_IMPACT_EXPANSION_CAP_USDT,
     AggregateExposureCapExceededError,
     AggressiveOrderRejectedError,
+    CanaryMarketImpactError,
     CapitalExpansionStage,
     CircuitBreakerState,
     DisplacementAbsorptionState,
@@ -1145,3 +1146,340 @@ def test_extreme_stress_double_entry_balance_reconciliation(temp_telemetry_store
                 reconciler.record_fill(sym, side, px, qty, is_closing=False)
 
         assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_concurrent_parent_working_margin_isolation_on_child_rejection(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify concurrent parent orders do not corrupt or double-deduct working margins."""
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # Parent A reserves 10.00 USDT on ETHUSDT
+    cid_parent_a = "parent-order-aaa"
+    interlock.reserve_parent_working_margin(
+        "ETHUSDT", Decimal("10.00"), parent_client_order_id=cid_parent_a
+    )
+    assert interlock.parent_working_margin["ETHUSDT"] == Decimal("10.00")
+
+    # Parent B will attempt 10.00 USDT with 4 slices of 2.50 USDT
+    # Intercept dispatch_micro_order: slice 1 succeeds, slice 2 raises MarketImpactBreachError
+    orig_dispatch = dispatcher.dispatch_micro_order
+    call_count = 0
+
+    def mock_dispatch(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise CanaryMarketImpactError("Simulated market impact breach on slice 2")
+        return orig_dispatch(*args, **kwargs)
+
+    dispatcher.dispatch_micro_order = mock_dispatch
+
+    with pytest.raises(CanaryMarketImpactError, match="Simulated market impact breach"):
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-ethusdt",
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=Decimal("10.00"),
+            limit_price=Decimal("3000.00"),
+            slice_chunk_notional=Decimal("2.50"),
+        )
+
+    # Parent A's reserved working margin MUST remain exactly 10.00 USDT
+    assert interlock.parent_working_margin["ETHUSDT"] == Decimal("10.00")
+    assert interlock._parent_order_working_notionals[cid_parent_a] == Decimal("10.00")
+
+    # Only 1 parent order record created in dispatcher
+    assert len(dispatcher.parent_orders) == 1
+    parent_b = list(dispatcher.parent_orders.values())[0]
+    assert parent_b.status == OrderLifecycleState.PARTIALLY_FILLED
+    assert Decimal(parent_b.executed_notional_usdt) == Decimal("2.50")
+
+    # Child IDs must contain ONLY the 1 successfully dispatched order (no ghost order)
+    child_ids = json.loads(parent_b.child_order_ids_json)
+    assert len(child_ids) == 1
+    assert child_ids[0] in dispatcher.orders
+
+    # Clean release of Parent A
+    released = interlock.release_parent_order_working_margin(cid_parent_a, "ETHUSDT")
+    assert released == Decimal("10.00")
+    assert interlock.parent_working_margin["ETHUSDT"] == Decimal("0.0")
+
+
+def test_parent_working_margin_released_on_pre_loop_exception(
+    temp_telemetry_store, temp_jsonl_sink, monkeypatch
+):
+    """Verify parent working margin reservation is cleanly released if pre-loop error occurs."""
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # Monkeypatch telemetry store to raise an error during record_parent_order
+    def broken_record(parent_rec):
+        raise RuntimeError("Telemetry disk write failure")
+
+    monkeypatch.setattr(temp_telemetry_store, "record_parent_order", broken_record)
+
+    with pytest.raises(RuntimeError, match="Telemetry disk write failure"):
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-ethusdt",
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=Decimal("4.50"),
+            limit_price=Decimal("3000.00"),
+            slice_chunk_notional=Decimal("2.25"),
+        )
+
+    # Working margin must be cleanly cleaned up back to 0.00
+    assert interlock.parent_working_margin["ETHUSDT"] == Decimal("0.0")
+    assert len(interlock._parent_order_working_notionals) == 0
+
+
+def test_safe_decimal_nan_infinity_resilience():
+    """Verify _safe_decimal rejects NaN and Infinity gracefully without raising errors."""
+    from autonomous_futures.feed.market_impact import _safe_decimal
+
+    assert _safe_decimal(float("nan")) == Decimal("0.0")
+    assert _safe_decimal(float("inf")) == Decimal("0.0")
+    assert _safe_decimal(float("-inf")) == Decimal("0.0")
+    assert _safe_decimal("nan") == Decimal("0.0")
+    assert _safe_decimal("Infinity") == Decimal("0.0")
+    assert _safe_decimal("-Infinity") == Decimal("0.0")
+    assert _safe_decimal(Decimal("nan")) == Decimal("0.0")
+    assert _safe_decimal(Decimal("Infinity")) == Decimal("0.0")
+    assert _safe_decimal(None, default=Decimal("5.0")) == Decimal("5.0")
+    assert _safe_decimal("42.50") == Decimal("42.50")
+
+
+def test_market_impact_engine_extreme_and_zero_variance_resilience():
+    """Verify Kyle's lambda & half-life handle zero-variance and non-finite inputs."""
+    engine = MarketImpactEngine()
+
+    # Zero-variance price marks (no price change)
+    engine.process_trade("BTCUSDT", price=Decimal("60000.00"), quantity=Decimal("0.01"), side="BUY")
+    engine.process_trade("BTCUSDT", price=Decimal("60000.00"), quantity=Decimal("0.01"), side="BUY")
+    # Instantaneous lambda should be zero, not error
+    assert engine.get_lambda("BTCUSDT") >= Decimal("0.0")
+
+    # Extreme / NaN / negative half-life in surge
+    engine.record_impact_surge(
+        symbol="BTCUSDT",
+        lambda_value=Decimal("0.85"),
+        resilience_half_life=float("nan"),
+        replenishment_velocity=Decimal("-5.0"),
+    )
+    # Sanitizer resets NaN half-life to base half-life
+    assert engine.get_resilience_half_life("BTCUSDT") == engine.base_resilience_half_life_seconds
+
+    # Extreme / zero / NaN time delta in replenishment
+    engine.record_replenishment(
+        symbol="BTCUSDT",
+        depth_delta_usdt=Decimal("50.0"),
+        time_delta_seconds=0.0,
+    )
+    assert engine.get_replenishment_velocity("BTCUSDT") == Decimal("50.00")
+
+    engine.record_replenishment(
+        symbol="BTCUSDT",
+        depth_delta_usdt=Decimal("50.0"),
+        time_delta_seconds=float("nan"),
+    )
+    assert engine.get_replenishment_velocity("BTCUSDT") == Decimal("50.00")
+
+    # Spillover coefficients bound in [0.0, 1.0]
+    spillover = engine.get_spillover_coefficients("BTCUSDT")
+    for _other, coeff_str in spillover.items():
+        coeff = Decimal(coeff_str)
+        assert Decimal("0.0") <= coeff <= Decimal("1.0")
+
+
+def test_conservative_candidate_margin_evaluation_under_price_displacement(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify per-asset margin interlock accounts for actual allocated cash margin on price drop."""
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(
+        starting_equity=Decimal("100.00"),
+        telemetry_store=temp_telemetry_store,
+    )
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # Open position at entry price 3000.00: 0.006 ETH = 18.00 USDT allocated margin
+    # Per-asset 20% limit of 100 USDT is 20.00 USDT.
+    # Remaining per-asset headroom is 2.00 USDT.
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-ethusdt",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.0015"),
+        price=Decimal("3000.00"),
+        client_order_id=generate_canary_client_order_id("ETHUSDT"),
+    )
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-ethusdt",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.0015"),
+        price=Decimal("3000.00"),
+        client_order_id=generate_canary_client_order_id("ETHUSDT"),
+    )
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-ethusdt",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.0015"),
+        price=Decimal("3000.00"),
+        client_order_id=generate_canary_client_order_id("ETHUSDT"),
+    )
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-ethusdt",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.0015"),
+        price=Decimal("3000.00"),
+        client_order_id=generate_canary_client_order_id("ETHUSDT"),
+    )
+    assert reconciler.per_asset_margin["ETHUSDT"] == Decimal("18.00")
+
+    # Now price drops to 1000.00 USDT.
+    # Mark-to-market position value is 0.006 * 1000 = 6.00 USDT.
+    # But actual allocated cash margin is 18.00 USDT!
+    # If candidate tries to place another 3.00 USDT order, 18.00 + 3.00 = 21.00 > 20.00!
+    with pytest.raises(MarginAllocationExceededError, match="exceeds per-asset 20% ceiling"):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-ethusdt",
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.003"),
+            price=Decimal("1000.00"),
+            client_order_id=generate_canary_client_order_id("ETHUSDT"),
+        )
+
+
+def test_emergency_liquidation_cleans_all_committed_and_parent_margin(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify emergency liquidation cancels open resting orders and wipes committed margins."""
+    gateway = MockBinanceMarketImpactGateway()
+    reconciler = MarketImpactUserDataStreamReconciler(
+        starting_equity=Decimal("100.00"),
+        telemetry_store=temp_telemetry_store,
+    )
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = MarketImpactEngine(telemetry_store=temp_telemetry_store)
+    interlock = MarketImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = MarketImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # 1. Fill an order to establish an active open position
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-ethusdt",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.0015"),
+        price=Decimal("3000.00"),
+        client_order_id=generate_canary_client_order_id("ETHUSDT"),
+    )
+    assert reconciler.positions["ETHUSDT"] == Decimal("0.0015")
+
+    # 2. Place an unfilled resting order that holds committed margin
+    cid_resting = generate_canary_client_order_id("SOLUSDT")
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-solusdt",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.02"),
+        price=Decimal("150.00"),
+        client_order_id=cid_resting,
+        simulate_fill_immediately=False,
+    )
+    assert interlock.committed_margin["SOLUSDT"] == Decimal("3.00")
+
+    # 3. Reserve parent working margin
+    interlock.reserve_parent_working_margin(
+        "BTCUSDT", Decimal("4.50"), parent_client_order_id="p-btc"
+    )
+    assert interlock.parent_working_margin["BTCUSDT"] == Decimal("4.50")
+
+    # Execute emergency liquidation
+    liquidated = dispatcher.emergency_micro_chunk_liquidate_all(
+        candidate_ids={"ETHUSDT": "cand-ethusdt"},
+        prices={"ETHUSDT": Decimal("3000.00")},
+    )
+    assert len(liquidated) >= 1
+
+    # Verify positions flattened
+    assert reconciler.positions["ETHUSDT"] == Decimal("0.0")
+    assert reconciler.allocated_margin == Decimal("0.0")
+
+    # Verify resting order was cancelled
+    assert dispatcher.orders[cid_resting].status == OrderLifecycleState.CANCELLED
+
+    # Verify ALL committed and parent working margins are completely cleared
+    assert interlock.get_total_committed_margin() == Decimal("0.0")
+    assert len(interlock._parent_order_working_notionals) == 0
+    assert all(v == Decimal("0.0") for v in dispatcher._order_committed_notionals.values())
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT

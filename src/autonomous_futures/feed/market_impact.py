@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import sqlite3
 import threading
@@ -493,9 +494,14 @@ def _safe_decimal(val: Any, default: Decimal = Decimal("0.0")) -> Decimal:
     if val is None:
         return default
     if isinstance(val, Decimal):
+        if val.is_nan() or val.is_infinite():
+            return default
         return val
     try:
-        return Decimal(str(val).strip())
+        d = Decimal(str(val).strip())
+        if d.is_nan() or d.is_infinite():
+            return default
+        return d
     except Exception:
         return default
 
@@ -1568,10 +1574,16 @@ class MarketImpactEngine:
         """Explicitly simulate severe price displacement surge for testing."""
         sym = symbol.strip().upper()
         with self._lock:
-            val = _safe_decimal(lambda_value)
+            val = max(Decimal("0.0"), _safe_decimal(lambda_value))
+            try:
+                hl = float(resilience_half_life)
+                if math.isnan(hl) or math.isinf(hl) or hl <= 0.0:
+                    hl = self.base_resilience_half_life_seconds
+            except Exception:
+                hl = self.base_resilience_half_life_seconds
             self._current_lambdas[sym] = val
             self._rolling_lambdas[sym].append(val)
-            self._resilience_half_lives[sym] = resilience_half_life
+            self._resilience_half_lives[sym] = hl
             self._replenishment_velocities[sym] = _safe_decimal(replenishment_velocity)
             self._recalculate_symbol_state(sym, track_id, timestamp_utc)
 
@@ -1585,8 +1597,15 @@ class MarketImpactEngine:
         """Record order book replenishment speed."""
         sym = symbol.strip().upper()
         with self._lock:
-            sec = max(0.001, time_delta_seconds)
-            vel = (_safe_decimal(depth_delta_usdt) / Decimal(str(sec))).quantize(Decimal("0.01"))
+            try:
+                sec_f = float(time_delta_seconds)
+                if math.isnan(sec_f) or math.isinf(sec_f) or sec_f <= 0.0:
+                    sec_f = 1.0
+            except Exception:
+                sec_f = 1.0
+            sec = max(0.001, sec_f)
+            delta_d = _safe_decimal(depth_delta_usdt)
+            vel = (delta_d / Decimal(str(sec))).quantize(Decimal("0.01"))
             self._replenishment_velocities[sym] = vel
             self._recalculate_symbol_state(sym, track_id)
 
@@ -1723,8 +1742,10 @@ class MarketImpactEngine:
                 if other == src:
                     continue
                 base_c = self.spillover_matrix.get((src, other), Decimal("0.20"))
-                cur_l = self.get_lambda(src)
-                effective = min(Decimal("1.0"), base_c * (Decimal("1.0") + cur_l))
+                cur_l = max(Decimal("0.0"), self.get_lambda(src))
+                effective = min(
+                    Decimal("1.0"), max(Decimal("0.0"), base_c * (Decimal("1.0") + cur_l))
+                )
                 res[other] = str(effective.quantize(Decimal("0.0001")))
         return res
 
@@ -2269,6 +2290,8 @@ class MarketImpactOrderDispatchInterlock:
         self.parent_working_margin: dict[str, Decimal] = {
             s: Decimal("0.0") for s in CANARY_STAGED_SYMBOLS
         }
+        self._parent_order_working_notionals: dict[str, Decimal] = {}
+        self._parent_order_symbols: dict[str, str] = {}
 
     def reserve_committed_margin(self, symbol: str, notional: Decimal) -> None:
         with self._lock:
@@ -2282,23 +2305,65 @@ class MarketImpactOrderDispatchInterlock:
             curr = self.committed_margin.get(sym, Decimal("0.0"))
             self.committed_margin[sym] = max(Decimal("0.0"), curr - notional)
 
-    def reserve_parent_working_margin(self, symbol: str, notional: Decimal) -> None:
+    def release_all_committed_margin(self) -> None:
         with self._lock:
-            sym = symbol.strip().upper()
-            self.parent_working_margin[sym] = (
-                self.parent_working_margin.get(sym, Decimal("0.0")) + notional
-            )
+            for s in self.committed_margin:
+                self.committed_margin[s] = Decimal("0.0")
 
-    def deduct_parent_working_margin(self, symbol: str, notional: Decimal) -> None:
+    def reserve_parent_working_margin(
+        self, symbol: str, notional: Decimal, parent_client_order_id: str | None = None
+    ) -> None:
         with self._lock:
             sym = symbol.strip().upper()
-            curr = self.parent_working_margin.get(sym, Decimal("0.0"))
-            self.parent_working_margin[sym] = max(Decimal("0.0"), curr - notional)
+            notional_dec = _safe_decimal(notional)
+            self.parent_working_margin[sym] = (
+                self.parent_working_margin.get(sym, Decimal("0.0")) + notional_dec
+            )
+            if parent_client_order_id:
+                p_id = parent_client_order_id.strip()
+                self._parent_order_working_notionals[p_id] = (
+                    self._parent_order_working_notionals.get(p_id, Decimal("0.0")) + notional_dec
+                )
+                self._parent_order_symbols[p_id] = sym
+
+    def deduct_parent_working_margin(
+        self, symbol: str, notional: Decimal, parent_client_order_id: str | None = None
+    ) -> None:
+        with self._lock:
+            sym = symbol.strip().upper()
+            notional_dec = _safe_decimal(notional)
+            if parent_client_order_id:
+                p_id = parent_client_order_id.strip()
+                curr_p = self._parent_order_working_notionals.get(p_id, Decimal("0.0"))
+                actual_deduct = min(curr_p, notional_dec)
+                self._parent_order_working_notionals[p_id] = max(
+                    Decimal("0.0"), curr_p - actual_deduct
+                )
+                curr_sym = self.parent_working_margin.get(sym, Decimal("0.0"))
+                self.parent_working_margin[sym] = max(Decimal("0.0"), curr_sym - actual_deduct)
+            else:
+                curr = self.parent_working_margin.get(sym, Decimal("0.0"))
+                self.parent_working_margin[sym] = max(Decimal("0.0"), curr - notional_dec)
+
+    def release_parent_order_working_margin(
+        self, parent_client_order_id: str, symbol: str | None = None
+    ) -> Decimal:
+        """Release all remaining un-dispatched working margin for a specific parent order."""
+        with self._lock:
+            p_id = parent_client_order_id.strip()
+            rem = self._parent_order_working_notionals.pop(p_id, Decimal("0.0"))
+            sym = (symbol or self._parent_order_symbols.pop(p_id, None) or "").strip().upper()
+            if sym and rem > Decimal("0.0"):
+                curr_sym = self.parent_working_margin.get(sym, Decimal("0.0"))
+                self.parent_working_margin[sym] = max(Decimal("0.0"), curr_sym - rem)
+            return rem
 
     def release_all_parent_working_margin(self) -> None:
         with self._lock:
             for s in self.parent_working_margin:
                 self.parent_working_margin[s] = Decimal("0.0")
+            self._parent_order_working_notionals.clear()
+            self._parent_order_symbols.clear()
 
     def get_total_committed_margin(self, symbol: str | None = None) -> Decimal:
         with self._lock:
@@ -2607,11 +2672,11 @@ class MarketImpactOrderDispatchInterlock:
                     f"{max_aggregate_margin} USDT"
                 )
 
-            cand_margin = (
-                abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * px
-                + self.get_total_committed_margin(sym)
-                + notional
+            existing_allocated = max(
+                self.reconciler.per_asset_margin.get(sym, Decimal("0.0")),
+                abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * px,
             )
+            cand_margin = existing_allocated + self.get_total_committed_margin(sym) + notional
             if cand_margin > max_per_asset_margin:
                 self.interlock_blocks_count += 1
                 self._record_interlock(
@@ -3009,10 +3074,12 @@ class MarketImpactMicroOrderDispatcher:
                     f"60% ceiling {max_aggregate_margin} USDT"
                 )
 
+            existing_allocated = max(
+                self.reconciler.per_asset_margin.get(sym, Decimal("0.0")),
+                abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * l_px,
+            )
             cand_margin = (
-                abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * l_px
-                + self.interlock.get_total_committed_margin(sym)
-                + t_notional
+                existing_allocated + self.interlock.get_total_committed_margin(sym) + t_notional
             )
             if cand_margin > max_per_asset_margin:
                 raise MarginAllocationExceededError(
@@ -3020,125 +3087,136 @@ class MarketImpactMicroOrderDispatcher:
                     f"20% ceiling {max_per_asset_margin} USDT"
                 )
 
-            # Reserve parent working margin
-            self.interlock.reserve_parent_working_margin(sym, t_notional)
-
-            total_qty = (t_notional / l_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
             parent_cid = f"parent-{uuid4().hex[:12]}"
-            chunk_cap = max(
-                MIN_MICRO_NOTIONAL_CAP_USDT,
-                min(_safe_decimal(slice_chunk_notional), DYNAMIC_SLICING_MAX_CHUNK_USDT),
+            # Reserve parent working margin bound to parent_cid
+            self.interlock.reserve_parent_working_margin(
+                sym, t_notional, parent_client_order_id=parent_cid
             )
-
-            # Partition into sequential child slices <= 2.50 USDT with >= 1.00 USDT floor
-            max_slices = max(1, int(t_notional // MIN_MICRO_NOTIONAL_CAP_USDT))
-            min_slices = max(
-                1,
-                int(
-                    (t_notional / DYNAMIC_SLICING_MAX_CHUNK_USDT).to_integral_value(
-                        rounding=ROUND_UP
-                    )
-                ),
-            )
-            desired_slices = max(
-                1, int((t_notional / chunk_cap).to_integral_value(rounding=ROUND_UP))
-            )
-            num_slices = max(min_slices, min(desired_slices, max_slices))
-
-            high_slice = (t_notional / Decimal(num_slices)).quantize(
-                Decimal("0.00000001"), rounding=ROUND_UP
-            )
-            total_high = high_slice * Decimal(num_slices)
-            diff = total_high - t_notional
-            num_lower = int(diff / Decimal("0.00000001"))
-            low_slice = high_slice - Decimal("0.00000001")
-
-            child_notionals: list[Decimal] = [high_slice] * (num_slices - num_lower) + [
-                low_slice
-            ] * num_lower
-
-            child_ids: list[str] = []
-            parent_rec = ParentOrderRecord(
-                parent_client_order_id=parent_cid,
-                track_id=track_id,
-                candidate_id=candidate_id,
-                symbol=sym,
-                side=side,
-                order_type=order_type,
-                total_quantity=str(total_qty),
-                total_notional_usdt=str(t_notional),
-                slicing_mode=OrderSlicingMode.TWAP_SLICED,
-                impact_regime=self.interlock.engine.get_regime(sym),
-                child_count=len(child_notionals),
-                child_order_ids_json=json.dumps(child_ids),
-            )
-            self.parent_orders[parent_cid] = parent_rec
-            self.telemetry_store.record_parent_order(parent_rec)
-
-            cum_exec_qty = Decimal("0.0")
-            cum_exec_notional = Decimal("0.0")
 
             try:
-                for idx, c_notional in enumerate(child_notionals):
-                    c_qty = (c_notional / l_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-                    c_notional_val = (c_qty * l_px).quantize(
-                        Decimal("0.00000001"), rounding=ROUND_DOWN
-                    )
-                    if (
-                        c_notional >= MIN_MICRO_NOTIONAL_CAP_USDT
-                        and c_notional_val < MIN_MICRO_NOTIONAL_CAP_USDT
-                    ):
-                        candidate_c_qty = c_qty + Decimal("0.00000001")
-                        if (candidate_c_qty * l_px).quantize(
-                            Decimal("0.00000001"), rounding=ROUND_DOWN
-                        ) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
-                            c_qty = candidate_c_qty
-                    child_cid = generate_canary_client_order_id(sym)
-                    child_ids.append(child_cid)
-
-                    # Deduct this child slice from parent working margin before dispatching child
-                    # to prevent double-counting committed margin
-                    self.interlock.deduct_parent_working_margin(sym, c_notional)
-
-                    c_ord = self.dispatch_micro_order(
-                        candidate_id=candidate_id,
-                        symbol=sym,
-                        side=side,
-                        order_type=order_type,
-                        quantity=c_qty,
-                        price=l_px,
-                        client_order_id=child_cid,
-                        track_id=track_id,
-                    )
-                    c_ord.parent_client_order_id = parent_cid
-                    c_ord.is_child = True
-                    c_ord.child_index = idx + 1
-                    self.telemetry_store.record_order(c_ord)
-
-                    cum_exec_qty += c_qty
-                    cum_exec_notional += c_notional
-
-                parent_rec.executed_quantity = str(cum_exec_qty)
-                parent_rec.executed_notional_usdt = str(cum_exec_notional)
-                parent_rec.child_order_ids_json = json.dumps(child_ids)
-                parent_rec.status = OrderLifecycleState.FILLED
-                parent_rec.dispatch_complete = True
-                self.telemetry_store.record_parent_order(parent_rec)
-            except Exception:
-                # Release any remaining un-dispatched parent working margin
-                rem_unallocated = t_notional - cum_exec_notional
-                if rem_unallocated > Decimal("0.0"):
-                    self.interlock.deduct_parent_working_margin(sym, rem_unallocated)
-                parent_rec.executed_quantity = str(cum_exec_qty)
-                parent_rec.executed_notional_usdt = str(cum_exec_notional)
-                parent_rec.child_order_ids_json = json.dumps(child_ids)
-                parent_rec.status = (
-                    OrderLifecycleState.PARTIALLY_FILLED
-                    if cum_exec_qty > Decimal("0")
-                    else OrderLifecycleState.REJECTED
+                total_qty = (t_notional / l_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                chunk_cap = max(
+                    MIN_MICRO_NOTIONAL_CAP_USDT,
+                    min(_safe_decimal(slice_chunk_notional), DYNAMIC_SLICING_MAX_CHUNK_USDT),
                 )
-                self.telemetry_store.record_parent_order(parent_rec)
-                raise
+
+                # Partition into sequential child slices <= 2.50 USDT with >= 1.00 USDT floor
+                max_slices = max(1, int(t_notional // MIN_MICRO_NOTIONAL_CAP_USDT))
+                min_slices = max(
+                    1,
+                    int(
+                        (t_notional / DYNAMIC_SLICING_MAX_CHUNK_USDT).to_integral_value(
+                            rounding=ROUND_UP
+                        )
+                    ),
+                )
+                desired_slices = max(
+                    1, int((t_notional / chunk_cap).to_integral_value(rounding=ROUND_UP))
+                )
+                num_slices = max(min_slices, min(desired_slices, max_slices))
+
+                high_slice = (t_notional / Decimal(num_slices)).quantize(
+                    Decimal("0.00000001"), rounding=ROUND_UP
+                )
+                total_high = high_slice * Decimal(num_slices)
+                diff = total_high - t_notional
+                num_lower = int(diff / Decimal("0.00000001"))
+                low_slice = high_slice - Decimal("0.00000001")
+
+                child_notionals: list[Decimal] = [high_slice] * (num_slices - num_lower) + [
+                    low_slice
+                ] * num_lower
+
+                child_ids: list[str] = []
+                parent_rec = ParentOrderRecord(
+                    parent_client_order_id=parent_cid,
+                    track_id=track_id,
+                    candidate_id=candidate_id,
+                    symbol=sym,
+                    side=side,
+                    order_type=order_type,
+                    total_quantity=str(total_qty),
+                    total_notional_usdt=str(t_notional),
+                    slicing_mode=OrderSlicingMode.TWAP_SLICED,
+                    impact_regime=self.interlock.engine.get_regime(sym),
+                    child_count=len(child_notionals),
+                    child_order_ids_json=json.dumps(child_ids),
+                )
+                self.parent_orders[parent_cid] = parent_rec
+                if self.telemetry_store:
+                    self.telemetry_store.record_parent_order(parent_rec)
+
+                cum_exec_qty = Decimal("0.0")
+                cum_exec_notional = Decimal("0.0")
+
+                try:
+                    for idx, c_notional in enumerate(child_notionals):
+                        c_qty = (c_notional / l_px).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
+                        c_notional_val = (c_qty * l_px).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
+                        if (
+                            c_notional >= MIN_MICRO_NOTIONAL_CAP_USDT
+                            and c_notional_val < MIN_MICRO_NOTIONAL_CAP_USDT
+                        ):
+                            candidate_c_qty = c_qty + Decimal("0.00000001")
+                            if (candidate_c_qty * l_px).quantize(
+                                Decimal("0.00000001"), rounding=ROUND_DOWN
+                            ) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
+                                c_qty = candidate_c_qty
+                        child_cid = generate_canary_client_order_id(sym)
+
+                        # Deduct this child slice from parent working margin before dispatch
+                        # to prevent double-counting committed margin
+                        self.interlock.deduct_parent_working_margin(
+                            sym, c_notional, parent_client_order_id=parent_cid
+                        )
+
+                        c_ord = self.dispatch_micro_order(
+                            candidate_id=candidate_id,
+                            symbol=sym,
+                            side=side,
+                            order_type=order_type,
+                            quantity=c_qty,
+                            price=l_px,
+                            client_order_id=child_cid,
+                            track_id=track_id,
+                        )
+                        child_ids.append(c_ord.client_order_id)
+                        c_ord.parent_client_order_id = parent_cid
+                        c_ord.is_child = True
+                        c_ord.child_index = idx + 1
+                        if self.telemetry_store:
+                            self.telemetry_store.record_order(c_ord)
+
+                        cum_exec_qty += c_qty
+                        cum_exec_notional += c_notional
+
+                    parent_rec.executed_quantity = str(cum_exec_qty)
+                    parent_rec.executed_notional_usdt = str(cum_exec_notional)
+                    parent_rec.child_order_ids_json = json.dumps(child_ids)
+                    parent_rec.status = OrderLifecycleState.FILLED
+                    parent_rec.dispatch_complete = True
+                    if self.telemetry_store:
+                        self.telemetry_store.record_parent_order(parent_rec)
+                except Exception:
+                    parent_rec.executed_quantity = str(cum_exec_qty)
+                    parent_rec.executed_notional_usdt = str(cum_exec_notional)
+                    parent_rec.child_order_ids_json = json.dumps(child_ids)
+                    parent_rec.status = (
+                        OrderLifecycleState.PARTIALLY_FILLED
+                        if cum_exec_qty > Decimal("0")
+                        else OrderLifecycleState.REJECTED
+                    )
+                    if self.telemetry_store:
+                        self.telemetry_store.record_parent_order(parent_rec)
+                    raise
+            finally:
+                # Guarantee that ANY unallocated parent working margin reserved
+                # by this parent order is cleanly released
+                self.interlock.release_parent_order_working_margin(parent_cid, sym)
 
             return parent_rec
 
@@ -3171,8 +3249,10 @@ class MarketImpactMicroOrderDispatcher:
                     except Exception:
                         pass
 
-            # 2. Release any un-dispatched parent working margin
+            # 2. Release any un-dispatched parent working margin and committed margin
             self.interlock.release_all_parent_working_margin()
+            self.interlock.release_all_committed_margin()
+            self._order_committed_notionals.clear()
 
             try:
                 for sym, pos_qty in list(self.reconciler.positions.items()):
@@ -3181,6 +3261,10 @@ class MarketImpactMicroOrderDispatcher:
 
                     px_raw = prices.get(sym, DEFAULT_REFERENCE_PRICES.get(sym, Decimal("100.0")))
                     px = _safe_decimal(px_raw)
+                    if px <= Decimal("0.0"):
+                        px = DEFAULT_REFERENCE_PRICES.get(sym, Decimal("100.0"))
+                    if px <= Decimal("0.0"):
+                        px = Decimal("100.0")
                     cand_id = candidate_ids.get(sym, f"cand-{sym.lower()}")
                     side = OrderSide.SELL if pos_qty > Decimal("0") else OrderSide.BUY
                     remaining_qty = abs(pos_qty)
