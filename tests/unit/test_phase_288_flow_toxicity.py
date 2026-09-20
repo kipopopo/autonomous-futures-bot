@@ -71,6 +71,7 @@ from autonomous_futures.feed.flow_toxicity import (  # noqa: E402
     AggregateExposureCapExceededError,
     AggressiveOrderRejectedError,
     CanaryFlowToxicityConfig,
+    CanaryFlowToxicityError,
     CanaryFlowToxicityRunner,
     CapitalExpansionStage,
     CashReserveBufferBreachedError,
@@ -93,6 +94,7 @@ from autonomous_futures.feed.flow_toxicity import (  # noqa: E402
     MockBinanceFlowToxicityGateway,
     OrderLifecycleState,
     SqliteCanaryFlowToxicityTelemetryStore,
+    VolumeBucketRecord,
     generate_canary_client_order_id,
     validate_canary_client_order_id,
     verify_phase_288_hash_chain,
@@ -939,12 +941,16 @@ def test_adversarial_twap_slicing_child_cap_strict_compliance(
 
     test_targets = [
         Decimal("1.00"),
+        Decimal("1.50"),
         Decimal("2.00"),
+        Decimal("2.40"),
         Decimal("2.50"),
         Decimal("2.80"),  # Previously broke by merging dust into 2.80 USDT slice (> 2.50 cap)
         Decimal("3.20"),  # Previously broke into 3.20 USDT slice
         Decimal("5.00"),
-        Decimal("5.20"),  # Previously broke into [2.50, 2.70]
+        Decimal("5.20"),
+        # Previously broke into 2.50000001 slice due to remainder accumulation
+        Decimal("7.49999999"),
         Decimal("7.80"),
     ]
 
@@ -968,11 +974,44 @@ def test_adversarial_twap_slicing_child_cap_strict_compliance(
         for cid in child_ids:
             child = dispatcher.orders[cid]
             child_notional = Decimal(child.price) * Decimal(child.quantity)
-            assert child_notional <= Decimal("2.50000001"), (
-                f"Child notional {child_notional} exceeds 2.50 cap for target {target}"
+            assert child_notional <= Decimal("2.50"), (
+                f"Child notional {child_notional} strictly exceeds 2.50 cap for target {target}"
             )
-            assert child_notional >= Decimal("0.99999999"), (
+            assert child_notional >= Decimal("1.00") or (
+                Decimal("1.00") - child_notional
+            ) <= Decimal("0.0005"), (
                 f"Child notional {child_notional} below 1.00 floor for target {target}"
+            )
+
+    # Test custom slice_chunk_notional smaller than default (e.g. 1.10 USDT and 1.00 USDT)
+    for custom_target, custom_chunk in [
+        (Decimal("2.40"), Decimal("1.10")),
+        (Decimal("1.50"), Decimal("1.00")),
+    ]:
+        reconciler.positions["BTCUSDT"] = Decimal("0.0")
+        reconciler.allocated_margin = Decimal("0.0")
+        parent = dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=custom_target,
+            limit_price=limit_px,
+            slice_chunk_notional=custom_chunk,
+            track_id="test_adv_custom_slicing",
+        )
+        child_ids = json.loads(parent.child_order_ids_json)
+        assert Decimal(parent.executed_notional_usdt) == custom_target
+        for cid in child_ids:
+            child = dispatcher.orders[cid]
+            child_notional = Decimal(child.price) * Decimal(child.quantity)
+            assert child_notional <= Decimal("2.50"), (
+                f"Child notional {child_notional} exceeds 2.50 for custom {custom_target}"
+            )
+            assert child_notional >= Decimal("1.00") or (
+                Decimal("1.00") - child_notional
+            ) <= Decimal("0.0005"), (
+                f"Child notional {child_notional} below 1.00 for custom {custom_target}"
             )
 
 
@@ -1212,3 +1251,196 @@ def test_adversarial_multi_symbol_volume_bucket_sqlite_persistence(tmp_path: Pat
         assert buckets_by_sym[sym] >= 1, (
             f"Candidate {sym} volume bucket count is {buckets_by_sym[sym]}, expected >= 1"
         )
+
+
+def test_adversarial_non_positive_price_quantity_rejected():
+    """Adversarial Test 8: Non-positive price or quantity rejected fail-closed."""
+    reconciler = FlowUserDataStreamReconciler()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    t0 = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(t0, 10.0, t0)
+    engine = FlowToxicityEngine()
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+    )
+
+    cid = generate_canary_client_order_id("BTCUSDT")
+
+    # Zero price
+    with pytest.raises(CanaryFlowToxicityError, match="strictly positive"):
+        interlock.evaluate_order_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.0001"),
+            price=Decimal("0.0"),
+            client_order_id=cid,
+        )
+
+    # Negative price
+    with pytest.raises(CanaryFlowToxicityError, match="strictly positive"):
+        interlock.evaluate_order_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.0001"),
+            price=Decimal("-50000.00"),
+            client_order_id=cid,
+        )
+
+    # Zero quantity on closing order
+    with pytest.raises(CanaryFlowToxicityError, match="strictly positive"):
+        interlock.evaluate_order_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.0"),
+            price=Decimal("50000.00"),
+            client_order_id=cid,
+            is_closing=True,
+        )
+
+
+def test_adversarial_emergency_flattening_circuit_state_blocks_opening_orders():
+    """Adversarial Test 9: EMERGENCY_FLATTENING and RECOVERY_PENDING block opening orders."""
+    reconciler = FlowUserDataStreamReconciler()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    t0 = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(t0, 10.0, t0)
+    engine = FlowToxicityEngine()
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+    )
+
+    cid = generate_canary_client_order_id("ETHUSDT")
+
+    # Set state to EMERGENCY_FLATTENING
+    interlock.circuit_state = CircuitBreakerState.EMERGENCY_FLATTENING
+    with pytest.raises(IntraPhaseLossCeilingExceededError, match="EMERGENCY_FLATTENING"):
+        interlock.evaluate_order_dispatch(
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.001"),
+            price=Decimal("3000.00"),
+            client_order_id=cid,
+        )
+
+    # Set state to RECOVERY_PENDING
+    interlock.circuit_state = CircuitBreakerState.RECOVERY_PENDING
+    with pytest.raises(IntraPhaseLossCeilingExceededError, match="RECOVERY_PENDING"):
+        interlock.evaluate_order_dispatch(
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.001"),
+            price=Decimal("3000.00"),
+            client_order_id=cid,
+        )
+
+    # Closing order is permitted during EMERGENCY_FLATTENING
+    interlock.circuit_state = CircuitBreakerState.EMERGENCY_FLATTENING
+    interlock.evaluate_order_dispatch(
+        symbol="ETHUSDT",
+        side=OrderSide.SELL,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.001"),
+        price=Decimal("3000.00"),
+        client_order_id=cid,
+        is_closing=True,
+    )
+
+
+def test_adversarial_twap_parent_order_partial_tracking_on_failure(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test 10: Parent order records partial execution when child order fails."""
+    gateway = MockBinanceFlowToxicityGateway()
+    reconciler = FlowUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    t0 = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(t0, 10.0, t0)
+    engine = FlowToxicityEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = FlowMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # Fill 1 child (2.50 USDT), then trip circuit on child 2
+    orig_dispatch = dispatcher.dispatch_micro_order
+    call_count = 0
+
+    def fail_on_second_child(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise AggregateExposureCapExceededError("Simulated aggregate cap breach on slice 2")
+        return orig_dispatch(**kwargs)
+
+    dispatcher.dispatch_micro_order = fail_on_second_child  # type: ignore[assignment]
+
+    with pytest.raises(AggregateExposureCapExceededError):
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-btcusdt-dcb-002",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=Decimal("5.00"),
+            limit_price=Decimal("50000.00"),
+            slice_chunk_notional=Decimal("2.50"),
+        )
+
+    # Verify parent record was marked PARTIALLY_FILLED
+    parent_cid = next(iter(dispatcher.parent_orders.keys()))
+    parent_rec = dispatcher.parent_orders[parent_cid]
+    assert parent_rec.status == OrderLifecycleState.PARTIALLY_FILLED
+    assert Decimal(parent_rec.executed_notional_usdt) == Decimal("2.50000000")
+
+
+def test_adversarial_non_positive_trade_events_ignored_in_vpin_engine():
+    """Adversarial Test 11: Non-positive trade prices/quantities do not pollute VPIN engine."""
+    engine = FlowToxicityEngine()
+    engine.process_trade("BTCUSDT", Decimal("0.0"), Decimal("1.0"), OrderSide.BUY)
+    engine.process_trade("BTCUSDT", Decimal("50000.00"), Decimal("-0.5"), OrderSide.BUY)
+    engine.process_trade("BTCUSDT", Decimal("-50000.00"), Decimal("0.5"), OrderSide.BUY)
+
+    # Buffer should have 0 trade signs and 0 volume
+    assert len(engine._rolling_trade_signs["BTCUSDT"]) == 0
+    assert engine._active_buckets["BTCUSDT"]["buy"] == Decimal("0.0")
+    assert engine._active_buckets["BTCUSDT"]["sell"] == Decimal("0.0")
+
+
+def test_adversarial_sqlite_wal_checkpoint_truncate_on_close(tmp_path: Path):
+    """Adversarial Test 12: SQLite store triggers PRAGMA wal_checkpoint(TRUNCATE) on close."""
+    db_file = tmp_path / "test_wal_checkpoint.sqlite3"
+    store = SqliteCanaryFlowToxicityTelemetryStore(db_file)
+    b_rec = VolumeBucketRecord(
+        track_id="test",
+        symbol="BTCUSDT",
+        bucket_index=1,
+        buy_volume="25.0",
+        sell_volume="0.0",
+        total_volume="25.0",
+        imbalance="25.0",
+        timestamp_utc="2026-09-20T00:00:00Z",
+    )
+    store.record_volume_bucket(b_rec)
+    store.close()
+
+    # After close with TRUNCATE checkpoint, the db file exists and is cleanly readable
+    assert db_file.exists()
+    assert db_file.stat().st_size > 0

@@ -12,14 +12,13 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 import sqlite3
 import threading
 import time
 from collections import deque
 from datetime import UTC, datetime
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, TypeVar
@@ -1352,6 +1351,7 @@ class SqliteCanaryFlowToxicityTelemetryStore:
         with self._lock:
             try:
                 self.conn.commit()
+                self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
                 self.conn.close()
             except Exception:
                 pass
@@ -1625,6 +1625,8 @@ class FlowToxicityEngine:
         """Process incoming trade event into volume-synchronized buckets."""
         sym = symbol.strip().upper()
         with self._lock:
+            if price <= Decimal("0") or quantity <= Decimal("0"):
+                return
             if sym not in self._active_buckets:
                 self._active_buckets[sym] = {"buy": Decimal("0.0"), "sell": Decimal("0.0")}
                 self._bucket_indices[sym] = 0
@@ -2498,6 +2500,20 @@ class FlowToxicityOrderDispatchInterlock:
         """Evaluate pre-dispatch risk gates fail-closed."""
         with self._lock:
             sym = symbol.strip().upper()
+            if price <= Decimal("0") or quantity <= Decimal("0"):
+                self.interlock_blocks_count += 1
+                self._record_interlock(
+                    track_id,
+                    InterlockType.MICRO_FLOOR,
+                    False,
+                    sym,
+                    Decimal("0.0"),
+                    "Non-positive price or quantity",
+                )
+                raise CanaryFlowToxicityError(
+                    f"Order price {price} and quantity {quantity} must be strictly positive"
+                )
+
             notional = (price * quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
             # 1. Client Order ID deterministic format validation
@@ -2552,25 +2568,35 @@ class FlowToxicityOrderDispatchInterlock:
                 )
                 return
 
-            # 3. Intra-Phase Cumulative Loss Budget Ceiling
+            # 3. Intra-Phase Cumulative Loss Budget Ceiling & Circuit Breaker Lockout
             cum_loss = max(
                 abs(self.reconciler.realized_pnl)
                 if self.reconciler.realized_pnl < Decimal("0")
                 else Decimal("0"),
                 self.reconciler.cumulative_realized_loss,
             )
-            if (
-                cum_loss >= self.loss_ceiling_usdt
-                or self.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+            if cum_loss >= self.loss_ceiling_usdt or self.circuit_state in (
+                CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT,
+                CircuitBreakerState.EMERGENCY_FLATTENING,
+                CircuitBreakerState.RECOVERY_PENDING,
             ):
-                self.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+                if self.circuit_state not in (
+                    CircuitBreakerState.EMERGENCY_FLATTENING,
+                    CircuitBreakerState.RECOVERY_PENDING,
+                ):
+                    self.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
                 self.interlock_blocks_count += 1
                 self._record_interlock(
-                    track_id, InterlockType.LOSS_BUDGET, False, sym, notional, "Loss budget breach"
+                    track_id,
+                    InterlockType.LOSS_BUDGET,
+                    False,
+                    sym,
+                    notional,
+                    f"Circuit breaker active: {self.circuit_state.value}",
                 )
                 raise IntraPhaseLossCeilingExceededError(
-                    f"Cumulative loss {cum_loss} exceeds ceiling {self.loss_ceiling_usdt} USDT. "
-                    "Lockout active."
+                    f"Circuit breaker lockout active ({self.circuit_state.value}, "
+                    f"cum_loss={cum_loss} USDT, ceiling={self.loss_ceiling_usdt} USDT)"
                 )
 
             # 4. Micro Order Sizing & Slicing Boundaries
@@ -2926,6 +2952,9 @@ class FlowMicroOrderDispatcher:
         """Slice parent order into <= 2.50 USDT child slices with 1.00 USDT floor."""
         with self._lock:
             sym = symbol.strip().upper()
+            if limit_price <= Decimal("0"):
+                raise OrderSlicingError(f"Limit price {limit_price} must be strictly positive")
+
             if target_notional < MIN_MICRO_NOTIONAL_CAP_USDT:
                 raise MicroNotionalFloorViolationError(
                     f"Target notional {target_notional} violates micro floor "
@@ -2942,13 +2971,31 @@ class FlowMicroOrderDispatcher:
             )
 
             # Partition into sequential child slices <= 2.50 USDT with >= 1.00 USDT floor
-            num_slices = max(1, math.ceil(float(target_notional / chunk_cap)))
-            base_slice = (target_notional / Decimal(num_slices)).quantize(
-                Decimal("0.00000001"), rounding=ROUND_DOWN
+            max_slices = max(1, int(target_notional // MIN_MICRO_NOTIONAL_CAP_USDT))
+            min_slices = max(
+                1,
+                int(
+                    (target_notional / DYNAMIC_SLICING_MAX_CHUNK_USDT).to_integral_value(
+                        rounding=ROUND_UP
+                    )
+                ),
             )
-            remainder = target_notional - (base_slice * Decimal(num_slices))
-            child_notionals: list[Decimal] = [base_slice] * num_slices
-            child_notionals[0] += remainder
+            desired_slices = max(
+                1, int((target_notional / chunk_cap).to_integral_value(rounding=ROUND_UP))
+            )
+            num_slices = max(min_slices, min(desired_slices, max_slices))
+
+            high_slice = (target_notional / Decimal(num_slices)).quantize(
+                Decimal("0.00000001"), rounding=ROUND_UP
+            )
+            total_high = high_slice * Decimal(num_slices)
+            diff = total_high - target_notional
+            num_lower = int(diff / Decimal("0.00000001"))
+            low_slice = high_slice - Decimal("0.00000001")
+
+            child_notionals: list[Decimal] = [high_slice] * (num_slices - num_lower) + [
+                low_slice
+            ] * num_lower
 
             child_ids: list[str] = []
             parent_rec = ParentOrderRecord(
@@ -2971,47 +3018,61 @@ class FlowMicroOrderDispatcher:
             cum_exec_qty = Decimal("0.0")
             cum_exec_notional = Decimal("0.0")
 
-            for idx, c_notional in enumerate(child_notionals):
-                c_qty = (c_notional / limit_price).quantize(
-                    Decimal("0.00000001"), rounding=ROUND_DOWN
-                )
-                if (
-                    c_notional >= MIN_MICRO_NOTIONAL_CAP_USDT
-                    and (c_qty * limit_price).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-                    < MIN_MICRO_NOTIONAL_CAP_USDT
-                ):
-                    candidate_c_qty = c_qty + Decimal("0.00000001")
-                    if (candidate_c_qty * limit_price).quantize(
+            try:
+                for idx, c_notional in enumerate(child_notionals):
+                    c_qty = (c_notional / limit_price).quantize(
                         Decimal("0.00000001"), rounding=ROUND_DOWN
-                    ) <= HARD_MICRO_NOTIONAL_CAP_USDT:
-                        c_qty = candidate_c_qty
-                child_cid = generate_canary_client_order_id(sym)
-                child_ids.append(child_cid)
+                    )
+                    c_notional_val = (c_qty * limit_price).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+                    if (
+                        c_notional >= MIN_MICRO_NOTIONAL_CAP_USDT
+                        and c_notional_val < MIN_MICRO_NOTIONAL_CAP_USDT
+                    ):
+                        candidate_c_qty = c_qty + Decimal("0.00000001")
+                        if (candidate_c_qty * limit_price).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        ) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
+                            c_qty = candidate_c_qty
+                    child_cid = generate_canary_client_order_id(sym)
+                    child_ids.append(child_cid)
 
-                c_ord = self.dispatch_micro_order(
-                    candidate_id=candidate_id,
-                    symbol=sym,
-                    side=side,
-                    order_type=order_type,
-                    quantity=c_qty,
-                    price=limit_price,
-                    client_order_id=child_cid,
-                    track_id=track_id,
+                    c_ord = self.dispatch_micro_order(
+                        candidate_id=candidate_id,
+                        symbol=sym,
+                        side=side,
+                        order_type=order_type,
+                        quantity=c_qty,
+                        price=limit_price,
+                        client_order_id=child_cid,
+                        track_id=track_id,
+                    )
+                    c_ord.parent_client_order_id = parent_cid
+                    c_ord.is_child = True
+                    c_ord.child_index = idx + 1
+                    self.telemetry_store.record_order(c_ord)
+
+                    cum_exec_qty += c_qty
+                    cum_exec_notional += c_notional
+
+                parent_rec.executed_quantity = str(cum_exec_qty)
+                parent_rec.executed_notional_usdt = str(cum_exec_notional)
+                parent_rec.child_order_ids_json = json.dumps(child_ids)
+                parent_rec.status = OrderLifecycleState.FILLED
+                parent_rec.dispatch_complete = True
+                self.telemetry_store.record_parent_order(parent_rec)
+            except Exception:
+                parent_rec.executed_quantity = str(cum_exec_qty)
+                parent_rec.executed_notional_usdt = str(cum_exec_notional)
+                parent_rec.child_order_ids_json = json.dumps(child_ids)
+                parent_rec.status = (
+                    OrderLifecycleState.PARTIALLY_FILLED
+                    if cum_exec_qty > Decimal("0")
+                    else OrderLifecycleState.REJECTED
                 )
-                c_ord.parent_client_order_id = parent_cid
-                c_ord.is_child = True
-                c_ord.child_index = idx + 1
-                self.telemetry_store.record_order(c_ord)
-
-                cum_exec_qty += c_qty
-                cum_exec_notional += c_notional
-
-            parent_rec.executed_quantity = str(cum_exec_qty)
-            parent_rec.executed_notional_usdt = str(cum_exec_notional)
-            parent_rec.child_order_ids_json = json.dumps(child_ids)
-            parent_rec.status = OrderLifecycleState.FILLED
-            parent_rec.dispatch_complete = True
-            self.telemetry_store.record_parent_order(parent_rec)
+                self.telemetry_store.record_parent_order(parent_rec)
+                raise
 
             return parent_rec
 
