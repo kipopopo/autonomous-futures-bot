@@ -24,15 +24,15 @@ Validates:
   - Stage 3 continuous expansion cap (<= 15.00 USDT)
   - Stage 4 adaptive expansion cap (<= 20.00 USDT)
   - Stage 5 liquidity expansion cap (<= 25.00 USDT)
-  - Stage 6 volatility expansion cap (<= 30.00 USDT)
   - Stage 7 liquidity shock expansion cap (<= 35.00 USDT across all symbols)
-  - Aggregate concurrent exposure cap <= 35.00 USDT.
+  - Stage 8 depth imbalance expansion cap (<= 40.00 USDT across all symbols)
+  - Aggregate concurrent exposure cap <= 40.00 USDT.
 - Dynamic margin headroom interlock:
   - Active portfolio margin allocation <= 60.00%
   - Per-asset margin allocation <= 20.00%
   - Cash reserve buffer >= 40.00%
   - Active committed working margin reservation on unfilled orders.
-- Intra-phase cumulative loss budget ceiling <= 4.50 USDT with immediate fail-closed
+- Intra-phase cumulative loss budget ceiling <= 5.00 USDT with immediate fail-closed
   lockout and emergency micro-chunked liquidation (<= 5.00 USDT slices).
 - Multi-day extended session longevity, 24h listenKey expiration/renewal, sequence wrap
   recovery, stream disconnect REST backfill, and idempotent deduplication.
@@ -83,6 +83,11 @@ from autonomous_futures.feed.depth_imbalance import (  # noqa: E402
     ClockSkewExceededError,
     DepthExhaustionError,
     DepthImbalanceEngine,
+    DepthImbalanceOrderDispatchInterlock,
+    DepthImbalanceRegime,
+    DepthImbalanceStreamSequencer,
+    DepthMicroOrderDispatcher,
+    DepthUserDataStreamReconciler,
     FundingRateDistortionThrottledError,
     GatewayHeartbeatMonitor,
     GatewayHeartbeatStaleError,
@@ -101,6 +106,7 @@ from autonomous_futures.feed.depth_imbalance import (  # noqa: E402
     LiquidityUserDataStreamReconciler,
     ListenKeyExpiredError,
     MarginAllocationExceededError,
+    MockBinanceDepthImbalanceGateway,
     MockBinanceLiquidityShockGateway,
     OrderBookFeedCorruptionError,
     OrderLifecycleState,
@@ -1788,3 +1794,324 @@ def test_concurrent_market_depth_updates_stream_events_and_dispatches(
 
     assert len(errors) == 0
     assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_multi_asset_concurrent_partial_fills_and_zero_drift_reconciliation(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test: Verify multi-asset concurrent partial fills across BTC, ETH,
+    and SOL over WebSocket stream transition lifecycle states monotonically and reconcile
+    double-entry accounting with exact zero balance drift.
+    """
+    gw = MockBinanceDepthImbalanceGateway()
+    reconciler = DepthUserDataStreamReconciler(
+        track_id="adv_partial_fills",
+        starting_equity=Decimal("100.00"),
+    )
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat(latency_ms=20.0)
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    sequencer = DepthImbalanceStreamSequencer()
+    shock_engine = DepthImbalanceEngine()
+
+    interlock = DepthImbalanceOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        shock_engine=shock_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION,
+    )
+    dispatcher = DepthMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="adv_partial_fills",
+        shock_engine=shock_engine,
+    )
+
+    # 1. Place 3 working limit orders across BTCUSDT, ETHUSDT, SOLUSDT without immediate fill
+    cid_btc = generate_canary_client_order_id("BTCUSDT", uuid_str="pfill-btc")
+    cid_eth = generate_canary_client_order_id("ETHUSDT", uuid_str="pfill-eth")
+    cid_sol = generate_canary_client_order_id("SOLUSDT", uuid_str="pfill-sol")
+
+    ord_btc = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00006"),
+        price=Decimal("60000.00"),
+        client_order_id=cid_btc,
+        immediate_fill=False,
+    )
+    assert ord_btc.status == OrderLifecycleState.NEW
+
+    ord_eth = dispatcher.dispatch_micro_order(
+        candidate_id="cand-eth",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.0012"),
+        price=Decimal("3000.00"),
+        client_order_id=cid_eth,
+        immediate_fill=False,
+    )
+    assert ord_eth.status == OrderLifecycleState.NEW
+
+    ord_sol = dispatcher.dispatch_micro_order(
+        candidate_id="cand-sol",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.024"),
+        price=Decimal("150.00"),
+        client_order_id=cid_sol,
+        immediate_fill=False,
+    )
+    assert ord_sol.status == OrderLifecycleState.NEW
+
+    # 2. Simulate concurrent partial fills (1/3 of each order)
+    gw.simulate_partial_fill("BTCUSDT", cid_btc, Decimal("0.00002"))
+    gw.simulate_partial_fill("ETHUSDT", cid_eth, Decimal("0.0004"))
+    gw.simulate_partial_fill("SOLUSDT", cid_sol, Decimal("0.008"))
+
+    dispatcher.drain_and_reconcile_stream()
+
+    assert ord_btc.status == OrderLifecycleState.PARTIALLY_FILLED
+    assert ord_eth.status == OrderLifecycleState.PARTIALLY_FILLED
+    assert ord_sol.status == OrderLifecycleState.PARTIALLY_FILLED
+
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00002")
+    assert reconciler.positions["ETHUSDT"] == Decimal("0.0004")
+    assert reconciler.positions["SOLUSDT"] == Decimal("0.008")
+    assert reconciler.mathematical_drift < Decimal("1e-15")
+
+    # 3. Simulate remaining partial fills completing all orders
+    gw.simulate_partial_fill("BTCUSDT", cid_btc, Decimal("0.00004"))
+    gw.simulate_partial_fill("ETHUSDT", cid_eth, Decimal("0.0008"))
+    gw.simulate_partial_fill("SOLUSDT", cid_sol, Decimal("0.016"))
+
+    dispatcher.drain_and_reconcile_stream()
+
+    assert ord_btc.status == OrderLifecycleState.FILLED
+    assert ord_eth.status == OrderLifecycleState.FILLED
+    assert ord_sol.status == OrderLifecycleState.FILLED
+
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00006")
+    assert reconciler.positions["ETHUSDT"] == Decimal("0.0012")
+    assert reconciler.positions["SOLUSDT"] == Decimal("0.024")
+    assert reconciler.mathematical_drift < Decimal("1e-15")
+
+    # 4. Emergency flattening flattens all positions with zero drift
+    flat_orders = dispatcher.execute_emergency_flattening()
+    assert len(flat_orders) >= 3
+    assert reconciler.positions["BTCUSDT"] == Decimal("0")
+    assert reconciler.positions["ETHUSDT"] == Decimal("0")
+    assert reconciler.positions["SOLUSDT"] == Decimal("0")
+    assert reconciler.allocated_margin == Decimal("0")
+    assert reconciler.mathematical_drift < Decimal("1e-15")
+
+
+def test_depth_imbalance_regime_transitions_and_hysteresis_anti_flapping():
+    """Adversarial Test: Verify depth imbalance regime transitions between NOMINAL,
+    ELEVATED_IMBALANCE, and SEVERE_CONTROLS honor hysteresis bands without rapid flapping.
+    """
+    engine = DepthImbalanceEngine()
+
+    # 1. Balanced book: I_depth = 0.0 -> NOMINAL
+    engine.update_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("0.00010"), Decimal("0.00010")
+    )
+    assert engine.classify_depth_imbalance_regime("BTCUSDT") == DepthImbalanceRegime.NOMINAL
+
+    # 2. Elevated depth imbalance: I_depth = +0.40 -> ELEVATED_IMBALANCE
+    # bid=0.00014, ask=0.00006 -> (0.14 - 0.06)/(0.14 + 0.06) = 0.08/0.20 = 0.40
+    engine.update_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("0.00014"), Decimal("0.00006")
+    )
+    assert engine.get_depth_imbalance("BTCUSDT") == Decimal("0.40")
+    assert (
+        engine.classify_depth_imbalance_regime("BTCUSDT") == DepthImbalanceRegime.ELEVATED_IMBALANCE
+    )
+
+    # Elevated regime downscales sizing to <= 2.50 USDT and widens cushion to 50% of spread
+    notional, px, regime, offset = engine.calculate_sizing_and_limit_offset(
+        "BTCUSDT", OrderSide.BUY, base_notional=Decimal("5.00")
+    )
+    assert regime == DepthImbalanceRegime.ELEVATED_IMBALANCE
+    assert notional <= Decimal("2.50")
+    assert offset == Decimal("5.00000000")  # 50% of 10.00 spread
+
+    # 3. Severe depth imbalance: I_depth = +0.70 (> 0.60) -> SEVERE_CONTROLS
+    # bid=0.00017, ask=0.00003 -> 0.14 / 0.20 = 0.70
+    engine.update_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("0.00017"), Decimal("0.00003")
+    )
+    assert engine.get_depth_imbalance("BTCUSDT") == Decimal("0.70")
+    assert engine.classify_depth_imbalance_regime("BTCUSDT") == DepthImbalanceRegime.SEVERE_CONTROLS
+
+    # Severe regime clamps sizing to 1.00 USDT floor and widens cushion to 75% of spread
+    notional_sev, px_sev, regime_sev, offset_sev = engine.calculate_sizing_and_limit_offset(
+        "BTCUSDT", OrderSide.BUY, base_notional=Decimal("5.00")
+    )
+    assert regime_sev == DepthImbalanceRegime.SEVERE_CONTROLS
+    assert notional_sev == Decimal("1.00")
+    assert offset_sev == Decimal("7.50000000")  # 75% of 10.00 spread
+
+    # 4. Hysteresis Anti-Flapping Test: Imbalance eases from 0.70 to 0.58
+    # (0.58 is < 0.60 entry ceiling, but > 0.55 exit threshold = 0.60 - 0.05)
+    # bid=0.000158, ask=0.000042 -> 0.116 / 0.200 = 0.58
+    engine.update_book(
+        "BTCUSDT",
+        Decimal("60000.00"),
+        Decimal("60010.00"),
+        Decimal("0.000158"),
+        Decimal("0.000042"),
+    )
+    assert engine.get_depth_imbalance("BTCUSDT") == Decimal("0.58")
+    assert (
+        engine.classify_depth_imbalance_regime("BTCUSDT") == DepthImbalanceRegime.SEVERE_CONTROLS
+    ), "Hysteresis MUST maintain SEVERE_CONTROLS when I_depth is above 0.55 exit threshold"
+
+    # 5. Dropping below severe exit to 0.50 (in elevated band 0.25 to 0.55) -> ELEVATED_IMBALANCE
+    # bid=0.00015, ask=0.00005 -> 0.10 / 0.20 = 0.50
+    engine.update_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("0.00015"), Decimal("0.00005")
+    )
+    assert engine.get_depth_imbalance("BTCUSDT") == Decimal("0.50")
+    assert (
+        engine.classify_depth_imbalance_regime("BTCUSDT") == DepthImbalanceRegime.ELEVATED_IMBALANCE
+    )
+
+    # 6. Hysteresis Anti-Flapping Test: Imbalance eases from 0.50 to 0.28
+    # (0.28 is < 0.30 entry ceiling, but > 0.25 exit threshold = 0.30 - 0.05)
+    # bid=0.000128, ask=0.000072 -> 0.056 / 0.200 = 0.28
+    engine.update_book(
+        "BTCUSDT",
+        Decimal("60000.00"),
+        Decimal("60010.00"),
+        Decimal("0.000128"),
+        Decimal("0.000072"),
+    )
+    assert engine.get_depth_imbalance("BTCUSDT") == Decimal("0.28")
+    assert (
+        engine.classify_depth_imbalance_regime("BTCUSDT") == DepthImbalanceRegime.ELEVATED_IMBALANCE
+    ), "Hysteresis MUST maintain ELEVATED_IMBALANCE when I_depth is above 0.25 exit threshold"
+
+    # 7. Dropping below elevated exit to 0.20 (< 0.25) -> NOMINAL
+    # bid=0.00012, ask=0.00008 -> 0.04 / 0.20 = 0.20
+    engine.update_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("0.00012"), Decimal("0.00008")
+    )
+    assert engine.get_depth_imbalance("BTCUSDT") == Decimal("0.20")
+    assert engine.classify_depth_imbalance_regime("BTCUSDT") == DepthImbalanceRegime.NOMINAL
+
+
+def test_cross_symbol_transmission_single_and_multi_symbol_collapse():
+    """Adversarial Test: Verify cross-symbol transmission coefficients update properly
+    even when only a single symbol's book is updated, and compound when multiple symbols
+    collapse simultaneously.
+    """
+    engine = DepthImbalanceEngine()
+
+    # 1. Update ONLY BTCUSDT with severe depth evaporation (90% depletion)
+    engine.update_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("0.00001"), Decimal("0.00001")
+    )
+    assert engine.get_depth_depletion_ratio("BTCUSDT") >= Decimal("0.85")
+
+    # Cross-symbol pairs from BTCUSDT to ETHUSDT and SOLUSDT are amplified
+    btc_eth_coeff = engine.shock_coefficients[("BTCUSDT", "ETHUSDT")]
+    assert btc_eth_coeff > engine.base_transmission[("BTCUSDT", "ETHUSDT")]
+    assert engine.aggregate_shock_index > Decimal("0.18")
+
+    # 2. Simulate simultaneous multi-symbol collapse (ETHUSDT also depletes by 90%)
+    engine.update_book(
+        "ETHUSDT", Decimal("3000.00"), Decimal("3001.00"), Decimal("0.25"), Decimal("0.25")
+    )
+    assert engine.get_depth_depletion_ratio("ETHUSDT") >= Decimal("0.85")
+
+    # Compound effect: recipient illiquidity amplifies cross-symbol transmission further
+    compound_coeff = engine.shock_coefficients[("BTCUSDT", "ETHUSDT")]
+    assert compound_coeff > btc_eth_coeff
+
+
+def test_heartbeat_freeze_recovery_marginal_clock_drift_and_latency_spike():
+    """Adversarial Test: Verify gateway heartbeat freeze enforces 50 ms recovery hysteresis
+    and blocks recovery when clock drift remains marginal (200-250 ms) or latency spikes > 500 ms.
+    """
+    mon = GatewayHeartbeatMonitor(
+        max_allowed_age_ms=500.0,
+        max_clock_skew_ms=250.0,
+        recovery_hysteresis_ms=450.0,
+    )
+    now_ms = int(time.time() * 1000)
+
+    # 1. Trigger freeze via backward clock drift of 300 ms (> 250 ms tolerance)
+    rec1 = mon.record_heartbeat(
+        server_time_ms=now_ms - 300,
+        latency_ms=25.0,
+        local_time_ms=now_ms,
+    )
+    assert rec1.is_healthy is False
+    assert rec1.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+    assert mon.is_frozen is True
+
+    # 2. Heartbeat arrives with healthy latency (35 ms <= 450 ms),
+    # but marginal skew (220 ms > 200 ms)
+    rec2 = mon.record_heartbeat(
+        server_time_ms=now_ms + 1000 - 220,
+        latency_ms=35.0,
+        local_time_ms=now_ms + 1000,
+    )
+    assert rec2.is_healthy is False
+    assert rec2.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+    assert mon.is_frozen is True
+    assert "Marginal clock skew" in rec2.details
+
+    with pytest.raises(HeartbeatFreezeActiveError):
+        mon.assert_healthy(current_time_ms=now_ms + 1010)
+
+    # 3. Heartbeat recovers within full hysteresis ceiling: latency <= 450 ms and skew <= 200 ms
+    rec3 = mon.record_heartbeat(
+        server_time_ms=now_ms + 2000 - 150,
+        latency_ms=35.0,
+        local_time_ms=now_ms + 2000,
+    )
+    assert rec3.is_healthy is True
+    assert rec3.status == HeartbeatStatus.RECOVERED
+    assert mon.is_frozen is False
+    mon.assert_healthy(current_time_ms=now_ms + 2010)
+
+    # 4. Latency spike > 500 ms triggers freeze
+    rec4 = mon.record_heartbeat(
+        server_time_ms=now_ms + 3000,
+        latency_ms=520.0,
+        local_time_ms=now_ms + 3000,
+    )
+    assert rec4.is_healthy is False
+    assert rec4.status == HeartbeatStatus.LATENCY_SPIKE_STALE
+    assert mon.is_frozen is True
+
+    # 5. Subsequent heartbeat with latency 480 ms (> 450 ms hysteresis ceiling) remains frozen
+    rec5 = mon.record_heartbeat(
+        server_time_ms=now_ms + 4000,
+        latency_ms=480.0,
+        local_time_ms=now_ms + 4000,
+    )
+    assert rec5.is_healthy is False
+    assert mon.is_frozen is True
+
+    # 6. Latency recovers to <= 450 ms
+    rec6 = mon.record_heartbeat(
+        server_time_ms=now_ms + 5000,
+        latency_ms=420.0,
+        local_time_ms=now_ms + 5000,
+    )
+    assert rec6.is_healthy is True
+    assert rec6.status == HeartbeatStatus.RECOVERED
+    assert mon.is_frozen is False
+    mon.assert_healthy(current_time_ms=now_ms + 5010)

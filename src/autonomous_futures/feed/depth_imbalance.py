@@ -1509,23 +1509,37 @@ class GatewayHeartbeatMonitor:
                 details = self.freeze_reason
             elif latency_ms > self.max_allowed_age_ms:
                 self.stale_count += 1
+                self.is_frozen = True
+                self.freeze_reason = (
+                    f"Heartbeat latency {latency_ms:.1f}ms exceeds {self.max_allowed_age_ms}ms"
+                )
                 status = HeartbeatStatus.LATENCY_SPIKE_STALE
                 is_healthy = False
-                details = f"Latency {latency_ms:.1f}ms exceeds {self.max_allowed_age_ms}ms"
+                details = self.freeze_reason
             elif self.is_frozen:
                 # Recovery hysteresis: only unfreeze when latency <= 450 ms and skew nominal
-                if (
-                    latency_ms <= self.recovery_hysteresis_ms
-                    and abs(skew) <= (self.max_clock_skew_ms - 50.0)
-                    and not backward_drift
-                ):
+                latency_recovered = latency_ms <= self.recovery_hysteresis_ms
+                skew_recovered = abs(skew) <= (self.max_clock_skew_ms - 50.0)
+                if latency_recovered and skew_recovered and not backward_drift:
                     self.is_frozen = False
+                    self.freeze_reason = ""
                     status = HeartbeatStatus.RECOVERED
                     details = "Heartbeat recovered within hysteresis ceiling"
                 else:
-                    status = HeartbeatStatus.CLOCK_SKEW_FREEZE
                     is_healthy = False
-                    details = "Waiting for recovery hysteresis threshold"
+                    if not skew_recovered or backward_drift:
+                        status = HeartbeatStatus.CLOCK_SKEW_FREEZE
+                        self.freeze_reason = (
+                            f"Marginal clock skew {skew:.1f}ms exceeds recovery threshold "
+                            f"{self.max_clock_skew_ms - 50.0:.1f}ms"
+                        )
+                    else:
+                        status = HeartbeatStatus.LATENCY_SPIKE_STALE
+                        self.freeze_reason = (
+                            f"Heartbeat latency {latency_ms:.1f}ms exceeds recovery hysteresis "
+                            f"{self.recovery_hysteresis_ms:.1f}ms"
+                        )
+                    details = self.freeze_reason
 
             return GatewayHeartbeatRecord(
                 track_id=track_id,
@@ -1782,9 +1796,7 @@ class DepthImbalanceEngine:
 
     def _update_shock_coefficients(self) -> None:
         """Update cross-symbol liquidity depletion transmission coefficients."""
-        symbols = [s for s in CANARY_STAGED_SYMBOLS if s in self.books]
-        if not symbols:
-            symbols = list(CANARY_STAGED_SYMBOLS)
+        symbols = list(CANARY_STAGED_SYMBOLS)
 
         all_pairs: list[tuple[str, str]] = []
         for s1 in symbols:
@@ -1797,10 +1809,13 @@ class DepthImbalanceEngine:
         for s1, s2 in all_pairs:
             base_c = self.base_transmission.get((s1, s2), Decimal("0.18"))
             depletion_s1 = self.get_depth_depletion_ratio(s1)
-            # Depletion of source liquidity amplifies cross-symbol transmission
-            coeff = (base_c * (Decimal("1.0") + depletion_s1 * Decimal("1.5"))).quantize(
-                Decimal("0.0001"), rounding=ROUND_DOWN
-            )
+            depletion_s2 = self.get_depth_depletion_ratio(s2)
+            # Depletion of source liquidity amplifies cross-symbol transmission,
+            # and target depth depletion compounds recipient vulnerability.
+            coeff = (
+                base_c
+                * (Decimal("1.0") + depletion_s1 * Decimal("1.5") + depletion_s2 * Decimal("0.75"))
+            ).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
             self.shock_coefficients[(s1, s2)] = coeff
             shock_sum += coeff
             pair_count += Decimal("1")
@@ -1862,9 +1877,10 @@ class DepthImbalanceEngine:
 
     def classify_depth_imbalance_regime(self, symbol: str | None = None) -> DepthImbalanceRegime:
         """Classify market condition with hysteresis:
-        - NOMINAL: shock index <= 0.30 and funding rates nominal.
-        - ELEVATED_SHOCK: shock index > 0.30 to 0.60 or moderate funding divergence.
-        - SEVERE_CONTROLS: shock index > 0.60 or severe funding rate distortion.
+        - NOMINAL: shock index <= 0.30, depth imbalance <= 0.30, and funding rates nominal.
+        - ELEVATED_IMBALANCE: depth imbalance in (0.30, 0.60], shock index in (0.30, 0.60],
+          or moderate funding divergence.
+        - SEVERE_CONTROLS: depth imbalance > 0.60, shock index > 0.60, or severe funding distortion.
         """
         with self._lock:
             sym_key = str(symbol).strip().upper() if symbol else None
@@ -1883,22 +1899,62 @@ class DepthImbalanceEngine:
                     sym_key
                     and self.get_depth_depletion_ratio(sym_key) > QUEUE_DEPLETION_RISK_THRESHOLD
                 )
+                or (
+                    sym_key is None
+                    and any(
+                        abs(self.get_depth_imbalance(s)) > ELEVATED_IMBALANCE_THRESHOLD
+                        for s in CANARY_STAGED_SYMBOLS
+                    )
+                )
+                or (
+                    sym_key is None
+                    and any(
+                        self.get_depth_depletion_ratio(s) > QUEUE_DEPLETION_RISK_THRESHOLD
+                        for s in CANARY_STAGED_SYMBOLS
+                    )
+                )
             )
 
-            if self._current_regime == LiquidityShockRegime.SEVERE_CONTROLS:
-                severe_exit = ELEVATED_SHOCK_THRESHOLD - h
-                if (
-                    self.aggregate_shock_index > severe_exit
-                    or self.get_cross_symbol_funding_basis_spread()
-                    > (MAX_FUNDING_BASIS_SPREAD_THRESHOLD - Decimal("0.0001"))
-                    or (sym_key and abs(self.get_funding_rate(sym_key)) > Decimal("0.00045"))
-                ):
-                    return LiquidityShockRegime.SEVERE_CONTROLS
-            elif severe_condition:
-                self._current_regime = LiquidityShockRegime.SEVERE_CONTROLS
-                return LiquidityShockRegime.SEVERE_CONTROLS
+            severe_exit = ELEVATED_IMBALANCE_THRESHOLD - h
+            queue_exit = QUEUE_DEPLETION_RISK_THRESHOLD - h
+            in_severe_hysteresis = (
+                self.aggregate_shock_index > severe_exit
+                or self.get_cross_symbol_funding_basis_spread()
+                > (MAX_FUNDING_BASIS_SPREAD_THRESHOLD - Decimal("0.0001"))
+                or (sym_key and abs(self.get_funding_rate(sym_key)) > Decimal("0.00045"))
+                or (sym_key and abs(self.get_depth_imbalance(sym_key)) > severe_exit)
+                or (sym_key and self.get_depth_depletion_ratio(sym_key) > queue_exit)
+                or (
+                    sym_key is None
+                    and any(
+                        abs(self.get_depth_imbalance(s)) > severe_exit
+                        for s in CANARY_STAGED_SYMBOLS
+                    )
+                )
+                or (
+                    sym_key is None
+                    and any(
+                        self.get_depth_depletion_ratio(s) > queue_exit
+                        for s in CANARY_STAGED_SYMBOLS
+                    )
+                )
+                or (
+                    sym_key is None
+                    and any(
+                        abs(self.get_funding_rate(s)) > Decimal("0.00045")
+                        for s in CANARY_STAGED_SYMBOLS
+                    )
+                )
+            )
 
-            # 2. Elevated shock or moderate funding divergence
+            if self._current_regime == DepthImbalanceRegime.SEVERE_CONTROLS:
+                if in_severe_hysteresis:
+                    return DepthImbalanceRegime.SEVERE_CONTROLS
+            elif severe_condition:
+                self._current_regime = DepthImbalanceRegime.SEVERE_CONTROLS
+                return DepthImbalanceRegime.SEVERE_CONTROLS
+
+            # 2. Elevated shock / imbalance or moderate funding divergence
             basis_spread = self.get_cross_symbol_funding_basis_spread()
             moderate_div = (
                 basis_spread >= ELEVATED_FUNDING_BASIS_SPREAD_THRESHOLD
@@ -1911,16 +1967,48 @@ class DepthImbalanceEngine:
                 )
             )
 
-            if self._current_regime == LiquidityShockRegime.ELEVATED_SHOCK:
-                elevated_exit = NOMINAL_SHOCK_THRESHOLD - h
-                if self.aggregate_shock_index > elevated_exit or moderate_div:
-                    return LiquidityShockRegime.ELEVATED_SHOCK
-            elif self.aggregate_shock_index > NOMINAL_SHOCK_THRESHOLD or moderate_div:
-                self._current_regime = LiquidityShockRegime.ELEVATED_SHOCK
-                return LiquidityShockRegime.ELEVATED_SHOCK
+            elevated_condition = (
+                self.aggregate_shock_index > NOMINAL_IMBALANCE_THRESHOLD
+                or moderate_div
+                or (
+                    sym_key and abs(self.get_depth_imbalance(sym_key)) > NOMINAL_IMBALANCE_THRESHOLD
+                )
+                or (
+                    sym_key is None
+                    and any(
+                        abs(self.get_depth_imbalance(s)) > NOMINAL_IMBALANCE_THRESHOLD
+                        for s in CANARY_STAGED_SYMBOLS
+                    )
+                )
+            )
 
-            self._current_regime = LiquidityShockRegime.NOMINAL
-            return LiquidityShockRegime.NOMINAL
+            elevated_exit = NOMINAL_IMBALANCE_THRESHOLD - h
+            in_elevated_hysteresis = (
+                self.aggregate_shock_index > elevated_exit
+                or moderate_div
+                or (sym_key and abs(self.get_depth_imbalance(sym_key)) > elevated_exit)
+                or (
+                    sym_key is None
+                    and any(
+                        abs(self.get_depth_imbalance(s)) > elevated_exit
+                        for s in CANARY_STAGED_SYMBOLS
+                    )
+                )
+            )
+
+            if self._current_regime in (
+                DepthImbalanceRegime.ELEVATED_IMBALANCE,
+                DepthImbalanceRegime.SEVERE_CONTROLS,
+            ):
+                if in_elevated_hysteresis:
+                    self._current_regime = DepthImbalanceRegime.ELEVATED_IMBALANCE
+                    return DepthImbalanceRegime.ELEVATED_IMBALANCE
+            elif elevated_condition:
+                self._current_regime = DepthImbalanceRegime.ELEVATED_IMBALANCE
+                return DepthImbalanceRegime.ELEVATED_IMBALANCE
+
+            self._current_regime = DepthImbalanceRegime.NOMINAL
+            return DepthImbalanceRegime.NOMINAL
 
     # Compatibility aliases
     classify_liquidity_shock_regime = classify_depth_imbalance_regime
@@ -2211,6 +2299,7 @@ class MockBinanceDepthImbalanceGateway:
         price: Decimal,
         client_order_id: str,
         time_in_force: TimeInForce = TimeInForce.GTC,
+        immediate_fill: bool = True,
     ) -> dict[str, Any]:
         with self._lock:
             self.order_counter += 1
@@ -2236,17 +2325,84 @@ class MockBinanceDepthImbalanceGateway:
             }
             self.open_orders[client_order_id] = order_data
 
-            # Simulate immediate matching for canary micro orders
+            if immediate_fill:
+                # Simulate immediate matching for canary micro orders
+                self.trade_counter += 1
+                tid = self.trade_counter
+                fee = (price * quantity * DEFAULT_TAKER_FEE_RATE).quantize(
+                    Decimal("0.00000001"), rounding=ROUND_DOWN
+                )
+
+                order_data["status"] = "FILLED"
+                order_data["executedQty"] = str(quantity)
+
+                # Generate WebSocket ORDER_TRADE_UPDATE event
+                now_ms = int(time.time() * 1000) + self.simulated_clock_offset_ms
+                u_seq = self.sequence_counter
+                self.sequence_counter += 1
+
+                ws_evt = {
+                    "e": "ORDER_TRADE_UPDATE",
+                    "E": now_ms,
+                    "T": now_ms,
+                    "u": u_seq,
+                    "o": {
+                        "s": sym,
+                        "c": client_order_id,
+                        "S": side_str,
+                        "o": type_str,
+                        "f": time_in_force.value,
+                        "q": str(quantity),
+                        "p": str(price),
+                        "ap": str(price),
+                        "X": "FILLED",
+                        "i": ord_id,
+                        "z": str(quantity),
+                        "l": str(quantity),
+                        "L": str(price),
+                        "n": str(fee),
+                        "N": "USDT",
+                        "t": tid,
+                    },
+                }
+
+                if self.is_stream_connected:
+                    self.pushed_events.append(ws_evt)
+                    if self.inject_duplicate_events:
+                        self.pushed_events.append(ws_evt)
+
+            return order_data
+
+    def simulate_partial_fill(
+        self,
+        symbol: str,
+        client_order_id: str,
+        fill_quantity: Decimal,
+        fill_price: Decimal | None = None,
+    ) -> dict[str, Any]:
+        """Simulate a partial fill event pushed over the WebSocket stream."""
+        with self._lock:
+            ord_data = self.open_orders.get(client_order_id)
+            if not ord_data:
+                raise KeyError(f"Order {client_order_id} not found in gateway open orders")
+
+            sym = symbol.strip().upper()
+            px = fill_price or _safe_decimal(ord_data["price"])
             self.trade_counter += 1
             tid = self.trade_counter
-            fee = (price * quantity * DEFAULT_TAKER_FEE_RATE).quantize(
+            fee = (px * fill_quantity * DEFAULT_TAKER_FEE_RATE).quantize(
                 Decimal("0.00000001"), rounding=ROUND_DOWN
             )
 
-            order_data["status"] = "FILLED"
-            order_data["executedQty"] = str(quantity)
+            prev_exec = _safe_decimal(ord_data.get("executedQty", "0"))
+            new_exec = prev_exec + fill_quantity
+            orig_qty = _safe_decimal(ord_data.get("origQty", "0"))
 
-            # Generate WebSocket ORDER_TRADE_UPDATE event
+            is_full = new_exec >= orig_qty
+            status = "FILLED" if is_full else "PARTIALLY_FILLED"
+            ord_data["status"] = status
+            ord_data["executedQty"] = str(new_exec)
+
             now_ms = int(time.time() * 1000) + self.simulated_clock_offset_ms
             u_seq = self.sequence_counter
             self.sequence_counter += 1
@@ -2259,28 +2415,25 @@ class MockBinanceDepthImbalanceGateway:
                 "o": {
                     "s": sym,
                     "c": client_order_id,
-                    "S": side_str,
-                    "o": type_str,
-                    "f": time_in_force.value,
-                    "q": str(quantity),
-                    "p": str(price),
-                    "ap": str(price),
-                    "X": "FILLED",
-                    "i": ord_id,
-                    "z": str(quantity),
-                    "L": str(price),
+                    "S": ord_data["side"],
+                    "o": ord_data["type"],
+                    "f": ord_data.get("timeInForce", "GTC"),
+                    "q": str(orig_qty),
+                    "p": str(px),
+                    "ap": str(px),
+                    "X": status,
+                    "i": ord_data["orderId"],
+                    "z": str(new_exec),
+                    "l": str(fill_quantity),
+                    "L": str(px),
                     "n": str(fee),
                     "N": "USDT",
                     "t": tid,
                 },
             }
-
             if self.is_stream_connected:
                 self.pushed_events.append(ws_evt)
-                if self.inject_duplicate_events:
-                    self.pushed_events.append(ws_evt)
-
-            return order_data
+            return ord_data
 
     def cancel_order(self, symbol: str, client_order_id: str) -> dict[str, Any]:
         with self._lock:
@@ -3181,6 +3334,7 @@ class DepthMicroOrderDispatcher:
         parent_client_order_id: str | None = None,
         child_index: int = 0,
         is_child: bool = False,
+        immediate_fill: bool = True,
     ) -> LiquidityShockOrderRecord:
         with self._lock:
             cid = client_order_id or generate_canary_client_order_id(symbol)
@@ -3269,6 +3423,7 @@ class DepthMicroOrderDispatcher:
                 quantity=quantity,
                 price=price,
                 client_order_id=cid,
+                immediate_fill=immediate_fill,
             )
             ord_rec.order_id = str(gw_resp.get("orderId", "0"))
 
@@ -3506,54 +3661,100 @@ class DepthMicroOrderDispatcher:
                     cid = o.get("c")
                     if cid and cid in self.orders:
                         ord_rec = self.orders[cid]
-                        ord_rec.executed_quantity = str(o.get("z", ord_rec.quantity))
                         ord_status = o.get("X", "NEW")
-                        if ord_status == "FILLED":
-                            ord_rec.status = OrderLifecycleState.FILLED
-                            self.orders_filled_count += 1
+                        if ord_status in ("FILLED", "PARTIALLY_FILLED"):
+                            prev_status = ord_rec.status
+                            new_status = (
+                                OrderLifecycleState.FILLED
+                                if ord_status == "FILLED"
+                                else OrderLifecycleState.PARTIALLY_FILLED
+                            )
+                            ord_rec.status = new_status
+                            if ord_status == "FILLED":
+                                self.orders_filled_count += 1
                             self.telemetry_store.record_order(ord_rec)
                             self.telemetry_store.record_lifecycle_transition(
                                 OrderLifecycleTransition(
                                     track_id=self.track_id,
                                     order_id=ord_rec.order_id,
                                     client_order_id=ord_rec.client_order_id,
-                                    from_state=OrderLifecycleState.NEW,
-                                    to_state=OrderLifecycleState.FILLED,
-                                    trigger_reason=(
-                                        "ORDER_TRADE_UPDATE execution report fill processed"
-                                    ),
+                                    from_state=prev_status,
+                                    to_state=new_status,
+                                    trigger_reason=(f"ORDER_TRADE_UPDATE {ord_status} processed"),
                                 )
                             )
                             self.jsonl_sink.record_order(ord_rec)
 
-                            # Reconcile in double-entry ledger
-                            mark = self.reconciler.process_fill(
-                                trade_id=str(o.get("t", uuid4().hex[:8])),
-                                symbol=ord_rec.symbol,
-                                side=ord_rec.side,
-                                price=_safe_decimal(o.get("L", ord_rec.price)),
-                                quantity=_safe_decimal(o.get("z", ord_rec.quantity)),
-                                commission=_safe_decimal(o.get("n", "0")),
-                                is_closing=ord_rec.is_closing,
+                            # Determine trade quantity for this specific fill
+                            trade_qty = _safe_decimal(o.get("l", "0"))
+                            cum_qty = _safe_decimal(o.get("z", "0"))
+                            prev_exec_qty = _safe_decimal(ord_rec.executed_quantity)
+                            if trade_qty <= Decimal("0"):
+                                trade_qty = (
+                                    cum_qty - prev_exec_qty
+                                    if cum_qty > prev_exec_qty
+                                    else _safe_decimal(ord_rec.quantity)
+                                )
+                            ord_rec.executed_quantity = str(
+                                cum_qty if cum_qty > Decimal("0") else prev_exec_qty + trade_qty
                             )
-                            self.telemetry_store.record_execution_mark(mark)
 
-                            # Update parent if applicable
-                            if ord_rec.parent_client_order_id:
-                                p_rec = self.parent_orders.get(ord_rec.parent_client_order_id)
-                                if p_rec:
-                                    cur_exec_qty = _safe_decimal(
-                                        p_rec.executed_quantity
-                                    ) + _safe_decimal(ord_rec.quantity)
-                                    cur_exec_notional = _safe_decimal(
-                                        p_rec.executed_notional_usdt
-                                    ) + _safe_decimal(ord_rec.notional_usdt)
-                                    p_rec.executed_quantity = str(cur_exec_qty)
-                                    p_rec.executed_notional_usdt = str(cur_exec_notional)
-                                    if cur_exec_qty >= _safe_decimal(p_rec.total_quantity):
-                                        p_rec.status = OrderLifecycleState.FILLED
-                                        p_rec.dispatch_complete = True
-                                    self.telemetry_store.record_parent_order(p_rec)
+                            if trade_qty > Decimal("0"):
+                                trade_price = _safe_decimal(o.get("L", ord_rec.price))
+                                trade_fee = _safe_decimal(o.get("n", "0"))
+                                mark = self.reconciler.process_fill(
+                                    trade_id=str(o.get("t", uuid4().hex[:8])),
+                                    symbol=ord_rec.symbol,
+                                    side=ord_rec.side,
+                                    price=trade_price,
+                                    quantity=trade_qty,
+                                    commission=trade_fee,
+                                    is_closing=ord_rec.is_closing,
+                                )
+                                self.telemetry_store.record_execution_mark(mark)
+
+                                # Update parent if applicable
+                                if ord_rec.parent_client_order_id:
+                                    p_rec = self.parent_orders.get(ord_rec.parent_client_order_id)
+                                    if p_rec:
+                                        cur_exec_qty = (
+                                            _safe_decimal(p_rec.executed_quantity) + trade_qty
+                                        )
+                                        cur_exec_notional = _safe_decimal(
+                                            p_rec.executed_notional_usdt
+                                        ) + (trade_qty * trade_price)
+                                        p_rec.executed_quantity = str(cur_exec_qty)
+                                        p_rec.executed_notional_usdt = str(cur_exec_notional)
+                                        if cur_exec_qty >= _safe_decimal(p_rec.total_quantity):
+                                            p_rec.status = OrderLifecycleState.FILLED
+                                            p_rec.dispatch_complete = True
+                                        self.telemetry_store.record_parent_order(p_rec)
+                        elif ord_status in ("CANCELED", "CANCELLED", "REJECTED", "EXPIRED"):
+                            prev_status = ord_rec.status
+                            target_status = (
+                                OrderLifecycleState.CANCELLED
+                                if ord_status in ("CANCELED", "CANCELLED")
+                                else OrderLifecycleState.REJECTED
+                                if ord_status == "REJECTED"
+                                else OrderLifecycleState.EXPIRED
+                            )
+                            ord_rec.status = target_status
+                            if target_status == OrderLifecycleState.CANCELLED:
+                                self.orders_cancelled_count += 1
+                            elif target_status == OrderLifecycleState.REJECTED:
+                                self.orders_rejected_count += 1
+                            self.telemetry_store.record_order(ord_rec)
+                            self.telemetry_store.record_lifecycle_transition(
+                                OrderLifecycleTransition(
+                                    track_id=self.track_id,
+                                    order_id=ord_rec.order_id,
+                                    client_order_id=ord_rec.client_order_id,
+                                    from_state=prev_status,
+                                    to_state=target_status,
+                                    trigger_reason=(f"ORDER_TRADE_UPDATE {ord_status} processed"),
+                                )
+                            )
+                            self.jsonl_sink.record_order(ord_rec)
 
             return events
 
@@ -3562,62 +3763,95 @@ class DepthMicroOrderDispatcher:
         with self._lock:
             reconciled: list[LiquidityShockOrderRecord] = []
             for cid, ord_rec in list(self.orders.items()):
-                if ord_rec.status == OrderLifecycleState.NEW:
+                if ord_rec.status in (
+                    OrderLifecycleState.NEW,
+                    OrderLifecycleState.PARTIALLY_FILLED,
+                ):
                     rest_ord = self.gateway.query_order(ord_rec.symbol, cid)
-                    if rest_ord and rest_ord.get("status") == "FILLED":
-                        ord_rec.status = OrderLifecycleState.FILLED
-                        ord_rec.executed_quantity = str(
-                            rest_ord.get("executedQty", ord_rec.quantity)
+                    if not rest_ord:
+                        continue
+                    rest_status = rest_ord.get("status")
+                    if rest_status in ("FILLED", "PARTIALLY_FILLED"):
+                        rest_exec = _safe_decimal(rest_ord.get("executedQty", ord_rec.quantity))
+                        prior_exec = _safe_decimal(ord_rec.executed_quantity)
+                        delta_qty = (
+                            rest_exec - prior_exec
+                            if rest_exec > prior_exec
+                            else _safe_decimal(ord_rec.quantity)
                         )
-                        self.orders_filled_count += 1
+
+                        prev_state = ord_rec.status
+                        new_state = (
+                            OrderLifecycleState.FILLED
+                            if rest_status == "FILLED"
+                            else OrderLifecycleState.PARTIALLY_FILLED
+                        )
+                        ord_rec.status = new_state
+                        ord_rec.executed_quantity = str(rest_exec)
+                        if new_state == OrderLifecycleState.FILLED:
+                            self.orders_filled_count += 1
                         self.telemetry_store.record_order(ord_rec)
                         self.telemetry_store.record_lifecycle_transition(
                             OrderLifecycleTransition(
                                 track_id=self.track_id,
                                 order_id=ord_rec.order_id,
                                 client_order_id=ord_rec.client_order_id,
-                                from_state=OrderLifecycleState.NEW,
-                                to_state=OrderLifecycleState.FILLED,
-                                trigger_reason="REST reconciliation backfill confirmed fill",
+                                from_state=prev_state,
+                                to_state=new_state,
+                                trigger_reason=(
+                                    f"REST reconciliation backfill confirmed {rest_status}"
+                                ),
                             )
                         )
                         self.jsonl_sink.record_order(ord_rec)
 
-                        # Process fill in ledger
-                        fee = (
-                            _safe_decimal(ord_rec.price)
-                            * _safe_decimal(ord_rec.quantity)
-                            * DEFAULT_TAKER_FEE_RATE
-                        ).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-                        mark = self.reconciler.process_fill(
-                            trade_id=f"rest-fill-{uuid4().hex[:8]}",
-                            symbol=ord_rec.symbol,
-                            side=ord_rec.side,
-                            price=_safe_decimal(ord_rec.price),
-                            quantity=_safe_decimal(ord_rec.quantity),
-                            commission=fee,
-                            is_closing=ord_rec.is_closing,
-                        )
-                        self.telemetry_store.record_execution_mark(mark)
+                        # Process fill in ledger for incremental fill quantity
+                        if delta_qty > Decimal("0"):
+                            fee = (
+                                _safe_decimal(ord_rec.price) * delta_qty * DEFAULT_TAKER_FEE_RATE
+                            ).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                            mark = self.reconciler.process_fill(
+                                trade_id=f"rest-fill-{uuid4().hex[:8]}",
+                                symbol=ord_rec.symbol,
+                                side=ord_rec.side,
+                                price=_safe_decimal(ord_rec.price),
+                                quantity=delta_qty,
+                                commission=fee,
+                                is_closing=ord_rec.is_closing,
+                            )
+                            self.telemetry_store.record_execution_mark(mark)
+
                         reconciled.append(ord_rec)
 
                         if ord_rec.parent_client_order_id:
                             p_rec = self.parent_orders.get(ord_rec.parent_client_order_id)
                             if p_rec:
-                                p_rec.executed_quantity = str(
-                                    _safe_decimal(p_rec.executed_quantity)
-                                    + _safe_decimal(ord_rec.quantity)
+                                cur_p_qty = _safe_decimal(p_rec.executed_quantity) + delta_qty
+                                cur_p_notional = _safe_decimal(p_rec.executed_notional_usdt) + (
+                                    delta_qty * _safe_decimal(ord_rec.price)
                                 )
-                                p_rec.executed_notional_usdt = str(
-                                    _safe_decimal(p_rec.executed_notional_usdt)
-                                    + _safe_decimal(ord_rec.notional_usdt)
-                                )
-                                if _safe_decimal(p_rec.executed_quantity) >= _safe_decimal(
-                                    p_rec.total_quantity
-                                ):
+                                p_rec.executed_quantity = str(cur_p_qty)
+                                p_rec.executed_notional_usdt = str(cur_p_notional)
+                                if cur_p_qty >= _safe_decimal(p_rec.total_quantity):
                                     p_rec.status = OrderLifecycleState.FILLED
                                     p_rec.dispatch_complete = True
                                 self.telemetry_store.record_parent_order(p_rec)
+                    elif rest_status in ("CANCELED", "CANCELLED"):
+                        prev_state = ord_rec.status
+                        ord_rec.status = OrderLifecycleState.CANCELLED
+                        self.orders_cancelled_count += 1
+                        self.telemetry_store.record_order(ord_rec)
+                        self.telemetry_store.record_lifecycle_transition(
+                            OrderLifecycleTransition(
+                                track_id=self.track_id,
+                                order_id=ord_rec.order_id,
+                                client_order_id=ord_rec.client_order_id,
+                                from_state=prev_state,
+                                to_state=OrderLifecycleState.CANCELLED,
+                                trigger_reason="REST reconciliation backfill confirmed CANCELED",
+                            )
+                        )
+                        self.jsonl_sink.record_order(ord_rec)
 
             return reconciled
 
@@ -4344,9 +4578,9 @@ class CanaryDepthImbalanceRunner:
         manifest: CanaryStagingManifest,
         candidate_artifacts: dict[str, Any],
     ) -> LiquidityShockDaemonTrackResult:
-        """Track 1: Multi-Candidate Liquidity Shock Transmission & Funding Rate Ingress Replay.
-        - Nominal shock tracking, funding rate basis monitoring across BTCUSDT, ETHUSDT, SOLUSDT.
-        - Stepped expansion across stages up to Stage 7 (<= 35.00 USDT).
+        """Track 1: Multi-Candidate Depth Imbalance & Spread Ingress Replay.
+        - Nominal depth imbalance tracking, spread monitoring across BTCUSDT, ETHUSDT, SOLUSDT.
+        - Stepped expansion across stages up to Stage 8 (<= 40.00 USDT).
         - Dynamic order slicing (TWAP) when signal order exceeds available depth.
         - Parallel execution across candidates via ThreadPoolExecutor.
         - Clean closing and double-entry accounting reconciliation (drift = 0).
@@ -4476,7 +4710,7 @@ class CanaryDepthImbalanceRunner:
             ask_depth=Decimal("50.0"),
         )
 
-        # 2. Stepped expansion through all 7 stages up to Stage 7 (35.00 USDT)
+        # 2. Stepped expansion through all 8 stages up to Stage 8 (40.00 USDT)
         stages = [
             CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
             CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
@@ -4642,11 +4876,11 @@ class CanaryDepthImbalanceRunner:
         manifest: CanaryStagingManifest,
         candidate_artifacts: dict[str, Any],
     ) -> LiquidityShockDaemonTrackResult:
-        """Track 2: Asymmetric Funding Rate Distortion & Basis Arbitrage Throttling Drill.
-        - Simulate extreme funding rate divergence (|rate| > 0.05% or basis spread > 0.10%).
+        """Track 2: Asymmetric Depth Collapse & Adverse Selection Throttling Drill.
+        - Simulate extreme order book skew and depth evaporation.
         - Dynamic child order downscaling and limit offset widening.
         - Rejection of aggressive order dispatches fail-closed during distortion.
-        - Stepped expansion ceiling enforcement (<= 35.00 USDT) and clean reconciliation.
+        - Stepped expansion ceiling enforcement (<= 40.00 USDT) and clean reconciliation.
         """
         assert self.active_store is not None
         assert self.active_sink is not None
@@ -4892,9 +5126,9 @@ class CanaryDepthImbalanceRunner:
         manifest: CanaryStagingManifest,
         candidate_artifacts: dict[str, Any],
     ) -> LiquidityShockDaemonTrackResult:
-        """Track 3: Cross-Asset Liquidity Shock Contagion & Circuit Breaker Liquidation Drill.
+        """Track 3: Cross-Asset Liquidity Evaporation & Circuit Breaker Liquidation Drill.
         - Open multi-symbol positions (BTCUSDT, ETHUSDT).
-        - Liquidity shock contagion causing realized loss > 4.50 USDT ceiling.
+        - Liquidity shock contagion causing realized loss > 5.00 USDT ceiling.
         - Immediate fail-closed lockout on subsequent orders.
         - Emergency micro-chunked position liquidation (slices <= 5.00 USDT).
         - Clean balance reconciliation with zero drift.
