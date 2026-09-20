@@ -854,11 +854,29 @@ class SqliteCanaryDepthImbalanceTelemetryStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self.conn = sqlite3.connect(str(self.db_path), timeout=30.0, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA synchronous=NORMAL;")
+        self.conn.execute("PRAGMA busy_timeout = 30000;")
         self._init_schema()
+
+    def _execute_write(self, sql: str, params: tuple[Any, ...] = ()) -> None:
+        """Execute a write query with thread safety, WAL busy_timeout, and retry on contention."""
+        with self._lock:
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    with self.conn:
+                        self.conn.execute(sql, params)
+                    return
+                except sqlite3.OperationalError as exc:
+                    if (
+                        "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                    ) and attempt < max_retries - 1:
+                        time.sleep(0.01 * (2**attempt))
+                        continue
+                    raise
 
     def _init_schema(self) -> None:
         with self._lock, self.conn:
@@ -2077,7 +2095,7 @@ class DepthImbalanceEngine:
             if side_str == OrderSide.BUY.value:
                 limit_price = bid_px + offset
             else:
-                limit_price = ask_px - offset
+                limit_price = max(Decimal("0.00000001"), ask_px - offset)
 
             return target_notional, limit_price, regime, offset
 
@@ -2473,13 +2491,29 @@ class DepthImbalanceStreamSequencer:
         self.deduplicated_count: int = 0
         self.out_of_order_count: int = 0
         self.sequence_wrap_count: int = 0
+        self.last_event_time_ms: int = 0
+        self.non_monotonic_timestamp_count: int = 0
         self._lock = threading.RLock()
 
     def process_event(self, event: dict[str, Any]) -> tuple[bool, bool, bool]:
         """Process stream event. Returns (is_duplicate, is_out_of_order, is_wrap)."""
         with self._lock:
+            evt_time = _safe_int(event.get("E", event.get("T", 0)))
+            if evt_time > 0:
+                if self.last_event_time_ms > 0 and evt_time < self.last_event_time_ms:
+                    self.non_monotonic_timestamp_count += 1
+                elif evt_time > self.last_event_time_ms:
+                    self.last_event_time_ms = evt_time
+
             seq = _safe_int(event.get("u", 0))
             if seq == 0:
+                if (
+                    evt_time > 0
+                    and self.last_event_time_ms > 0
+                    and evt_time < self.last_event_time_ms
+                ):
+                    self.out_of_order_count += 1
+                    return False, True, False
                 return False, False, False
 
             if seq in self.processed_sequences:
@@ -2518,8 +2552,11 @@ class DepthImbalanceStreamSequencer:
             return False, is_ooo, is_wrap
 
     def notify_reconnect(self, new_epoch: int = 0) -> None:
+        """Handle stream reconnection; reset arrival tracker if explicit new epoch provided."""
         with self._lock:
-            pass
+            if new_epoch > 0:
+                self.highest_arrival_sequence = 0
+                self.last_event_time_ms = 0
 
 
 # Compatibility alias
@@ -3012,7 +3049,9 @@ class DepthImbalanceOrderDispatchInterlock:
             # Closing orders bypass circuit breaker lockouts and margin checks.
             # They only enforce individual micro cap (<= 5.00 USDT) for atomic liquidation.
             if is_closing:
-                if order_notional > HARD_MICRO_NOTIONAL_CAP_USDT:
+                if order_notional > HARD_MICRO_NOTIONAL_CAP_USDT and quantity > Decimal(
+                    "0.00000001"
+                ):
                     self.interlock_blocks_count += 1
                     err_msg = (
                         f"Closing order notional {order_notional} exceeds individual micro cap "
@@ -3455,6 +3494,16 @@ class DepthMicroOrderDispatcher:
                 fallback_price=fallback_price,
             )
 
+            if target_notional < MIN_MICRO_NOTIONAL_CAP_USDT:
+                err_msg = (
+                    f"Target notional {target_notional} violates micro notional floor "
+                    f"{MIN_MICRO_NOTIONAL_CAP_USDT} USDT"
+                )
+                raise MicroNotionalFloorViolationError(err_msg)
+
+            if limit_px <= Decimal("0"):
+                limit_px = DEFAULT_REFERENCE_PRICES.get(symbol.strip().upper(), Decimal("100.0"))
+
             total_qty = (target_notional / limit_px).quantize(
                 Decimal("0.00000001"), rounding=ROUND_DOWN
             )
@@ -3662,8 +3711,19 @@ class DepthMicroOrderDispatcher:
                     if cid and cid in self.orders:
                         ord_rec = self.orders[cid]
                         ord_status = o.get("X", "NEW")
+                        prev_status = ord_rec.status
+
+                        # Terminal state protection: cannot regress from FILLED, CANCELLED, REJECTED
+                        if prev_status == OrderLifecycleState.FILLED:
+                            continue
+                        if prev_status in (
+                            OrderLifecycleState.CANCELLED,
+                            OrderLifecycleState.REJECTED,
+                            OrderLifecycleState.EXPIRED,
+                        ) and ord_status not in ("FILLED", "PARTIALLY_FILLED"):
+                            continue
+
                         if ord_status in ("FILLED", "PARTIALLY_FILLED"):
-                            prev_status = ord_rec.status
                             new_status = (
                                 OrderLifecycleState.FILLED
                                 if ord_status == "FILLED"
@@ -3690,11 +3750,12 @@ class DepthMicroOrderDispatcher:
                             cum_qty = _safe_decimal(o.get("z", "0"))
                             prev_exec_qty = _safe_decimal(ord_rec.executed_quantity)
                             if trade_qty <= Decimal("0"):
-                                trade_qty = (
-                                    cum_qty - prev_exec_qty
-                                    if cum_qty > prev_exec_qty
-                                    else _safe_decimal(ord_rec.quantity)
-                                )
+                                if cum_qty > prev_exec_qty:
+                                    trade_qty = cum_qty - prev_exec_qty
+                                elif prev_exec_qty == Decimal("0") and ord_status == "FILLED":
+                                    trade_qty = _safe_decimal(ord_rec.quantity)
+                                else:
+                                    trade_qty = Decimal("0")
                             ord_rec.executed_quantity = str(
                                 cum_qty if cum_qty > Decimal("0") else prev_exec_qty + trade_qty
                             )
@@ -3730,7 +3791,13 @@ class DepthMicroOrderDispatcher:
                                             p_rec.dispatch_complete = True
                                         self.telemetry_store.record_parent_order(p_rec)
                         elif ord_status in ("CANCELED", "CANCELLED", "REJECTED", "EXPIRED"):
-                            prev_status = ord_rec.status
+                            if prev_status in (
+                                OrderLifecycleState.FILLED,
+                                OrderLifecycleState.CANCELLED,
+                                OrderLifecycleState.REJECTED,
+                                OrderLifecycleState.EXPIRED,
+                            ):
+                                continue
                             target_status = (
                                 OrderLifecycleState.CANCELLED
                                 if ord_status in ("CANCELED", "CANCELLED")
@@ -3774,11 +3841,12 @@ class DepthMicroOrderDispatcher:
                     if rest_status in ("FILLED", "PARTIALLY_FILLED"):
                         rest_exec = _safe_decimal(rest_ord.get("executedQty", ord_rec.quantity))
                         prior_exec = _safe_decimal(ord_rec.executed_quantity)
-                        delta_qty = (
-                            rest_exec - prior_exec
-                            if rest_exec > prior_exec
-                            else _safe_decimal(ord_rec.quantity)
-                        )
+                        if rest_exec > prior_exec:
+                            delta_qty = rest_exec - prior_exec
+                        elif prior_exec == Decimal("0") and rest_status == "FILLED":
+                            delta_qty = _safe_decimal(ord_rec.quantity)
+                        else:
+                            delta_qty = Decimal("0")
 
                         prev_state = ord_rec.status
                         new_state = (
@@ -3787,7 +3855,9 @@ class DepthMicroOrderDispatcher:
                             else OrderLifecycleState.PARTIALLY_FILLED
                         )
                         ord_rec.status = new_state
-                        ord_rec.executed_quantity = str(rest_exec)
+                        ord_rec.executed_quantity = str(
+                            rest_exec if rest_exec > Decimal("0") else prior_exec + delta_qty
+                        )
                         if new_state == OrderLifecycleState.FILLED:
                             self.orders_filled_count += 1
                         self.telemetry_store.record_order(ord_rec)
@@ -3821,7 +3891,8 @@ class DepthMicroOrderDispatcher:
                             )
                             self.telemetry_store.record_execution_mark(mark)
 
-                        reconciled.append(ord_rec)
+                        if delta_qty > Decimal("0") or prev_state != new_state:
+                            reconciled.append(ord_rec)
 
                         if ord_rec.parent_client_order_id:
                             p_rec = self.parent_orders.get(ord_rec.parent_client_order_id)
@@ -3852,6 +3923,7 @@ class DepthMicroOrderDispatcher:
                             )
                         )
                         self.jsonl_sink.record_order(ord_rec)
+                        reconciled.append(ord_rec)
 
             return reconciled
 

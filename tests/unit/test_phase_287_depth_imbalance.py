@@ -45,6 +45,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from datetime import UTC, datetime
 from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 
@@ -90,6 +91,7 @@ from autonomous_futures.feed.depth_imbalance import (  # noqa: E402
     DepthUserDataStreamReconciler,
     FundingRateDistortionThrottledError,
     GatewayHeartbeatMonitor,
+    GatewayHeartbeatRecord,
     GatewayHeartbeatStaleError,
     HeartbeatFreezeActiveError,
     HeartbeatStatus,
@@ -106,6 +108,7 @@ from autonomous_futures.feed.depth_imbalance import (  # noqa: E402
     LiquidityUserDataStreamReconciler,
     ListenKeyExpiredError,
     MarginAllocationExceededError,
+    MicroNotionalFloorViolationError,
     MockBinanceDepthImbalanceGateway,
     MockBinanceLiquidityShockGateway,
     OrderBookFeedCorruptionError,
@@ -2115,3 +2118,289 @@ def test_heartbeat_freeze_recovery_marginal_clock_drift_and_latency_spike():
     assert rec6.status == HeartbeatStatus.RECOVERED
     assert mon.is_frozen is False
     mon.assert_healthy(current_time_ms=now_ms + 5010)
+
+
+def test_reconcile_via_rest_repeated_idempotency_no_duplicate_fills(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test: Verify repeated REST reconciliations do not create phantom fills
+    or cause double-entry drift when called repeatedly without new fills.
+    """
+    gw = MockBinanceDepthImbalanceGateway()
+    reconciler = DepthUserDataStreamReconciler(track_id="test_rest_idempotency")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    sequencer = DepthImbalanceStreamSequencer()
+
+    interlock = DepthImbalanceOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        expansion_stage=CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION,
+    )
+    dispatcher = DepthMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_rest_idempotency",
+    )
+
+    gw.disconnect_stream()
+    cid = generate_canary_client_order_id("BTCUSDT")
+    ord_rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00008"),
+        price=Decimal("60000.00"),
+        client_order_id=cid,
+    )
+    assert ord_rec.status == OrderLifecycleState.NEW
+
+    # First REST reconciliation fills the order
+    reconciled_first = dispatcher.reconcile_via_rest()
+    assert len(reconciled_first) == 1
+    assert dispatcher.orders[cid].status == OrderLifecycleState.FILLED
+    assert dispatcher.orders[cid].executed_quantity == "0.00008"
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # Subsequent repeated REST reconciliations MUST NOT process phantom duplicate fills
+    reconciled_second = dispatcher.reconcile_via_rest()
+    assert len(reconciled_second) == 0
+    assert dispatcher.orders[cid].executed_quantity == "0.00008"
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_drain_stream_out_of_order_trade_update_no_state_regression(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test: Verify out-of-order or delayed trade updates do not regress a FILLED
+    order back to PARTIALLY_FILLED or CANCELLED, and do not execute phantom trades.
+    """
+    gw = MockBinanceDepthImbalanceGateway()
+    reconciler = DepthUserDataStreamReconciler(track_id="test_stream_ooo_regression")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    sequencer = DepthImbalanceStreamSequencer()
+
+    interlock = DepthImbalanceOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        expansion_stage=CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION,
+    )
+    dispatcher = DepthMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_stream_ooo_regression",
+    )
+
+    cid = generate_canary_client_order_id("BTCUSDT")
+    ord_rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00008"),
+        price=Decimal("60000.00"),
+        client_order_id=cid,
+    )
+    assert ord_rec.status == OrderLifecycleState.FILLED
+    initial_cash = reconciler.cash
+    initial_drift = reconciler.mathematical_drift
+
+    # Inject delayed out-of-order stream packet with status "PARTIALLY_FILLED"
+    delayed_evt = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": int(time.time() * 1000) - 500,
+        "T": int(time.time() * 1000) - 500,
+        "u": 1,
+        "o": {
+            "s": "BTCUSDT",
+            "c": cid,
+            "S": "BUY",
+            "o": "LIMIT",
+            "f": "GTC",
+            "q": "0.00008",
+            "p": "60000.00",
+            "ap": "60000.00",
+            "X": "PARTIALLY_FILLED",
+            "i": ord_rec.order_id,
+            "z": "0.00004",
+            "l": "0.00004",
+            "L": "60000.00",
+            "n": "0.001",
+            "N": "USDT",
+            "t": 99999,
+        },
+    }
+    gw.pushed_events.append(delayed_evt)
+    dispatcher.drain_and_reconcile_stream()
+
+    # Order must remain FILLED and not regress
+    assert dispatcher.orders[cid].status == OrderLifecycleState.FILLED
+    # Cash and drift must not have leaked
+    assert reconciler.cash == initial_cash
+    assert reconciler.mathematical_drift == initial_drift
+
+
+def test_dispatch_slicing_below_micro_floor_raises_error(temp_telemetry_store, temp_jsonl_sink):
+    """Adversarial Test: Verify dynamic slicing disallows sub-floor orders (< 1.00 USDT)
+    and raises MicroNotionalFloorViolationError fail-closed.
+    """
+    gw = MockBinanceDepthImbalanceGateway()
+    reconciler = DepthUserDataStreamReconciler(track_id="test_slicing_floor")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    sequencer = DepthImbalanceStreamSequencer()
+
+    interlock = DepthImbalanceOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        expansion_stage=CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION,
+    )
+    dispatcher = DepthMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_slicing_floor",
+    )
+
+    with pytest.raises(MicroNotionalFloorViolationError):
+        dispatcher.dispatch_signal_order_with_dynamic_slicing(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            desired_notional=Decimal("0.50"),
+        )
+
+
+def test_sequencer_non_monotonic_timestamp_handling():
+    """Adversarial Test: Verify sequencer detects non-monotonic gateway timestamps and
+    disambiguates ordering via monotonic sequence numbers.
+    """
+    seq = DepthImbalanceStreamSequencer()
+    # Event 1: normal
+    is_dup1, is_ooo1, is_wrap1 = seq.process_event({"u": 1, "E": 1000})
+    assert not is_dup1 and not is_ooo1 and not is_wrap1
+    assert seq.non_monotonic_timestamp_count == 0
+    assert seq.last_event_time_ms == 1000
+
+    # Event 2: sequence progresses to 2, but timestamp regresses to 900
+    is_dup2, is_ooo2, is_wrap2 = seq.process_event({"u": 2, "E": 900})
+    assert not is_dup2 and not is_ooo2 and not is_wrap2
+    assert seq.non_monotonic_timestamp_count == 1
+    assert seq.highest_arrival_sequence == 2
+
+    # Reconnect with new epoch resets sequence tracker
+    seq.notify_reconnect(new_epoch=1)
+    assert seq.highest_arrival_sequence == 0
+    assert seq.last_event_time_ms == 0
+
+
+def test_sqlite_telemetry_store_busy_timeout_and_concurrent_writes(tmp_path: Path):
+    """Adversarial Test: Verify SQLite telemetry store configures PRAGMA busy_timeout
+    and safely handles concurrent multi-threaded writes without OperationalError.
+    """
+    db_file = tmp_path / "concurrent_telemetry.sqlite3"
+    store = SqliteCanaryDepthImbalanceTelemetryStore(db_file)
+
+    row = store.conn.execute("PRAGMA busy_timeout;").fetchone()
+    assert row[0] == 30000
+
+    errors: list[Exception] = []
+
+    def write_worker(worker_id: int):
+        for i in range(15):
+            try:
+                hb = GatewayHeartbeatRecord(
+                    timestamp_utc=datetime.now(UTC).isoformat(),
+                    track_id=f"worker_{worker_id}",
+                    server_time_ms=1000000 + i,
+                    local_time_ms=1000000 + i,
+                    latency_ms=25.0,
+                    clock_skew_ms=0.0,
+                    status=HeartbeatStatus.HEALTHY,
+                    is_healthy=True,
+                    details=f"heartbeat_{worker_id}_{i}",
+                )
+                store.record_heartbeat(hb)
+            except Exception as e:
+                errors.append(e)
+
+    threads = [threading.Thread(target=write_worker, args=(w,)) for w in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(errors) == 0
+    store.close()
+
+
+def test_emergency_flattening_indivisible_lot_at_extreme_price(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test: Verify emergency flattening of an indivisible unit lot (0.00000001)
+    succeeds even when unit price makes notional > 5.00 USDT, avoiding deadlock.
+    """
+    gw = MockBinanceDepthImbalanceGateway()
+    reconciler = DepthUserDataStreamReconciler(track_id="test_indivisible_flatten")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    sequencer = DepthImbalanceStreamSequencer()
+
+    interlock = DepthImbalanceOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        expansion_stage=CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION,
+    )
+    dispatcher = DepthMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_indivisible_flatten",
+    )
+
+    # Set up position of 1 indivisible lot (0.00000001 BTC)
+    reconciler.positions["BTCUSDT"] = Decimal("0.00000001")
+    reconciler.allocated_margin = Decimal("10.00")
+    reconciler.cash -= Decimal("10.00")
+    reconciler.per_asset_margin["BTCUSDT"] = Decimal("10.00")
+    reconciler.entry_prices["BTCUSDT"] = Decimal("1000000000.00")
+
+    # Set book bid price to 1,000,000,000 USDT (notional = 10.00 USDT)
+    gw.set_book(
+        "BTCUSDT",
+        Decimal("1000000000.00"),
+        Decimal("1000000001.00"),
+        Decimal("1.0"),
+        Decimal("1.0"),
+    )
+
+    flattening_orders = dispatcher.execute_emergency_flattening()
+    assert len(flattening_orders) == 1
+    assert flattening_orders[0].status == OrderLifecycleState.FILLED
+    assert reconciler.positions["BTCUSDT"] == Decimal("0")
+    assert reconciler.allocated_margin == Decimal("0")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
