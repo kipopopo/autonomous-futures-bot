@@ -1684,3 +1684,301 @@ class TestPhase281Round2AdversarialStress:
         assert _safe_decimal("invalid", Decimal("42.0")) == Decimal("42.0")
         assert _safe_decimal("123.45") == Decimal("123.45")
         assert _safe_decimal(Decimal("67.89")) == Decimal("67.89")
+
+
+# =====================================================================
+# 13. Round 3 Adversarial Hardening Tests
+# =====================================================================
+
+
+class TestPhase281Round3AdversarialStress:
+    """Round 3 adversarial stress tests probing sequence wrap heuristics, clock hysteresis,
+    REST backfill idempotency, terminal state monotonicity, and emergency liquidation.
+    """
+
+    def test_sequence_reset_under_50_packets_advancing_timestamp(self):
+        sequencer = MainnetStreamSequencer()
+
+        # Stream receives 15 packets in Session 1
+        p_prev = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1000,
+            "T": 1000,
+            "_seq": 15,
+            "o": {"s": "BTCUSDT", "c": "c_s1", "x": "NEW", "X": "NEW"},
+        }
+        sequencer.ingest_and_sort_packets([p_prev])
+        assert sequencer.highest_arrival_sequence == 15
+        assert sequencer.session_epoch == 0
+
+        # Stream drops after only 15 packets, and new stream connects at T=2000 starting at seq 1
+        p_reset = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 2000,
+            "T": 2000,
+            "_seq": 1,
+            "o": {"s": "BTCUSDT", "c": "c_s2", "x": "NEW", "X": "NEW"},
+        }
+        out = sequencer.ingest_and_sort_packets([p_reset])
+        assert sequencer.session_epoch == 1
+        assert out[0][2] is False  # Must NOT be marked out-of-order!
+        assert sequencer.highest_arrival_sequence == 1
+
+    def test_clock_drift_50ms_recovery_hysteresis(self):
+        mon = GatewayHeartbeatMonitor()
+        now_ms = int(time.time() * 1000)
+
+        # 1. Normal heartbeat
+        mon.record_heartbeat(server_time_ms=now_ms - 20, latency_ms=20.0, track_id="r3_h1")
+        assert mon.is_fresh() is True
+
+        # 2. Backward NTP jump of 300 ms -> CLOCK_SKEW_FREEZE
+        h2 = mon.record_heartbeat(server_time_ms=now_ms - 320, latency_ms=30.0, track_id="r3_h2")
+        assert h2.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+        assert mon.is_frozen is True
+        assert mon.is_clock_skew_frozen is True
+
+        # 3. Heartbeat with backward skew 220 ms (<= 250 ms, but > 200 ms hysteresis ceiling)
+        # and latency 30 ms (<= 450 ms). Must REMAIN frozen due to 50 ms clock drift hysteresis!
+        h3 = mon.record_heartbeat(
+            server_time_ms=(now_ms - 320) - 220, latency_ms=30.0, track_id="r3_h3"
+        )
+        assert h3.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+        assert mon.is_frozen is True
+        assert mon.is_clock_skew_frozen is True
+
+        # 4. Heartbeat where backward skew drops to 150 ms (<= 200 ms)
+        # and latency <= 450 ms -> RECOVERS
+        now_ms2 = int(time.time() * 1000)
+        h4 = mon.record_heartbeat(server_time_ms=now_ms2 - 100, latency_ms=30.0, track_id="r3_h4")
+        assert h4.status == HeartbeatStatus.HEALTHY
+        assert mon.is_frozen is False
+        assert mon.is_clock_skew_frozen is False
+        assert mon.is_fresh() is True
+
+    def test_rest_order_reconciliation_zero_and_empty_trade_ids(self):
+        reconciler = MainnetUserDataStreamReconciler(track_id="r3_rest_test")
+        gateway = MockBinanceMainnetGateway()
+        sequencer = MainnetStreamSequencer()
+
+        # Two working orders
+        ord1 = MainnetOrderRecord(
+            order_id="1001",
+            client_order_id="c1",
+            track_id="r3_rest_test",
+            candidate_id="btc",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force="GTC",
+            price="60000.00",
+            quantity="0.00004",
+            executed_quantity="0",
+            notional_usdt="2.40",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+            is_closing=False,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        ord2 = MainnetOrderRecord(
+            order_id="1002",
+            client_order_id="c2",
+            track_id="r3_rest_test",
+            candidate_id="eth",
+            symbol="ETHUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force="GTC",
+            price="3000.00",
+            quantity="0.0008",
+            executed_quantity="0",
+            notional_usdt="2.40",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+            is_closing=False,
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+
+        orders = {"c1": ord1, "c2": ord2}
+
+        # Mock gateway responses where tradeId is 0 or empty string
+        gateway.orders["c1"] = {
+            "orderId": 1001,
+            "clientOrderId": "c1",
+            "symbol": "BTCUSDT",
+            "status": "FILLED",
+            "executedQty": "0.00004",
+            "price": "60000.00",
+            "tradeId": 0,
+            "updateTime": int(time.time() * 1000),
+            "isMaker": False,
+        }
+        gateway.orders["c2"] = {
+            "orderId": 1002,
+            "clientOrderId": "c2",
+            "symbol": "ETHUSDT",
+            "status": "FILLED",
+            "executedQty": "0.0008",
+            "price": "3000.00",
+            "tradeId": "",
+            "updateTime": int(time.time() * 1000),
+            "isMaker": False,
+        }
+
+        marks = reconciler.reconcile_orders_via_rest(gateway, orders, sequencer)
+        assert len(marks) == 2
+        # Fills must have distinct trade IDs
+        assert marks[0].trade_id != marks[1].trade_id
+        assert marks[0].trade_id != "0"
+        assert marks[1].trade_id != "0"
+        # Both fills must be applied to ledger
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00004")
+        assert reconciler.positions["ETHUSDT"] == Decimal("0.0008")
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    def test_gateway_fill_and_cancel_terminal_state_monotonicity(self):
+        gateway = MockBinanceMainnetGateway()
+        res = gateway.create_order(
+            symbol="BTCUSDT",
+            side="BUY",
+            type="LIMIT",
+            timeInForce="GTC",
+            quantity="0.00005",
+            price="60000.00",
+            newClientOrderId="c_term",
+        )
+        assert res["status"] == "NEW"
+
+        # Cancel order
+        canc = gateway.cancel_order(symbol="BTCUSDT", client_order_id="c_term")
+        assert canc["status"] == "CANCELED"
+
+        # Attempting to fill a cancelled order must raise OrderCorrelationError
+        with pytest.raises(OrderCorrelationError):
+            gateway.fill_order(client_order_id="c_term")
+
+        # Create an expired order
+        gateway.create_order(
+            symbol="BTCUSDT",
+            side="BUY",
+            type="MARKET",
+            timeInForce="IOC",
+            quantity="0.00005",
+            price="60000.00",
+            newClientOrderId="c_exp",
+        )
+        gateway.orders["c_exp"]["status"] = "EXPIRED"
+
+        # Cancelling an expired order must NOT mutate status to CANCELED
+        canc_exp = gateway.cancel_order(symbol="BTCUSDT", client_order_id="c_exp")
+        assert canc_exp["status"] == "EXPIRED"
+
+    def test_cancel_micro_order_symbol_mismatch_and_terminal_idempotency(
+        self, temp_telemetry_store
+    ):
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler(track_id="t_cancel")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000) - 20, latency_ms=20.0, track_id="t_cancel"
+        )
+        sink = JsonlCanaryOrderSink(temp_telemetry_store.db_path.parent / "temp_orders.jsonl")
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=temp_telemetry_store,
+            track_id="t_cancel",
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=temp_telemetry_store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="t_cancel",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT")
+        gateway.disconnect_stream()
+        order = dispatcher.dispatch_micro_order(
+            candidate_id="btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00004"),
+            price=Decimal("60000.00"),
+            client_order_id=cid,
+        )
+        assert order.status == OrderLifecycleState.NEW
+
+        # Symbol mismatch must raise OrderCorrelationError
+        with pytest.raises(OrderCorrelationError) as exc:
+            dispatcher.cancel_micro_order(symbol="ETHUSDT", client_order_id=cid)
+        assert "Symbol mismatch" in str(exc.value)
+
+        # Clean cancel
+        rec = dispatcher.cancel_micro_order(symbol="BTCUSDT", client_order_id=cid)
+        assert rec.status == OrderLifecycleState.CANCELLED
+
+        # Second cancel is idempotent and safely returns without error
+        rec2 = dispatcher.cancel_micro_order(symbol="BTCUSDT", client_order_id=cid)
+        assert rec2.status == OrderLifecycleState.CANCELLED
+
+    def test_emergency_flattening_non_staged_symbol_and_non_finite_mark_price(
+        self, temp_telemetry_store
+    ):
+        gateway = MockBinanceMainnetGateway()
+        reconciler = MainnetUserDataStreamReconciler(track_id="t_emrg")
+        sequencer = MainnetStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000) - 20, latency_ms=20.0, track_id="t_emrg"
+        )
+        sink = JsonlCanaryOrderSink(temp_telemetry_store.db_path.parent / "temp_orders.jsonl")
+        interlock = MainnetOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            telemetry_store=temp_telemetry_store,
+            track_id="t_emrg",
+            expansion_stage=CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT,
+        )
+        dispatcher = MainnetMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=temp_telemetry_store,
+            jsonl_sink=sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="t_emrg",
+        )
+
+        # Seed open position on staged symbol with malformed/non-finite mark price
+        reconciler.positions["BTCUSDT"] = Decimal("0.00010")  # 6.00 USDT at 60k
+        reconciler.position_entry_prices["BTCUSDT"] = Decimal("60000.00")
+        reconciler.mark_prices["BTCUSDT"] = Decimal("NaN")  # Non-finite!
+
+        # Also seed position in SOLUSDT with non-positive mark price
+        reconciler.positions["SOLUSDT"] = Decimal("-0.050")  # Short 7.50 USDT at 150
+        reconciler.position_entry_prices["SOLUSDT"] = Decimal("150.00")
+        reconciler.mark_prices["SOLUSDT"] = Decimal("-10.0")  # Non-positive!
+
+        # Deduct cash to reflect opened positions under double-entry accounting
+        # (6.00 + 7.50 = 13.50)
+        reconciler.cash -= Decimal("13.50")
+
+        flattening_orders = dispatcher.execute_emergency_flattening()
+        assert len(flattening_orders) >= 3  # Both positions chunked into slices <= 5.00 USDT
+        for fo in flattening_orders:
+            assert Decimal(fo.notional_usdt) <= HARD_MICRO_NOTIONAL_CAP_USDT
+
+        assert reconciler.positions["BTCUSDT"] == Decimal("0")
+        assert reconciler.positions["SOLUSDT"] == Decimal("0")
+        assert reconciler.allocated_margin == Decimal("0")
+        assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT

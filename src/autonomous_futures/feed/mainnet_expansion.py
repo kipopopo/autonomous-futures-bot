@@ -1254,26 +1254,34 @@ class GatewayHeartbeatMonitor:
         now_ms = int(time.time() * 1000)
         self.heartbeat_count += 1
 
-        # Check backward clock drift and forward clock desync
+        # Determine applicable tolerance based on whether monitor is already frozen
+        # on clock skew (50 ms recovery hysteresis)
+        skew_tolerance = (
+            (self.clock_skew_tolerance_ms - 50.0)
+            if self.is_clock_skew_frozen
+            else self.clock_skew_tolerance_ms
+        )
         is_clock_skew = False
         if latency_ms < 0.0:
             is_clock_skew = True
             logger.warning("Negative latency detected: %.1f ms", latency_ms)
         elif self.last_heartbeat_server_time_ms > 0:
             backward_skew = self.last_heartbeat_server_time_ms - server_time_ms
-            if backward_skew > self.clock_skew_tolerance_ms:
+            if backward_skew > skew_tolerance:
                 is_clock_skew = True
                 logger.warning(
-                    "Backward clock drift detected: %d ms (limit %d ms)",
+                    "Backward clock drift detected: %d ms (limit %d ms, frozen=%s)",
                     backward_skew,
-                    self.clock_skew_tolerance_ms,
+                    skew_tolerance,
+                    self.is_clock_skew_frozen,
                 )
-        if not is_clock_skew and (server_time_ms - now_ms) > self.clock_skew_tolerance_ms:
+        if not is_clock_skew and (server_time_ms - now_ms) > skew_tolerance:
             is_clock_skew = True
             logger.warning(
-                "Forward clock drift detected: server %d ms ahead of local %d ms",
+                "Forward clock drift detected: server %d ms ahead of local %d ms (limit %d ms)",
                 server_time_ms,
                 now_ms,
+                skew_tolerance,
             )
 
         age_ms = float(now_ms - server_time_ms)
@@ -1507,13 +1515,22 @@ class MainnetStreamSequencer:
 
             # Automatic sequence wrap / reconnection reset heuristic:
             # If sequence drops back to near 1 while highest arrival sequence was elevated,
-            # and timestamp has advanced, automatically advance session epoch.
-            if (
-                seq > 0
-                and self.highest_arrival_sequence >= 50
-                and seq <= 5
-                and t_time >= self.highest_arrival_time_ms
-            ):
+            # or drops after < 50 packets with strictly advancing timestamp,
+            # automatically advance session epoch.
+            is_seq_reset = False
+            if seq > 0:
+                if t_time > self.highest_arrival_time_ms:
+                    if (
+                        (seq <= 2 and self.highest_arrival_sequence >= 5)
+                        or (seq <= 5 and self.highest_arrival_sequence >= 10)
+                        or (self.highest_arrival_sequence - seq >= 20)
+                    ):
+                        is_seq_reset = True
+                elif t_time >= self.highest_arrival_time_ms:
+                    if self.highest_arrival_sequence >= 50 and seq <= 5:
+                        is_seq_reset = True
+
+            if is_seq_reset:
                 self.notify_reconnect()
 
             is_ooo = False
@@ -1595,9 +1612,11 @@ class MainnetUserDataStreamReconciler:
     def per_asset_margin(self) -> dict[str, Decimal]:
         """Margin committed per asset."""
         with self._lock:
+            all_syms = set(CANARY_STAGED_SYMBOLS) | set(self.positions.keys())
             return {
-                sym: abs(self.positions[sym]) * self.position_entry_prices.get(sym, Decimal("0"))
-                for sym in CANARY_STAGED_SYMBOLS
+                sym: abs(self.positions.get(sym, Decimal("0")))
+                * self.position_entry_prices.get(sym, Decimal("0"))
+                for sym in all_syms
             }
 
     @property
@@ -1607,8 +1626,18 @@ class MainnetUserDataStreamReconciler:
             pnl = Decimal("0")
             for sym, pos in self.positions.items():
                 if pos != Decimal("0"):
-                    px = self.mark_prices.get(sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym])))
-                    entry = self.position_entry_prices[sym]
+                    ref_px = Decimal(str(DEFAULT_REFERENCE_PRICES.get(sym, "100.00")))
+                    raw_px = self.mark_prices.get(sym, ref_px)
+                    px = (
+                        raw_px
+                        if (
+                            isinstance(raw_px, Decimal)
+                            and raw_px.is_finite()
+                            and raw_px > Decimal("0")
+                        )
+                        else ref_px
+                    )
+                    entry = self.position_entry_prices.get(sym, Decimal("0"))
                     pnl += pos * (px - entry)
             return pnl
 
@@ -1744,17 +1773,18 @@ class MainnetUserDataStreamReconciler:
                             trade_id = (
                                 str(raw_trade_id)
                                 if raw_trade_id is not None
-                                else f"tr-rest-{uuid4().hex[:6]}"
+                                and str(raw_trade_id).strip() not in ("", "0")
+                                else f"tr-rest-{client_order_id}-{remote_exec_qty}"
                             )
                             if sequencer is not None:
                                 sequencer.record_order_fill(client_order_id, remote_exec_qty)
+                                sequencer.processed_trade_ids.add(trade_id)
                                 up_time = _safe_int(remote.get("updateTime"), 0)
-                                if raw_trade_id is not None:
-                                    fp = (
-                                        f"OTU:{client_order_id}:{trade_id}:"
-                                        f"TRADE:{remote_status}:{up_time}"
-                                    )
-                                    sequencer.processed_fingerprints.add(fp)
+                                fp = (
+                                    f"OTU:{client_order_id}:{trade_id}:"
+                                    f"TRADE:{remote_status}:{up_time}"
+                                )
+                                sequencer.processed_fingerprints.add(fp)
 
                             price = _safe_decimal(remote.get("price"), Decimal(str(ord_rec.price)))
                             ord_px_dec = _safe_decimal(ord_rec.price, Decimal("0"))
@@ -1989,6 +2019,11 @@ class MockBinanceMainnetGateway:
 
             if order_rec["status"] == "FILLED":
                 return order_rec
+            if order_rec["status"] in ("CANCELED", "CANCELLED", "REJECTED", "EXPIRED"):
+                raise OrderCorrelationError(
+                    f"Cannot fill order {client_order_id}: "
+                    f"order is in terminal state {order_rec['status']}"
+                )
 
             now_ms = int(time.time() * 1000)
             orig_qty = Decimal(order_rec["origQty"])
@@ -2077,7 +2112,7 @@ class MockBinanceMainnetGateway:
                     f"Symbol mismatch: order is for {order_rec['symbol']}, requested {symbol}"
                 )
 
-            if order_rec["status"] in ("FILLED", "CANCELED", "CANCELLED", "REJECTED"):
+            if order_rec["status"] in ("FILLED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED"):
                 return order_rec
 
             now_ms = int(time.time() * 1000)
@@ -2281,8 +2316,15 @@ class MainnetOrderDispatchInterlock:
         pos_exposure = Decimal("0")
         for sym, pos in self.reconciler.positions.items():
             if pos != Decimal("0"):
-                ref_px = Decimal(str(DEFAULT_REFERENCE_PRICES[sym]))
-                px = self.reconciler.mark_prices.get(sym, ref_px)
+                ref_px = Decimal(str(DEFAULT_REFERENCE_PRICES.get(sym, "100.00")))
+                raw_px = self.reconciler.mark_prices.get(sym, ref_px)
+                px = (
+                    raw_px
+                    if (
+                        isinstance(raw_px, Decimal) and raw_px.is_finite() and raw_px > Decimal("0")
+                    )
+                    else ref_px
+                )
                 pos_exposure += abs(pos) * px
 
         # 2. Working orders committed notional
@@ -2603,7 +2645,7 @@ class MainnetOrderDispatchInterlock:
             status=status,
             symbol=symbol,
             client_order_id=cid,
-            details_json=json.dumps(clean_details, sort_keys=True),
+            details_json=json.dumps(clean_details, sort_keys=True, default=str),
             timestamp_utc=datetime.now(UTC).isoformat(),
         )
         if self.telemetry_store is not None:
@@ -2671,6 +2713,18 @@ class MainnetMicroOrderDispatcher:
             )
 
             cid = client_order_id or generate_canary_client_order_id(symbol)
+
+            if not isinstance(price, Decimal) or not price.is_finite() or price <= Decimal("0"):
+                raise DomainViolation(f"Order price {price} must be strictly positive and finite")
+            if (
+                not isinstance(quantity, Decimal)
+                or not quantity.is_finite()
+                or quantity <= Decimal("0")
+            ):
+                raise DomainViolation(
+                    f"Order quantity {quantity} must be strictly positive and finite"
+                )
+
             notional = (price * quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
             # 1. Validate Interlocks fail-closed
@@ -3075,6 +3129,18 @@ class MainnetMicroOrderDispatcher:
             rec = self.orders.get(client_order_id)
             if not rec:
                 raise OrderCorrelationError(f"Unknown order {client_order_id}")
+            if rec.symbol != symbol:
+                raise OrderCorrelationError(
+                    f"Symbol mismatch: order {client_order_id} is for "
+                    f"{rec.symbol}, requested {symbol}"
+                )
+            if rec.status in (
+                OrderLifecycleState.FILLED,
+                OrderLifecycleState.CANCELLED,
+                OrderLifecycleState.REJECTED,
+                OrderLifecycleState.EXPIRED,
+            ):
+                return rec
             self.gateway.cancel_order(symbol=symbol, client_order_id=client_order_id)
             try:
                 self.drain_and_reconcile_stream()
@@ -3112,16 +3178,24 @@ class MainnetMicroOrderDispatcher:
                 self.reconcile_via_rest()
 
             # Step 3: Flatten open positions in slices <= HARD_MICRO_NOTIONAL_CAP_USDT (5.00 USDT)
-            for sym in CANARY_STAGED_SYMBOLS:
+            active_symbols = set(CANARY_STAGED_SYMBOLS) | {
+                s for s, p in self.reconciler.positions.items() if p != Decimal("0")
+            }
+            for sym in active_symbols:
                 pos = self.reconciler.positions.get(sym, Decimal("0"))
                 if pos != Decimal("0"):
                     close_side = OrderSide.SELL if pos > Decimal("0") else OrderSide.BUY
                     rem_qty = abs(pos)
-                    mark_price = self.reconciler.mark_prices.get(
-                        sym, Decimal(str(DEFAULT_REFERENCE_PRICES[sym]))
-                    )
-                    if mark_price <= Decimal("0"):
-                        mark_price = Decimal(str(DEFAULT_REFERENCE_PRICES[sym]))
+                    ref_px = Decimal(str(DEFAULT_REFERENCE_PRICES.get(sym, "100.00")))
+                    raw_mark = self.reconciler.mark_prices.get(sym, ref_px)
+                    if (
+                        not isinstance(raw_mark, Decimal)
+                        or not raw_mark.is_finite()
+                        or raw_mark <= Decimal("0")
+                    ):
+                        mark_price = ref_px
+                    else:
+                        mark_price = raw_mark
 
                     max_chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / mark_price).quantize(
                         Decimal("0.00000001"), rounding=ROUND_DOWN
@@ -3136,7 +3210,10 @@ class MainnetMicroOrderDispatcher:
                         ):
                             chunk -= Decimal("0.00000001")
                         chunk = min(chunk, rem_qty)
-                        if chunk <= Decimal("0"):
+                        if (
+                            chunk <= Decimal("0")
+                            or chunk * mark_price > HARD_MICRO_NOTIONAL_CAP_USDT
+                        ):
                             break
 
                         cid = generate_canary_client_order_id(sym)
