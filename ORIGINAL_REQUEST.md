@@ -1413,3 +1413,72 @@ Enforce mathematical precision and autonomous safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## Follow-up — 2026-09-20T03:27:53Z
+
+Implement the production canary live mainnet staged capital expansion runner, multi-candidate concurrent order lifecycle governance, dynamic margin headroom monitoring, and deterministic fail-closed safety verification across staged canary symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) under Candidate Registry Manifest Version 2 (Phase 281) to govern multi-symbol concurrent micro execution, stepped capital headroom expansion, and real-time balance reconciliation.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout.
+
+## Requirements
+
+### R1. Upstream Verification & Cryptographic DAG Hash Chain Ingress
+Implement and execute the deterministic Phase 281 runner (`scripts/run_phase_281_mainnet_expansion.py` & `src/autonomous_futures/feed/mainnet_expansion.py`):
+- Ingest upstream Phase 280 deployment report (`artifacts/research/phase280/canary-mainnet-deployment-report.json`, `deployment-summary.json`), Phase 279 mainnet authorization report, Phase 278 testnet report, Phase 277 gateway report, and Phase 276 activation certificate.
+- Verify continuous cryptographic SHA-256 Merkle DAG hash chain and candidate registry manifest v2 integrity (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Validate prerequisite conditions: `deployment_status == MAINNET_DEPLOYMENT_VERIFIED`, zero balance drift, and all safety criteria satisfied.
+
+### R2. Staged Capital Expansion & Concurrent Order Dispatch Interlocks
+Implement strict multi-candidate concurrent order dispatch and dynamic margin headroom gating:
+- **Capital Expansion Tiers**:
+  - Individual Micro Order Cap: Strictly $\le 5.00$ USDT notional per order with `ROUND_DOWN` precision.
+  - Aggregate Concurrent Exposure Cap: Stepped expansion up to $\le 10.00$ USDT aggregate concurrent active exposure across all symbols.
+- **Dynamic Margin Headroom Interlock**: Real-time evaluation ensuring active portfolio margin allocation never exceeds $\le 60.00\%$ (preserving $\ge 40.00\%$ unencumbered cash reserve buffer) and per-asset allocation never exceeds $\le 20.00\%$.
+- **Active Committed Working Margin**: Dynamically track and reserve committed margin across concurrent working and partially-filled orders across symbols to prevent over-allocation.
+- **Intra-Phase Cumulative Loss Budget**: Cumulative loss ceiling of $\le 2.00$ USDT; breach triggers immediate fail-closed lockout and emergency micro-chunked position liquidation.
+- **Gateway Heartbeat Freshness**: Order placement permitted ONLY if gateway heartbeat age $\le 500$ ms; backward NTP clock drift $> 250$ ms triggers automatic freeze with 50 ms recovery hysteresis.
+- **Dual-Confirmation Client Order Tagging**: Unique client order IDs tagged with deterministic format (`c=canary-p281-{sym}-{ts}-{uuid}`).
+
+### R3. Deterministic Multi-Track Mainnet Verification Drills & Telemetry Storage
+Execute 4 deterministic simulation tracks in `artifacts/research/phase281/`:
+1. **Track 1: Multi-Candidate Concurrent Micro Order Dispatch & Fill Reconciliation** (Concurrent micro orders across `BTCUSDT`, `ETHUSDT`, `SOLUSDT` $\rightarrow$ parallel lifecycle management $\rightarrow$ clean ledger updates).
+2. **Track 2: Margin Headroom Exhaustion & Order Dispatch Throttling Drill** (Simulate margin allocation approaching 60.00% ceiling $\rightarrow$ verify subsequent orders rejected fail-closed).
+3. **Track 3: Cross-Symbol Asymmetric Drawdown & Dynamic Circuit Breaker Lockout Drill** (Simulate adverse drawdown on one symbol breaching loss budget $\rightarrow$ verify portfolio-wide lockout and emergency flattening).
+4. **Track 4: Rapid Sequence REST/WebSocket Desync & Resilient State Harmonization Drill** (Simulate high-frequency interleaved REST/WebSocket updates $\rightarrow$ verify monotonic state progression and trade deduplication).
+- Store execution marks, orders, lifecycle transitions, and telemetry in isolated SQLite database (`artifacts/research/phase281/canary-mainnet-expansion-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-mainnet-expansion-report.json`, `expansion-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Remote CI Polling
+Enforce mathematical precision and autonomous safety:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks ($\text{drift} = |\text{final\_cash} + \text{allocated\_margin} + \text{unrealized\_pnl} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Maintain strict containment: `execution_authority: false`, `orders: 0` on uncontrolled real live mainnet capital, `api_keys_loaded: 0` (zero real secrets committed/logged).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_281_mainnet_expansion.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and poll GitHub Actions CI until `status=completed, conclusion=success`.
+
+## Acceptance Criteria
+
+### Upstream Hash Chain & Ingress
+- [ ] Ingests Phase 280 deployment report and validates cryptographic SHA-256 Merkle DAG hash chain.
+- [ ] Confirms Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+
+### Dispatch Interlocks & Capital Headroom
+- [ ] Concurrent orders across symbols respect individual $\le 5.00$ USDT and aggregate $\le 10.00$ USDT caps.
+- [ ] Dynamic margin headroom blocks orders when aggregate margin allocation would exceed 60.00%.
+- [ ] Gateway heartbeat age > 500 ms immediately blocks order dispatch fail-closed.
+- [ ] Cumulative loss exceeding 2.00 USDT triggers immediate lockout and micro-chunked position liquidation.
+
+### Accounting & Containment Invariants
+- [ ] Mathematical double-entry reconciliation drift is exactly zero ($|\text{drift}| < 10^{-15}\text{ USDT}$) across all tracks and snapshots.
+- [ ] Strict containment verified: `execution_authority: false`, `orders: 0`, `api_keys_loaded: 0`.
+- [ ] Zero API keys or secrets logged or committed.
+
+### Quality & Remote CI
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
