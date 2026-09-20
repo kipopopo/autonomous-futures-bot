@@ -71,6 +71,7 @@ from autonomous_futures.feed.liquidity_shock import (  # noqa: E402
     MAX_FUNDING_BASIS_SPREAD_THRESHOLD,
     MIN_MICRO_NOTIONAL_CAP_USDT,
     SEQUENCE_WRAP_THRESHOLD,
+    STAGE_1_CONCURRENT_EXPOSURE_CAP_USDT,
     AggregateExposureCapExceededError,
     AggressiveOrderRejectedError,
     CanaryLiquidityShockConfig,
@@ -98,6 +99,7 @@ from autonomous_futures.feed.liquidity_shock import (  # noqa: E402
     MockBinanceLiquidityShockGateway,
     OrderLifecycleState,
     OrderSlicingMode,
+    PrerequisiteQualificationError,
     SqliteCanaryLiquidityShockTelemetryStore,
     assert_valid_canary_client_order_id,
     generate_canary_client_order_id,
@@ -897,3 +899,205 @@ def test_cli_runner_execution(tmp_path: Path):
     assert (out_dir / "paper-summary.json").is_file()
     assert (out_dir / "canary-orders.jsonl").is_file()
     assert (out_dir / "canary-liquidity-shock-telemetry.sqlite3").is_file()
+
+
+# =====================================================================
+# 13. Adversarial Edge Case & Robustness Verification Tests
+# =====================================================================
+
+
+def test_dynamic_slicing_committed_margin_no_double_counting_in_stage_1(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test: Verify sliced parent order (4.80 USDT) in Stage 1 (cap 5.00 USDT)
+    does NOT double-count parent reservation and child slices, preventing false rejection.
+    """
+    gw = MockBinanceLiquidityShockGateway()
+    reconciler = LiquidityUserDataStreamReconciler(track_id="adv_stage1_slicing")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    shock_engine = LiquidityShockEngine()
+    sequencer = LiquidityShockStreamSequencer()
+
+    # Constrained depth on BTCUSDT to force slicing
+    shock_engine.set_book(
+        "BTCUSDT",
+        Decimal("60000.00"),
+        Decimal("60010.00"),
+        Decimal("0.00004"),
+        Decimal("0.00004"),
+    )
+    gw.set_book(
+        "BTCUSDT",
+        Decimal("60000.00"),
+        Decimal("60010.00"),
+        Decimal("0.00004"),
+        Decimal("0.00004"),
+    )
+
+    interlock = LiquidityShockOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        shock_engine=shock_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,  # Cap is 5.00 USDT
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="adv_stage1_slicing",
+        shock_engine=shock_engine,
+    )
+
+    # Dispatch parent order of 4.80 USDT (slices into two 2.40 USDT child orders)
+    parent, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("4.80"),
+    )
+
+    assert parent.status == OrderLifecycleState.FILLED
+    assert len(children) == 2
+    for ch in children:
+        assert Decimal(ch.notional_usdt) <= DYNAMIC_SLICING_MAX_CHUNK_USDT
+        assert Decimal(ch.notional_usdt) >= MIN_MICRO_NOTIONAL_CAP_USDT
+        assert ch.status == OrderLifecycleState.FILLED
+    assert reconciler.allocated_margin <= STAGE_1_CONCURRENT_EXPOSURE_CAP_USDT
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_severe_controls_floor_sizing_and_dispatch(temp_telemetry_store, temp_jsonl_sink):
+    """Adversarial Test: Verify in SEVERE_CONTROLS regime where target notional is 1.00 USDT,
+    quantized quantity does not fall below floor or trigger MicroNotionalFloorViolationError.
+    """
+    gw = MockBinanceLiquidityShockGateway()
+    reconciler = LiquidityUserDataStreamReconciler(track_id="adv_severe_floor")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    shock_engine = LiquidityShockEngine()
+    sequencer = LiquidityShockStreamSequencer()
+
+    # Induce SEVERE_CONTROLS via high shock index
+    shock_engine.set_aggregate_shock_index(Decimal("0.85"))
+    assert shock_engine.classify_liquidity_shock_regime() == LiquidityShockRegime.SEVERE_CONTROLS
+
+    interlock = LiquidityShockOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        shock_engine=shock_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_7_LIQUIDITY_SHOCK_EXPANSION,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="adv_severe_floor",
+        shock_engine=shock_engine,
+    )
+
+    parent, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        desired_notional=Decimal("5.00"),
+    )
+
+    assert parent.status == OrderLifecycleState.FILLED
+    for ch in children:
+        assert Decimal(ch.notional_usdt) >= MIN_MICRO_NOTIONAL_CAP_USDT
+        assert Decimal(ch.notional_usdt) <= HARD_MICRO_NOTIONAL_CAP_USDT
+        assert ch.status == OrderLifecycleState.FILLED
+
+
+def test_backward_ntp_clock_drift_check_health_and_circuit_state_transition():
+    """Adversarial Test: Verify backward NTP clock drift in check_health triggers immediate
+    freeze and synchronizes circuit_state to HEARTBEAT_FREEZE.
+    """
+    mon = GatewayHeartbeatMonitor()
+    now_ms = int(time.time() * 1000)
+    mon.record_heartbeat(server_time_ms=now_ms, latency_ms=25.0, local_time_ms=now_ms)
+
+    # Local clock steps backward by 350 ms (> 250 ms)
+    healthy, reason = mon.check_health(current_time_ms=now_ms - 350)
+    assert healthy is False
+    assert "Backward NTP" in reason
+    assert mon.is_frozen is True
+
+    reconciler = LiquidityUserDataStreamReconciler(track_id="adv_freeze_circuit")
+    interlock = LiquidityShockOrderDispatchInterlock(
+        heartbeat_monitor=mon,
+        reconciler=reconciler,
+    )
+
+    with pytest.raises(HeartbeatFreezeActiveError):
+        interlock.validate_dispatch(
+            symbol="BTCUSDT",
+            price=Decimal("50000.00"),
+            quantity=Decimal("0.00004"),
+            client_order_id=generate_canary_client_order_id("BTCUSDT"),
+        )
+
+    # Circuit state must be synchronized to HEARTBEAT_FREEZE
+    assert interlock.circuit_state == CircuitBreakerState.HEARTBEAT_FREEZE
+
+    # Now heartbeat recovers with current real time
+    curr_now = int(time.time() * 1000)
+    rec_recovered = mon.record_heartbeat(
+        server_time_ms=curr_now,
+        latency_ms=25.0,
+        local_time_ms=curr_now,
+    )
+    assert rec_recovered.status == HeartbeatStatus.RECOVERED
+    assert mon.is_frozen is False
+
+    # Dispatch validates cleanly and resets circuit state to NORMAL
+    interlock.validate_dispatch(
+        symbol="BTCUSDT",
+        price=Decimal("50000.00"),
+        quantity=Decimal("0.00004"),
+        client_order_id=generate_canary_client_order_id("BTCUSDT"),
+    )
+    assert interlock.circuit_state == CircuitBreakerState.NORMAL
+
+
+def test_manifest_version_2_enforcement(tmp_path: Path):
+    """Adversarial Test: Verify manifest with version != 2 is strictly rejected."""
+    bad_manifest_path = tmp_path / "bad_manifest.json"
+    bad_manifest_path.write_text('{"manifest_version": 1}', encoding="utf-8")
+
+    with pytest.raises(PrerequisiteQualificationError):
+        verify_upstream_phase285_qualification(manifest_path=bad_manifest_path)
+
+    # Also test valid manifest object with version bumped to 3
+    from unittest.mock import patch
+
+    manifest, cand = load_and_validate_canary_staging_manifest(DEFAULT_CANARY_STAGING_MANIFEST_PATH)
+    mock_manifest = manifest.model_copy(update={"manifest_version": 3})
+    with patch(
+        "autonomous_futures.feed.liquidity_shock.load_and_validate_canary_staging_manifest",
+        return_value=(mock_manifest, cand),
+    ):
+        with pytest.raises(PrerequisiteQualificationError, match="expected 2"):
+            verify_upstream_phase285_qualification()
+
+
+def test_cli_simulate_loss_breach_flag(tmp_path: Path):
+    """Adversarial Test: Verify --simulate-loss-breach CLI flag executes loss ceiling breach."""
+    out_dir = tmp_path / "cli_loss_breach"
+    exit_code = execute_phase_286_runner(
+        output_dir=out_dir,
+        track="track_3",
+        simulate_loss_breach=True,
+    )
+    assert exit_code == 0

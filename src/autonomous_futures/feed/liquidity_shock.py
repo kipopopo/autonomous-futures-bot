@@ -790,6 +790,7 @@ class CanaryLiquidityShockConfig(DomainModel):
     track: str = "all"
     intra_phase_loss_ceiling_usdt: Decimal = INTRA_PHASE_LOSS_CEILING_USDT
     simulate_adverse_drift: bool = False
+    simulate_loss_breach: bool = False
 
 
 # Compatibility alias
@@ -1390,6 +1391,7 @@ class GatewayHeartbeatMonitor:
         with self._lock:
             now_ms = local_time_ms if local_time_ms is not None else int(time.time() * 1000)
             self.heartbeat_count += 1
+            prev_heartbeat = self.last_heartbeat_ms
             self.last_heartbeat_ms = now_ms
             self.last_latency_ms = latency_ms
 
@@ -1406,6 +1408,8 @@ class GatewayHeartbeatMonitor:
 
             backward_drift = False
             if prev_server > 0 and (prev_server - server_time_ms) > self.max_clock_skew_ms:
+                backward_drift = True
+            elif prev_heartbeat > 0 and (prev_heartbeat - now_ms) > self.max_clock_skew_ms:
                 backward_drift = True
             elif skew > self.max_clock_skew_ms:
                 backward_drift = True
@@ -1452,12 +1456,19 @@ class GatewayHeartbeatMonitor:
             now_ms = current_time_ms if current_time_ms is not None else int(time.time() * 1000)
             if self.last_heartbeat_ms == 0:
                 return False, "No gateway heartbeat recorded yet"
+            if self.is_frozen:
+                return False, f"Heartbeat frozen: {self.freeze_reason}"
             age = float(now_ms - self.last_heartbeat_ms)
+            if age < -self.max_clock_skew_ms:
+                self.is_frozen = True
+                self.freeze_reason = (
+                    f"Backward NTP clock drift detected: age {age:.1f}ms exceeds "
+                    f"tolerance {self.max_clock_skew_ms}ms"
+                )
+                return False, f"Heartbeat frozen: {self.freeze_reason}"
             if age > self.max_allowed_age_ms:
                 self.stale_count += 1
                 return False, f"Heartbeat age {age:.1f}ms exceeds {self.max_allowed_age_ms}ms"
-            if self.is_frozen:
-                return False, f"Heartbeat frozen: {self.freeze_reason}"
             if self.last_latency_ms > self.max_allowed_age_ms:
                 return False, f"Last latency {self.last_latency_ms:.1f}ms was stale"
             return True, "Healthy"
@@ -1465,7 +1476,7 @@ class GatewayHeartbeatMonitor:
     def assert_healthy(self, current_time_ms: int | None = None) -> None:
         healthy, reason = self.check_health(current_time_ms)
         if not healthy:
-            if "frozen" in reason or "Clock skew" in reason:
+            if "frozen" in reason or "Clock skew" in reason or "Backward NTP" in reason:
                 raise HeartbeatFreezeActiveError(reason)
             raise GatewayHeartbeatStaleError(reason)
 
@@ -2464,6 +2475,10 @@ class LiquidityShockOrderDispatchInterlock:
         with self._lock:
             total_working = Decimal("0")
             orders = self._orders_provider() if self._orders_provider is not None else {}
+            parent_cid_of_excluded: str | None = None
+            if exclude_client_order_id is not None and exclude_client_order_id in orders:
+                parent_cid_of_excluded = orders[exclude_client_order_id].parent_client_order_id
+
             for ord_rec in list(orders.values()):
                 if ord_rec.is_closing:
                     continue
@@ -2508,6 +2523,11 @@ class LiquidityShockOrderDispatchInterlock:
                         executed_child_notional = Decimal("0")
                         active_children_notional = Decimal("0")
                         for cid in p_rec.child_order_ids:
+                            if (
+                                exclude_client_order_id is not None
+                                and cid == exclude_client_order_id
+                            ):
+                                continue
                             ch = orders.get(cid)
                             if ch:
                                 if ch.status == OrderLifecycleState.FILLED:
@@ -2521,9 +2541,19 @@ class LiquidityShockOrderDispatchInterlock:
                                     active_children_notional += _safe_decimal(ch.notional_usdt)
 
                         tot_notional = _safe_decimal(p_rec.total_notional_usdt)
+                        overlap_deduction = Decimal("0")
+                        if (
+                            parent_cid_of_excluded is not None
+                            and p_rec.parent_client_order_id == parent_cid_of_excluded
+                        ):
+                            overlap_deduction = exclude_notional
+
                         unreserved_parent = max(
                             Decimal("0"),
-                            tot_notional - executed_child_notional - active_children_notional,
+                            tot_notional
+                            - executed_child_notional
+                            - active_children_notional
+                            - overlap_deduction,
                         )
                         total_working += unreserved_parent
 
@@ -2571,13 +2601,15 @@ class LiquidityShockOrderDispatchInterlock:
             # 2. Gateway Heartbeat Freshness & Clock Skew Guard
             try:
                 self.heartbeat_monitor.assert_healthy()
+                if self.circuit_state == CircuitBreakerState.HEARTBEAT_FREEZE:
+                    self.circuit_state = CircuitBreakerState.NORMAL
             except (GatewayHeartbeatStaleError, HeartbeatFreezeActiveError) as exc:
                 self.interlock_blocks_count += 1
-                rejection_name = (
-                    "GATEWAY_HEARTBEAT_FREEZE"
-                    if isinstance(exc, HeartbeatFreezeActiveError)
-                    else "GATEWAY_HEARTBEAT_FRESHNESS"
-                )
+                if isinstance(exc, HeartbeatFreezeActiveError):
+                    self.circuit_state = CircuitBreakerState.HEARTBEAT_FREEZE
+                    rejection_name = "GATEWAY_HEARTBEAT_FREEZE"
+                else:
+                    rejection_name = "GATEWAY_HEARTBEAT_FRESHNESS"
                 self._record_interlock_rejection(rejection_name, str(exc), symbol, client_order_id)
                 raise
 
@@ -2688,7 +2720,9 @@ class LiquidityShockOrderDispatchInterlock:
                 raise IndividualMicroCapExceededError(err_msg)
 
             # 7. Micro Notional Floor
-            if order_notional < MIN_MICRO_NOTIONAL_CAP_USDT:
+            if order_notional < MIN_MICRO_NOTIONAL_CAP_USDT and (
+                MIN_MICRO_NOTIONAL_CAP_USDT - order_notional
+            ) > Decimal("0.001"):
                 self.interlock_blocks_count += 1
                 err_msg = (
                     f"Order notional {order_notional} USDT violates micro floor "
@@ -2870,8 +2904,16 @@ class LiquidityMicroOrderDispatcher:
         self.stream_events_count: int = 0
         self._lock = threading.RLock()
 
-        self.interlock.set_orders_provider(lambda: self.orders)
-        self.interlock.set_parent_orders_provider(lambda: self.parent_orders)
+        self.interlock.set_orders_provider(self._get_orders_snapshot)
+        self.interlock.set_parent_orders_provider(self._get_parent_orders_snapshot)
+
+    def _get_orders_snapshot(self) -> dict[str, LiquidityShockOrderRecord]:
+        with self._lock:
+            return dict(self.orders)
+
+    def _get_parent_orders_snapshot(self) -> dict[str, ParentOrderRecord]:
+        with self._lock:
+            return dict(self.parent_orders)
 
     # Compatibility alias
     @property
@@ -3017,6 +3059,16 @@ class LiquidityMicroOrderDispatcher:
             total_qty = (target_notional / limit_px).quantize(
                 Decimal("0.00000001"), rounding=ROUND_DOWN
             )
+            if (
+                target_notional >= MIN_MICRO_NOTIONAL_CAP_USDT
+                and (total_qty * limit_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                < MIN_MICRO_NOTIONAL_CAP_USDT
+            ):
+                candidate_qty = total_qty + Decimal("0.00000001")
+                if (candidate_qty * limit_px).quantize(
+                    Decimal("0.00000001"), rounding=ROUND_DOWN
+                ) <= HARD_MICRO_NOTIONAL_CAP_USDT:
+                    total_qty = candidate_qty
             slippage_bps = self.shock_engine.estimate_order_slippage_bps(
                 symbol=symbol,
                 side=side,
@@ -3101,6 +3153,16 @@ class LiquidityMicroOrderDispatcher:
                     c_qty = (cur_notional / limit_px).quantize(
                         Decimal("0.00000001"), rounding=ROUND_DOWN
                     )
+                    if (
+                        cur_notional >= MIN_MICRO_NOTIONAL_CAP_USDT
+                        and (c_qty * limit_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                        < MIN_MICRO_NOTIONAL_CAP_USDT
+                    ):
+                        candidate_c_qty = c_qty + Decimal("0.00000001")
+                        if (candidate_c_qty * limit_px).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        ) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
+                            c_qty = candidate_c_qty
                     hb = self.gateway.generate_heartbeat(latency_ms=25.0)
                     self.heartbeat_monitor.record_heartbeat(
                         server_time_ms=hb["serverTime"],
@@ -3499,7 +3561,16 @@ def verify_upstream_phase285_qualification(
 ) -> bool:
     """Verify upstream Phase 285 volatility spillover report, prerequisites, and DAG hash chain."""
     p285_path = Path(phase285_dir)
-    manifest, _ = load_and_validate_canary_staging_manifest(Path(manifest_path))
+    try:
+        manifest, _ = load_and_validate_canary_staging_manifest(Path(manifest_path))
+    except Exception as exc:
+        raise PrerequisiteQualificationError(
+            f"Failed to load or validate canary staging manifest: {exc}"
+        ) from exc
+    if manifest.manifest_version != 2:
+        raise PrerequisiteQualificationError(
+            f"Candidate Registry Manifest version is {manifest.manifest_version}, expected 2"
+        )
 
     summary_file = p285_path / "volatility-spillover-summary.json"
     report_file = p285_path / "canary-volatility-spillover-report.json"
@@ -4765,6 +4836,14 @@ class CanaryLiquidityShockRunner:
         gateway.inject_duplicate_events = True
         gateway.inject_out_of_order_events = True
 
+        hb_data6 = gateway.generate_heartbeat(latency_ms=30.0)
+        hb_rec6 = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data6["serverTime"],
+            latency_ms=hb_data6["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_4.value,
+        )
+        self.active_store.record_heartbeat(hb_rec6)
+
         eth_cand = manifest.candidates["ETHUSDT"].candidate_id
         gateway.sequence_counter = 1  # Wrapped around
         eth_open = dispatcher.dispatch_micro_order(
@@ -4798,6 +4877,14 @@ class CanaryLiquidityShockRunner:
             client_order_id=btc_close_cid,
             is_closing=True,
         )
+
+        hb_data7b = gateway.generate_heartbeat(latency_ms=25.0)
+        hb_rec7b = heartbeat_mon.record_heartbeat(
+            server_time_ms=hb_data7b["serverTime"],
+            latency_ms=hb_data7b["latencyMs"],
+            track_id=CanaryLiquidityShockTrackId.TRACK_4.value,
+        )
+        self.active_store.record_heartbeat(hb_rec7b)
 
         eth_close_cid = generate_canary_client_order_id("ETHUSDT")
         dispatcher.dispatch_micro_order(

@@ -181,6 +181,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Intra-phase cumulative loss ceiling in USDT (default: 4.50)",
     )
     parser.add_argument(
+        "--simulate-loss-breach",
+        action="store_true",
+        help="Simulate intra-phase cumulative loss budget breach to test fail-closed lockout",
+    )
+    parser.add_argument(
         "--simulate-adverse-drift",
         action="store_true",
         help="Inject synthetic accounting drift (> 1e-15 USDT) to test fail-closed detection",
@@ -280,6 +285,7 @@ def execute_phase_286_runner(
     track: str = "all",
     intra_phase_loss_ceiling_usdt: float = float(INTRA_PHASE_LOSS_CEILING_USDT),
     simulate_adverse_drift: bool = False,
+    simulate_loss_breach: bool = False,
     json_output: bool = False,
     verify_hash_chain: bool = False,
     verify_only: bool = False,
@@ -313,6 +319,10 @@ def execute_phase_286_runner(
     if track in ("1", "2", "3", "4"):
         normalized_track = f"track_{track}"
 
+    loss_ceiling = (
+        Decimal("0.01") if simulate_loss_breach else Decimal(str(intra_phase_loss_ceiling_usdt))
+    )
+
     cfg = CanaryLiquidityShockConfig(
         manifest_path=Path(manifest_path),
         registry_path=Path(registry_path),
@@ -328,8 +338,9 @@ def execute_phase_286_runner(
         phase285_input_dir=Path(phase285_dir),
         output_dir=Path(output_dir),
         track=normalized_track,
-        intra_phase_loss_ceiling_usdt=Decimal(str(intra_phase_loss_ceiling_usdt)),
+        intra_phase_loss_ceiling_usdt=loss_ceiling,
         simulate_adverse_drift=simulate_adverse_drift,
+        simulate_loss_breach=simulate_loss_breach,
     )
 
     runner = CanaryLiquidityShockRunner(cfg)
@@ -397,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
             track=args.track,
             intra_phase_loss_ceiling_usdt=args.intra_phase_loss_ceiling_usdt,
             simulate_adverse_drift=args.simulate_adverse_drift,
+            simulate_loss_breach=args.simulate_loss_breach,
             json_output=args.json,
             verify_hash_chain=args.verify_hash_chain,
             verify_only=args.verify_only,
