@@ -108,6 +108,7 @@ from autonomous_futures.feed.liquidity_regime import (  # noqa: E402
     MockBinanceLiquidityGateway,
     OrderLifecycleState,
     OrderSlicingMode,
+    ParentOrderRecord,
     PrerequisiteQualificationError,
     SqliteCanaryLiquidityRegimeTelemetryStore,
     assert_valid_canary_client_order_id,
@@ -1116,3 +1117,354 @@ def test_thread_safety_concurrent_dispatches(temp_telemetry_store, temp_jsonl_si
     for r in results:
         assert r.status == OrderLifecycleState.FILLED
     assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+# =====================================================================
+# 13. Adversarial Reviewer Tests (Round 1)
+# =====================================================================
+
+
+@pytest.mark.parametrize(
+    ("symbol", "desired_notional", "ref_px", "step"),
+    [
+        ("BTCUSDT", Decimal("3.10"), Decimal("60000.00"), Decimal("0.00001")),
+        ("BTCUSDT", Decimal("3.20"), Decimal("60000.00"), Decimal("0.00001")),
+        ("BTCUSDT", Decimal("3.30"), Decimal("60000.00"), Decimal("0.00001")),
+        ("BTCUSDT", Decimal("3.49"), Decimal("60000.00"), Decimal("0.00001")),
+        ("ETHUSDT", Decimal("2.80"), Decimal("3000.00"), Decimal("0.0001")),
+        ("ETHUSDT", Decimal("3.00"), Decimal("3000.00"), Decimal("0.0001")),
+        ("ETHUSDT", Decimal("3.20"), Decimal("3000.00"), Decimal("0.0001")),
+        ("ETHUSDT", Decimal("3.40"), Decimal("3000.00"), Decimal("0.0001")),
+        ("SOLUSDT", Decimal("2.65"), Decimal("150.00"), Decimal("0.001")),
+        ("SOLUSDT", Decimal("3.00"), Decimal("150.00"), Decimal("0.001")),
+        ("SOLUSDT", Decimal("3.25"), Decimal("150.00"), Decimal("0.001")),
+        ("SOLUSDT", Decimal("3.45"), Decimal("150.00"), Decimal("0.001")),
+    ],
+)
+def test_adversarial_slicing_boundary_notionals(
+    temp_telemetry_store,
+    temp_jsonl_sink,
+    symbol: str,
+    desired_notional: Decimal,
+    ref_px: Decimal,
+    step: Decimal,
+):
+    """Adversarially probe boundary conditions where desired notional is between 2.50 and 3.50 USDT.
+    Enforce that every sliced child chunk is strictly <= 2.50 USDT and >= 1.00 USDT.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_adv_slicing", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_adv_slicing"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    # Shallow depth (0.00003 >= 0.00002 min) with spread forcing slippage > 1.5 bps
+    # to trigger dynamic slicing
+    regime_eng.update_book(
+        symbol,
+        bid_price=ref_px,
+        ask_price=ref_px + (ref_px * Decimal("0.0005")),  # 5 bps spread
+        bid_depth=Decimal("0.00003"),
+        ask_depth=Decimal("0.00003"),
+        volume_velocity=Decimal("80.0"),
+    )
+    gateway.set_book(
+        symbol,
+        bid_price=ref_px,
+        ask_price=ref_px + (ref_px * Decimal("0.0005")),
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_adv_slicing",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_adv_slicing",
+        regime_engine=regime_eng,
+    )
+
+    parent_rec, children = dispatcher.dispatch_signal_order_with_dynamic_slicing(
+        candidate_id=f"cand-{symbol.lower()}",
+        symbol=symbol,
+        side=OrderSide.BUY,
+        desired_notional=desired_notional,
+    )
+
+    assert parent_rec is not None
+    assert parent_rec.slicing_mode == OrderSlicingMode.TWAP_MICRO
+    assert len(children) >= 2, f"Expected multi-chunk slicing for notional {desired_notional}"
+    assert parent_rec.child_count == len(children)
+    assert parent_rec.status == OrderLifecycleState.FILLED
+
+    total_child_qty = Decimal("0")
+    for ch in children:
+        c_notional = Decimal(ch.notional_usdt)
+        assert c_notional <= DYNAMIC_SLICING_MAX_CHUNK_USDT, (
+            f"Child order notional {c_notional} exceeded cap {DYNAMIC_SLICING_MAX_CHUNK_USDT}"
+        )
+        assert c_notional >= MIN_MICRO_NOTIONAL_CAP_USDT, (
+            f"Child order notional {c_notional} sub-floor (< {MIN_MICRO_NOTIONAL_CAP_USDT})"
+        )
+        assert ch.status == OrderLifecycleState.FILLED
+        assert ch.is_child is True
+        total_child_qty += Decimal(ch.quantity)
+
+    assert total_child_qty == Decimal(parent_rec.total_quantity)
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_adversarial_clock_skew_freeze_fail_closed_and_recovery(temp_telemetry_store):
+    """Adversarially probe backward NTP clock drift:
+    - Drift > 250 ms triggers CLOCK_SKEW_FREEZE.
+    - assert_healthy() MUST raise HeartbeatFreezeActiveError (cannot prematurely unfreeze).
+    - validate_dispatch() MUST fail closed and record GATEWAY_HEARTBEAT_FREEZE.
+    - Recovery MUST occur only when subsequent heartbeat moves forward with age <= 450 ms.
+    """
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_adv_skew", starting_equity=Decimal("100.00")
+    )
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_adv_skew",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+    )
+
+    now_ms = int(time.time() * 1000)
+    # Healthy initial heartbeat
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=now_ms - 20, latency_ms=25.0, local_receive_time_ms=now_ms
+    )
+    heartbeat_mon.assert_healthy(now_ms=now_ms)
+
+    # Induce 300 ms backward NTP clock jump
+    skew_rec = heartbeat_mon.record_heartbeat(
+        server_time_ms=now_ms - 320, latency_ms=25.0, local_receive_time_ms=now_ms
+    )
+    assert skew_rec.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+    assert heartbeat_mon.is_frozen is True
+    assert heartbeat_mon.clock_skew_frozen is True
+
+    # Assert that assert_healthy() raises HeartbeatFreezeActiveError fail-closed
+    with pytest.raises(HeartbeatFreezeActiveError):
+        heartbeat_mon.assert_healthy(now_ms=now_ms)
+    # Ensure is_frozen remains True
+    assert heartbeat_mon.is_frozen is True
+    assert heartbeat_mon.clock_skew_frozen is True
+
+    # Validate that interlock.validate_dispatch() blocks fail-closed
+    cid = generate_canary_client_order_id("BTCUSDT")
+    with pytest.raises(HeartbeatFreezeActiveError):
+        interlock.validate_dispatch(
+            symbol="BTCUSDT",
+            price=Decimal("60000.00"),
+            quantity=Decimal("0.00002"),
+            client_order_id=cid,
+        )
+    assert interlock.interlock_blocks_count >= 1
+
+    # Recovery: record a healthy forward-moving heartbeat (server_time_ms advances)
+    rec_healthy = heartbeat_mon.record_heartbeat(
+        server_time_ms=now_ms + 10,
+        latency_ms=20.0,
+        local_receive_time_ms=now_ms + 50,
+        track_id="test_adv_skew",
+    )
+    assert rec_healthy.status == HeartbeatStatus.RECOVERED
+    assert heartbeat_mon.is_frozen is False
+    assert heartbeat_mon.clock_skew_frozen is False
+
+    # Verify that order validation now succeeds without error
+    heartbeat_mon.assert_healthy(now_ms=now_ms + 50)
+    interlock.validate_dispatch(
+        symbol="BTCUSDT",
+        price=Decimal("60000.00"),
+        quantity=Decimal("0.00002"),
+        client_order_id=cid,
+    )
+
+
+def test_adversarial_dynamic_slicing_mid_execution_depth_collapse(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify atomic parent-child lifecycle state consistency when order book depth
+    collapses (< 0.0001) mid-way through TWAP micro-chunk execution.
+    The parent order must reflect PARTIALLY_FILLED state and preserve executed child chunks.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_mid_collapse", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_mid_collapse"
+    )
+
+    regime_eng = LiquidityRegimeEngine()
+    regime_eng.update_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60020.00"),
+        bid_depth=Decimal("0.00003"),
+        ask_depth=Decimal("0.00003"),
+    )
+    gateway.set_book(
+        "BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        ask_price=Decimal("60020.00"),
+        bid_depth=Decimal("5.0"),
+        ask_depth=Decimal("5.0"),
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_mid_collapse",
+        expansion_stage=CapitalExpansionStage.STAGE_5_LIQUIDITY_EXPANSION,
+        regime_engine=regime_eng,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_mid_collapse",
+        regime_engine=regime_eng,
+    )
+
+    # Intercept dispatch_micro_order: let child 1 succeed, but before child 2, collapse depth
+    orig_dispatch = dispatcher.dispatch_micro_order
+    call_count = 0
+
+    def mock_dispatch(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        res = orig_dispatch(*args, **kwargs)
+        if call_count == 1:
+            # Collapse book depth before next child order
+            regime_eng.update_book(
+                "BTCUSDT",
+                bid_price=Decimal("60000.00"),
+                ask_price=Decimal("60020.00"),
+                bid_depth=Decimal("0.00001"),  # Exhausted!
+                ask_depth=Decimal("0.00001"),
+            )
+        return res
+
+    dispatcher.dispatch_micro_order = mock_dispatch
+
+    with pytest.raises(DepthExhaustionError):
+        dispatcher.dispatch_signal_order_with_dynamic_slicing(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            desired_notional=Decimal("4.80"),
+        )
+
+    # Verify atomic parent state: must be PARTIALLY_FILLED, NOT NEW, and not missing executions!
+    parent = list(dispatcher.parent_orders.values())[0]
+    assert parent.status == OrderLifecycleState.PARTIALLY_FILLED
+    assert Decimal(parent.executed_quantity) > Decimal("0")
+    assert Decimal(parent.executed_notional_usdt) > Decimal("0")
+    assert Decimal(parent.executed_notional_usdt) <= DYNAMIC_SLICING_MAX_CHUNK_USDT
+
+
+def test_adversarial_committed_working_margin_parent_reservation(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify that un-dispatched parent order slices are reserved as committed working margin,
+    blocking concurrent orders from over-allocating past the stage exposure ceiling.
+    """
+    gateway = MockBinanceLiquidityGateway(initial_balance_usdt=Decimal("100.00"))
+    reconciler = LiquidityUserDataStreamReconciler(
+        track_id="test_parent_margin", starting_equity=Decimal("100.00")
+    )
+    sequencer = LiquidityStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gateway.generate_heartbeat(latency_ms=25.0)
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=hb["serverTime"], latency_ms=hb["latencyMs"], track_id="test_parent_margin"
+    )
+
+    interlock = LiquidityOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_parent_margin",
+        expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,  # Cap <= 5.00 USDT
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test_parent_margin",
+    )
+
+    # Manually register an active parent order with 4.80 USDT total notional and 2.40 executed
+    p_cid = generate_canary_client_order_id("BTCUSDT")
+    p_rec = ParentOrderRecord(
+        parent_client_order_id=p_cid,
+        track_id="test_parent_margin",
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY.value,
+        order_type=OrderType.LIMIT.value,
+        total_quantity="0.00008",
+        total_notional_usdt="4.80000000",
+        executed_quantity="0.00004",
+        executed_notional_usdt="2.40000000",
+        status=OrderLifecycleState.PARTIALLY_FILLED,
+        slicing_mode=OrderSlicingMode.TWAP_MICRO,
+        child_count=2,
+        child_order_ids=[f"{p_cid}-c1", f"{p_cid}-c2"],
+    )
+    dispatcher.parent_orders[p_cid] = p_rec
+
+    # Active allocated margin is 2.40 USDT (from executed child 1)
+    reconciler.allocated_margin = Decimal("2.40000000")
+
+    # Committed working margin must reflect remaining un-dispatched 2.40 USDT of parent order
+    working_m = interlock.get_working_committed_margin()
+    assert working_m == Decimal("2.40000000")
+
+    # Attempting to dispatch a new unrelated order of 2.00 USDT should fail:
+    # 2.40 (allocated) + 2.40 (un-dispatched parent) + 2.00 (new order) = 6.80 > 5.00 USDT cap
+    new_cid = generate_canary_client_order_id("ETHUSDT")
+    with pytest.raises(AggregateExposureCapExceededError):
+        interlock.validate_dispatch(
+            symbol="ETHUSDT",
+            price=Decimal("3000.00"),
+            quantity=Decimal("0.0007"),  # 2.10 USDT
+            client_order_id=new_cid,
+        )

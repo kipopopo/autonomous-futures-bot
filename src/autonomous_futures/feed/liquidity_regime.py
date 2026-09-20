@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import signal
 import sqlite3
@@ -1323,6 +1324,7 @@ class GatewayHeartbeatMonitor:
         self.last_server_time_ms: int = 0
         self.last_latency_ms: float = 0.0
         self.is_frozen: bool = False
+        self.clock_skew_frozen: bool = False
         self.heartbeat_count: int = 0
         self.stale_count: int = 0
         self.clock_skew_count: int = 0
@@ -1353,6 +1355,7 @@ class GatewayHeartbeatMonitor:
                 clock_drift = self.last_server_time_ms - server_time_ms
                 if clock_drift > self.max_clock_skew_ms:
                     self.is_frozen = True
+                    self.clock_skew_frozen = True
                     self.clock_skew_count += 1
                     status = HeartbeatStatus.CLOCK_SKEW_FREEZE
                     details["clock_drift_ms"] = clock_drift
@@ -1360,6 +1363,7 @@ class GatewayHeartbeatMonitor:
                         f"Backward NTP drift {clock_drift} ms exceeds {self.max_clock_skew_ms} ms"
                     )
 
+            prev_server_time = self.last_server_time_ms
             self.last_server_time_ms = server_time_ms
             age_ms = max(0.0, float(now_ms - server_time_ms))
 
@@ -1369,15 +1373,24 @@ class GatewayHeartbeatMonitor:
                 status = HeartbeatStatus.LATENCY_SPIKE_STALE
                 details["age_ms"] = age_ms
 
-            # Hysteresis recovery: if frozen, require age <= 450 ms to unfreeze
+            # Hysteresis recovery: if frozen, require age <= 450 ms and unskewed clock to unfreeze
             if self.is_frozen:
                 if (
                     age_ms <= self.recovery_hysteresis_ms
                     and status != HeartbeatStatus.CLOCK_SKEW_FREEZE
                 ):
-                    self.is_frozen = False
-                    status = HeartbeatStatus.RECOVERED
-                    details["hysteresis_cleared"] = True
+                    if self.clock_skew_frozen:
+                        # Clear clock skew freeze only if server clock has advanced forward
+                        if prev_server_time == 0 or server_time_ms >= prev_server_time:
+                            self.clock_skew_frozen = False
+                            self.is_frozen = False
+                            status = HeartbeatStatus.RECOVERED
+                            details["hysteresis_cleared"] = True
+                            details["clock_skew_recovered"] = True
+                    else:
+                        self.is_frozen = False
+                        status = HeartbeatStatus.RECOVERED
+                        details["hysteresis_cleared"] = True
 
             return GatewayHeartbeatRecord(
                 track_id=track_id,
@@ -1394,6 +1407,12 @@ class GatewayHeartbeatMonitor:
         with self._lock:
             if self.last_heartbeat_time_ms == 0:
                 raise GatewayHeartbeatStaleError("No gateway heartbeat recorded yet; fail-closed")
+
+            if self.clock_skew_frozen:
+                raise HeartbeatFreezeActiveError(
+                    "Gateway heartbeat freeze active: "
+                    "backward NTP clock drift triggered HEARTBEAT_FREEZE"
+                )
 
             curr_ms = now_ms if now_ms is not None else int(time.time() * 1000)
             age = float(curr_ms - self.last_heartbeat_time_ms)
@@ -2231,6 +2250,7 @@ class LiquidityOrderDispatchInterlock:
         expansion_stage: CapitalExpansionStage = CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
         intra_phase_loss_ceiling_usdt: Decimal = INTRA_PHASE_LOSS_CEILING_USDT,
         orders_provider: Callable[[], Mapping[str, LiquidityOrderRecord]] | None = None,
+        parent_orders_provider: Callable[[], Mapping[str, ParentOrderRecord]] | None = None,
         regime_engine: LiquidityRegimeEngine | None = None,
     ) -> None:
         self._lock = threading.RLock()
@@ -2251,6 +2271,7 @@ class LiquidityOrderDispatchInterlock:
         self.intra_phase_loss_ceiling_usdt = intra_phase_loss_ceiling_usdt
         self.interlock_blocks_count = 0
         self._orders_provider = orders_provider
+        self._parent_orders_provider = parent_orders_provider
         self.regime_engine = regime_engine or LiquidityRegimeEngine()
 
     @property
@@ -2272,17 +2293,22 @@ class LiquidityOrderDispatchInterlock:
         with self._lock:
             self._orders_provider = provider
 
+    def set_parent_orders_provider(
+        self, provider: Callable[[], Mapping[str, ParentOrderRecord]]
+    ) -> None:
+        with self._lock:
+            self._parent_orders_provider = provider
+
     def get_working_committed_margin(
         self,
         symbol: str | None = None,
         exclude_client_order_id: str | None = None,
+        exclude_notional: Decimal = Decimal("0"),
     ) -> Decimal:
-        """Calculate unexecuted margin committed by active open working orders."""
+        """Calculate unexecuted margin committed by active open working orders and parent slices."""
         with self._lock:
-            if self._orders_provider is None:
-                return Decimal("0")
-            orders = self._orders_provider()
             total_working = Decimal("0")
+            orders = self._orders_provider() if self._orders_provider is not None else {}
             for ord_rec in list(orders.values()):
                 if ord_rec.is_closing:
                     continue
@@ -2307,6 +2333,53 @@ class LiquidityOrderDispatchInterlock:
                         Decimal("0.00000001"), rounding=ROUND_DOWN
                     )
                     total_working += rem_notional
+
+            # Dynamically account for un-dispatched portions of active parent orders
+            if self._parent_orders_provider is not None:
+                parent_orders = self._parent_orders_provider()
+                for p_rec in list(parent_orders.values()):
+                    if symbol is not None and p_rec.symbol != symbol:
+                        continue
+                    if p_rec.status in (
+                        OrderLifecycleState.NEW,
+                        OrderLifecycleState.PARTIALLY_FILLED,
+                    ):
+                        active_children_notional = Decimal("0")
+                        for ch_cid in p_rec.child_order_ids:
+                            if (
+                                exclude_client_order_id is not None
+                                and ch_cid == exclude_client_order_id
+                            ):
+                                continue
+                            ch = orders.get(ch_cid)
+                            if ch and ch.status in (
+                                OrderLifecycleState.PENDING_NEW,
+                                OrderLifecycleState.PENDING_SUBMIT,
+                                OrderLifecycleState.NEW,
+                                OrderLifecycleState.PARTIALLY_FILLED,
+                            ):
+                                ch_px = _safe_decimal(ch.price)
+                                ch_qty = _safe_decimal(ch.quantity)
+                                ch_exec = _safe_decimal(ch.executed_quantity)
+                                ch_rem_q = max(Decimal("0"), ch_qty - ch_exec)
+                                active_children_notional += (ch_px * ch_rem_q).quantize(
+                                    Decimal("0.00000001"), rounding=ROUND_DOWN
+                                )
+
+                        p_total = _safe_decimal(p_rec.total_notional_usdt)
+                        p_exec = _safe_decimal(p_rec.executed_notional_usdt)
+                        deduct_notional = Decimal("0")
+                        if (
+                            exclude_client_order_id is not None
+                            and exclude_client_order_id in p_rec.child_order_ids
+                        ):
+                            deduct_notional = exclude_notional
+                        un_dispatched = max(
+                            Decimal("0"),
+                            p_total - p_exec - active_children_notional - deduct_notional,
+                        )
+                        total_working += un_dispatched
+
             return total_working
 
     def get_stage_exposure_cap(self) -> Decimal:
@@ -2344,11 +2417,14 @@ class LiquidityOrderDispatchInterlock:
             # 2. Gateway Heartbeat Freshness & Clock Skew Guard
             try:
                 self.heartbeat_monitor.assert_healthy()
-            except GatewayHeartbeatStaleError as exc:
+            except (GatewayHeartbeatStaleError, HeartbeatFreezeActiveError) as exc:
                 self.interlock_blocks_count += 1
-                self._record_interlock_rejection(
-                    "GATEWAY_HEARTBEAT_FRESHNESS", str(exc), symbol, client_order_id
+                rejection_name = (
+                    "GATEWAY_HEARTBEAT_FREEZE"
+                    if isinstance(exc, HeartbeatFreezeActiveError)
+                    else "GATEWAY_HEARTBEAT_FRESHNESS"
                 )
+                self._record_interlock_rejection(rejection_name, str(exc), symbol, client_order_id)
                 raise
 
             # 3. Circuit Breaker State Guard
@@ -2421,7 +2497,8 @@ class LiquidityOrderDispatchInterlock:
             # 7. Stepped Aggregate Concurrent Exposure Cap (up to <= 25.00 USDT)
             current_allocated_margin = self.reconciler.allocated_margin
             current_working_margin = self.get_working_committed_margin(
-                exclude_client_order_id=client_order_id
+                exclude_client_order_id=client_order_id,
+                exclude_notional=order_notional,
             )
             projected_total_active = (
                 current_allocated_margin + current_working_margin + order_notional
@@ -2494,7 +2571,9 @@ class LiquidityOrderDispatchInterlock:
             # Per-Asset Margin Allocation <= 20.00%
             current_asset_margin = self.reconciler.per_asset_margin.get(symbol, Decimal("0"))
             working_asset_margin = self.get_working_committed_margin(
-                symbol=symbol, exclude_client_order_id=client_order_id
+                symbol=symbol,
+                exclude_client_order_id=client_order_id,
+                exclude_notional=order_notional,
             )
             projected_asset_margin = current_asset_margin + working_asset_margin + order_notional
             asset_margin_pct = projected_asset_margin / total_equity
@@ -2593,6 +2672,7 @@ class LiquidityMicroOrderDispatcher:
 
         # Connect interlock to working orders provider
         self.interlock.set_orders_provider(lambda: self.orders)
+        self.interlock.set_parent_orders_provider(lambda: self.parent_orders)
 
     def dispatch_micro_order(
         self,
@@ -2848,25 +2928,37 @@ class LiquidityMicroOrderDispatcher:
             # Slice into sequential micro-chunks <= 2.50 USDT child orders
             parent_cid = generate_canary_client_order_id(symbol)
             child_chunk_cap = DYNAMIC_SLICING_MAX_CHUNK_USDT
-            max_child_qty = (child_chunk_cap / limit_px).quantize(step, rounding=ROUND_DOWN)
-            if max_child_qty <= Decimal("0"):
-                max_child_qty = step
+            min_chunk_floor = MIN_MICRO_NOTIONAL_CAP_USDT
 
-            rem_qty = raw_qty
-            child_quantities: list[Decimal] = []
-            while rem_qty > Decimal("0"):
-                chunk_q = min(rem_qty, max_child_qty)
-                while chunk_q * limit_px > child_chunk_cap and chunk_q > step:
-                    chunk_q -= step
-                chunk_q = min(chunk_q, rem_qty)
-                if chunk_q <= Decimal("0"):
+            total_steps = int(round(raw_qty / step))
+            num_chunks = max(2, int(math.ceil(float(total_notional / child_chunk_cap))))
+
+            while True:
+                base_steps = total_steps // num_chunks
+                rem_steps = total_steps % num_chunks
+                if base_steps <= 0:
                     break
-                rem_after = rem_qty - chunk_q
-                if rem_after > Decimal("0") and rem_after * limit_px < MIN_MICRO_NOTIONAL_CAP_USDT:
-                    if (chunk_q + rem_after) * limit_px <= HARD_MICRO_NOTIONAL_CAP_USDT:
-                        chunk_q += rem_after
-                child_quantities.append(chunk_q)
-                rem_qty -= chunk_q
+                max_chunk_notional = (
+                    (base_steps + (1 if rem_steps > 0 else 0)) * step * limit_px
+                ).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                min_chunk_notional = (base_steps * step * limit_px).quantize(
+                    Decimal("0.00000001"), rounding=ROUND_DOWN
+                )
+                if max_chunk_notional > child_chunk_cap:
+                    num_chunks += 1
+                    continue
+                if min_chunk_notional < min_chunk_floor and num_chunks > 2:
+                    num_chunks -= 1
+                    break
+                break
+
+            base_steps = total_steps // num_chunks
+            rem_steps = total_steps % num_chunks
+            child_quantities: list[Decimal] = []
+            for i in range(num_chunks):
+                s = base_steps + (1 if i < rem_steps else 0)
+                if s > 0:
+                    child_quantities.append(Decimal(s) * step)
 
             parent_rec = ParentOrderRecord(
                 parent_client_order_id=parent_cid,
@@ -2894,48 +2986,68 @@ class LiquidityMicroOrderDispatcher:
             cum_child_qty = Decimal("0")
             cum_child_notional = Decimal("0")
             cum_fees = Decimal("0")
+            dispatch_error: Exception | None = None
 
             for idx, c_qty in enumerate(child_quantities, start=1):
                 child_cid = f"{parent_cid}-c{idx}"
-                child_ord = self.dispatch_micro_order(
-                    candidate_id=candidate_id,
-                    symbol=symbol,
-                    side=side,
-                    order_type=order_type,
-                    quantity=c_qty,
-                    price=limit_px,
-                    client_order_id=child_cid,
-                    liquidity_regime=regime,
-                    estimated_slippage_bps=est_slippage_bps,
-                    limit_offset_usdt=offset,
-                    parent_client_order_id=parent_cid,
-                    is_child=True,
-                    child_index=idx,
-                )
-                child_orders.append(child_ord)
                 parent_rec.child_order_ids.append(child_cid)
+                try:
+                    child_ord = self.dispatch_micro_order(
+                        candidate_id=candidate_id,
+                        symbol=symbol,
+                        side=side,
+                        order_type=order_type,
+                        quantity=c_qty,
+                        price=limit_px,
+                        client_order_id=child_cid,
+                        liquidity_regime=regime,
+                        estimated_slippage_bps=est_slippage_bps,
+                        limit_offset_usdt=offset,
+                        parent_client_order_id=parent_cid,
+                        is_child=True,
+                        child_index=idx,
+                    )
+                    child_orders.append(child_ord)
 
-                # Aggregate child fills atomically into parent state
-                if child_ord.status == OrderLifecycleState.FILLED:
-                    exec_q = _safe_decimal(child_ord.executed_quantity)
-                    cum_child_qty += exec_q
-                    cum_child_notional += (exec_q * limit_px).quantize(
-                        Decimal("0.00000001"), rounding=ROUND_DOWN
-                    )
-                    cum_fees += (exec_q * limit_px * DEFAULT_TAKER_FEE_RATE).quantize(
-                        Decimal("0.00000001"), rounding=ROUND_DOWN
-                    )
+                    # Aggregate child fills atomically into parent state
+                    if child_ord.status == OrderLifecycleState.FILLED:
+                        exec_q = _safe_decimal(child_ord.executed_quantity)
+                        cum_child_qty += exec_q
+                        cum_child_notional += (exec_q * limit_px).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
+                        cum_fees += (exec_q * limit_px * DEFAULT_TAKER_FEE_RATE).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_DOWN
+                        )
+                        parent_rec.executed_quantity = str(cum_child_qty)
+                        parent_rec.executed_notional_usdt = str(cum_child_notional)
+                        parent_rec.total_fees_usdt = str(cum_fees)
+                        parent_rec.status = (
+                            OrderLifecycleState.FILLED
+                            if cum_child_qty >= raw_qty
+                            else OrderLifecycleState.PARTIALLY_FILLED
+                        )
+                        parent_rec.updated_at_utc = datetime.now(UTC).isoformat()
+                        self.telemetry_store.record_parent_order(parent_rec)
+                except Exception as exc:
+                    dispatch_error = exc
+                    # Abort subsequent child chunks on failure
+                    break
 
             parent_rec.executed_quantity = str(cum_child_qty)
             parent_rec.executed_notional_usdt = str(cum_child_notional)
             parent_rec.total_fees_usdt = str(cum_fees)
-            parent_rec.status = (
-                OrderLifecycleState.FILLED
-                if cum_child_qty >= raw_qty
-                else OrderLifecycleState.PARTIALLY_FILLED
-            )
+            if cum_child_qty >= raw_qty:
+                parent_rec.status = OrderLifecycleState.FILLED
+            elif cum_child_qty > Decimal("0"):
+                parent_rec.status = OrderLifecycleState.PARTIALLY_FILLED
+            else:
+                parent_rec.status = OrderLifecycleState.REJECTED
             parent_rec.updated_at_utc = datetime.now(UTC).isoformat()
             self.telemetry_store.record_parent_order(parent_rec)
+
+            if dispatch_error is not None:
+                raise dispatch_error
 
             return parent_rec, child_orders
 
