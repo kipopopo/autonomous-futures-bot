@@ -81,6 +81,7 @@ from autonomous_futures.feed.depth_imbalance import (  # noqa: E402
     CapitalExpansionStage,
     CircuitBreakerState,
     ClockSkewExceededError,
+    DepthExhaustionError,
     DepthImbalanceEngine,
     FundingRateDistortionThrottledError,
     GatewayHeartbeatMonitor,
@@ -101,6 +102,7 @@ from autonomous_futures.feed.depth_imbalance import (  # noqa: E402
     ListenKeyExpiredError,
     MarginAllocationExceededError,
     MockBinanceLiquidityShockGateway,
+    OrderBookFeedCorruptionError,
     OrderLifecycleState,
     OrderSlicingMode,
     PrerequisiteQualificationError,
@@ -1532,3 +1534,257 @@ def test_cli_simulate_adverse_drift_fail_closed_detection(tmp_path: Path):
         simulate_adverse_drift=True,
     )
     assert exit_code == 1  # Must fail closed!
+
+
+def test_order_book_feed_corruption_rejection_fail_closed():
+    """Adversarial Test: Verify corrupted order book feed data (negative depth, non-positive price,
+    crossed book, negative volume velocity) is rejected fail-closed with
+    OrderBookFeedCorruptionError.
+    """
+    engine = DepthImbalanceEngine()
+
+    # Negative bid depth
+    with pytest.raises(OrderBookFeedCorruptionError, match="Negative book depth"):
+        engine.update_book(
+            "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("-1.0"), Decimal("10.0")
+        )
+
+    # Negative ask depth
+    with pytest.raises(OrderBookFeedCorruptionError, match="Negative book depth"):
+        engine.update_book(
+            "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("10.0"), Decimal("-0.0001")
+        )
+
+    # Non-positive bid price
+    with pytest.raises(OrderBookFeedCorruptionError, match="Non-positive quote price"):
+        engine.update_book(
+            "BTCUSDT", Decimal("0.00"), Decimal("60010.00"), Decimal("5.0"), Decimal("5.0")
+        )
+
+    # Negative ask price
+    with pytest.raises(OrderBookFeedCorruptionError, match="Non-positive quote price"):
+        engine.update_book(
+            "BTCUSDT", Decimal("60000.00"), Decimal("-10.00"), Decimal("5.0"), Decimal("5.0")
+        )
+
+    # Crossed order book (bid > ask)
+    with pytest.raises(OrderBookFeedCorruptionError, match="Crossed order book"):
+        engine.update_book(
+            "BTCUSDT", Decimal("60020.00"), Decimal("60010.00"), Decimal("5.0"), Decimal("5.0")
+        )
+
+    # Negative volume velocity
+    with pytest.raises(OrderBookFeedCorruptionError, match="Negative volume velocity"):
+        engine.update_book(
+            "BTCUSDT",
+            Decimal("60000.00"),
+            Decimal("60010.00"),
+            Decimal("5.0"),
+            Decimal("5.0"),
+            volume_velocity=Decimal("-50.0"),
+        )
+
+    # Gateway set_book corruption validation
+    gw = MockBinanceLiquidityShockGateway()
+    with pytest.raises(OrderBookFeedCorruptionError):
+        gw.set_book(
+            "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("-2.0"), Decimal("5.0")
+        )
+    with pytest.raises(OrderBookFeedCorruptionError):
+        gw.set_book(
+            "BTCUSDT", Decimal("60020.00"), Decimal("60010.00"), Decimal("2.0"), Decimal("5.0")
+        )
+
+
+def test_order_book_epsilon_boundary_and_zero_depth_governance(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Test: Verify boundary behavior when depth approaches decimal epsilon (1e-18),
+    and when total book depth is zero, enforcing strict fail-closed safety.
+    """
+    engine = DepthImbalanceEngine()
+
+    # Epsilon bid depth, nominal ask depth -> extreme negative imbalance
+    engine.update_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("1e-18"), Decimal("10.0")
+    )
+    imb_neg = engine.get_depth_imbalance("BTCUSDT")
+    assert imb_neg < Decimal("-0.60")
+    assert engine.is_depth_imbalance_exceeded("BTCUSDT") is True
+
+    # Nominal bid depth, epsilon ask depth -> extreme positive imbalance
+    engine.update_book(
+        "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), Decimal("10.0"), Decimal("1e-18")
+    )
+    imb_pos = engine.get_depth_imbalance("BTCUSDT")
+    assert imb_pos > Decimal("0.60")
+    assert engine.is_depth_imbalance_exceeded("BTCUSDT") is True
+
+    # Zero depth on both sides: empty order book
+    engine.update_book(
+        "ETHUSDT", Decimal("3000.00"), Decimal("3001.00"), Decimal("0.0"), Decimal("0.0")
+    )
+    assert engine.get_depth_imbalance("ETHUSDT") == Decimal("0.0")
+    # 100% queue depletion ratio triggers exceeded risk and SEVERE_CONTROLS
+    assert engine.get_depth_depletion_ratio("ETHUSDT") == Decimal("1.0")
+    assert engine.is_depth_imbalance_exceeded("ETHUSDT") is True
+    assert engine.classify_depth_imbalance_regime("ETHUSDT") == LiquidityShockRegime.SEVERE_CONTROLS
+
+    # Order dispatch against zero depth must fail-closed with DepthExhaustionError
+    reconciler = LiquidityUserDataStreamReconciler(track_id="adv_epsilon_depth")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    gw = MockBinanceLiquidityShockGateway()
+    hb = gw.generate_heartbeat(latency_ms=20.0)
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    interlock = LiquidityShockOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        shock_engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION,
+    )
+    with pytest.raises(DepthExhaustionError, match="exhausted"):
+        interlock.validate_dispatch(
+            symbol="ETHUSDT",
+            price=Decimal("3000.00"),
+            quantity=Decimal("0.001"),
+            client_order_id=generate_canary_client_order_id("ETHUSDT"),
+            side=OrderSide.BUY,
+        )
+
+
+def test_gateway_heartbeat_sudden_clock_jump_caught_in_record_heartbeat(monkeypatch):
+    """Adversarial Test: Verify sudden OS clock jump between heartbeats is immediately detected
+    during record_heartbeat (before check_health is called), freezing gateway fail-closed.
+    """
+    base_wall = 1700000000.0
+    base_mono = 1000.0
+    current_wall = base_wall
+    current_mono = base_mono
+
+    monkeypatch.setattr(time, "time", lambda: current_wall)
+    monkeypatch.setattr(time, "monotonic", lambda: current_mono)
+
+    mon = GatewayHeartbeatMonitor()
+    hb1 = mon.record_heartbeat(server_time_ms=int(base_wall * 1000), latency_ms=25.0)
+    assert hb1.status == HeartbeatStatus.HEALTHY
+    assert mon.is_frozen is False
+
+    # OS wall clock jumps forward by 280 ms, but monotonic only advances by 5 ms (step = 275 ms)
+    # Server time also advances by 280 ms (skew relative to server is normal, but OS jumped!)
+    current_wall = base_wall + 0.280
+    current_mono = base_mono + 0.005
+
+    hb2 = mon.record_heartbeat(server_time_ms=int(current_wall * 1000), latency_ms=25.0)
+    assert hb2.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+    assert hb2.is_healthy is False
+    assert mon.is_frozen is True
+
+    healthy, reason = mon.check_health()
+    assert healthy is False
+    assert "Sudden OS clock jump detected" in reason
+
+    with pytest.raises(ClockSkewExceededError):
+        mon.assert_healthy()
+
+
+def test_concurrent_market_depth_updates_stream_events_and_dispatches(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Adversarial Stress Test: Concurrently execute market book updates, incoming WebSocket
+    stream drain cycles, and multi-symbol micro order dispatches across multiple threads.
+    Verify strict thread safety, zero deadlocks, and zero double-entry ledger drift.
+    """
+    gw = MockBinanceLiquidityShockGateway()
+    reconciler = LiquidityUserDataStreamReconciler(track_id="adv_stress_concurrent")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat(latency_ms=20.0)
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    shock_engine = LiquidityShockEngine()
+    sequencer = LiquidityShockStreamSequencer()
+
+    interlock = LiquidityShockOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        shock_engine=shock_engine,
+        expansion_stage=CapitalExpansionStage.STAGE_8_DEPTH_IMBALANCE_EXPANSION,
+    )
+    dispatcher = LiquidityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="adv_stress_concurrent",
+        shock_engine=shock_engine,
+    )
+
+    stop_event = threading.Event()
+    errors: list[Exception] = []
+
+    def _book_updater():
+        try:
+            depth_cycle = [Decimal("0.00020"), Decimal("0.00005"), Decimal("0.00010")]
+            idx = 0
+            while not stop_event.is_set():
+                d = depth_cycle[idx % len(depth_cycle)]
+                shock_engine.update_book(
+                    "BTCUSDT", Decimal("60000.00"), Decimal("60010.00"), d, Decimal("0.00020")
+                )
+                idx += 1
+                time.sleep(0.002)
+        except Exception as exc:
+            errors.append(exc)
+
+    def _order_worker(t_id: int):
+        try:
+            for j in range(4):
+                if stop_event.is_set():
+                    break
+                hb_sub = gw.generate_heartbeat(latency_ms=20.0)
+                heartbeat_mon.record_heartbeat(hb_sub["serverTime"], hb_sub["latencyMs"])
+
+                sym = CANARY_STAGED_SYMBOLS[j % len(CANARY_STAGED_SYMBOLS)]
+                book = gw.books[sym]
+                px = book["bid_price"]
+                qty = (Decimal("1.20") / px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                cid = generate_canary_client_order_id(sym, uuid_str=f"st{t_id}j{j}")
+
+                try:
+                    dispatcher.dispatch_micro_order(
+                        candidate_id=f"cand-{sym.lower()}",
+                        symbol=sym,
+                        side=OrderSide.BUY,
+                        order_type=OrderType.LIMIT,
+                        quantity=qty,
+                        price=px,
+                        client_order_id=cid,
+                    )
+                except (
+                    AggregateExposureCapExceededError,
+                    MarginAllocationExceededError,
+                    FundingRateDistortionThrottledError,
+                    GatewayHeartbeatStaleError,
+                ):
+                    pass
+                time.sleep(0.003)
+        except Exception as exc:
+            errors.append(exc)
+
+    updater_thread = threading.Thread(target=_book_updater)
+    worker_threads = [threading.Thread(target=_order_worker, args=(i,)) for i in range(4)]
+
+    updater_thread.start()
+    for wt in worker_threads:
+        wt.start()
+
+    for wt in worker_threads:
+        wt.join(timeout=10.0)
+    stop_event.set()
+    updater_thread.join(timeout=5.0)
+
+    assert len(errors) == 0
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT

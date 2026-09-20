@@ -97,7 +97,7 @@ logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 # =====================================================================
-# Canonical Constants & Thresholds (Phase 286)
+# Canonical Constants & Thresholds (Phase 287)
 # =====================================================================
 
 DEFAULT_PHASE287_OUTPUT_DIR: Path = Path("artifacts/research/phase287")
@@ -110,12 +110,13 @@ HARD_MICRO_NOTIONAL_CAP_USDT: Decimal = Decimal("5.00")  # Strictly <= 5.00 USDT
 DYNAMIC_SLICING_MAX_CHUNK_USDT: Decimal = Decimal("2.50")  # Sliced micro-chunks <= 2.50 USDT
 SLIPPAGE_TOLERANCE_BPS: Decimal = Decimal("1.5")  # > 1.5 bps triggers dynamic slicing
 
-# Stepped Concurrent Exposure Scaling Ceilings (Phase 286: up to 35.00 USDT)
+# Stepped Concurrent Exposure Scaling Ceilings (Phase 287: up to 40.00 USDT)
 STAGE_1_CONCURRENT_EXPOSURE_CAP_USDT: Decimal = Decimal("5.00")
 STAGE_2_CONCURRENT_EXPOSURE_CAP_USDT: Decimal = Decimal("10.00")
 STAGE_3_CONTINUOUS_EXPOSURE_CAP_USDT: Decimal = Decimal("15.00")
 STAGE_4_ADAPTIVE_EXPOSURE_CAP_USDT: Decimal = Decimal("20.00")
-STAGE_5_LIQUIDITY_EXPOSURE_CAP_USDT: Decimal = Decimal("25.00")
+STAGE_5_LIQUIDITY_EXPANSION_CAP_USDT: Decimal = Decimal("25.00")
+STAGE_5_LIQUIDITY_EXPOSURE_CAP_USDT: Decimal = STAGE_5_LIQUIDITY_EXPANSION_CAP_USDT
 STAGE_6_VOLATILITY_EXPANSION_CAP_USDT: Decimal = Decimal("30.00")
 STAGE_7_LIQUIDITY_SHOCK_EXPANSION_CAP_USDT: Decimal = Decimal("35.00")
 STAGE_8_DEPTH_IMBALANCE_EXPANSION_CAP_USDT: Decimal = Decimal("40.00")
@@ -126,7 +127,7 @@ MAX_PER_ASSET_MARGIN_PCT: Decimal = Decimal("0.20")  # <= 20.00% per asset
 MAX_AGGREGATE_MARGIN_PCT: Decimal = Decimal("0.60")  # <= 60.00% aggregate portfolio margin
 MIN_RESERVE_BUFFER_PCT: Decimal = Decimal("0.40")  # >= 40.00% unencumbered cash reserve buffer
 
-# Risk Budgets & Circuit Breakers (Phase 286: <= 4.50 USDT)
+# Risk Budgets & Circuit Breakers (Phase 287: <= 5.00 USDT)
 INTRA_PHASE_LOSS_CEILING_USDT: Decimal = Decimal("5.00")
 
 # Gateway Heartbeat Freshness & Clock Drift
@@ -164,7 +165,7 @@ MIN_REQUIRED_BOOK_DEPTH: Decimal = Decimal("0.00002")  # Absolute min required l
 MAX_TOLERABLE_SPREAD_PCT: Decimal = Decimal("0.05")  # Max allowed spread 5%
 DEFAULT_DEPTH_EXHAUSTION_THRESHOLD: Decimal = Decimal("0.00005")
 
-# Track Descriptions (Phase 286)
+# Track Descriptions (Phase 287)
 TRACK_DESCRIPTIONS: dict[str, str] = {
     "track_1": (
         "Multi-Candidate Depth Imbalance & Spread Ingress Replay "
@@ -280,6 +281,13 @@ LiquidityShockToleranceExceededError = DepthImbalanceToleranceExceededError
 VolatilitySpilloverToleranceExceededError = DepthImbalanceToleranceExceededError
 
 
+class OrderBookFeedCorruptionError(CanaryDepthImbalanceError):
+    """Raised when order book feed data is corrupted (negative depth, invalid price, etc)."""
+
+
+FeedCorruptionError = OrderBookFeedCorruptionError
+
+
 class QueueDepletionThrottledError(CanaryDepthImbalanceError):
     """Raised when order is throttled due to active queue depletion or depth collapse."""
 
@@ -353,7 +361,7 @@ CanaryContinuousDaemonTrackId = CanaryDepthImbalanceTrackId
 
 
 class CapitalExpansionStage(StrEnum):
-    """Stepped concurrent exposure scaling tiers under Phase 286 (up to 35.00 USDT)."""
+    """Stepped concurrent exposure scaling tiers under Phase 287 (up to 40.00 USDT)."""
 
     STAGE_1_CONCURRENT_MICRO = "STAGE_1_CONCURRENT_MICRO"  # <= 5.00 USDT
     STAGE_2_EXPANDED_CONCURRENT = "STAGE_2_EXPANDED_CONCURRENT"  # <= 10.00 USDT
@@ -448,7 +456,7 @@ class OrderSlicingMode(StrEnum):
 
 
 # =====================================================================
-# Dual-Confirmation Client Order Tagging (Phase 286 Format)
+# Dual-Confirmation Client Order Tagging (Phase 287 Format)
 # =====================================================================
 
 CANARY_CLIENT_ORDER_ID_REGEX = re.compile(
@@ -461,7 +469,7 @@ def generate_canary_client_order_id(
     timestamp_ms: int | None = None,
     uuid_str: str | None = None,
 ) -> str:
-    """Generate deterministic dual-confirmation client order tag for Phase 286:
+    """Generate deterministic dual-confirmation client order tag for Phase 287:
     Format: c=canary-p287-{sym}-{ts}-{uuid}
     """
     sym = str(symbol).strip().upper()
@@ -474,7 +482,7 @@ def validate_canary_client_order_id(
     client_order_id: str,
     expected_symbol: str | None = None,
 ) -> tuple[bool, str | None]:
-    """Validate client order ID tag against Phase 286 canary format."""
+    """Validate client order ID tag against Phase 287 canary format."""
     if not isinstance(client_order_id, str):
         return False, "client_order_id must be a string"
     match = CANARY_CLIENT_ORDER_ID_REGEX.match(client_order_id)
@@ -531,7 +539,7 @@ def _safe_int(val: Any, default: int = 0) -> int:
 
 
 # =====================================================================
-# Telemetry Domain Models (Phase 286)
+# Telemetry Domain Models (Phase 287)
 # =====================================================================
 
 
@@ -726,9 +734,7 @@ class DaemonLifecycleEvent(DomainModel):
 
 
 class DepthImbalanceDaemonTrackResult(DomainModel):
-    """Track result for Phase 287."""
-
-    """Execution summary for an individual simulation track under Phase 286."""
+    """Execution summary for an individual simulation track under Phase 287."""
 
     track_id: str
     track_name: str
@@ -763,7 +769,7 @@ VolatilityDaemonTrackResult = DepthImbalanceDaemonTrackResult
 
 
 class CanaryDepthImbalanceReport(DomainModel):
-    """Full telemetry report for Phase 286 autonomous daemon execution."""
+    """Full telemetry report for Phase 287 autonomous daemon execution."""
 
     phase: str = "phase_287"
     description: str
@@ -809,7 +815,7 @@ CanaryVolatilitySpilloverReport = CanaryDepthImbalanceReport
 
 
 class CanaryDepthImbalanceConfig(DomainModel):
-    """Configuration options for Phase 286 runner."""
+    """Configuration options for Phase 287 runner."""
 
     manifest_path: Path = DEFAULT_CANARY_STAGING_MANIFEST_PATH
     registry_path: Path = DEFAULT_CANDIDATE_REGISTRY_PATH
@@ -842,7 +848,7 @@ CanaryVolatilitySpilloverConfig = CanaryDepthImbalanceConfig
 
 
 class SqliteCanaryDepthImbalanceTelemetryStore:
-    """Thread-safe SQLite storage for Phase 286 telemetry."""
+    """Thread-safe SQLite storage for Phase 287 telemetry."""
 
     def __init__(self, db_path: Path | str) -> None:
         self.db_path = Path(db_path)
@@ -1451,10 +1457,12 @@ class GatewayHeartbeatMonitor:
     ) -> GatewayHeartbeatRecord:
         with self._lock:
             now_ms = local_time_ms if local_time_ms is not None else int(time.time() * 1000)
+            now_mono_ms = time.monotonic() * 1000.0
             self.heartbeat_count += 1
             prev_heartbeat = self.last_heartbeat_ms
+            prev_mono = self.last_heartbeat_mono_ms
             self.last_heartbeat_ms = now_ms
-            self.last_heartbeat_mono_ms = time.monotonic() * 1000.0
+            self.last_heartbeat_mono_ms = now_mono_ms
             self.last_latency_ms = latency_ms
 
             prev_server = self.last_server_time_ms
@@ -1469,16 +1477,33 @@ class GatewayHeartbeatMonitor:
             details = ""
 
             backward_drift = False
+            clock_jump_detected = False
             if prev_server > 0 and (prev_server - server_time_ms) > self.max_clock_skew_ms:
                 backward_drift = True
             elif prev_heartbeat > 0 and (prev_heartbeat - now_ms) > self.max_clock_skew_ms:
                 backward_drift = True
             elif abs(skew) > self.max_clock_skew_ms:
                 backward_drift = True
+            elif local_time_ms is None and prev_mono > 0 and prev_heartbeat > 0:
+                wall_delta = float(now_ms - prev_heartbeat)
+                mono_delta = now_mono_ms - prev_mono
+                clock_step = wall_delta - mono_delta
+                if abs(clock_step) > self.max_clock_skew_ms:
+                    backward_drift = True
+                    clock_jump_detected = True
+                    skew = clock_step
 
             if backward_drift:
                 self.is_frozen = True
-                self.freeze_reason = f"Clock skew {skew:.1f}ms exceeds {self.max_clock_skew_ms}ms"
+                if clock_jump_detected:
+                    self.freeze_reason = (
+                        f"Sudden OS clock jump detected during heartbeat: "
+                        f"jump {skew:.1f}ms exceeds tolerance {self.max_clock_skew_ms}ms"
+                    )
+                else:
+                    self.freeze_reason = (
+                        f"Clock skew {skew:.1f}ms exceeds {self.max_clock_skew_ms}ms"
+                    )
                 status = HeartbeatStatus.CLOCK_SKEW_FREEZE
                 is_healthy = False
                 details = self.freeze_reason
@@ -1630,12 +1655,35 @@ class DepthImbalanceEngine:
         """Update prevailing order book quotes and depth, and recalculate shock transmission."""
         with self._lock:
             sym_key = str(symbol).strip().upper()
+            b_px = _safe_decimal(bid_price)
+            a_px = _safe_decimal(ask_price)
+            b_depth = _safe_decimal(bid_depth)
+            a_depth = _safe_decimal(ask_depth)
+            v_vel = _safe_decimal(volume_velocity, Decimal("100.0"))
+
+            if b_px <= Decimal("0") or a_px <= Decimal("0"):
+                raise OrderBookFeedCorruptionError(
+                    f"Non-positive quote price detected for {sym_key}: bid={b_px}, ask={a_px}"
+                )
+            if a_px < b_px:
+                raise OrderBookFeedCorruptionError(
+                    f"Crossed order book detected for {sym_key}: bid={b_px} > ask={a_px}"
+                )
+            if b_depth < Decimal("0") or a_depth < Decimal("0"):
+                raise OrderBookFeedCorruptionError(
+                    f"Negative book depth detected for {sym_key}: bid={b_depth}, ask={a_depth}"
+                )
+            if v_vel < Decimal("0"):
+                raise OrderBookFeedCorruptionError(
+                    f"Negative volume velocity detected for {sym_key}: velocity={v_vel}"
+                )
+
             self.books[sym_key] = {
-                "bid_price": _safe_decimal(bid_price),
-                "ask_price": _safe_decimal(ask_price),
-                "bid_depth": _safe_decimal(bid_depth),
-                "ask_depth": _safe_decimal(ask_depth),
-                "volume_velocity": _safe_decimal(volume_velocity, Decimal("100.0")),
+                "bid_price": b_px,
+                "ask_price": a_px,
+                "bid_depth": b_depth,
+                "ask_depth": a_depth,
+                "volume_velocity": v_vel,
             }
             self._update_shock_coefficients()
 
@@ -1676,6 +1724,10 @@ class DepthImbalanceEngine:
                 return Decimal("0.0")
             v_bid = book.get("bid_depth", Decimal("0.0"))
             v_ask = book.get("ask_depth", Decimal("0.0"))
+            if v_bid < Decimal("0.0") or v_ask < Decimal("0.0"):
+                raise OrderBookFeedCorruptionError(
+                    f"Negative book depth detected for {sym_key}: bid={v_bid}, ask={v_ask}"
+                )
             total_v = v_bid + v_ask
             if total_v <= Decimal("0.0"):
                 return Decimal("0.0")
@@ -2038,7 +2090,7 @@ VolatilitySpilloverEngine = DepthImbalanceEngine
 
 
 class MockBinanceDepthImbalanceGateway:
-    """Simulated Binance Futures gateway for deterministic Phase 286 testing."""
+    """Simulated Binance Futures gateway for deterministic Phase 287 testing."""
 
     def __init__(
         self,
@@ -2095,11 +2147,30 @@ class MockBinanceDepthImbalanceGateway:
         ask_depth: Decimal,
     ) -> None:
         with self._lock:
-            self.books[symbol.strip().upper()] = {
-                "bid_price": bid_price,
-                "ask_price": ask_price,
-                "bid_depth": bid_depth,
-                "ask_depth": ask_depth,
+            sym = symbol.strip().upper()
+            b_px = _safe_decimal(bid_price)
+            a_px = _safe_decimal(ask_price)
+            b_depth = _safe_decimal(bid_depth)
+            a_depth = _safe_decimal(ask_depth)
+
+            if b_px <= Decimal("0") or a_px <= Decimal("0"):
+                raise OrderBookFeedCorruptionError(
+                    f"Non-positive quote price in gateway for {sym}: bid={b_px}, ask={a_px}"
+                )
+            if a_px < b_px:
+                raise OrderBookFeedCorruptionError(
+                    f"Crossed order book in gateway for {sym}: bid={b_px} > ask={a_px}"
+                )
+            if b_depth < Decimal("0") or a_depth < Decimal("0"):
+                raise OrderBookFeedCorruptionError(
+                    f"Negative book depth in gateway for {sym}: bid={b_depth}, ask={a_depth}"
+                )
+
+            self.books[sym] = {
+                "bid_price": b_px,
+                "ask_price": a_px,
+                "bid_depth": b_depth,
+                "ask_depth": a_depth,
             }
 
     def generate_heartbeat(self, latency_ms: float = 25.0) -> dict[str, Any]:
@@ -2541,19 +2612,19 @@ VolatilityUserDataStreamReconciler = DepthUserDataStreamReconciler
 
 
 # =====================================================================
-# Pre-Trade Order Dispatch Interlocks (Phase 286)
+# Pre-Trade Order Dispatch Interlocks (Phase 287)
 # =====================================================================
 
 
 class DepthImbalanceOrderDispatchInterlock:
-    """Pre-trade risk gate enforcing Phase 286 containment invariants:
+    """Pre-trade risk gate enforcing Phase 287 containment invariants:
     - Dual-confirmation client order tag format (c=canary-p287-{sym}-{ts}-{uuid}).
     - Gateway heartbeat freshness (age <= 500 ms) and clock skew freeze (> 250 ms NTP drift).
     - Circuit breaker normal state.
-    - Intra-phase cumulative loss budget ceiling <= 4.50 USDT.
+    - Intra-phase cumulative loss budget ceiling <= 5.00 USDT.
     - Micro child order cap <= 5.00 USDT (or <= 2.50 USDT if sliced child).
     - Micro floor >= 1.00 USDT.
-    - Stepped aggregate concurrent active exposure cap up to <= 35.00 USDT.
+    - Stepped aggregate concurrent active exposure cap up to <= 40.00 USDT.
     - Dynamic margin headroom:
       - Active portfolio margin allocation <= 60.00% (cash reserve buffer >= 40.00%).
       - Per-asset margin allocation <= 20.00%.
@@ -3038,7 +3109,7 @@ VolatilitySpilloverOrderDispatchInterlock = DepthImbalanceOrderDispatchInterlock
 
 
 # =====================================================================
-# Micro Order Dispatcher & Slicing Coordinator (Phase 286)
+# Micro Order Dispatcher & Slicing Coordinator (Phase 287)
 # =====================================================================
 
 
@@ -3761,7 +3832,7 @@ VolatilitySpilloverAutonomousDaemon = DepthImbalanceAutonomousDaemon
 
 
 # =====================================================================
-# Upstream Phase 285 Qualification & Merkle DAG Ingress (Phase 286)
+# Upstream Phase 286 Qualification & Merkle DAG Ingress (Phase 287)
 # =====================================================================
 
 
@@ -3873,12 +3944,12 @@ verify_upstream_phase284_qualification = verify_upstream_phase286_qualification
 
 
 # =====================================================================
-# Phase 286 Runner Implementation
+# Phase 287 Runner Implementation
 # =====================================================================
 
 
 class CanaryDepthImbalanceRunner:
-    """Production Canary Full Autonomous Liquidity Shock Runner for Phase 286."""
+    """Production Canary Full Autonomous Order Book Depth Imbalance Runner for Phase 287."""
 
     def __init__(self, config: CanaryLiquidityShockConfig) -> None:
         self.config = config
@@ -5288,7 +5359,7 @@ CanaryVolatilitySpilloverRunner = CanaryDepthImbalanceRunner
 
 
 # =====================================================================
-# Cryptographic SHA-256 Merkle DAG Hash Chain Verification (Phase 286)
+# Cryptographic SHA-256 Merkle DAG Hash Chain Verification (Phase 287)
 # =====================================================================
 
 
@@ -5595,6 +5666,8 @@ __all__ = [
     "DepthExhaustionError",
     "SpreadExceededError",
     "DepthImbalanceToleranceExceededError",
+    "OrderBookFeedCorruptionError",
+    "FeedCorruptionError",
     "QueueDepletionThrottledError",
     "AggressiveOrderRejectedError",
     "OrderSlicingError",
