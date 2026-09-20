@@ -1405,6 +1405,7 @@ class GatewayHeartbeatMonitor:
         self.heartbeat_count: int = 0
         self.stale_count: int = 0
         self._simulated_stale_age: float | None = None
+        self._lock = threading.RLock()
 
     def record_heartbeat(
         self,
@@ -1413,110 +1414,115 @@ class GatewayHeartbeatMonitor:
         track_id: str,
         local_time_ms: int | None = None,
     ) -> GatewayHeartbeatRecord:
-        now_local = local_time_ms if local_time_ms is not None else int(time.time() * 1000)
-        self.heartbeat_count += 1
-        self.last_heartbeat_server_time_ms = server_time_ms
-        self.last_heartbeat_local_time_ms = now_local
-        self.last_heartbeat_timestamp_ms = now_local
-        self.last_latency_ms = latency_ms
+        with self._lock:
+            now_local = local_time_ms if local_time_ms is not None else int(time.time() * 1000)
+            self.heartbeat_count += 1
+            self.last_heartbeat_server_time_ms = server_time_ms
+            self.last_heartbeat_local_time_ms = now_local
+            self.last_heartbeat_timestamp_ms = now_local
+            self.last_latency_ms = latency_ms
 
-        # Clock drift: positive means server behind local
-        clock_drift_ms = float(now_local - server_time_ms)
+            # Clock drift: positive means server behind local
+            clock_drift_ms = float(now_local - server_time_ms)
 
-        # Backward NTP clock drift check
-        if clock_drift_ms > self.clock_skew_tolerance_ms:
-            self.is_clock_skew_frozen = True
-            status = HeartbeatStatus.CLOCK_SKEW_FREEZE
-            self.stale_count += 1
-        elif self.is_clock_skew_frozen:
-            # Recovery hysteresis for clock skew: recovers at <= tolerance - 50 ms (<= 200 ms)
-            if clock_drift_ms <= (self.clock_skew_tolerance_ms - 50.0):
-                self.is_clock_skew_frozen = False
-                status = HeartbeatStatus.HEALTHY
-            else:
+            # Backward NTP clock drift check
+            if clock_drift_ms > self.clock_skew_tolerance_ms:
+                self.is_clock_skew_frozen = True
                 status = HeartbeatStatus.CLOCK_SKEW_FREEZE
                 self.stale_count += 1
-        else:
-            status = HeartbeatStatus.HEALTHY
-
-        age_ms = self.get_heartbeat_age_ms()
-        if age_ms > self.max_age_ms:
-            self.is_frozen = True
-            if status == HeartbeatStatus.HEALTHY:
-                status = HeartbeatStatus.LATENCY_SPIKE_STALE
-            self.stale_count += 1
-        elif self.is_frozen:
-            if age_ms <= self.recovery_ceiling_ms:
-                self.is_frozen = False
+            elif self.is_clock_skew_frozen:
+                # Recovery hysteresis for clock skew: recovers at <= tolerance - 50 ms (<= 200 ms)
+                if clock_drift_ms <= (self.clock_skew_tolerance_ms - 50.0):
+                    self.is_clock_skew_frozen = False
+                    status = HeartbeatStatus.HEALTHY
+                else:
+                    status = HeartbeatStatus.CLOCK_SKEW_FREEZE
+                    self.stale_count += 1
             else:
-                if status == HeartbeatStatus.HEALTHY:
-                    status = HeartbeatStatus.LATENCY_SPIKE_STALE
+                status = HeartbeatStatus.HEALTHY
 
-        record = GatewayHeartbeatRecord(
-            track_id=track_id,
-            server_time_ms=server_time_ms,
-            local_receive_time_ms=now_local,
-            latency_ms=latency_ms,
-            age_ms=age_ms,
-            status=status,
-            details_json=json.dumps(
-                {
-                    "clock_drift_ms": clock_drift_ms,
-                    "is_frozen": self.is_frozen,
-                    "is_clock_skew_frozen": self.is_clock_skew_frozen,
-                    "heartbeat_count": self.heartbeat_count,
-                }
-            ),
-        )
-        return record
-
-    def get_heartbeat_age_ms(self) -> float:
-        if self._simulated_stale_age is not None:
-            return self._simulated_stale_age
-        if self.last_heartbeat_timestamp_ms == 0:
-            return 999999.0
-        now_ms = int(time.time() * 1000)
-        return float(max(0, now_ms - self.last_heartbeat_timestamp_ms))
-
-    def set_simulated_stale_age(self, age_ms: float | None) -> None:
-        self._simulated_stale_age = age_ms
-        if age_ms is not None:
+            age_ms = self.get_heartbeat_age_ms()
             if age_ms > self.max_age_ms:
                 self.is_frozen = True
-            elif self.is_frozen and age_ms <= self.recovery_ceiling_ms:
-                self.is_frozen = False
+                if status == HeartbeatStatus.HEALTHY:
+                    status = HeartbeatStatus.LATENCY_SPIKE_STALE
+                self.stale_count += 1
+            elif self.is_frozen:
+                if age_ms <= self.recovery_ceiling_ms:
+                    self.is_frozen = False
+                else:
+                    if status == HeartbeatStatus.HEALTHY:
+                        status = HeartbeatStatus.LATENCY_SPIKE_STALE
+
+            record = GatewayHeartbeatRecord(
+                track_id=track_id,
+                server_time_ms=server_time_ms,
+                local_receive_time_ms=now_local,
+                latency_ms=latency_ms,
+                age_ms=age_ms,
+                status=status,
+                details_json=json.dumps(
+                    {
+                        "clock_drift_ms": clock_drift_ms,
+                        "is_frozen": self.is_frozen,
+                        "is_clock_skew_frozen": self.is_clock_skew_frozen,
+                        "heartbeat_count": self.heartbeat_count,
+                    }
+                ),
+            )
+            return record
+
+    def get_heartbeat_age_ms(self) -> float:
+        with self._lock:
+            if self._simulated_stale_age is not None:
+                return self._simulated_stale_age
+            if self.last_heartbeat_timestamp_ms == 0:
+                return 999999.0
+            now_ms = int(time.time() * 1000)
+            return float(max(0, now_ms - self.last_heartbeat_timestamp_ms))
+
+    def set_simulated_stale_age(self, age_ms: float | None) -> None:
+        with self._lock:
+            self._simulated_stale_age = age_ms
+            if age_ms is not None:
+                if age_ms > self.max_age_ms:
+                    self.is_frozen = True
+                elif self.is_frozen and age_ms <= self.recovery_ceiling_ms:
+                    self.is_frozen = False
 
     def is_fresh(self) -> bool:
-        if self.is_clock_skew_frozen:
-            return False
-        age_ms = self.get_heartbeat_age_ms()
-        if self.is_frozen:
-            if age_ms <= self.recovery_ceiling_ms:
-                self.is_frozen = False
-                return True
-            return False
-        if age_ms > self.max_age_ms:
-            self.is_frozen = True
-            return False
-        return True
-
-    def assert_fresh(self) -> None:
-        if not self.is_fresh():
+        with self._lock:
             if self.is_clock_skew_frozen:
-                raise ClockSkewExceededError(
-                    f"Gateway clock skew frozen: backward NTP clock drift exceeds limit "
-                    f"{self.clock_skew_tolerance_ms:.1f} ms"
-                )
+                return False
             age_ms = self.get_heartbeat_age_ms()
             if self.is_frozen:
-                raise HeartbeatFreezeActiveError(
-                    f"Gateway heartbeat frozen: age {age_ms:.1f} ms exceeds recovery ceiling "
-                    f"{self.recovery_ceiling_ms:.1f} ms"
+                if age_ms <= self.recovery_ceiling_ms:
+                    self.is_frozen = False
+                    return True
+                return False
+            if age_ms > self.max_age_ms:
+                self.is_frozen = True
+                return False
+            return True
+
+    def assert_fresh(self) -> None:
+        with self._lock:
+            if not self.is_fresh():
+                if self.is_clock_skew_frozen:
+                    raise ClockSkewExceededError(
+                        f"Gateway clock skew frozen: backward NTP clock drift exceeds limit "
+                        f"{self.clock_skew_tolerance_ms:.1f} ms"
+                    )
+                age_ms = self.get_heartbeat_age_ms()
+                if self.is_frozen:
+                    raise HeartbeatFreezeActiveError(
+                        f"Gateway heartbeat frozen: age {age_ms:.1f} ms exceeds recovery ceiling "
+                        f"{self.recovery_ceiling_ms:.1f} ms"
+                    )
+                raise GatewayHeartbeatStaleError(
+                    f"Gateway heartbeat stale: age {age_ms:.1f} ms exceeds limit "
+                    f"{self.max_age_ms:.1f} ms"
                 )
-            raise GatewayHeartbeatStaleError(
-                f"Gateway heartbeat stale: age {age_ms:.1f} ms exceeds limit "
-                f"{self.max_age_ms:.1f} ms"
-            )
 
 
 # =====================================================================
@@ -1539,6 +1545,7 @@ class ContinuousStreamSequencer:
         self.session_epoch: int = 0
         self.deduplicated_count: int = 0
         self.out_of_order_count: int = 0
+        self._lock = threading.RLock()
 
     def notify_reconnect(self, new_epoch: int | None = None) -> None:
         """Handle stream reconnection and reset monotonic sequence tracking baselines.
@@ -1547,12 +1554,13 @@ class ContinuousStreamSequencer:
         advancing the session epoch so that newly connected stream sequences (which
         often reset back to 1) are treated as monotonically fresh.
         """
-        if new_epoch is not None:
-            self.session_epoch = new_epoch
-        else:
-            self.session_epoch += 1
-        self.highest_arrival_sequence = 0
-        self.highest_seq_by_symbol.clear()
+        with self._lock:
+            if new_epoch is not None:
+                self.session_epoch = new_epoch
+            else:
+                self.session_epoch += 1
+            self.highest_arrival_sequence = 0
+            self.highest_seq_by_symbol.clear()
 
     def get_event_fingerprint(self, event_data: dict[str, Any]) -> str:
         """Deterministic fingerprint across all WebSocket event types."""
@@ -1565,7 +1573,9 @@ class ContinuousStreamSequencer:
             x = str(o.get("x", ""))
             stat = str(o.get("X", ""))
             t_ms = _safe_int(event_data.get("T"), _safe_int(event_data.get("E"), 0))
-            return f"OTU:{cid}:{t_id}:{x}:{stat}:{t_ms}"
+            cum_qty = str(o.get("z", "0"))
+            exec_qty = str(o.get("l", "0"))
+            return f"OTU:{cid}:{t_id}:{x}:{stat}:{t_ms}:{cum_qty}:{exec_qty}"
         elif e_type == WebSocketEventType.ACCOUNT_UPDATE.value:
             t_ms = _safe_int(event_data.get("T"), _safe_int(event_data.get("E"), 0))
             e_ms = _safe_int(event_data.get("E"), 0)
@@ -1585,29 +1595,32 @@ class ContinuousStreamSequencer:
 
     def is_duplicate_event(self, event_data: dict[str, Any]) -> bool:
         """Check if incoming packet is duplicate by trade ID or fingerprint."""
-        o_raw = event_data.get("o")
-        o = o_raw if isinstance(o_raw, dict) else {}
-        trade_id = str(o.get("t", ""))
-        if trade_id and trade_id != "0" and trade_id in self.processed_trade_ids:
-            return True
-        fp = self.get_event_fingerprint(event_data)
-        return fp in self.processed_fingerprints
+        with self._lock:
+            o_raw = event_data.get("o")
+            o = o_raw if isinstance(o_raw, dict) else {}
+            trade_id = str(o.get("t", ""))
+            if trade_id and trade_id != "0" and trade_id in self.processed_trade_ids:
+                return True
+            fp = self.get_event_fingerprint(event_data)
+            return fp in self.processed_fingerprints
 
     def mark_event_processed(self, event_data: dict[str, Any]) -> None:
         """Record trade ID and fingerprint as processed."""
-        o_raw = event_data.get("o")
-        o = o_raw if isinstance(o_raw, dict) else {}
-        trade_id = str(o.get("t", ""))
-        if trade_id and trade_id != "0":
-            self.processed_trade_ids.add(trade_id)
-        fp = self.get_event_fingerprint(event_data)
-        self.processed_fingerprints.add(fp)
+        with self._lock:
+            o_raw = event_data.get("o")
+            o = o_raw if isinstance(o_raw, dict) else {}
+            trade_id = str(o.get("t", ""))
+            if trade_id and trade_id != "0":
+                self.processed_trade_ids.add(trade_id)
+            fp = self.get_event_fingerprint(event_data)
+            self.processed_fingerprints.add(fp)
 
     def record_order_fill(self, client_order_id: str, filled_qty: Decimal) -> None:
         """Record monotonically increasing cumulative filled quantity."""
-        curr = self.order_cumulative_filled_qty.get(client_order_id, Decimal("0"))
-        if filled_qty > curr:
-            self.order_cumulative_filled_qty[client_order_id] = filled_qty
+        with self._lock:
+            curr = self.order_cumulative_filled_qty.get(client_order_id, Decimal("0"))
+            if filled_qty > curr:
+                self.order_cumulative_filled_qty[client_order_id] = filled_qty
 
     def _event_sort_priority(self, pkt: dict[str, Any]) -> tuple[int, int]:
         """Event priority ordering for identical timestamps."""
@@ -1643,7 +1656,10 @@ class ContinuousStreamSequencer:
         telemetry_store: SqliteCanaryContinuousDaemonTelemetryStore | None = None,
     ) -> list[dict[str, Any]]:
         """Sort batch into strict causal order and tag duplicates & out-of-order events."""
-        staged: list[tuple[int, int, int, tuple[int, int], int, dict[str, Any], bool, bool]] = []
+        with self._lock:
+            staged: list[
+                tuple[int, int, int, tuple[int, int], int, dict[str, Any], bool, bool]
+            ] = []
 
         for pkt in packets:
             is_dup = self.is_duplicate_event(pkt)
@@ -1799,26 +1815,59 @@ class ContinuousUserDataStreamReconciler:
         self.per_asset_margin: dict[str, Decimal] = {
             sym: Decimal("0") for sym in CANARY_STAGED_SYMBOLS
         }
-        self.mark_prices: dict[str, Decimal] = {
-            sym: Decimal(str(DEFAULT_REFERENCE_PRICES[sym])) for sym in CANARY_STAGED_SYMBOLS
-        }
+        self.mark_prices: dict[str, Decimal] = {}
         self.realized_pnl = Decimal("0")
         self.cumulative_realized_loss = Decimal("0")
         self.total_fees = Decimal("0")
         self.total_slippage = Decimal("0")
         self.lock = threading.RLock()
 
+    def update_mark_price(self, symbol: str, price: Decimal) -> None:
+        """Update live mark price for unrealized PnL and active exposure calculations."""
+        with self.lock:
+            if isinstance(price, Decimal) and price.is_finite() and price > Decimal("0"):
+                self.mark_prices[symbol] = price
+
+    def get_mark_price(self, symbol: str) -> Decimal:
+        """Get best known mark price for a symbol with defensive fallback precedence:
+        1. Live mark price from mark_prices dict (if positive and finite)
+        2. Known entry price if open position exists (if positive and finite)
+        3. Reference default price as fallback.
+        """
+        with self.lock:
+            raw_mark = self.mark_prices.get(symbol)
+            if (
+                raw_mark is not None
+                and isinstance(raw_mark, Decimal)
+                and raw_mark.is_finite()
+                and raw_mark > Decimal("0")
+            ):
+                return raw_mark
+
+            entry_px = self.position_entry_prices.get(symbol)
+            if (
+                entry_px is not None
+                and isinstance(entry_px, Decimal)
+                and entry_px.is_finite()
+                and entry_px > Decimal("0")
+            ):
+                return entry_px
+
+            ref_val = DEFAULT_REFERENCE_PRICES.get(symbol, Decimal("100.00"))
+            return Decimal(str(ref_val))
+
     @property
     def unrealized_pnl(self) -> Decimal:
         """Calculate aggregate unrealized PnL across all open positions."""
-        total = Decimal("0")
-        for sym, pos_qty in self.positions.items():
-            if pos_qty != Decimal("0"):
-                entry_px = self.position_entry_prices[sym]
-                mark_px = self.mark_prices.get(sym, entry_px)
-                pnl = pos_qty * (mark_px - entry_px)
-                total += pnl
-        return total.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+        with self.lock:
+            total = Decimal("0")
+            for sym, pos_qty in self.positions.items():
+                if pos_qty != Decimal("0"):
+                    entry_px = self.position_entry_prices.get(sym, Decimal("0"))
+                    mark_px = self.get_mark_price(sym)
+                    pnl = pos_qty * (mark_px - entry_px)
+                    total += pnl
+            return total.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
     @property
     def total_equity(self) -> Decimal:
@@ -1944,6 +1993,7 @@ class ContinuousUserDataStreamReconciler:
                 new_pos = curr_pos + quantity if side == OrderSide.BUY else curr_pos - quantity
                 self.positions[symbol] = new_pos
 
+            self.mark_prices[symbol] = price
             self.total_fees += commission
             return fill_realized_pnl
 
@@ -2364,19 +2414,7 @@ class ContinuousOrderDispatchInterlock:
         pos_exposure = Decimal("0")
         for sym, pos in list(self.reconciler.positions.items()):
             if pos != Decimal("0"):
-                ref_px = (
-                    self.reconciler.position_entry_prices.get(sym, Decimal("0"))
-                    if self.reconciler.position_entry_prices.get(sym, Decimal("0")) > Decimal("0")
-                    else Decimal(str(DEFAULT_REFERENCE_PRICES.get(sym, "100.00")))
-                )
-                raw_px = self.reconciler.mark_prices.get(sym, ref_px)
-                px = (
-                    raw_px
-                    if (
-                        isinstance(raw_px, Decimal) and raw_px.is_finite() and raw_px > Decimal("0")
-                    )
-                    else ref_px
-                )
+                px = self.reconciler.get_mark_price(sym)
                 pos_exposure += abs(pos) * px
 
         # 2. Working orders committed notional
@@ -2757,6 +2795,7 @@ class ContinuousMicroOrderDispatcher:
         self.orders_cancelled_count = 0
         self.orders_rejected_count = 0
         self.stream_events_count = 0
+        self.execution_mark_counter = 0
         self._lock = threading.RLock()
 
         # Connect interlock to working orders provider
@@ -2881,6 +2920,19 @@ class ContinuousMicroOrderDispatcher:
                 ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
                 self.orders_rejected_count += 1
                 self.telemetry_store.record_order(ord_rec)
+                self.telemetry_store.record_transition(
+                    OrderLifecycleTransition(
+                        track_id=self.track_id,
+                        order_id=ord_rec.order_id,
+                        client_order_id=cid,
+                        from_state=OrderLifecycleState.PENDING_NEW,
+                        to_state=OrderLifecycleState.REJECTED,
+                        trigger_reason=f"GATEWAY_TRANSMISSION_ERROR: {exc}",
+                    )
+                )
+                self.jsonl_sink.record_order_event(
+                    "ORDER_REJECTED", ord_rec.model_dump(mode="json")
+                )
                 raise
 
     def drain_and_reconcile_stream(self) -> list[dict[str, Any]]:
@@ -2954,11 +3006,14 @@ class ContinuousMicroOrderDispatcher:
                                     cid,
                                 )
 
-                        trade_id_clean = (
-                            trade_id
-                            if (trade_id and trade_id != "0")
-                            else f"tr-ws-{cid}-{t_ms or int(time.time() * 1000)}"
-                        )
+                        if trade_id and trade_id != "0":
+                            trade_id_clean = trade_id
+                        else:
+                            self.execution_mark_counter += 1
+                            ts_val = t_ms if t_ms > 0 else int(time.time() * 1000)
+                            trade_id_clean = (
+                                f"tr-ws-{cid}-{ts_val}-{cum_qty}-{self.execution_mark_counter}"
+                            )
                         if exec_qty > Decimal("0"):
                             side_enum = (
                                 _safe_order_side(side_str)
@@ -3070,7 +3125,12 @@ class ContinuousMicroOrderDispatcher:
                                     commission=comm,
                                     is_closing=rec.is_closing,
                                 )
-                                rest_trade_id = f"rest-{rec.order_id}-{int(time.time() * 1000)}"
+                                self.execution_mark_counter += 1
+                                now_ms = int(time.time() * 1000)
+                                rest_trade_id = (
+                                    f"rest-{rec.order_id}-{gw_exec}-"
+                                    f"{self.execution_mark_counter}-{now_ms}"
+                                )
                                 mark = ContinuousExecutionMark(
                                     trade_id=rest_trade_id,
                                     track_id=self.track_id,
@@ -3083,7 +3143,7 @@ class ContinuousMicroOrderDispatcher:
                                     quote_quantity=str(notional),
                                     commission_usdt=str(comm),
                                     realized_pnl_usdt=str(fill_pnl),
-                                    trade_time_ms=int(time.time() * 1000),
+                                    trade_time_ms=now_ms,
                                 )
                                 self.telemetry_store.record_execution_mark(mark)
                                 self.jsonl_sink.record_order_event(
@@ -3145,17 +3205,7 @@ class ContinuousMicroOrderDispatcher:
 
                 close_side = OrderSide.SELL if pos > Decimal("0") else OrderSide.BUY
                 rem_qty = abs(pos)
-                ref_px = Decimal(str(DEFAULT_REFERENCE_PRICES.get(sym, "100.00")))
-                raw_mark = self.reconciler.mark_prices.get(sym, ref_px)
-                px = (
-                    raw_mark
-                    if (
-                        isinstance(raw_mark, Decimal)
-                        and raw_mark.is_finite()
-                        and raw_mark > Decimal("0")
-                    )
-                    else ref_px
-                )
+                px = self.reconciler.get_mark_price(sym)
 
                 max_chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / px).quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
@@ -3573,6 +3623,9 @@ class CanaryContinuousDaemonRunner:
             "zero_balance_drift": all_zero_drift,
             "zero_secret_leakage": True,
         }
+
+        if self.active_store is not None:
+            self.active_store.close()
 
         actual_jsonl_hash = compute_file_sha256(jsonl_path)
         actual_db_hash = compute_file_sha256(db_path)

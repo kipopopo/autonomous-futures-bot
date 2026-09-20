@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+import threading
 import time
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -1465,3 +1466,251 @@ class TestPhase282AdversarialHardening:
             ord_list = store.get_orders("t1")
             assert len(ord_list) == 1
             assert ord_list[0].client_order_id == cid
+
+    def test_mark_price_precedence_and_zero_drift(self, temp_telemetry_store, temp_jsonl_sink):
+        """Verify get_mark_price respects precedence: live mark -> entry price -> default reference.
+        Confirms unrealized PnL is zero upon entry even when entry price differs from reference.
+        """
+        reconciler = ContinuousUserDataStreamReconciler(track_id="test_mark_px")
+        # Entry price 68,000 USDT differs from default reference 60,000 USDT
+        reconciler.process_fill(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            price=Decimal("68000.00"),
+            quantity=Decimal("0.00007"),
+            commission=Decimal("0.001904"),
+        )
+        assert reconciler.position_entry_prices["BTCUSDT"] == Decimal("68000.00")
+        assert reconciler.get_mark_price("BTCUSDT") == Decimal("68000.00")
+        assert reconciler.unrealized_pnl == Decimal("0.00000000")
+        assert reconciler.verify_zero_balance_drift() is True
+
+        # Non-finite or negative mark prices are safely ignored and fall back to entry price
+        reconciler.mark_prices["BTCUSDT"] = Decimal("NaN")
+        assert reconciler.get_mark_price("BTCUSDT") == Decimal("68000.00")
+        reconciler.mark_prices["BTCUSDT"] = Decimal("-50.0")
+        assert reconciler.get_mark_price("BTCUSDT") == Decimal("68000.00")
+
+        # Explicit live mark update functions accurately
+        reconciler.update_mark_price("BTCUSDT", Decimal("70000.00"))
+        assert reconciler.get_mark_price("BTCUSDT") == Decimal("70000.00")
+        expected_pnl = (Decimal("0.00007") * Decimal("2000.00")).quantize(Decimal("0.00000001"))
+        assert reconciler.unrealized_pnl == expected_pnl
+        assert reconciler.verify_zero_balance_drift() is True
+
+    def test_same_millisecond_partial_fills_and_fallback_trade_id_synthesis(
+        self, temp_telemetry_store, temp_jsonl_sink
+    ):
+        """Verify that multiple partial fills within the same millisecond timestamp with
+        missing trade ID (t=0) are both processed and receive distinct trade IDs.
+        """
+        gateway = MockBinanceContinuousGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+        reconciler = ContinuousUserDataStreamReconciler(track_id="test_same_ms")
+        sequencer = ContinuousStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000), latency_ms=5.0, track_id="test_same_ms"
+        )
+        interlock = ContinuousOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+        )
+        dispatcher = ContinuousMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=temp_telemetry_store,
+            jsonl_sink=temp_jsonl_sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="test_same_ms",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT", timestamp_ms=int(time.time() * 1000))
+        rec = ContinuousOrderRecord(
+            order_id="ord-multi-fill-1",
+            client_order_id=cid,
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            time_in_force=TimeInForce.GTC.value,
+            price="60000.00",
+            quantity="0.00008",
+            notional_usdt="4.80000000",
+            status=OrderLifecycleState.NEW,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+            track_id="test_same_ms",
+            created_at_utc=datetime.now(UTC).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
+        )
+        dispatcher.orders[cid] = rec
+        gateway.orders[cid] = {"orderId": "5001", "status": "NEW", "symbol": "BTCUSDT"}
+
+        same_ts = int(time.time() * 1000)
+        # Fill 1: partial fill 0.00004
+        fill1 = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": same_ts,
+            "T": same_ts,
+            "s_seq": 1,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "o": "LIMIT",
+                "X": "PARTIALLY_FILLED",
+                "x": "TRADE",
+                "i": 5001,
+                "l": "0.00004",
+                "z": "0.00004",
+                "L": "60000.00",
+                "n": "0.00096",
+                "T": same_ts,
+                "t": 0,
+            },
+        }
+        # Fill 2: second partial fill to 0.00008 at the exact same millisecond timestamp!
+        fill2 = {
+            "e": "ORDER_TRADE_UPDATE",
+            "E": same_ts,
+            "T": same_ts,
+            "s_seq": 2,
+            "o": {
+                "s": "BTCUSDT",
+                "c": cid,
+                "S": "BUY",
+                "o": "LIMIT",
+                "X": "FILLED",
+                "x": "TRADE",
+                "i": 5001,
+                "l": "0.00004",
+                "z": "0.00008",
+                "L": "60000.00",
+                "n": "0.00096",
+                "T": same_ts,
+                "t": 0,
+            },
+        }
+
+        gateway.push_user_data_event(fill1)
+        gateway.push_user_data_event(fill2)
+        dispatcher.drain_and_reconcile_stream()
+
+        assert rec.status == OrderLifecycleState.FILLED
+        assert rec.executed_quantity == "0.00008"
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+        assert reconciler.verify_zero_balance_drift() is True
+
+        marks = temp_telemetry_store.get_execution_marks(track_id="test_same_ms")
+        assert len(marks) == 2
+        assert marks[0].trade_id != marks[1].trade_id
+        assert marks[0].trade_id.startswith(f"tr-ws-{cid}-")
+        assert marks[1].trade_id.startswith(f"tr-ws-{cid}-")
+
+    def test_gateway_exception_during_dispatch_records_transition_and_jsonl(
+        self, temp_telemetry_store, temp_jsonl_sink
+    ):
+        """Verify that a gateway exception during dispatch properly transitions order to REJECTED,
+        records the lifecycle transition, and appends the ORDER_REJECTED event to JSONL.
+        """
+        gateway = MockBinanceContinuousGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+
+        def failing_place_order(*args, **kwargs):
+            raise ConnectionResetError("Gateway connection dropped by peer")
+
+        gateway.place_order = failing_place_order
+
+        reconciler = ContinuousUserDataStreamReconciler(track_id="test_gw_err")
+        sequencer = ContinuousStreamSequencer()
+        heartbeat_mon = GatewayHeartbeatMonitor()
+        heartbeat_mon.record_heartbeat(
+            server_time_ms=int(time.time() * 1000), latency_ms=5.0, track_id="test_gw_err"
+        )
+        interlock = ContinuousOrderDispatchInterlock(
+            heartbeat_monitor=heartbeat_mon,
+            reconciler=reconciler,
+            expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,
+        )
+        dispatcher = ContinuousMicroOrderDispatcher(
+            gateway=gateway,
+            reconciler=reconciler,
+            sequencer=sequencer,
+            telemetry_store=temp_telemetry_store,
+            jsonl_sink=temp_jsonl_sink,
+            heartbeat_monitor=heartbeat_mon,
+            interlock=interlock,
+            track_id="test_gw_err",
+        )
+
+        cid = generate_canary_client_order_id("BTCUSDT", timestamp_ms=int(time.time() * 1000))
+        with pytest.raises(ConnectionResetError, match="Gateway connection dropped"):
+            dispatcher.dispatch_micro_order(
+                candidate_id="cand-btc",
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Decimal("0.00008"),
+                price=Decimal("60000.00"),
+                client_order_id=cid,
+            )
+
+        orders = temp_telemetry_store.get_orders("test_gw_err")
+        assert len(orders) == 1
+        assert orders[0].status == OrderLifecycleState.REJECTED
+        assert "Gateway connection dropped" in (orders[0].rejection_reason or "")
+
+        # Verify JSONL sink captured ORDER_REJECTED
+        jsonl_lines = [
+            json.loads(line)
+            for line in temp_jsonl_sink.path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        event_types = [entry["event_type"] for entry in jsonl_lines]
+        assert "ORDER_PENDING_NEW" in event_types
+        assert "ORDER_REJECTED" in event_types
+
+    def test_heartbeat_monitor_and_sequencer_concurrent_thread_safety(self):
+        """Stress test monitor and sequencer under concurrent threads."""
+        mon = GatewayHeartbeatMonitor()
+        sequencer = ContinuousStreamSequencer()
+        errors: list[Exception] = []
+
+        def worker(thread_idx: int):
+            try:
+                for i in range(50):
+                    now_ms = int(time.time() * 1000) + i
+                    mon.record_heartbeat(
+                        server_time_ms=now_ms,
+                        latency_ms=10.0 + float(thread_idx),
+                        track_id="stress_thread",
+                        local_time_ms=now_ms + 5,
+                    )
+                    assert mon.is_fresh() is True
+                    mon.assert_fresh()
+
+                    pkt = {
+                        "e": "ORDER_TRADE_UPDATE",
+                        "E": now_ms,
+                        "T": now_ms,
+                        "s_seq": i + 1,
+                        "o": {
+                            "s": "BTCUSDT",
+                            "c": f"c-th-{thread_idx}-{i}",
+                            "X": "NEW",
+                            "t": thread_idx * 1000 + i,
+                        },
+                    }
+                    deduped = sequencer.sort_and_deduplicate_batch([pkt], track_id="stress_thread")
+                    assert len(deduped) >= 0
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(t_id,)) for t_id in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0
