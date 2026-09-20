@@ -62,6 +62,7 @@ from autonomous_futures.feed.continuous_daemon import (  # noqa: E402
     CapitalExpansionStage,
     CircuitBreakerActiveError,
     CircuitBreakerState,
+    ClockSkewExceededError,
     ContinuousAutonomousDaemon,
     ContinuousMicroOrderDispatcher,
     ContinuousOrderDispatchInterlock,
@@ -202,17 +203,29 @@ def test_gateway_heartbeat_clock_skew_and_freeze():
     assert rec.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
     assert mon.is_clock_skew_frozen is True
 
-    # Interlock should raise HeartbeatFreezeActiveError
+    # Interlock should raise ClockSkewExceededError (subclass of HeartbeatFreezeActiveError)
+    assert issubclass(ClockSkewExceededError, HeartbeatFreezeActiveError)
+    with pytest.raises(ClockSkewExceededError):
+        mon.assert_fresh()
     with pytest.raises(HeartbeatFreezeActiveError):
         mon.assert_fresh()
 
-    # Normal clock clears freeze
-    rec2 = mon.record_heartbeat(
-        server_time_ms=int(time.time() * 1000),
+    # Recovery hysteresis: 220 ms drift is <= 250 ms tolerance, but > 200 ms recovery ceiling
+    rec_hys = mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000) - 220,
+        latency_ms=10.0,
+        track_id="skew_hysteresis",
+    )
+    assert rec_hys.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+    assert mon.is_clock_skew_frozen is True
+
+    # Recovery occurs when drift <= 200 ms (tolerance - 50 ms)
+    rec_recov = mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000) - 190,
         latency_ms=10.0,
         track_id="skew_recovered",
     )
-    assert rec2.status == HeartbeatStatus.HEALTHY
+    assert rec_recov.status == HeartbeatStatus.HEALTHY
     assert mon.is_clock_skew_frozen is False
 
 
@@ -702,3 +715,290 @@ def test_all_database_balance_snapshots_zero_drift():
         assert len(rows) > 0
         for (d_str,) in rows:
             assert Decimal(d_str) < DOUBLE_ENTRY_MAX_DRIFT
+
+
+# =====================================================================
+# 10. Robustness & Adversarial Edge Case Tests
+# =====================================================================
+
+
+def test_identical_timestamp_monotonic_event_sorting_and_transition_guard(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Test that events sharing identical timestamps sort NEW before FILLED, and terminal
+    states reject retrograde status updates.
+    """
+    seq = ContinuousStreamSequencer()
+    cid = generate_canary_client_order_id("BTCUSDT")
+
+    # Identical millisecond for NEW and FILLED
+    now_ms = 1700000000000
+    pkt_new = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": now_ms,
+        "T": now_ms,
+        "s_seq": 1,
+        "o": {"c": cid, "s": "BTCUSDT", "X": "NEW", "x": "NEW", "t": 0},
+    }
+    pkt_fill = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": now_ms,
+        "T": now_ms,
+        "s_seq": 2,
+        "o": {
+            "c": cid,
+            "s": "BTCUSDT",
+            "X": "FILLED",
+            "x": "TRADE",
+            "t": 1001,
+            "L": "60000.00",
+            "l": "0.00008",
+            "z": "0.00008",
+            "n": "0.00192",
+            "S": "BUY",
+        },
+    }
+
+    # Pass in scrambled order [pkt_fill, pkt_new]
+    sorted_pkts = seq.sort_and_deduplicate_batch([pkt_fill, pkt_new], track_id="test")
+    assert sorted_pkts[0]["o"]["X"] == "NEW"
+    assert sorted_pkts[1]["o"]["X"] == "FILLED"
+
+    # Verify dispatcher processes them without reverting to NEW
+    gateway = MockBinanceContinuousGateway()
+    reconciler = ContinuousUserDataStreamReconciler(track_id="test")
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000), latency_ms=10.0, track_id="test"
+    )
+    interlock = ContinuousOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        expansion_stage=CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION,
+    )
+    dispatcher_seq = ContinuousStreamSequencer()
+    dispatcher = ContinuousMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=dispatcher_seq,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test",
+    )
+
+    now_utc = datetime.now(UTC).isoformat()
+    ord_rec = ContinuousOrderRecord(
+        order_id="1001",
+        client_order_id=cid,
+        track_id="test",
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side="BUY",
+        order_type="LIMIT",
+        time_in_force="GTC",
+        price="60000.00",
+        quantity="0.00008",
+        notional_usdt="4.80",
+        status=OrderLifecycleState.PENDING_NEW,
+        expansion_stage=CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION,
+        created_at_utc=now_utc,
+        updated_at_utc=now_utc,
+    )
+    dispatcher.orders[cid] = ord_rec
+    gateway.ws_outbound_queue.extend([pkt_new, pkt_fill])
+    dispatcher.drain_and_reconcile_stream()
+
+    assert ord_rec.status == OrderLifecycleState.FILLED
+
+    # Inject late out-of-order NEW event -> must NOT revert FILLED state
+    late_new = {
+        "e": "ORDER_TRADE_UPDATE",
+        "E": now_ms + 10,
+        "T": now_ms + 10,
+        "s_seq": 3,
+        "o": {"c": cid, "s": "BTCUSDT", "X": "NEW", "x": "NEW", "t": 0},
+    }
+    gateway.ws_outbound_queue.append(late_new)
+    dispatcher.drain_and_reconcile_stream()
+    assert ord_rec.status == OrderLifecycleState.FILLED
+
+
+def test_emergency_flattening_with_disconnected_stream(temp_telemetry_store, temp_jsonl_sink):
+    """Test that emergency flattening cleanly flattens positions even when the WebSocket stream
+    is completely disconnected by leveraging REST synchronization.
+    """
+    gateway = MockBinanceContinuousGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+    reconciler = ContinuousUserDataStreamReconciler(track_id="test")
+    sequencer = ContinuousStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000), latency_ms=10.0, track_id="test"
+    )
+    interlock = ContinuousOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        expansion_stage=CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION,
+    )
+    dispatcher = ContinuousMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test",
+    )
+
+    # Open position while stream is active
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00008"),
+        price=Decimal("60000.00"),
+    )
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00008")
+    assert reconciler.allocated_margin > Decimal("0")
+
+    # Socket drops right before emergency liquidation
+    gateway.disconnect_stream()
+
+    # Emergency flattening executes with disconnected stream
+    flatten_orders = dispatcher.execute_emergency_flattening()
+    assert len(flatten_orders) >= 1
+    assert reconciler.positions["BTCUSDT"] == Decimal("0")
+    assert reconciler.allocated_margin == Decimal("0")
+    assert reconciler.verify_zero_balance_drift() is True
+
+
+def test_daemon_shutdown_hanging_orders_cleanup(temp_telemetry_store, temp_jsonl_sink):
+    """Test that daemon graceful shutdown cancels any unexecuted working orders."""
+    gateway = MockBinanceContinuousGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+    reconciler = ContinuousUserDataStreamReconciler(track_id="test")
+    sequencer = ContinuousStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000), latency_ms=10.0, track_id="test"
+    )
+    interlock = ContinuousOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        expansion_stage=CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION,
+    )
+    dispatcher = ContinuousMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test",
+    )
+    daemon = ContinuousAutonomousDaemon(
+        dispatcher=dispatcher,
+        reconciler=reconciler,
+        interlock=interlock,
+        heartbeat_monitor=heartbeat_mon,
+        telemetry_store=temp_telemetry_store,
+        track_id="test",
+    )
+    daemon.start()
+
+    # Inject an open working order (NEW)
+    cid = generate_canary_client_order_id("BTCUSDT")
+    now_utc = datetime.now(UTC).isoformat()
+    ord_rec = ContinuousOrderRecord(
+        order_id="2001",
+        client_order_id=cid,
+        track_id="test",
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side="BUY",
+        order_type="LIMIT",
+        time_in_force="GTC",
+        price="60000.00",
+        quantity="0.00008",
+        notional_usdt="4.80",
+        status=OrderLifecycleState.NEW,
+        expansion_stage=CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION,
+        created_at_utc=now_utc,
+        updated_at_utc=now_utc,
+    )
+    dispatcher.orders[cid] = ord_rec
+    gateway.orders[cid] = {"orderId": "2001", "status": "NEW", "symbol": "BTCUSDT"}
+
+    # Execute shutdown
+    daemon.shutdown(graceful=True)
+    assert daemon.state == DaemonState.STOPPED
+    assert ord_rec.status == OrderLifecycleState.CANCELLED
+    assert dispatcher.orders_cancelled_count >= 1
+
+
+def test_concurrent_order_dispatch_thread_safety(temp_telemetry_store, temp_jsonl_sink):
+    """Test that concurrent order dispatch across threads strictly enforces aggregate caps
+    without TOCTOU over-allocation.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    gateway = MockBinanceContinuousGateway(initial_balance_usdt=STARTING_EQUITY_USDT)
+    reconciler = ContinuousUserDataStreamReconciler(track_id="test")
+    sequencer = ContinuousStreamSequencer()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    heartbeat_mon.record_heartbeat(
+        server_time_ms=int(time.time() * 1000), latency_ms=10.0, track_id="test"
+    )
+    interlock = ContinuousOrderDispatchInterlock(
+        heartbeat_monitor=heartbeat_mon,
+        reconciler=reconciler,
+        expansion_stage=CapitalExpansionStage.STAGE_1_CONCURRENT_MICRO,  # Cap: 5.00 USDT
+    )
+    dispatcher = ContinuousMicroOrderDispatcher(
+        gateway=gateway,
+        reconciler=reconciler,
+        sequencer=sequencer,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=heartbeat_mon,
+        interlock=interlock,
+        track_id="test",
+    )
+
+    # Two orders each 4.80 USDT: only 1 can succeed under 5.00 USDT cap
+    orders_to_dispatch = [
+        ("cand-btc", "BTCUSDT", Decimal("0.00008"), Decimal("60000.00")),
+        ("cand-eth", "ETHUSDT", Decimal("0.0016"), Decimal("3000.00")),
+    ]
+
+    successes = []
+    failures = []
+
+    def dispatch_worker(cand, sym, qty, px):
+        return dispatcher.dispatch_micro_order(
+            candidate_id=cand,
+            symbol=sym,
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=qty,
+            price=px,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(dispatch_worker, cand, sym, qty, px): sym
+            for cand, sym, qty, px in orders_to_dispatch
+        }
+        for fut in as_completed(futures):
+            try:
+                res = fut.result()
+                successes.append(res)
+            except AggregateExposureCapExceededError as exc:
+                failures.append(exc)
+
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert interlock.get_aggregate_active_exposure() <= Decimal("5.00")

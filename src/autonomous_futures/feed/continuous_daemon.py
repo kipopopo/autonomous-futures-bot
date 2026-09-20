@@ -246,8 +246,16 @@ DynamicMarginAllocationCeilingError = MarginAllocationExceededError
 CashReserveBufferDepletedError = CashReserveBreachedError
 CircuitBreakerActiveError = CircuitBreakerAbortError
 BalanceReconciliationDriftError = AccountingDriftError
-HeartbeatFreezeActiveError = GatewayHeartbeatStaleError
-ClockSkewExceededError = GatewayHeartbeatStaleError
+
+
+class HeartbeatFreezeActiveError(GatewayHeartbeatStaleError):
+    """Raised when heartbeat freeze is active due to stale latency or unrecovered hysteresis."""
+
+
+class ClockSkewExceededError(HeartbeatFreezeActiveError):
+    """Raised when backward NTP clock drift exceeds tolerance (> 250 ms)."""
+
+
 PhasePrerequisiteVerificationError = PrerequisiteQualificationError
 
 
@@ -291,6 +299,62 @@ class OrderLifecycleState(StrEnum):
     CANCELLED = "CANCELLED"
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
+
+
+TERMINAL_ORDER_STATES: frozenset[OrderLifecycleState] = frozenset(
+    {
+        OrderLifecycleState.FILLED,
+        OrderLifecycleState.CANCELLED,
+        OrderLifecycleState.REJECTED,
+        OrderLifecycleState.EXPIRED,
+    }
+)
+
+VALID_ORDER_TRANSITIONS: dict[OrderLifecycleState, frozenset[OrderLifecycleState]] = {
+    OrderLifecycleState.PENDING_NEW: frozenset(
+        {
+            OrderLifecycleState.PENDING_SUBMIT,
+            OrderLifecycleState.NEW,
+            OrderLifecycleState.PARTIALLY_FILLED,
+            OrderLifecycleState.FILLED,
+            OrderLifecycleState.CANCELLED,
+            OrderLifecycleState.REJECTED,
+            OrderLifecycleState.EXPIRED,
+        }
+    ),
+    OrderLifecycleState.PENDING_SUBMIT: frozenset(
+        {
+            OrderLifecycleState.NEW,
+            OrderLifecycleState.PARTIALLY_FILLED,
+            OrderLifecycleState.FILLED,
+            OrderLifecycleState.CANCELLED,
+            OrderLifecycleState.REJECTED,
+            OrderLifecycleState.EXPIRED,
+        }
+    ),
+    OrderLifecycleState.NEW: frozenset(
+        {
+            OrderLifecycleState.PARTIALLY_FILLED,
+            OrderLifecycleState.FILLED,
+            OrderLifecycleState.CANCELLED,
+            OrderLifecycleState.REJECTED,
+            OrderLifecycleState.EXPIRED,
+        }
+    ),
+    OrderLifecycleState.PARTIALLY_FILLED: frozenset(
+        {
+            OrderLifecycleState.PARTIALLY_FILLED,
+            OrderLifecycleState.FILLED,
+            OrderLifecycleState.CANCELLED,
+            OrderLifecycleState.REJECTED,
+            OrderLifecycleState.EXPIRED,
+        }
+    ),
+    OrderLifecycleState.FILLED: frozenset(),
+    OrderLifecycleState.CANCELLED: frozenset(),
+    OrderLifecycleState.REJECTED: frozenset(),
+    OrderLifecycleState.EXPIRED: frozenset(),
+}
 
 
 class HeartbeatStatus(StrEnum):
@@ -1329,11 +1393,20 @@ class GatewayHeartbeatMonitor:
 
     def assert_fresh(self) -> None:
         if not self.is_fresh():
+            if self.is_clock_skew_frozen:
+                raise ClockSkewExceededError(
+                    f"Gateway clock skew frozen: backward NTP clock drift exceeds limit "
+                    f"{self.clock_skew_tolerance_ms:.1f} ms"
+                )
             age_ms = self.get_heartbeat_age_ms()
+            if self.is_frozen:
+                raise HeartbeatFreezeActiveError(
+                    f"Gateway heartbeat frozen: age {age_ms:.1f} ms exceeds recovery ceiling "
+                    f"{self.recovery_ceiling_ms:.1f} ms"
+                )
             raise GatewayHeartbeatStaleError(
                 f"Gateway heartbeat stale: age {age_ms:.1f} ms exceeds limit "
-                f"{self.max_age_ms:.1f} ms (frozen={self.is_frozen}, "
-                f"clock_skew={self.is_clock_skew_frozen})"
+                f"{self.max_age_ms:.1f} ms"
             )
 
 
@@ -1430,15 +1503,16 @@ class ContinuousStreamSequencer:
             o = pkt.get("o", {})
             stat = str(o.get("X", ""))
             prio = 50
-            if stat == OrderLifecycleState.FILLED.value:
+            if stat == OrderLifecycleState.NEW.value:
                 prio = 10
             elif stat == OrderLifecycleState.PARTIALLY_FILLED.value:
                 prio = 20
-            elif stat == OrderLifecycleState.NEW.value:
+            elif stat == OrderLifecycleState.FILLED.value:
                 prio = 30
             elif stat in (
                 OrderLifecycleState.CANCELLED.value,
                 OrderLifecycleState.REJECTED.value,
+                OrderLifecycleState.EXPIRED.value,
             ):
                 prio = 40
             t_id = _safe_int(o.get("t"), 0)
@@ -1909,6 +1983,50 @@ class MockBinanceContinuousGateway:
             ord_data["status"] = OrderLifecycleState.CANCELLED.value
             now_ms = int(time.time() * 1000)
             ord_data["updateTime"] = now_ms
+
+            if self.ws_stream_active:
+                self.sequence_number += 1
+                cancel_event = {
+                    "e": WebSocketEventType.ORDER_TRADE_UPDATE.value,
+                    "E": now_ms,
+                    "T": now_ms,
+                    "s_seq": self.sequence_number,
+                    "o": {
+                        "s": symbol,
+                        "c": ord_data.get("clientOrderId", client_order_id or ""),
+                        "S": ord_data.get("side", ""),
+                        "o": ord_data.get("type", ""),
+                        "f": ord_data.get("timeInForce", "GTC"),
+                        "q": ord_data.get("origQty", "0"),
+                        "p": ord_data.get("price", "0"),
+                        "ap": ord_data.get("avgPrice", "0"),
+                        "sp": "0",
+                        "x": "CANCELED",
+                        "X": OrderLifecycleState.CANCELLED.value,
+                        "i": int(ord_data.get("orderId", 0)),
+                        "l": "0",
+                        "z": ord_data.get("executedQty", "0"),
+                        "L": "0",
+                        "N": "USDT",
+                        "n": "0",
+                        "T": now_ms,
+                        "t": 0,
+                        "b": "0",
+                        "a": "0",
+                        "m": False,
+                        "R": False,
+                        "wt": "CONTRACT_PRICE",
+                        "ot": ord_data.get("origType", ""),
+                        "ps": "BOTH",
+                        "cp": False,
+                        "rp": "0",
+                        "pP": False,
+                        "si": 0,
+                        "st": 0,
+                    },
+                }
+                self.ws_outbound_queue.append(cancel_event)
+
             return ord_data
 
     def query_order(
@@ -2037,7 +2155,7 @@ class ContinuousOrderDispatchInterlock:
             return Decimal("0")
         orders = self._orders_provider()
         total_working = Decimal("0")
-        for ord_rec in orders.values():
+        for ord_rec in list(orders.values()):
             if ord_rec.is_closing:
                 continue
             if (
@@ -2073,7 +2191,7 @@ class ContinuousOrderDispatchInterlock:
         """
         # 1. Open positions notional
         pos_exposure = Decimal("0")
-        for sym, pos in self.reconciler.positions.items():
+        for sym, pos in list(self.reconciler.positions.items()):
             if pos != Decimal("0"):
                 ref_px = Decimal(str(DEFAULT_REFERENCE_PRICES.get(sym, "100.00")))
                 raw_px = self.reconciler.mark_prices.get(sym, ref_px)
@@ -2475,18 +2593,18 @@ class ContinuousMicroOrderDispatcher:
             else generate_canary_client_order_id(symbol)
         )
 
-        # 1. Validate dispatch against all risk interlocks
-        try:
-            self.interlock.validate_dispatch(
-                symbol=symbol,
-                price=price,
-                quantity=quantity,
-                client_order_id=cid,
-                is_closing=is_closing,
-                side=side,
-            )
-        except Exception as exc:
-            with self._lock:
+        with self._lock:
+            # 1. Validate dispatch against all risk interlocks under lock to prevent TOCTOU
+            try:
+                self.interlock.validate_dispatch(
+                    symbol=symbol,
+                    price=price,
+                    quantity=quantity,
+                    client_order_id=cid,
+                    is_closing=is_closing,
+                    side=side,
+                )
+            except Exception as exc:
                 self.orders_rejected_count += 1
                 rej_rec = ContinuousOrderRecord(
                     order_id="0",
@@ -2512,9 +2630,8 @@ class ContinuousMicroOrderDispatcher:
                 self.jsonl_sink.record_order_event(
                     "ORDER_REJECTED", rej_rec.model_dump(mode="json")
                 )
-            raise
+                raise
 
-        with self._lock:
             self.orders_placed_count += 1
             notional = (price * quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
@@ -2538,9 +2655,8 @@ class ContinuousMicroOrderDispatcher:
             self.telemetry_store.record_order(ord_rec)
             self.jsonl_sink.record_order_event("ORDER_PENDING_NEW", ord_rec.model_dump(mode="json"))
 
-        # 2. Transmit to gateway
-        try:
-            with self._lock:
+            # 2. Transmit to gateway
+            try:
                 gw_resp = self.gateway.place_order(
                     symbol=symbol,
                     side=side,
@@ -2572,14 +2688,13 @@ class ContinuousMicroOrderDispatcher:
                 # Record balance snapshot
                 self.telemetry_store.record_balance_snapshot(self.reconciler.get_balance_snapshot())
                 return self.orders.get(cid, ord_rec)
-        except Exception as exc:
-            with self._lock:
+            except Exception as exc:
                 ord_rec.status = OrderLifecycleState.REJECTED
                 ord_rec.rejection_reason = str(exc)
                 ord_rec.updated_at_utc = datetime.now(UTC).isoformat()
                 self.orders_rejected_count += 1
                 self.telemetry_store.record_order(ord_rec)
-            raise
+                raise
 
     def drain_and_reconcile_stream(self) -> list[dict[str, Any]]:
         """Drain raw WebSocket events, sort & deduplicate, apply state transitions."""
@@ -2620,21 +2735,29 @@ class ContinuousMicroOrderDispatcher:
                             self.sequencer.record_order_fill(cid, cum_qty)
 
                         if from_st != to_st:
-                            rec.status = to_st
-                            rec.updated_at_utc = datetime.now(UTC).isoformat()
-                            self.telemetry_store.record_order(rec)
-                            self.telemetry_store.record_transition(
-                                OrderLifecycleTransition(
-                                    track_id=self.track_id,
-                                    order_id=rec.order_id,
-                                    client_order_id=cid,
-                                    from_state=from_st,
-                                    to_state=to_st,
-                                    trigger_reason="STREAM_UPDATE",
+                            if to_st in VALID_ORDER_TRANSITIONS.get(from_st, frozenset()):
+                                rec.status = to_st
+                                rec.updated_at_utc = datetime.now(UTC).isoformat()
+                                self.telemetry_store.record_order(rec)
+                                self.telemetry_store.record_transition(
+                                    OrderLifecycleTransition(
+                                        track_id=self.track_id,
+                                        order_id=rec.order_id,
+                                        client_order_id=cid,
+                                        from_state=from_st,
+                                        to_state=to_st,
+                                        trigger_reason="STREAM_UPDATE",
+                                    )
                                 )
-                            )
-                            if to_st == OrderLifecycleState.FILLED:
-                                self.orders_filled_count += 1
+                                if to_st == OrderLifecycleState.FILLED:
+                                    self.orders_filled_count += 1
+                            else:
+                                logger.debug(
+                                    "Ignoring invalid transition %s -> %s for order %s",
+                                    from_st,
+                                    to_st,
+                                    cid,
+                                )
 
                         if exec_qty > Decimal("0") and trade_id != "0":
                             side_enum = OrderSide(side_str)
@@ -2771,13 +2894,28 @@ class ContinuousMicroOrderDispatcher:
                         self.gateway.cancel_order(symbol=o_rec.symbol, client_order_id=o_cid)
                     except Exception:
                         pass
+                    from_st = o_rec.status
                     o_rec.status = OrderLifecycleState.CANCELLED
                     o_rec.updated_at_utc = datetime.now(UTC).isoformat()
                     self.telemetry_store.record_order(o_rec)
+                    self.telemetry_store.record_transition(
+                        OrderLifecycleTransition(
+                            track_id=self.track_id,
+                            order_id=o_rec.order_id,
+                            client_order_id=o_cid,
+                            from_state=from_st,
+                            to_state=OrderLifecycleState.CANCELLED,
+                            trigger_reason="EMERGENCY_FLATTEN_CANCEL",
+                        )
+                    )
+                    self.jsonl_sink.record_order_event(
+                        "ORDER_CANCELLED", o_rec.model_dump(mode="json")
+                    )
                     self.orders_cancelled_count += 1
 
-            # Step 2: Drain stream
+            # Step 2: Drain stream and reconcile via REST
             self.drain_and_reconcile_stream()
+            self.reconcile_via_rest()
 
             # Step 3: Flatten open positions in slices <= HARD_MICRO_NOTIONAL_CAP_USDT (5.00 USDT)
             for sym, pos in list(self.reconciler.positions.items()):
@@ -2854,8 +2992,9 @@ class ContinuousMicroOrderDispatcher:
                         "ORDER_PENDING_SUBMIT", flatten_order.model_dump(mode="json")
                     )
 
-                    # Drain stream or reconcile fill
+                    # Drain stream and reconcile via REST to ensure fill is processed
                     self.drain_and_reconcile_stream()
+                    self.reconcile_via_rest()
                     flattening_orders.append(flatten_order)
                     rem_qty -= chunk
 
@@ -3014,6 +3153,9 @@ class ContinuousAutonomousDaemon:
                                 to_state=OrderLifecycleState.CANCELLED,
                                 trigger_reason="DAEMON_SHUTDOWN_CLEANUP",
                             )
+                        )
+                        self.dispatcher.jsonl_sink.record_order_event(
+                            "ORDER_CANCELLED", rec.model_dump(mode="json")
                         )
                         self.dispatcher.orders_cancelled_count += 1
                         cancelled_count += 1
