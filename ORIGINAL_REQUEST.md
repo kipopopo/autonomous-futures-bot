@@ -2017,5 +2017,83 @@ Enforce mathematical precision and autonomous safety:
 
 ### Quality & Push & Proceed Verification
 - [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Pushed commit SHA pushed to `origin/main` cleanly with verified local quality gates.
+
+## 2026-09-20T16:40:00Z
+
+Implement the production canary full autonomous multi-candidate cross-asset microstructural market impact runner, Kyle's Lambda ($\lambda$) price impact governance, stepped exposure scaling up to 50.00 USDT, and continuous balance reconciliation across staged canary symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) under Candidate Registry Manifest Version 2 (Phase 289) to govern trade-induced price displacement, transient resilience decay, aggregate margin headroom protection, and session longevity verification.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout. Adopt the "Push & Proceed" asynchronous CI protocol: verify strict local unit tests and static quality gates before committing and pushing, then proceed to review and audit without blocking on remote CI runner completion.
+
+## Requirements
+
+### R1. Upstream Verification & Cryptographic DAG Hash Chain Ingress
+Implement and execute the deterministic Phase 289 market impact and liquidity absorption runner (`scripts/run_phase_289_market_impact.py` & `src/autonomous_futures/feed/market_impact.py`):
+- Ingest upstream Phase 288 flow toxicity report (`artifacts/research/phase288/canary-flow-toxicity-report.json`, `flow-toxicity-summary.json`), Phase 287 depth imbalance report, Phase 286 liquidity shock report, Phase 285 volatility spillover report, Phase 284 liquidity regime report, Phase 283 adaptive execution report, Phase 282 continuous daemon report, Phase 281 expansion report, Phase 280 deployment report, Phase 279 mainnet authorization report, Phase 278 testnet report, Phase 277 gateway report, and Phase 276 activation certificate.
+- Verify continuous cryptographic SHA-256 Merkle DAG hash chain without gaps across Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Validate prerequisite qualification criteria: `flow_toxicity_status == FLOW_TOXICITY_VERIFIED` with zero balance drift.
+
+### R2. Microstructural Market Impact, Kyle's Lambda & Stepped Exposure Ceilings
+Implement cross-asset market impact tracking, price displacement governance, and stepped exposure scaling interlocks:
+- **Cross-Asset Market Impact & Kyle's Lambda Monitoring**:
+  - Dynamically monitor instantaneous and transient price impact per unit volume $\lambda = \frac{\Delta P}{Q}$ across `BTCUSDT`, `ETHUSDT`, and `SOLUSDT`.
+  - Calculate cross-symbol impact transmission coefficients and order book resilience recovery half-life.
+  - Automatically downscale order slice sizing or widen passive limit offset cushions when market impact indices exceed tolerance boundaries ($\lambda > \lambda_{\text{threshold}}$).
+- **Dynamic Liquidity Absorption & Adverse Price Displacement Governance**:
+  - Dynamically monitor rolling order book replenishment speed and transient displacement decay across canary candidates.
+  - If liquidity absorption degrades or transient displacement becomes permanent, dynamically throttle aggressive order dispatches to avoid self-inflicted slippage or predatory queue front-running.
+  - Apply hysteresis bands between regimes (`NOMINAL`, `ELEVATED_IMPACT`, `SEVERE_CONTROLS`) to prevent order rejection flapping.
+- **Stepped Exposure Scaling Limits**:
+  - Individual Micro Child Order Cap: Strictly <= 5.00 USDT notional per order with `ROUND_DOWN` precision.
+  - Sequential TWAP Slicing Child Cap: Strictly <= 2.50 USDT child slices with 1.00 USDT floor.
+  - Aggregate Concurrent Exposure Cap: Stepped expansion up to <= 50.00 USDT aggregate concurrent active exposure across all symbols.
+- **Dynamic Margin Headroom Interlock**: Real-time evaluation ensuring active portfolio margin allocation never exceeds <= 60.00% (preserving >= 40.00% unencumbered cash reserve buffer) and per-asset allocation never exceeds <= 20.00%.
+- **Active Committed Working Margin**: Dynamically track and reserve committed margin across concurrent working parent and child orders across symbols to prevent over-allocation without double-counting.
+- **Intra-Phase Cumulative Loss Budget**: Cumulative loss ceiling of <= 6.00 USDT; breach triggers immediate portfolio-wide fail-closed lockout and emergency micro-chunked position liquidation (<= 5.00 USDT chunks).
+- **Gateway Heartbeat & Clock Skew Guard**: Order placement permitted ONLY if gateway heartbeat age <= 500 ms; backward NTP clock drift > 250 ms triggers immediate `HEARTBEAT_FREEZE` with 50 ms recovery hysteresis.
+- **Dual-Confirmation Client Order Tagging**: Unique client order IDs tagged with deterministic format (`c=canary-p289-{sym}-{ts}-{uuid}`).
+
+### R3. Deterministic Multi-Track Market Impact Verification Drills & Telemetry Storage
+Execute 4 deterministic simulation tracks in `artifacts/research/phase289/`:
+1. **Track 1: Multi-Candidate Market Impact & Liquidity Absorption Ingress Replay** (Nominal Kyle's lambda tracking, impact decay monitoring across `BTCUSDT`, `ETHUSDT`, `SOLUSDT` -> parallel lifecycle management -> clean ledger updates).
+2. **Track 2: Asymmetric Market Impact Surge & Adaptive Pacing Throttling Drill** (Simulate severe price displacement spike -> dynamic child order downscaling, limit offset widening, and fail-closed dispatch rejection on carry risk boundaries).
+3. **Track 3: Cross-Asset Resilience Breakdown & Circuit Breaker Liquidation Drill** (Simulate systemic book collapse and loss budget breach -> immediate fail-closed lockout and emergency micro-chunked position liquidation <= 5.00 USDT).
+4. **Track 4: Extended Multi-Day Session Continuity, WebSocket Heartbeat Renewal & REST Reconciliation Drill** (Simulate extended daemon execution, listen-key refresh, sequence wrap recovery, backfill missing events via REST, idempotent trade deduplication).
+- Store execution marks, orders, lifecycle transitions, and telemetry in isolated SQLite database (`artifacts/research/phase289/canary-market-impact-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-market-impact-report.json`, `market-impact-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Push & Proceed Protocol
+Enforce mathematical precision and autonomous safety:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks (|drift| = |final_cash + allocated_margin + unrealized_pnl - (starting_equity + realized_pnl)| < 1e-15 USDT).
+- Maintain strict containment: `execution_authority: false`, `orders: 0` on uncontrolled real live mainnet capital, `api_keys_loaded: 0`, `exchange_access: false` (zero real secrets committed/logged).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_289_market_impact.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and proceed with reviewer and auditor iterations under "Push & Proceed" mode.
+
+## Acceptance Criteria
+
+### Upstream Hash Chain & Ingress
+- [ ] Ingests Phase 288 flow toxicity report and validates cryptographic SHA-256 Merkle DAG hash chain.
+- [ ] Confirms Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+
+### Market Impact & Liquidity Absorption Governance
+- [ ] Daemon dynamically tracks market impact ($\lambda$) and resilience decay metrics across symbols.
+- [ ] Concurrent orders across symbols respect individual <= 5.00 USDT and aggregate <= 50.00 USDT caps.
+- [ ] Dynamic margin headroom blocks orders when aggregate margin allocation would exceed 60.00%.
+- [ ] Gateway heartbeat age > 500 ms immediately blocks order dispatch fail-closed.
+- [ ] Cumulative loss exceeding 6.00 USDT triggers immediate lockout and micro-chunked position liquidation.
+
+### Accounting & Containment Invariants
+- [ ] Mathematical double-entry reconciliation drift is exactly zero (|drift| < 1e-15 USDT) across all tracks and snapshots.
+- [ ] Strict containment verified: `execution_authority: false`, `orders: 0`, `api_keys_loaded: 0`.
+- [ ] Zero API keys or secrets logged or committed.
+
+### Quality & Push & Proceed Verification
+- [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA pushed to `origin/main` cleanly with verified local quality gates.
