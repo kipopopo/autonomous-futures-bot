@@ -1706,3 +1706,79 @@ Enforce mathematical precision and autonomous safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA achieves `status=completed, conclusion=success` on GitHub Actions CI.
+
+## 2026-09-20T10:12:00Z
+
+Implement the production canary full autonomous multi-candidate cross-asset synthetic volatility spillover runner, adaptive correlation breakdown governance, stepped exposure scaling up to 30.00 USDT, and continuous balance reconciliation across staged canary symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) under Candidate Registry Manifest Version 2 (Phase 285) to govern cross-asset volatility contagion, correlation divergence throttling, aggregate margin headroom protection, and session longevity verification.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout. Adopt the "Push & Proceed" asynchronous CI protocol: verify strict local unit tests and static quality gates before committing and pushing, then proceed to review and audit without blocking on remote CI runner completion.
+
+## Requirements
+
+### R1. Upstream Verification & Cryptographic DAG Hash Chain Ingress
+Implement and execute the deterministic Phase 285 volatility spillover runner (`scripts/run_phase_285_volatility_spillover.py` & `src/autonomous_futures/feed/volatility_spillover.py`):
+- Ingest upstream Phase 284 liquidity regime report (`artifacts/research/phase284/canary-liquidity-regime-report.json`, `liquidity-regime-summary.json`), Phase 283 adaptive execution report, Phase 282 continuous daemon report, Phase 281 expansion report, Phase 280 deployment report, Phase 279 mainnet authorization report, Phase 278 testnet report, Phase 277 gateway report, and Phase 276 activation certificate.
+- Verify continuous cryptographic SHA-256 Merkle DAG hash chain without gaps across Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Validate prerequisite qualification criteria: `liquidity_regime_status == LIQUIDITY_REGIME_VERIFIED` with zero balance drift.
+
+### R2. Volatility Spillover Detection, Adaptive Correlation Breakdown Governance & Stepped Exposure Ceilings
+Implement multi-asset volatility spillover tracking, correlation divergence throttling, and stepped exposure scaling interlocks:
+- **Cross-Asset Volatility Spillover Tracking**:
+  - Dynamically track cross-asset realized volatility transmission and spillover coefficients between `BTCUSDT`, `ETHUSDT`, and `SOLUSDT`.
+  - Automatically downscale order sizing or widen limit offset cushions when volatility spillover exceeds tolerance boundaries.
+- **Adaptive Correlation Breakdown Throttling**:
+  - Dynamically monitor rolling pairwise correlation across candidates.
+  - If correlation divergence exceeds threshold (e.g., asymmetric decoupling or rapid de-pegging), dynamically throttle per-candidate exposure and reject new aggressive order dispatches to preserve risk parity.
+- **Stepped Exposure Scaling Limits**:
+  - Individual Micro Child Order Cap: Strictly <= 5.00 USDT notional per order with `ROUND_DOWN` precision.
+  - Aggregate Concurrent Exposure Cap: Stepped expansion up to <= 30.00 USDT aggregate concurrent active exposure across all symbols.
+- **Dynamic Margin Headroom Interlock**: Real-time evaluation ensuring active portfolio margin allocation never exceeds <= 60.00% (preserving >= 40.00% unencumbered cash reserve buffer) and per-asset allocation never exceeds <= 20.00%.
+- **Active Committed Working Margin**: Dynamically track and reserve committed margin across concurrent working parent and child orders across symbols to prevent over-allocation.
+- **Intra-Phase Cumulative Loss Budget**: Cumulative loss ceiling of <= 4.00 USDT; breach triggers immediate portfolio-wide fail-closed lockout and emergency micro-chunked position liquidation (<= 5.00 USDT chunks).
+- **Gateway Heartbeat & Clock Skew Guard**: Order placement permitted ONLY if gateway heartbeat age <= 500 ms; backward NTP clock drift > 250 ms triggers immediate `HEARTBEAT_FREEZE` with 50 ms recovery hysteresis.
+- **Dual-Confirmation Client Order Tagging**: Unique client order IDs tagged with deterministic format (`c=canary-p285-{sym}-{ts}-{uuid}`).
+
+### R3. Deterministic Multi-Track Volatility Spillover Verification Drills & Telemetry Storage
+Execute 4 deterministic simulation tracks in `artifacts/research/phase285/`:
+1. **Track 1: Multi-Candidate Volatility Spillover & Micro Order Execution Replay** (Nominal spillover ingress, correlation tracking across `BTCUSDT`, `ETHUSDT`, `SOLUSDT` -> parallel lifecycle management -> clean ledger updates).
+2. **Track 2: Asymmetric Correlation Breakdown & Exposure Throttling Drill** (Simulate pairwise correlation collapse -> dynamic child order downscaling, limit offset widening, and fail-closed dispatch rejection on margin ceiling).
+3. **Track 3: Cross-Asset Volatility Contagion Shock & Circuit Breaker Liquidation Drill** (Simulate systemic volatility contagion and loss budget breach -> immediate fail-closed lockout and emergency micro-chunked position liquidation <= 5.00 USDT).
+4. **Track 4: Extended Multi-Day Session Continuity, WebSocket Heartbeat Renewal & REST Reconciliation Drill** (Simulate extended daemon execution, listen-key refresh, sequence wrap recovery, backfill missing events via REST, idempotent trade deduplication).
+- Store execution marks, orders, lifecycle transitions, and telemetry in isolated SQLite database (`artifacts/research/phase285/canary-volatility-spillover-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-volatility-spillover-report.json`, `volatility-spillover-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Push & Proceed Protocol
+Enforce mathematical precision and autonomous safety:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks (|drift| = |final_cash + allocated_margin + unrealized_pnl - (starting_equity + realized_pnl)| < 1e-15 USDT).
+- Maintain strict containment: `execution_authority: false`, `orders: 0` on uncontrolled real live mainnet capital, `api_keys_loaded: 0`, `exchange_access: false` (zero real secrets committed/logged).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_285_volatility_spillover.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and proceed with reviewer and auditor iterations under "Push & Proceed" mode.
+
+## Acceptance Criteria
+
+### Upstream Hash Chain & Ingress
+- [ ] Ingests Phase 284 liquidity regime report and validates cryptographic SHA-256 Merkle DAG hash chain.
+- [ ] Confirms Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+
+### Volatility Spillover & Exposure Governance
+- [ ] Daemon dynamically tracks volatility spillover and pairwise correlation metrics across symbols.
+- [ ] Concurrent orders across symbols respect individual <= 5.00 USDT and aggregate <= 30.00 USDT caps.
+- [ ] Dynamic margin headroom blocks orders when aggregate margin allocation would exceed 60.00%.
+- [ ] Gateway heartbeat age > 500 ms immediately blocks order dispatch fail-closed.
+- [ ] Cumulative loss exceeding 4.00 USDT triggers immediate lockout and micro-chunked position liquidation.
+
+### Accounting & Containment Invariants
+- [ ] Mathematical double-entry reconciliation drift is exactly zero (|drift| < 1e-15 USDT) across all tracks and snapshots.
+- [ ] Strict containment verified: `execution_authority: false`, `orders: 0`, `api_keys_loaded: 0`.
+- [ ] Zero API keys or secrets logged or committed.
+
+### Quality & Push & Proceed Verification
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA pushed to `origin/main` cleanly with verified local quality gates.
