@@ -1434,3 +1434,206 @@ def test_fresh_runner_execution_unlinks_prior_artifacts(tmp_path: Path):
     # Fresh run should have exactly the single-session count (59 transitions)
     assert cur.fetchone()[0] == 59
     conn.close()
+
+
+def test_sequence_wrap_recovery_with_previously_seen_sequence():
+    """Verify sequencer correctly detects sequence wrap even when seq=1 was
+    already seen in seen_sequences earlier in the session.
+    """
+    sequencer = VolatilityStreamSequencer(sequence_wrap_threshold=1000)
+
+    # 1. Packet seq=1 seen at start of session
+    is_dup, is_ooo, is_wrap = sequencer.process_event(
+        {"u": 1, "o": {"t": "1001", "c": "c1", "s": "BTCUSDT"}}
+    )
+    assert is_dup is False
+    assert is_wrap is False
+    assert 1 in sequencer.seen_sequences
+
+    # 2. Advance sequence up to wrap threshold
+    sequencer.highest_arrival_sequence = 1000
+
+    # 3. Packet wraps back to seq=1 with a new trade
+    is_dup, is_ooo, is_wrap = sequencer.process_event(
+        {"u": 1, "o": {"t": "2001", "c": "c2", "s": "BTCUSDT"}}
+    )
+    assert is_wrap is True
+    assert is_dup is False
+    assert sequencer.sequence_wrap_count == 1
+    assert sequencer.highest_arrival_sequence == 1
+
+    # 4. Successive packet seq=2 in new cycle is admitted
+    is_dup2, is_ooo2, is_wrap2 = sequencer.process_event(
+        {"u": 2, "o": {"t": "2002", "c": "c3", "s": "BTCUSDT"}}
+    )
+    assert is_dup2 is False
+    assert is_ooo2 is False
+
+
+def test_auto_reducing_fill_without_is_closing_flag_and_position_reversal():
+    """Verify that process_fill automatically detects reducing fills when is_closing=False,
+    correctly handles multi-direction reversals (long->short and short->long),
+    and maintains exact double-entry balance drift < 1e-15 USDT.
+    """
+    rec = VolatilityUserDataStreamReconciler(
+        track_id="test_reversal_lifecycle", starting_equity=Decimal("100.0")
+    )
+
+    # 1. Open LONG position: BUY 0.0010 ETH @ 3000 USDT = 3.00 USDT margin
+    rec.process_fill(
+        trade_id="open_long",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        price=Decimal("3000.00"),
+        quantity=Decimal("0.0010"),
+        commission=Decimal("0.0006"),
+        is_closing=False,
+    )
+    assert rec.positions["ETHUSDT"] == Decimal("0.0010")
+    assert rec.allocated_margin == Decimal("3.00000000")
+    assert rec.cash == Decimal("96.99940000")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 2. Partial close WITHOUT is_closing=True: SELL 0.0005 ETH @ 3200 USDT (profitable)
+    m1 = rec.process_fill(
+        trade_id="partial_close_no_flag",
+        symbol="ETHUSDT",
+        side=OrderSide.SELL,
+        price=Decimal("3200.00"),
+        quantity=Decimal("0.0005"),
+        commission=Decimal("0.0003"),
+        is_closing=False,  # auto-detected as reducing
+    )
+    # Profit = (3200 - 3000) * 0.0005 = +0.10 USDT
+    assert Decimal(m1.realized_pnl_usdt) == Decimal("0.10000000")
+    assert rec.positions["ETHUSDT"] == Decimal("0.0005")
+    assert rec.allocated_margin == Decimal("1.50000000")
+    assert rec.cash == Decimal("98.59910000")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 3. Position reversal: SELL 0.0010 ETH @ 3200 USDT (closes 0.0005 long, opens 0.0005 short)
+    m2 = rec.process_fill(
+        trade_id="reversal_to_short",
+        symbol="ETHUSDT",
+        side=OrderSide.SELL,
+        price=Decimal("3200.00"),
+        quantity=Decimal("0.0010"),
+        commission=Decimal("0.0006"),
+        is_closing=True,
+    )
+    # Realized PnL on closed portion = (3200 - 3000) * 0.0005 = +0.10 USDT
+    assert Decimal(m2.realized_pnl_usdt) == Decimal("0.10000000")
+    assert rec.positions["ETHUSDT"] == Decimal("-0.0005")
+    # Margin for new short: 0.0005 * 3200 = 1.60 USDT
+    assert rec.allocated_margin == Decimal("1.60000000")
+    assert rec.per_asset_margin["ETHUSDT"] == Decimal("1.60000000")
+    assert rec.entry_prices["ETHUSDT"] == Decimal("3200.00")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 4. Reversal from short back to long: BUY 0.0010 ETH @ 3000 USDT
+    m3 = rec.process_fill(
+        trade_id="reversal_to_long",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        price=Decimal("3000.00"),
+        quantity=Decimal("0.0010"),
+        commission=Decimal("0.0006"),
+        is_closing=False,  # auto-detected as reducing/reversing
+    )
+    # Short profit = (3200 - 3000) * 0.0005 = +0.10 USDT
+    assert Decimal(m3.realized_pnl_usdt) == Decimal("0.10000000")
+    assert rec.positions["ETHUSDT"] == Decimal("0.0005")
+    # Margin for new long: 0.0005 * 3000 = 1.50 USDT
+    assert rec.allocated_margin == Decimal("1.50000000")
+    assert rec.entry_prices["ETHUSDT"] == Decimal("3000.00")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    # 5. Full close to zero: SELL 0.0005 ETH @ 3000 USDT
+    rec.process_fill(
+        trade_id="close_to_flat",
+        symbol="ETHUSDT",
+        side=OrderSide.SELL,
+        price=Decimal("3000.00"),
+        quantity=Decimal("0.0005"),
+        commission=Decimal("0.0003"),
+        is_closing=True,
+    )
+    assert rec.positions["ETHUSDT"] == Decimal("0")
+    assert rec.allocated_margin == Decimal("0")
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_dynamic_spillover_matrix_with_new_candidate_symbols():
+    """Verify that adding a new candidate symbol to realized_vols expands the
+    spillover transmission matrix dynamically without breaking baseline calculations.
+    """
+    engine = VolatilitySpilloverEngine()
+    assert len(engine.spillover_coefficients) == 6
+
+    # Register new candidate BNBUSDT
+    engine.set_realized_volatility("BNBUSDT", Decimal("0.035"))
+    # 4 assets * 3 targets = 12 directed pairs
+    assert len(engine.spillover_coefficients) == 12
+    assert ("BNBUSDT", "BTCUSDT") in engine.spillover_coefficients
+    assert ("BTCUSDT", "BNBUSDT") in engine.spillover_coefficients
+    assert engine.aggregate_spillover_index >= Decimal("0.01")
+    assert engine.aggregate_spillover_index <= Decimal("1.00")
+
+
+def test_manual_spillover_coefficient_override_updates_aggregate_index():
+    """Verify that calling set_spillover_coefficient updates the aggregate_spillover_index."""
+    engine = VolatilitySpilloverEngine()
+    prev_agg = engine.aggregate_spillover_index
+
+    # Shock coefficient higher
+    engine.set_spillover_coefficient("BTCUSDT", "ETHUSDT", Decimal("0.85"))
+    assert engine.spillover_coefficients[("BTCUSDT", "ETHUSDT")] == Decimal("0.85")
+    assert engine.aggregate_spillover_index > prev_agg
+
+
+def test_emergency_flattening_zero_price_book_fallback_to_reference_price(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify that emergency flattening handles corrupted/zero book prices gracefully
+    by falling back to reference prices.
+    """
+    gw = MockBinanceVolatilityGateway()
+    # Force non-positive price in book
+    gw.set_book("ETHUSDT", bid_price=Decimal("0"), ask_price=Decimal("0"))
+
+    rec = VolatilityUserDataStreamReconciler(
+        track_id="test_zero_book", starting_equity=Decimal("100.0")
+    )
+    # Give an open position
+    rec.process_fill(
+        trade_id="open_eth",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        price=Decimal("3000.00"),
+        quantity=Decimal("0.0010"),
+        commission=Decimal("0.0006"),
+    )
+    mon = GatewayHeartbeatMonitor()
+    hb = gw.generate_heartbeat()
+    mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+    seq = VolatilityStreamSequencer()
+    interlock = VolatilityOrderDispatchInterlock(
+        heartbeat_monitor=mon,
+        reconciler=rec,
+        telemetry_store=temp_telemetry_store,
+        expansion_stage=CapitalExpansionStage.STAGE_6_VOLATILITY_EXPANSION,
+    )
+    dispatcher = VolatilityMicroOrderDispatcher(
+        gateway=gw,
+        reconciler=rec,
+        sequencer=seq,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+        heartbeat_monitor=mon,
+        interlock=interlock,
+    )
+
+    # Should not raise DivisionByZero, should use reference price
+    flattening_orders = dispatcher.execute_emergency_flattening()
+    assert len(flattening_orders) >= 1
+    assert rec.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT

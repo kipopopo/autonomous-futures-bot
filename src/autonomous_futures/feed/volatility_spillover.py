@@ -1653,9 +1653,21 @@ class VolatilitySpilloverEngine:
             ("SOLUSDT", "BTCUSDT"): Decimal("0.10"),
             ("SOLUSDT", "ETHUSDT"): Decimal("0.12"),
         }
+        symbols = list(self.realized_vols.keys())
+        all_pairs: list[tuple[str, str]] = []
+        for s1 in symbols:
+            for s2 in symbols:
+                if s1 != s2:
+                    all_pairs.append((s1, s2))
+
+        for pair in base_coeffs:
+            if pair not in all_pairs:
+                all_pairs.append(pair)
+
         spillover_sum = Decimal("0")
         pair_count = Decimal("0")
-        for (s1, s2), base_c in base_coeffs.items():
+        for s1, s2 in all_pairs:
+            base_c = base_coeffs.get((s1, s2), Decimal("0.15"))
             v1 = self.realized_vols.get(s1, self.baseline_realized_vol.get(s1, Decimal("0.020")))
             v1_base = self.baseline_realized_vol.get(s1, Decimal("0.020"))
             corr = self.get_pairwise_correlation(s1, s2)
@@ -1725,6 +1737,12 @@ class VolatilitySpilloverEngine:
             src = source.strip().upper()
             tgt = target.strip().upper()
             self.spillover_coefficients[(src, tgt)] = _safe_decimal(coeff)
+            if self.spillover_coefficients:
+                agg = (
+                    sum(self.spillover_coefficients.values())
+                    / Decimal(str(len(self.spillover_coefficients)))
+                ).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+                self.aggregate_spillover_index = max(Decimal("0.01"), min(Decimal("1.0"), agg))
 
     def set_aggregate_spillover_index(self, index: Any) -> None:
         """Set aggregate cross-asset volatility spillover index."""
@@ -2059,8 +2077,8 @@ class MockBinanceVolatilityGateway:
         symbol: str,
         bid_price: Decimal,
         ask_price: Decimal,
-        bid_depth: Decimal,
-        ask_depth: Decimal,
+        bid_depth: Decimal = Decimal("10.0"),
+        ask_depth: Decimal = Decimal("10.0"),
     ) -> None:
         with self._lock:
             self.books[symbol] = {
@@ -2387,8 +2405,74 @@ class VolatilityUserDataStreamReconciler:
             self.total_fees += commission
             realized_pnl_trade = Decimal("0")
 
-            if not is_closing:
-                # Opening position: move cash into allocated margin
+            curr_qty = self.positions.get(symbol, Decimal("0"))
+            is_short_prior = curr_qty < Decimal("0")
+            is_reducing = (
+                is_closing
+                or (curr_qty > Decimal("0") and side_str == OrderSide.SELL.value)
+                or (curr_qty < Decimal("0") and side_str == OrderSide.BUY.value)
+            )
+
+            if is_reducing and abs(curr_qty) > Decimal("0"):
+                # Closing or reducing position: return margin and settle realized PnL
+                entry_px = self.entry_prices.get(symbol, price)
+                close_qty = min(abs(curr_qty), quantity)
+                excess_qty = quantity - close_qty
+
+                # Realized PnL:
+                # For LONG position (curr_qty > 0), closing via SELL: (price - entry_px) * close_qty
+                # For SHORT position (curr_qty < 0), closing via BUY: (entry_px - price) * close_qty
+                if is_short_prior:
+                    realized_pnl_trade = (entry_px - price) * close_qty
+                else:
+                    realized_pnl_trade = (price - entry_px) * close_qty
+
+                realized_pnl_trade = realized_pnl_trade.quantize(
+                    Decimal("0.00000001"), rounding=ROUND_DOWN
+                )
+
+                if close_qty == abs(curr_qty):
+                    margin_released = self.per_asset_margin.get(symbol, Decimal("0"))
+                    self.per_asset_margin[symbol] = Decimal("0")
+                    self.entry_prices[symbol] = Decimal("0")
+                    rem_qty = Decimal("0")
+                else:
+                    curr_margin = self.per_asset_margin.get(symbol, Decimal("0"))
+                    ratio = close_qty / max(abs(curr_qty), Decimal("0.00000001"))
+                    margin_released = min(
+                        curr_margin,
+                        (curr_margin * ratio).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN),
+                    )
+                    self.per_asset_margin[symbol] = curr_margin - margin_released
+                    rem_abs_qty = max(Decimal("0"), abs(curr_qty) - close_qty)
+                    rem_qty = -rem_abs_qty if is_short_prior else rem_abs_qty
+
+                self.allocated_margin = max(Decimal("0"), self.allocated_margin - margin_released)
+                self.positions[symbol] = rem_qty
+
+                self.realized_pnl += realized_pnl_trade - commission
+
+                if realized_pnl_trade < Decimal("0"):
+                    self.cumulative_realized_loss += abs(realized_pnl_trade)
+
+                # Return principal margin + realized PnL back into unencumbered cash
+                self.cash += margin_released + realized_pnl_trade
+
+                # Position reversal if closing quantity exceeded previous position
+                if excess_qty > Decimal("0"):
+                    excess_notional = (price * excess_qty).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+                    self.cash -= excess_notional
+                    self.allocated_margin += excess_notional
+                    self.per_asset_margin[symbol] = excess_notional
+                    self.entry_prices[symbol] = price
+                    self.positions[symbol] = -excess_qty if not is_short_prior else excess_qty
+
+                if all(p == Decimal("0") for p in self.positions.values()):
+                    self.allocated_margin = Decimal("0")
+            else:
+                # Opening or adding to position: move cash into allocated margin
                 self.cash -= notional
                 self.allocated_margin += notional
                 self.per_asset_margin[symbol] = (
@@ -2396,7 +2480,6 @@ class VolatilityUserDataStreamReconciler:
                 )
                 self.realized_pnl -= commission
 
-                curr_qty = self.positions.get(symbol, Decimal("0"))
                 curr_entry = self.entry_prices.get(symbol, Decimal("0"))
                 if side_str == OrderSide.SELL.value:
                     new_qty = curr_qty - quantity
@@ -2410,56 +2493,6 @@ class VolatilityUserDataStreamReconciler:
                         (curr_entry * abs_curr) + (price * quantity)
                     ) / abs_new
                 self.positions[symbol] = new_qty
-            else:
-                # Closing position: return margin and settle realized PnL
-                entry_px = self.entry_prices.get(symbol, price)
-                curr_qty = self.positions.get(symbol, Decimal("0"))
-                is_short = curr_qty < Decimal("0")
-                close_qty = min(abs(curr_qty), quantity)
-
-                # Realized PnL:
-                # For LONG position (curr_qty > 0), closing via SELL: (price - entry_px) * close_qty
-                # For SHORT position (curr_qty < 0), closing via BUY: (entry_px - price) * close_qty
-                if is_short:
-                    realized_pnl_trade = (entry_px - price) * close_qty
-                else:
-                    realized_pnl_trade = (price - entry_px) * close_qty
-
-                realized_pnl_trade = realized_pnl_trade.quantize(
-                    Decimal("0.00000001"), rounding=ROUND_DOWN
-                )
-
-                if is_short:
-                    rem_abs_qty = max(Decimal("0"), abs(curr_qty) - close_qty)
-                    rem_qty = -rem_abs_qty if rem_abs_qty > Decimal("0") else Decimal("0")
-                else:
-                    rem_qty = max(Decimal("0"), curr_qty - close_qty)
-
-                if rem_qty == Decimal("0"):
-                    margin_released = self.per_asset_margin.get(symbol, Decimal("0"))
-                    self.per_asset_margin[symbol] = Decimal("0")
-                    self.entry_prices[symbol] = Decimal("0")
-                else:
-                    curr_margin = self.per_asset_margin.get(symbol, Decimal("0"))
-                    ratio = close_qty / max(abs(curr_qty), Decimal("0.00000001"))
-                    margin_released = min(
-                        curr_margin,
-                        (curr_margin * ratio).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN),
-                    )
-                    self.per_asset_margin[symbol] = curr_margin - margin_released
-
-                self.allocated_margin = max(Decimal("0"), self.allocated_margin - margin_released)
-                self.positions[symbol] = rem_qty
-                if all(p == Decimal("0") for p in self.positions.values()):
-                    self.allocated_margin = Decimal("0")
-
-                self.realized_pnl += realized_pnl_trade - commission
-
-                if realized_pnl_trade < Decimal("0"):
-                    self.cumulative_realized_loss += abs(realized_pnl_trade)
-
-                # Return principal margin + realized PnL back into unencumbered cash
-                self.cash += margin_released + realized_pnl_trade
 
             return ExecutionMark(
                 trade_id=trade_id,
@@ -2545,19 +2578,22 @@ class VolatilityStreamSequencer:
                     return True, False, False
                 self.seen_trade_ids.add(trade_id)
 
-            # 2. Sequence number deduplication
+            # 2. Sequence Wrap Rollover Detection (checked before sequence deduplication)
+            if self.highest_arrival_sequence >= self.sequence_wrap_threshold and seq < 1000:
+                self.sequence_wrap_count += 1
+                self.highest_arrival_sequence = seq
+                self.seen_sequences.clear()
+                if seq != 0:
+                    self.seen_sequences.add(seq)
+                return False, False, True
+
+            # 3. Sequence number deduplication
             if seq != 0 and seq in self.seen_sequences:
                 self.deduplicated_count += 1
                 return True, False, False
 
             if seq != 0:
                 self.seen_sequences.add(seq)
-
-            # 3. Sequence Wrap Rollover Detection
-            if self.highest_arrival_sequence >= self.sequence_wrap_threshold and seq < 1000:
-                self.sequence_wrap_count += 1
-                self.highest_arrival_sequence = seq
-                return False, False, True
 
             # 4. Out of order detection
             is_ooo = False
@@ -3297,10 +3333,11 @@ class VolatilityMicroOrderDispatcher:
                 child_orders.append(ch)
                 parent_rec.child_order_ids.append(ch.client_order_id)
                 parent_rec.child_count = 1
-                parent_rec.executed_quantity = str(total_qty)
-                parent_rec.executed_notional_usdt = str(target_notional)
-                parent_rec.status = OrderLifecycleState.FILLED
-                parent_rec.dispatch_complete = True
+                if ch.status == OrderLifecycleState.FILLED:
+                    parent_rec.executed_quantity = str(total_qty)
+                    parent_rec.executed_notional_usdt = str(target_notional)
+                    parent_rec.status = OrderLifecycleState.FILLED
+                    parent_rec.dispatch_complete = True
             else:
                 # Sliced TWAP micro-chunks <= 2.50 USDT
                 parent_rec.slicing_mode = OrderSlicingMode.TWAP_MICRO
@@ -3344,10 +3381,14 @@ class VolatilityMicroOrderDispatcher:
                     idx += 1
 
                 parent_rec.child_count = len(child_orders)
-                parent_rec.executed_quantity = str(total_qty)
-                parent_rec.executed_notional_usdt = str(target_notional)
-                parent_rec.status = OrderLifecycleState.FILLED
-                parent_rec.dispatch_complete = True
+                all_filled = bool(child_orders) and all(
+                    c.status == OrderLifecycleState.FILLED for c in child_orders
+                )
+                if all_filled:
+                    parent_rec.executed_quantity = str(total_qty)
+                    parent_rec.executed_notional_usdt = str(target_notional)
+                    parent_rec.status = OrderLifecycleState.FILLED
+                    parent_rec.dispatch_complete = True
 
             self.telemetry_store.record_parent_order(parent_rec)
             self.jsonl_sink.record_parent_order(parent_rec)
@@ -3571,6 +3612,8 @@ class VolatilityMicroOrderDispatcher:
                     if is_long
                     else book.get("ask_price", Decimal("100.0"))
                 )
+                if px <= Decimal("0"):
+                    px = DEFAULT_REFERENCE_PRICES.get(sym, Decimal("100.0"))
 
                 # Chunk <= 5.00 USDT
                 chunk_qty = (HARD_MICRO_NOTIONAL_CAP_USDT / px).quantize(
