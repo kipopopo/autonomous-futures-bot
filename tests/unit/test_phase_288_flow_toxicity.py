@@ -1344,6 +1344,7 @@ def test_adversarial_emergency_flattening_circuit_state_blocks_opening_orders():
 
     # Closing order is permitted during EMERGENCY_FLATTENING
     interlock.circuit_state = CircuitBreakerState.EMERGENCY_FLATTENING
+    reconciler.positions["ETHUSDT"] = Decimal("0.001")
     interlock.evaluate_order_dispatch(
         symbol="ETHUSDT",
         side=OrderSide.SELL,
@@ -1444,3 +1445,254 @@ def test_adversarial_sqlite_wal_checkpoint_truncate_on_close(tmp_path: Path):
     # After close with TRUNCATE checkpoint, the db file exists and is cleanly readable
     assert db_file.exists()
     assert db_file.stat().st_size > 0
+
+
+def test_adversarial_closing_order_wrong_direction_rejected():
+    """Adversarial Test 13: Closing orders with invalid direction are rejected."""
+    reconciler = FlowUserDataStreamReconciler()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    t0 = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(t0, 10.0, t0)
+    engine = FlowToxicityEngine()
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+    )
+
+    # 1. Flat position cannot be closed
+    cid_flat = generate_canary_client_order_id("BTCUSDT")
+    with pytest.raises(CanaryFlowToxicityError, match="Cannot close position when flat"):
+        interlock.evaluate_order_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("60000.00"),
+            client_order_id=cid_flat,
+            is_closing=True,
+            current_time_ms=t0 + 10,
+        )
+
+    # 2. LONG position cannot be closed with BUY order
+    reconciler.positions["BTCUSDT"] = Decimal("0.0001")
+    cid_long_buy = generate_canary_client_order_id("BTCUSDT")
+    with pytest.raises(CanaryFlowToxicityError, match="Cannot close LONG position with BUY order"):
+        interlock.evaluate_order_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("60000.00"),
+            client_order_id=cid_long_buy,
+            is_closing=True,
+            current_time_ms=t0 + 10,
+        )
+
+    # 3. SHORT position cannot be closed with SELL order
+    reconciler.positions["ETHUSDT"] = Decimal("-0.001")
+    cid_short_sell = generate_canary_client_order_id("ETHUSDT")
+    with pytest.raises(
+        CanaryFlowToxicityError, match="Cannot close SHORT position with SELL order"
+    ):
+        interlock.evaluate_order_dispatch(
+            symbol="ETHUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.001"),
+            price=Decimal("3000.00"),
+            client_order_id=cid_short_sell,
+            is_closing=True,
+            current_time_ms=t0 + 10,
+        )
+
+
+def test_adversarial_closing_order_oversized_quantity_rejected():
+    """Adversarial Test 14: Oversized closing orders are rejected fail-closed."""
+    reconciler = FlowUserDataStreamReconciler()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    t0 = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(t0, 10.0, t0)
+    engine = FlowToxicityEngine()
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+    )
+
+    reconciler.positions["BTCUSDT"] = Decimal("0.00010")
+    cid = generate_canary_client_order_id("BTCUSDT")
+
+    # Quantity 0.00015 > 0.00010 position, price 20000 -> notional 3.00 < 5.00 cap
+    with pytest.raises(
+        CanaryFlowToxicityError, match="Closing order quantity .* exceeds open position"
+    ):
+        interlock.evaluate_order_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00015"),
+            price=Decimal("20000.00"),
+            client_order_id=cid,
+            is_closing=True,
+            current_time_ms=t0 + 10,
+        )
+
+
+def test_adversarial_reconciler_process_fill_same_direction_not_reducing():
+    """Adversarial Test 15: Same-direction fills with is_closing=True do not distort accounting."""
+    reconciler = FlowUserDataStreamReconciler(starting_equity=Decimal("100.00"))
+    # Initial BUY fill to open LONG position
+    reconciler.process_fill(
+        trade_id="t-1",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        price=Decimal("60000.00"),
+        quantity=Decimal("0.0001"),
+        commission=Decimal("0.0"),
+    )
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.0001")
+    assert reconciler.cash == Decimal("94.00")
+    assert reconciler.realized_pnl == Decimal("0.0")
+
+    # Malicious or misflagged second BUY with is_closing=True must NOT reduce or realize profit
+    reconciler.process_fill(
+        trade_id="t-2",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        price=Decimal("62000.00"),
+        quantity=Decimal("0.0001"),
+        commission=Decimal("0.0"),
+        is_closing=True,
+    )
+    # Position must increase to 0.0002, cash decreases by 6.20, no realized profit booked
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.0002")
+    assert reconciler.cash == Decimal("87.80")
+    assert reconciler.realized_pnl == Decimal("0.0")
+    assert reconciler.cumulative_realized_loss == Decimal("0.0")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+
+def test_adversarial_heartbeat_freeze_does_not_downgrade_emergency_circuit_state():
+    """Adversarial Test 16: Heartbeat freeze does not overwrite EMERGENCY_FLATTENING or LOCKOUT."""
+    reconciler = FlowUserDataStreamReconciler()
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    t0 = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(t0, 10.0, t0)
+    engine = FlowToxicityEngine()
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+    )
+
+    interlock.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+
+    # Trigger heartbeat freeze via latency spike
+    heartbeat_mon.record_heartbeat(t0 + 1000, 600.0, t0 + 1000)
+    assert heartbeat_mon.is_frozen
+
+    # Heartbeat freeze check must raise HeartbeatFreezeActiveError without overwriting LOCKOUT
+    with pytest.raises(HeartbeatFreezeActiveError):
+        interlock.evaluate_order_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.0001"),
+            price=Decimal("60000.00"),
+            client_order_id=generate_canary_client_order_id("BTCUSDT"),
+            current_time_ms=t0 + 1010,
+        )
+    assert interlock.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+
+    # Heartbeat recovers
+    heartbeat_mon.record_heartbeat(t0 + 2000, 20.0, t0 + 2000)
+    assert not heartbeat_mon.is_frozen
+
+    # Interlock MUST still be in INTRA_PHASE_LOSS_LOCKOUT, not reverted to NORMAL
+    assert interlock.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+
+
+def test_adversarial_order_cancellation_and_margin_release(temp_telemetry_store, temp_jsonl_sink):
+    """Adversarial Test 17: cancel_order releases committed working margin and updates lifecycle."""
+    from autonomous_futures.feed.flow_toxicity import OrderCorrelationError
+
+    gateway = MockBinanceFlowToxicityGateway()
+    reconciler = FlowUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    t0 = int(time.time() * 1000)
+    heartbeat_mon.record_heartbeat(t0, 10.0, t0)
+    engine = FlowToxicityEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = FlowToxicityOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = FlowMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    cid = generate_canary_client_order_id("BTCUSDT")
+
+    # Dispatch micro order with auto_fill=False (resting order)
+    ord_rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00005"),
+        price=Decimal("60000.00"),
+        client_order_id=cid,
+        auto_fill=False,
+    )
+    assert ord_rec.status == OrderLifecycleState.NEW
+    assert interlock.committed_margin["BTCUSDT"] == Decimal("3.00")
+    assert cid in gateway.orders
+    assert gateway.orders[cid]["status"] == "NEW"
+
+    # Cancel order
+    cancelled_rec = dispatcher.cancel_order(client_order_id=cid)
+    assert cancelled_rec.status == OrderLifecycleState.CANCELLED
+    assert dispatcher.orders_cancelled_count == 1
+    assert interlock.committed_margin["BTCUSDT"] == Decimal("0.00")
+    assert gateway.orders[cid]["status"] == "CANCELED"
+
+    # Duplicate cancellation raises OrderCorrelationError
+    with pytest.raises(OrderCorrelationError, match="Cannot cancel order .* in terminal state"):
+        dispatcher.cancel_order(client_order_id=cid)
+
+
+def test_adversarial_hyphenated_uuid_client_order_id_valid():
+    """Adversarial Test 18: Client order ID validator accepts standard hyphenated UUIDs."""
+    cid_hyphenated = "c=canary-p288-BTCUSDT-1726880000-12345678-1234-5678-1234-567812345678"
+    assert validate_canary_client_order_id(cid_hyphenated, "BTCUSDT")
+
+    cid_hex = "c=canary-p288-ETHUSDT-1726880000-12345678abcdef012345"
+    assert validate_canary_client_order_id(cid_hex, "ETHUSDT")
+
+    cid_invalid = "c=canary-p287-BTCUSDT-1726880000-12345678"
+    assert not validate_canary_client_order_id(cid_invalid, "BTCUSDT")
+
+
+def test_adversarial_mixed_type_dispatch_and_reconciliation():
+    """Adversarial Test 19: Float and string types are safely coerced without TypeError."""
+    reconciler = FlowUserDataStreamReconciler()
+    reconciler.record_fill(
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        price="60000.00",  # string
+        quantity=0.00005,  # float
+        fee_rate="0.0004",  # string
+    )
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00005")
+    assert reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT
+
+    engine = FlowToxicityEngine()
+    engine.process_trade("BTCUSDT", 60000.0, 0.00005, OrderSide.BUY)
+    assert len(engine._rolling_trade_signs["BTCUSDT"]) == 1

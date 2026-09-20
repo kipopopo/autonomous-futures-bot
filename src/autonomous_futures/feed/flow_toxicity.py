@@ -17,6 +17,7 @@ import sqlite3
 import threading
 import time
 from collections import deque
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from enum import StrEnum
@@ -450,7 +451,7 @@ class OrderSlicingMode(StrEnum):
 # =====================================================================
 
 CLIENT_ORDER_ID_TAG_REGEX = re.compile(
-    r"^c=canary-p288-(BTCUSDT|ETHUSDT|SOLUSDT)-(\d{10,16})-([a-f0-9]{8,36})$"
+    r"^c=canary-p288-(BTCUSDT|ETHUSDT|SOLUSDT)-(\d{10,16})-([a-f0-9\-]{8,36})$"
 )
 
 
@@ -1616,16 +1617,21 @@ class FlowToxicityEngine:
     def process_trade(
         self,
         symbol: str,
-        price: Decimal,
-        quantity: Decimal,
+        price: Decimal | float | str | int,
+        quantity: Decimal | float | str | int,
         side: OrderSide | str,
         timestamp_utc: str | None = None,
         track_id: str = "flow_toxicity",
     ) -> None:
         """Process incoming trade event into volume-synchronized buckets."""
         sym = symbol.strip().upper()
+        side_str = side.value if isinstance(side, OrderSide) else str(side).upper()
+        if side_str not in ("BUY", "SELL"):
+            return
         with self._lock:
-            if price <= Decimal("0") or quantity <= Decimal("0"):
+            px = _safe_decimal(price)
+            qty = _safe_decimal(quantity)
+            if px <= Decimal("0") or qty <= Decimal("0"):
                 return
             if sym not in self._active_buckets:
                 self._active_buckets[sym] = {"buy": Decimal("0.0"), "sell": Decimal("0.0")}
@@ -1635,14 +1641,12 @@ class FlowToxicityEngine:
                 self._vpin_values[sym] = Decimal("0.0")
                 self._regimes[sym] = FlowToxicityRegime.NOMINAL
                 self._adverse_states[sym] = AdverseSelectionRiskState.NORMAL
-                self._reference_prices[sym] = price
+                self._reference_prices[sym] = px
 
-            self._reference_prices[sym] = price
-            is_buy = (
-                side == OrderSide.BUY if isinstance(side, OrderSide) else str(side).upper() == "BUY"
-            )
+            self._reference_prices[sym] = px
+            is_buy = side_str == "BUY"
             side_sign = 1 if is_buy else -1
-            trade_notional = price * quantity
+            trade_notional = px * qty
 
             # Update rolling trade signs
             self._rolling_trade_signs[sym].append((side_sign, trade_notional))
@@ -2044,6 +2048,18 @@ class MockBinanceFlowToxicityGateway:
             self.trades.append(trade)
             return trade
 
+    def cancel_order(self, symbol: str, client_order_id: str) -> dict[str, Any]:
+        with self._lock:
+            if client_order_id not in self.orders:
+                raise OrderCorrelationError(f"Order {client_order_id} not found on gateway")
+            ord_rec = self.orders[client_order_id]
+            if ord_rec["status"] != "NEW":
+                raise OrderCorrelationError(
+                    f"Cannot cancel order {client_order_id} with status {ord_rec['status']}"
+                )
+            ord_rec["status"] = "CANCELED"
+            return ord_rec
+
 
 MockBinanceDepthImbalanceGateway = MockBinanceFlowToxicityGateway
 
@@ -2208,15 +2224,18 @@ class FlowUserDataStreamReconciler:
         trade_id: str,
         symbol: str,
         side: OrderSide | str,
-        price: Decimal,
-        quantity: Decimal,
-        commission: Decimal,
+        price: Decimal | float | str | int,
+        quantity: Decimal | float | str | int,
+        commission: Decimal | float | str | int,
         is_closing: bool = False,
         track_id: str | None = None,
     ) -> ExecutionMark:
         with self._lock:
             sym_key = str(symbol).strip().upper()
             t_id = track_id or self.track_id
+            px = _safe_decimal(price)
+            qty = _safe_decimal(quantity)
+            comm = _safe_decimal(commission)
             if trade_id in self.processed_trades:
                 return ExecutionMark(
                     trade_id=trade_id,
@@ -2225,8 +2244,8 @@ class FlowUserDataStreamReconciler:
                     client_order_id="",
                     symbol=sym_key,
                     side=side if isinstance(side, OrderSide) else OrderSide(str(side).upper()),
-                    price=str(price),
-                    quantity=str(quantity),
+                    price=str(px),
+                    quantity=str(qty),
                     quote_quantity="0",
                     commission_usdt="0",
                     realized_pnl_usdt="0",
@@ -2235,29 +2254,27 @@ class FlowUserDataStreamReconciler:
 
             self.processed_trades.add(trade_id)
             side_str = side.value if isinstance(side, OrderSide) else str(side).upper()
-            notional = (price * quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+            notional = (px * qty).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
-            self.cash -= commission
-            self.total_fees += commission
+            self.cash -= comm
+            self.total_fees += comm
             realized_pnl_trade = Decimal("0.0")
 
             curr_qty = self.positions.get(sym_key, Decimal("0.0"))
             is_short_prior = curr_qty < Decimal("0.0")
-            is_reducing = (
-                is_closing
-                or (curr_qty > Decimal("0.0") and side_str == OrderSide.SELL.value)
-                or (curr_qty < Decimal("0.0") and side_str == OrderSide.BUY.value)
+            is_reducing = (curr_qty > Decimal("0.0") and side_str == OrderSide.SELL.value) or (
+                curr_qty < Decimal("0.0") and side_str == OrderSide.BUY.value
             )
 
             if is_reducing and abs(curr_qty) > Decimal("0.0"):
-                entry_px = self.entry_prices.get(sym_key, price)
-                close_qty = min(abs(curr_qty), quantity)
-                excess_qty = quantity - close_qty
+                entry_px = self.entry_prices.get(sym_key, px)
+                close_qty = min(abs(curr_qty), qty)
+                excess_qty = qty - close_qty
 
                 if is_short_prior:
-                    realized_pnl_trade = (entry_px - price) * close_qty
+                    realized_pnl_trade = (entry_px - px) * close_qty
                 else:
-                    realized_pnl_trade = (price - entry_px) * close_qty
+                    realized_pnl_trade = (px - entry_px) * close_qty
 
                 realized_pnl_trade = realized_pnl_trade.quantize(
                     Decimal("0.00000001"), rounding=ROUND_DOWN
@@ -2281,7 +2298,7 @@ class FlowUserDataStreamReconciler:
 
                 self.allocated_margin = max(Decimal("0.0"), self.allocated_margin - margin_released)
                 self.positions[sym_key] = rem_qty
-                self.realized_pnl += realized_pnl_trade - commission
+                self.realized_pnl += realized_pnl_trade - comm
 
                 if realized_pnl_trade < Decimal("0.0"):
                     self.cumulative_realized_loss += abs(realized_pnl_trade)
@@ -2289,13 +2306,13 @@ class FlowUserDataStreamReconciler:
                 self.cash += margin_released + realized_pnl_trade
 
                 if excess_qty > Decimal("0.0"):
-                    excess_notional = (price * excess_qty).quantize(
+                    excess_notional = (px * excess_qty).quantize(
                         Decimal("0.00000001"), rounding=ROUND_DOWN
                     )
                     self.cash -= excess_notional
                     self.allocated_margin += excess_notional
                     self.per_asset_margin[sym_key] = excess_notional
-                    self.entry_prices[sym_key] = price
+                    self.entry_prices[sym_key] = px
                     self.positions[sym_key] = -excess_qty if not is_short_prior else excess_qty
 
                 if all(p == Decimal("0.0") for p in self.positions.values()):
@@ -2306,20 +2323,18 @@ class FlowUserDataStreamReconciler:
                 self.per_asset_margin[sym_key] = (
                     self.per_asset_margin.get(sym_key, Decimal("0.0")) + notional
                 )
-                self.realized_pnl -= commission
+                self.realized_pnl -= comm
 
                 curr_entry = self.entry_prices.get(sym_key, Decimal("0.0"))
                 if side_str == OrderSide.SELL.value:
-                    new_qty = curr_qty - quantity
+                    new_qty = curr_qty - qty
                 else:
-                    new_qty = curr_qty + quantity
+                    new_qty = curr_qty + qty
 
                 abs_curr = abs(curr_qty)
                 abs_new = abs(new_qty)
                 if abs_new > Decimal("0.0"):
-                    self.entry_prices[sym_key] = (
-                        (curr_entry * abs_curr) + (price * quantity)
-                    ) / abs_new
+                    self.entry_prices[sym_key] = ((curr_entry * abs_curr) + (px * qty)) / abs_new
                 self.positions[sym_key] = new_qty
 
             side_enum = side if isinstance(side, OrderSide) else OrderSide(str(side).upper())
@@ -2330,10 +2345,10 @@ class FlowUserDataStreamReconciler:
                 client_order_id="",
                 symbol=sym_key,
                 side=side_enum,
-                price=str(price),
-                quantity=str(quantity),
+                price=str(px),
+                quantity=str(qty),
                 quote_quantity=str(notional),
-                commission_usdt=str(commission),
+                commission_usdt=str(comm),
                 realized_pnl_usdt=str(realized_pnl_trade),
                 trade_time_ms=int(time.time() * 1000),
             )
@@ -2349,7 +2364,7 @@ class FlowUserDataStreamReconciler:
                 starting_equity_usdt=str(self.starting_equity),
                 drift_usdt=str(drift),
                 zero_balance_drift=zero_drift,
-                trigger_event=f"fill_{sym_key}_{side_str}_{quantity}",
+                trigger_event=f"fill_{sym_key}_{side_str}_{qty}",
             )
             if self.telemetry_store:
                 self.telemetry_store.record_execution_mark(mark)
@@ -2361,24 +2376,26 @@ class FlowUserDataStreamReconciler:
         self,
         symbol: str,
         side: OrderSide | str,
-        price: Decimal,
-        quantity: Decimal,
+        price: Decimal | float | str | int,
+        quantity: Decimal | float | str | int,
         is_closing: bool = False,
-        fee_rate: Decimal | None = None,
+        fee_rate: Decimal | float | str | int | None = None,
         track_id: str = "flow_toxicity",
     ) -> ExecutionMark:
         with self._lock:
             self.fill_count += 1
-            rate = fee_rate if fee_rate is not None else self.taker_fee_rate
-            notional = (price * quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+            rate = _safe_decimal(fee_rate) if fee_rate is not None else self.taker_fee_rate
+            px = _safe_decimal(price)
+            qty = _safe_decimal(quantity)
+            notional = (px * qty).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
             commission = (notional * rate).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
             trade_id = f"mark-{uuid4().hex[:10]}"
             return self.process_fill(
                 trade_id=trade_id,
                 symbol=symbol,
                 side=side,
-                price=price,
-                quantity=quantity,
+                price=px,
+                quantity=qty,
                 commission=commission,
                 is_closing=is_closing,
                 track_id=track_id,
@@ -2490,8 +2507,8 @@ class FlowToxicityOrderDispatchInterlock:
         symbol: str,
         side: OrderSide,
         order_type: OrderType,
-        quantity: Decimal,
-        price: Decimal,
+        quantity: Decimal | float | str | int,
+        price: Decimal | float | str | int,
         client_order_id: str,
         is_closing: bool = False,
         track_id: str = "flow_toxicity",
@@ -2500,7 +2517,9 @@ class FlowToxicityOrderDispatchInterlock:
         """Evaluate pre-dispatch risk gates fail-closed."""
         with self._lock:
             sym = symbol.strip().upper()
-            if price <= Decimal("0") or quantity <= Decimal("0"):
+            px = _safe_decimal(price)
+            qty = _safe_decimal(quantity)
+            if px <= Decimal("0") or qty <= Decimal("0"):
                 self.interlock_blocks_count += 1
                 self._record_interlock(
                     track_id,
@@ -2514,7 +2533,7 @@ class FlowToxicityOrderDispatchInterlock:
                     f"Order price {price} and quantity {quantity} must be strictly positive"
                 )
 
-            notional = (price * quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+            notional = (px * qty).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
             # 1. Client Order ID deterministic format validation
             if not validate_canary_client_order_id(client_order_id, sym):
@@ -2531,7 +2550,12 @@ class FlowToxicityOrderDispatchInterlock:
             if not hb_ok:
                 self.interlock_blocks_count += 1
                 if "frozen" in hb_reason.lower() or self.heartbeat_monitor.is_frozen:
-                    self.circuit_state = CircuitBreakerState.HEARTBEAT_FREEZE
+                    if self.circuit_state not in (
+                        CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT,
+                        CircuitBreakerState.EMERGENCY_FLATTENING,
+                        CircuitBreakerState.RECOVERY_PENDING,
+                    ):
+                        self.circuit_state = CircuitBreakerState.HEARTBEAT_FREEZE
                 self._record_interlock(
                     track_id, InterlockType.HEARTBEAT_FRESHNESS, False, sym, notional, hb_reason
                 )
@@ -2549,7 +2573,60 @@ class FlowToxicityOrderDispatchInterlock:
 
             # Closing orders bypass circuit breaker lockouts and margin headroom checks
             if is_closing:
-                if notional > HARD_MICRO_NOTIONAL_CAP_USDT and quantity > Decimal("0.00000001"):
+                curr_pos = self.reconciler.positions.get(sym, Decimal("0.0"))
+                if abs(curr_pos) < Decimal("0.00000001"):
+                    self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        track_id,
+                        InterlockType.MICRO_CAP,
+                        False,
+                        sym,
+                        notional,
+                        f"Cannot close position when flat for {sym}",
+                    )
+                    raise CanaryFlowToxicityError(f"Cannot close position when flat for {sym}")
+                if curr_pos > Decimal("0.0") and side != OrderSide.SELL:
+                    self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        track_id,
+                        InterlockType.MICRO_CAP,
+                        False,
+                        sym,
+                        notional,
+                        f"Closing order for long position in {sym} must be SELL",
+                    )
+                    raise CanaryFlowToxicityError(
+                        f"Cannot close LONG position with BUY order for {sym}"
+                    )
+                if curr_pos < Decimal("0.0") and side != OrderSide.BUY:
+                    self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        track_id,
+                        InterlockType.MICRO_CAP,
+                        False,
+                        sym,
+                        notional,
+                        f"Closing order for short position in {sym} must be BUY",
+                    )
+                    raise CanaryFlowToxicityError(
+                        f"Cannot close SHORT position with SELL order for {sym}"
+                    )
+                if (qty - abs(curr_pos)) > Decimal("0.00000001"):
+                    self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        track_id,
+                        InterlockType.MICRO_CAP,
+                        False,
+                        sym,
+                        notional,
+                        "Closing order quantity exceeds position size",
+                    )
+                    raise CanaryFlowToxicityError(
+                        f"Closing order quantity {qty} exceeds open position "
+                        f"{abs(curr_pos)} for {sym}"
+                    )
+
+                if notional > HARD_MICRO_NOTIONAL_CAP_USDT and qty > Decimal("0.00000001"):
                     self.interlock_blocks_count += 1
                     self._record_interlock(
                         track_id, InterlockType.MICRO_CAP, False, sym, notional, "Closing micro cap"
@@ -2651,7 +2728,7 @@ class FlowToxicityOrderDispatchInterlock:
             regime = self.engine.get_regime(sym)
             if regime in (FlowToxicityRegime.ELEVATED_TOXICITY, FlowToxicityRegime.SEVERE_CONTROLS):
                 cand_committed = self.committed_margin.get(sym, Decimal("0.0"))
-                cand_pos_notional = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * price
+                cand_pos_notional = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * px
                 if (
                     cand_committed + cand_pos_notional + notional
                 ) > THROTTLED_PER_CANDIDATE_CAP_USDT:
@@ -2690,7 +2767,7 @@ class FlowToxicityOrderDispatchInterlock:
                 )
 
             cand_margin = (
-                abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * price
+                abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * px
                 + self.committed_margin.get(sym, Decimal("0.0"))
                 + notional
             )
@@ -2796,18 +2873,21 @@ class FlowMicroOrderDispatcher:
         symbol: str,
         side: OrderSide,
         order_type: OrderType,
-        quantity: Decimal,
-        price: Decimal,
+        quantity: Decimal | float | str | int,
+        price: Decimal | float | str | int,
         client_order_id: str | None = None,
         is_closing: bool = False,
         track_id: str = "flow_toxicity",
         current_time_ms: int | None = None,
+        auto_fill: bool = True,
     ) -> FlowToxicityOrderRecord:
         """Dispatch single micro order through safety interlocks."""
         with self._lock:
             sym = symbol.strip().upper()
             cid = client_order_id or generate_canary_client_order_id(sym)
-            notional = (price * quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+            px = _safe_decimal(price)
+            qty = _safe_decimal(quantity)
+            notional = (px * qty).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
             # Validate pre-dispatch risk gates
             try:
@@ -2815,8 +2895,8 @@ class FlowMicroOrderDispatcher:
                     symbol=sym,
                     side=side,
                     order_type=order_type,
-                    quantity=quantity,
-                    price=price,
+                    quantity=qty,
+                    price=px,
                     client_order_id=cid,
                     is_closing=is_closing,
                     track_id=track_id,
@@ -2832,8 +2912,8 @@ class FlowMicroOrderDispatcher:
                     symbol=sym,
                     side=side,
                     order_type=order_type,
-                    price=str(price),
-                    quantity=str(quantity),
+                    price=str(px),
+                    quantity=str(qty),
                     notional_usdt=str(notional),
                     status=OrderLifecycleState.REJECTED,
                     expansion_stage=self.interlock.expansion_stage,
@@ -2859,8 +2939,8 @@ class FlowMicroOrderDispatcher:
                     symbol=sym,
                     side=side,
                     order_type=order_type,
-                    quantity=quantity,
-                    price=price,
+                    quantity=qty,
+                    price=px,
                     client_order_id=cid,
                 )
             except Exception:
@@ -2876,8 +2956,8 @@ class FlowMicroOrderDispatcher:
                 symbol=sym,
                 side=side,
                 order_type=order_type,
-                price=str(price),
-                quantity=str(quantity),
+                price=str(px),
+                quantity=str(qty),
                 notional_usdt=str(notional),
                 status=OrderLifecycleState.NEW,
                 expansion_stage=self.interlock.expansion_stage,
@@ -2904,38 +2984,132 @@ class FlowMicroOrderDispatcher:
             )
             self.telemetry_store.record_lifecycle_transition(trans)
 
-            # Auto-simulate fill in mock mode
-            fill_trade = self.gateway.simulate_fill(cid, fill_price=price, fill_qty=quantity)
-            if fill_trade:
-                self.stream_events_count += 1
-                if not is_closing:
-                    self.interlock.release_committed_margin(sym, notional)
+            # Auto-simulate fill in mock mode if requested
+            if auto_fill:
+                fill_trade = self.gateway.simulate_fill(cid, fill_price=px, fill_qty=qty)
+                if fill_trade:
+                    self.stream_events_count += 1
+                    if not is_closing:
+                        self.interlock.release_committed_margin(sym, notional)
 
-                ord_rec.status = OrderLifecycleState.FILLED
-                ord_rec.executed_quantity = str(quantity)
-                self.orders_filled_count += 1
-                self.telemetry_store.record_order(ord_rec)
-                self.jsonl_sink.record_order(ord_rec)
+                    ord_rec.status = OrderLifecycleState.FILLED
+                    ord_rec.executed_quantity = str(qty)
+                    self.orders_filled_count += 1
+                    self.telemetry_store.record_order(ord_rec)
+                    self.jsonl_sink.record_order(ord_rec)
 
-                self.reconciler.record_fill(
-                    symbol=sym,
-                    side=side,
-                    price=price,
-                    quantity=quantity,
-                    is_closing=is_closing,
-                    track_id=track_id,
+                    self.reconciler.record_fill(
+                        symbol=sym,
+                        side=side,
+                        price=px,
+                        quantity=qty,
+                        is_closing=is_closing,
+                        track_id=track_id,
+                    )
+
+                    fill_trans = OrderLifecycleTransition(
+                        track_id=track_id,
+                        order_id=ord_rec.order_id,
+                        client_order_id=cid,
+                        from_state=OrderLifecycleState.NEW,
+                        to_state=OrderLifecycleState.FILLED,
+                        trigger_reason="Trade executed and reconciled",
+                    )
+                    self.telemetry_store.record_lifecycle_transition(fill_trans)
+
+            return ord_rec
+
+    def cancel_order(
+        self,
+        client_order_id: str,
+        track_id: str = "flow_toxicity",
+    ) -> FlowToxicityOrderRecord:
+        """Cancel an active order on exchange and transition to CANCELLED."""
+        with self._lock:
+            if client_order_id not in self.orders:
+                raise OrderCorrelationError(f"Order {client_order_id} not found to cancel")
+            ord_rec = self.orders[client_order_id]
+            if ord_rec.status != OrderLifecycleState.NEW:
+                raise OrderCorrelationError(
+                    f"Cannot cancel order {client_order_id} in terminal state "
+                    f"{ord_rec.status.value}"
                 )
 
-                fill_trans = OrderLifecycleTransition(
-                    track_id=track_id,
-                    order_id=ord_rec.order_id,
-                    client_order_id=cid,
-                    from_state=OrderLifecycleState.NEW,
-                    to_state=OrderLifecycleState.FILLED,
-                    trigger_reason="Trade executed and reconciled",
-                )
-                self.telemetry_store.record_lifecycle_transition(fill_trans)
+            self.gateway.cancel_order(symbol=ord_rec.symbol, client_order_id=client_order_id)
 
+            if not ord_rec.is_closing:
+                self.interlock.release_committed_margin(
+                    ord_rec.symbol, Decimal(ord_rec.notional_usdt)
+                )
+
+            ord_rec.status = OrderLifecycleState.CANCELLED
+            self.orders_cancelled_count += 1
+            self.telemetry_store.record_order(ord_rec)
+            self.jsonl_sink.record_order(ord_rec)
+
+            trans = OrderLifecycleTransition(
+                track_id=track_id,
+                order_id=ord_rec.order_id,
+                client_order_id=client_order_id,
+                from_state=OrderLifecycleState.NEW,
+                to_state=OrderLifecycleState.CANCELLED,
+                trigger_reason="Order cancelled by operator or client",
+            )
+            self.telemetry_store.record_lifecycle_transition(trans)
+            return ord_rec
+
+    def simulate_order_fill(
+        self,
+        client_order_id: str,
+        fill_price: Decimal | None = None,
+        fill_qty: Decimal | None = None,
+    ) -> FlowToxicityOrderRecord:
+        """Simulate fill for resting or un-filled order."""
+        with self._lock:
+            if client_order_id not in self.orders:
+                raise OrderCorrelationError(f"Order {client_order_id} not found to fill")
+            ord_rec = self.orders[client_order_id]
+            if ord_rec.status != OrderLifecycleState.NEW:
+                raise OrderCorrelationError(
+                    f"Cannot fill order {client_order_id} in state {ord_rec.status.value}"
+                )
+
+            qty = fill_qty if fill_qty is not None else Decimal(ord_rec.quantity)
+            px = fill_price if fill_price is not None else Decimal(ord_rec.price)
+            fill_trade = self.gateway.simulate_fill(client_order_id, fill_price=px, fill_qty=qty)
+            if not fill_trade:
+                raise OrderCorrelationError(f"Gateway fill simulation failed for {client_order_id}")
+
+            self.stream_events_count += 1
+            if not ord_rec.is_closing:
+                self.interlock.release_committed_margin(
+                    ord_rec.symbol, Decimal(ord_rec.notional_usdt)
+                )
+
+            ord_rec.status = OrderLifecycleState.FILLED
+            ord_rec.executed_quantity = str(qty)
+            self.orders_filled_count += 1
+            self.telemetry_store.record_order(ord_rec)
+            self.jsonl_sink.record_order(ord_rec)
+
+            self.reconciler.record_fill(
+                symbol=ord_rec.symbol,
+                side=ord_rec.side,
+                price=px,
+                quantity=qty,
+                is_closing=ord_rec.is_closing,
+                track_id=ord_rec.track_id,
+            )
+
+            fill_trans = OrderLifecycleTransition(
+                track_id=ord_rec.track_id,
+                order_id=ord_rec.order_id,
+                client_order_id=client_order_id,
+                from_state=OrderLifecycleState.NEW,
+                to_state=OrderLifecycleState.FILLED,
+                trigger_reason="Trade executed and reconciled",
+            )
+            self.telemetry_store.record_lifecycle_transition(fill_trans)
             return ord_rec
 
     def dispatch_twap_sliced_parent(
@@ -2944,52 +3118,54 @@ class FlowMicroOrderDispatcher:
         symbol: str,
         side: OrderSide,
         order_type: OrderType,
-        target_notional: Decimal,
-        limit_price: Decimal,
-        slice_chunk_notional: Decimal = DYNAMIC_SLICING_MAX_CHUNK_USDT,
+        target_notional: Decimal | float | str | int,
+        limit_price: Decimal | float | str | int,
+        slice_chunk_notional: Decimal | float | str | int = DYNAMIC_SLICING_MAX_CHUNK_USDT,
         track_id: str = "flow_toxicity",
     ) -> ParentOrderRecord:
         """Slice parent order into <= 2.50 USDT child slices with 1.00 USDT floor."""
         with self._lock:
             sym = symbol.strip().upper()
-            if limit_price <= Decimal("0"):
+            l_px = _safe_decimal(limit_price)
+            t_notional = _safe_decimal(target_notional).quantize(
+                Decimal("0.00000001"), rounding=ROUND_DOWN
+            )
+            if l_px <= Decimal("0"):
                 raise OrderSlicingError(f"Limit price {limit_price} must be strictly positive")
 
-            if target_notional < MIN_MICRO_NOTIONAL_CAP_USDT:
+            if t_notional < MIN_MICRO_NOTIONAL_CAP_USDT:
                 raise MicroNotionalFloorViolationError(
                     f"Target notional {target_notional} violates micro floor "
                     f"{MIN_MICRO_NOTIONAL_CAP_USDT} USDT"
                 )
 
-            total_qty = (target_notional / limit_price).quantize(
-                Decimal("0.00000001"), rounding=ROUND_DOWN
-            )
+            total_qty = (t_notional / l_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
             parent_cid = f"parent-{uuid4().hex[:12]}"
             chunk_cap = max(
                 MIN_MICRO_NOTIONAL_CAP_USDT,
-                min(slice_chunk_notional, DYNAMIC_SLICING_MAX_CHUNK_USDT),
+                min(_safe_decimal(slice_chunk_notional), DYNAMIC_SLICING_MAX_CHUNK_USDT),
             )
 
             # Partition into sequential child slices <= 2.50 USDT with >= 1.00 USDT floor
-            max_slices = max(1, int(target_notional // MIN_MICRO_NOTIONAL_CAP_USDT))
+            max_slices = max(1, int(t_notional // MIN_MICRO_NOTIONAL_CAP_USDT))
             min_slices = max(
                 1,
                 int(
-                    (target_notional / DYNAMIC_SLICING_MAX_CHUNK_USDT).to_integral_value(
+                    (t_notional / DYNAMIC_SLICING_MAX_CHUNK_USDT).to_integral_value(
                         rounding=ROUND_UP
                     )
                 ),
             )
             desired_slices = max(
-                1, int((target_notional / chunk_cap).to_integral_value(rounding=ROUND_UP))
+                1, int((t_notional / chunk_cap).to_integral_value(rounding=ROUND_UP))
             )
             num_slices = max(min_slices, min(desired_slices, max_slices))
 
-            high_slice = (target_notional / Decimal(num_slices)).quantize(
+            high_slice = (t_notional / Decimal(num_slices)).quantize(
                 Decimal("0.00000001"), rounding=ROUND_UP
             )
             total_high = high_slice * Decimal(num_slices)
-            diff = total_high - target_notional
+            diff = total_high - t_notional
             num_lower = int(diff / Decimal("0.00000001"))
             low_slice = high_slice - Decimal("0.00000001")
 
@@ -3006,7 +3182,7 @@ class FlowMicroOrderDispatcher:
                 side=side,
                 order_type=order_type,
                 total_quantity=str(total_qty),
-                total_notional_usdt=str(target_notional),
+                total_notional_usdt=str(t_notional),
                 slicing_mode=OrderSlicingMode.TWAP_SLICED,
                 toxicity_regime=self.interlock.engine.get_regime(sym),
                 child_count=len(child_notionals),
@@ -3020,10 +3196,8 @@ class FlowMicroOrderDispatcher:
 
             try:
                 for idx, c_notional in enumerate(child_notionals):
-                    c_qty = (c_notional / limit_price).quantize(
-                        Decimal("0.00000001"), rounding=ROUND_DOWN
-                    )
-                    c_notional_val = (c_qty * limit_price).quantize(
+                    c_qty = (c_notional / l_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                    c_notional_val = (c_qty * l_px).quantize(
                         Decimal("0.00000001"), rounding=ROUND_DOWN
                     )
                     if (
@@ -3031,7 +3205,7 @@ class FlowMicroOrderDispatcher:
                         and c_notional_val < MIN_MICRO_NOTIONAL_CAP_USDT
                     ):
                         candidate_c_qty = c_qty + Decimal("0.00000001")
-                        if (candidate_c_qty * limit_price).quantize(
+                        if (candidate_c_qty * l_px).quantize(
                             Decimal("0.00000001"), rounding=ROUND_DOWN
                         ) <= DYNAMIC_SLICING_MAX_CHUNK_USDT:
                             c_qty = candidate_c_qty
@@ -3044,7 +3218,7 @@ class FlowMicroOrderDispatcher:
                         side=side,
                         order_type=order_type,
                         quantity=c_qty,
-                        price=limit_price,
+                        price=l_px,
                         client_order_id=child_cid,
                         track_id=track_id,
                     )
@@ -3079,43 +3253,54 @@ class FlowMicroOrderDispatcher:
     def emergency_micro_chunk_liquidate_all(
         self,
         candidate_ids: dict[str, str],
-        prices: dict[str, Decimal],
-        chunk_cap: Decimal = HARD_MICRO_NOTIONAL_CAP_USDT,
+        prices: Mapping[str, Decimal | float | str | int],
+        chunk_cap: Decimal | float | str | int = HARD_MICRO_NOTIONAL_CAP_USDT,
         track_id: str = "flow_toxicity",
     ) -> list[FlowToxicityOrderRecord]:
         """Liquidate all open positions in sequential micro-chunks <= 5.00 USDT."""
         with self._lock:
             liquidated_orders: list[FlowToxicityOrderRecord] = []
-            for sym, pos_qty in list(self.reconciler.positions.items()):
-                if abs(pos_qty) < Decimal("0.00000001"):
-                    continue
+            effective_chunk_cap = min(_safe_decimal(chunk_cap), HARD_MICRO_NOTIONAL_CAP_USDT)
+            if self.interlock.circuit_state == CircuitBreakerState.NORMAL:
+                self.interlock.circuit_state = CircuitBreakerState.EMERGENCY_FLATTENING
 
-                px = prices.get(sym, DEFAULT_REFERENCE_PRICES.get(sym, Decimal("100.0")))
-                cand_id = candidate_ids.get(sym, f"cand-{sym.lower()}")
-                side = OrderSide.SELL if pos_qty > Decimal("0") else OrderSide.BUY
-                remaining_qty = abs(pos_qty)
+            try:
+                for sym, pos_qty in list(self.reconciler.positions.items()):
+                    if abs(pos_qty) < Decimal("0.00000001"):
+                        continue
 
-                while remaining_qty > Decimal("0.00000001"):
-                    chunk_qty = max(
-                        Decimal("0.00000001"),
-                        (chunk_cap / px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN),
-                    )
-                    actual_slice_qty = min(remaining_qty, chunk_qty)
+                    px_raw = prices.get(sym, DEFAULT_REFERENCE_PRICES.get(sym, Decimal("100.0")))
+                    px = _safe_decimal(px_raw)
+                    cand_id = candidate_ids.get(sym, f"cand-{sym.lower()}")
+                    side = OrderSide.SELL if pos_qty > Decimal("0") else OrderSide.BUY
+                    remaining_qty = abs(pos_qty)
 
-                    close_cid = generate_canary_client_order_id(sym)
-                    ord_rec = self.dispatch_micro_order(
-                        candidate_id=cand_id,
-                        symbol=sym,
-                        side=side,
-                        order_type=OrderType.LIMIT,
-                        quantity=actual_slice_qty,
-                        price=px,
-                        client_order_id=close_cid,
-                        is_closing=True,
-                        track_id=track_id,
-                    )
-                    liquidated_orders.append(ord_rec)
-                    remaining_qty -= actual_slice_qty
+                    while remaining_qty > Decimal("0.00000001"):
+                        chunk_qty = max(
+                            Decimal("0.00000001"),
+                            (effective_chunk_cap / px).quantize(
+                                Decimal("0.00000001"), rounding=ROUND_DOWN
+                            ),
+                        )
+                        actual_slice_qty = min(remaining_qty, chunk_qty)
+
+                        close_cid = generate_canary_client_order_id(sym)
+                        ord_rec = self.dispatch_micro_order(
+                            candidate_id=cand_id,
+                            symbol=sym,
+                            side=side,
+                            order_type=OrderType.LIMIT,
+                            quantity=actual_slice_qty,
+                            price=px,
+                            client_order_id=close_cid,
+                            is_closing=True,
+                            track_id=track_id,
+                        )
+                        liquidated_orders.append(ord_rec)
+                        remaining_qty -= actual_slice_qty
+            finally:
+                if self.interlock.circuit_state == CircuitBreakerState.EMERGENCY_FLATTENING:
+                    self.interlock.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
 
             return liquidated_orders
 
