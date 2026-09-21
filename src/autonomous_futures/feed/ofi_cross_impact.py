@@ -18,7 +18,7 @@ import sqlite3
 import threading
 import time
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from enum import StrEnum
@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid4
 
+import numpy as np
 from pydantic import Field
 
 from autonomous_futures.domain.contracts import DomainModel
@@ -506,7 +507,8 @@ class OrderSlicingMode(StrEnum):
 
 CANARY_CLIENT_ORDER_ID_PREFIX = "c=canary-p290-"
 CANARY_CLIENT_ORDER_ID_PATTERN = re.compile(
-    r"^c=canary-p290-([a-z0-9]+)-(\d+)-([a-f0-9]{8,16})$", re.IGNORECASE
+    r"^c=canary-p290-([a-z0-9]+)-(\d+)-([a-f0-9]{8,32}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$",
+    re.IGNORECASE,
 )
 
 
@@ -1375,7 +1377,7 @@ class GatewayHeartbeatMonitor:
         self.max_clock_skew_ms = max_clock_skew_ms
         self._lock = threading.RLock()
 
-        self.last_heartbeat_time_ms: int = int(time.time() * 1000)
+        self.last_heartbeat_time_ms: int = 0
         self.last_latency_ms: float = 0.0
         self.last_clock_skew_ms: float = 0.0
         self.is_frozen: bool = False
@@ -1443,6 +1445,8 @@ class GatewayHeartbeatMonitor:
 
     def check_health(self, current_time_ms: int | None = None) -> tuple[bool, str]:
         with self._lock:
+            if self.heartbeat_count == 0 or self.last_heartbeat_time_ms <= 0:
+                return False, "No gateway heartbeat recorded yet (fail-closed unverified gateway)"
             now_ms = current_time_ms if current_time_ms is not None else int(time.time() * 1000)
             age = float(now_ms - self.last_heartbeat_time_ms)
 
@@ -1525,6 +1529,12 @@ class OfiCrossImpactEngine:
             ("SOLUSDT", "ETHUSDT"): Decimal("0.28"),  # Primary ETH -> Satellite SOL spillover
         }
 
+        # Rolling synchronized cross-asset observations for regularized ridge regression
+        self._latest_obs: dict[str, tuple[Decimal, Decimal]] = {}
+        self._observation_history: deque[dict[str, tuple[Decimal, Decimal]]] = deque(maxlen=500)
+        self.ridge_regularization_lambda: float = 0.05
+        self.min_observations_for_regression: int = 5
+
         # Regimes & Lead-Lag States
         self._regimes: dict[str, OfiCrossImpactRegime] = {}
         self._lead_lag_states: dict[str, LeadLagAdverseState] = {}
@@ -1539,6 +1549,7 @@ class OfiCrossImpactEngine:
         self._prev_bids[sym] = (ref_px * Decimal("0.9999"), Decimal("10.0"))
         self._prev_asks[sym] = (ref_px * Decimal("1.0001"), Decimal("10.0"))
         self._current_ofi[sym] = Decimal("0.0")
+        self._latest_obs[sym] = (Decimal("0.0"), Decimal("0.0"))
         self._rolling_ofi[sym] = deque(maxlen=20)
         self._rolling_ofi[sym].append(Decimal("0.0"))
         self._price_displacements_bps[sym] = Decimal("0.0")
@@ -1623,6 +1634,13 @@ class OfiCrossImpactEngine:
             ).quantize(Decimal("0.0001"))
             self._current_ofi[sym] = ewma_ofi
             self._rolling_ofi[sym].append(inst_ofi)
+            self._latest_obs[sym] = (ewma_ofi, delta_bps)
+
+            # 6. Synchronized observation registration and cross-impact matrix update
+            if all(s in self._latest_obs for s in CANARY_STAGED_SYMBOLS):
+                self._observation_history.append(dict(self._latest_obs))
+                if len(self._observation_history) >= self.min_observations_for_regression:
+                    self.estimate_cross_impact_matrix()
 
             snap = self._recalculate_symbol_state(sym, track_id, timestamp_utc)
 
@@ -1898,6 +1916,79 @@ class OfiCrossImpactEngine:
         sym = symbol.strip().upper()
         with self._get_symbol_lock(sym):
             self._regimes[sym] = regime
+
+    def estimate_cross_impact_matrix(
+        self,
+        ofi_matrix: np.ndarray | Sequence[Sequence[float | Decimal]] | None = None,
+        displacement_matrix: np.ndarray | Sequence[Sequence[float | Decimal]] | None = None,
+        lambda_reg: float | None = None,
+        ewma_weight: float | None = None,
+    ) -> dict[tuple[str, str], Decimal]:
+        """Estimate rolling multi-asset cross-impact matrix Γ via regularized ridge regression.
+
+        Model: ΔP_t = Γ · OFI_t + ε_t
+        Solving: Γ = Y^T X (X^T X + λ I)^(-1)
+        Clamping:
+            Diagonal Γ_ii (self-impact) clamped to [0.01, 10.0]
+            Off-diagonal Γ_ij (cross-spillover) clamped to [-2.0, 2.0]
+        """
+        l_reg = lambda_reg if lambda_reg is not None else self.ridge_regularization_lambda
+        alpha = ewma_weight if ewma_weight is not None else float(self.base_ewma_alpha)
+
+        symbols = CANARY_STAGED_SYMBOLS
+
+        if ofi_matrix is not None and displacement_matrix is not None:
+            X = np.asarray(ofi_matrix, dtype=np.float64)
+            Y = np.asarray(displacement_matrix, dtype=np.float64)
+        else:
+            with self._global_lock:
+                if len(self._observation_history) < self.min_observations_for_regression:
+                    return dict(self._gamma_matrix)
+                x_rows = []
+                y_rows = []
+                for obs in self._observation_history:
+                    if all(s in obs for s in symbols):
+                        x_rows.append([float(obs[s][0]) for s in symbols])
+                        y_rows.append([float(obs[s][1]) for s in symbols])
+                if len(x_rows) < self.min_observations_for_regression:
+                    return dict(self._gamma_matrix)
+                X = np.array(x_rows, dtype=np.float64)
+                Y = np.array(y_rows, dtype=np.float64)
+
+        if X.ndim != 2 or Y.ndim != 2 or X.shape[1] != len(symbols) or Y.shape[1] != len(symbols):
+            return dict(self._gamma_matrix)
+
+        N = X.shape[0]
+        if N < 1:
+            return dict(self._gamma_matrix)
+
+        reg_matrix = X.T @ X + l_reg * np.eye(len(symbols), dtype=np.float64)
+        rhs = X.T @ Y
+        try:
+            gamma_T = np.linalg.solve(reg_matrix, rhs)
+            estimated_gamma = gamma_T.T
+        except np.linalg.LinAlgError:
+            gamma_T = np.linalg.pinv(reg_matrix) @ rhs
+            estimated_gamma = gamma_T.T
+
+        with self._global_lock:
+            for i, s_row in enumerate(symbols):
+                for j, s_col in enumerate(symbols):
+                    val = float(estimated_gamma[i, j])
+                    if i == j:
+                        clamped = max(0.01, min(10.0, val))
+                    else:
+                        clamped = max(-2.0, min(2.0, val))
+
+                    clamped_dec = Decimal(str(round(clamped, 4)))
+                    prev_val = self._gamma_matrix.get((s_row, s_col), Decimal("0.20"))
+                    new_val = (
+                        Decimal(str(alpha)) * clamped_dec
+                        + (Decimal("1.0") - Decimal(str(alpha))) * prev_val
+                    ).quantize(Decimal("0.0001"))
+                    self._gamma_matrix[(s_row, s_col)] = new_val
+
+            return dict(self._gamma_matrix)
 
 
 MarketImpactEngine = OfiCrossImpactEngine
@@ -3152,7 +3243,45 @@ class OfiCrossImpactMicroOrderDispatcher:
                     f"{MIN_MICRO_NOTIONAL_CAP_USDT} USDT"
                 )
 
-            # Pre-validate parent order target notional against caps and headroom
+            # 1. Pre-validate Gateway Heartbeat Freshness
+            hb_ok, hb_reason = self.interlock.heartbeat_monitor.check_health()
+            if not hb_ok:
+                if "frozen" in hb_reason.lower() or self.interlock.heartbeat_monitor.is_frozen:
+                    raise HeartbeatFreezeActiveError(hb_reason)
+                if any(w in hb_reason.lower() for w in ["drift", "skew", "jump"]):
+                    raise ClockSkewExceededError(hb_reason)
+                raise GatewayHeartbeatStaleError(hb_reason)
+
+            # 2. Pre-validate Circuit Breaker & Intra-Phase Loss Budget Lockout
+            cum_loss = max(
+                abs(self.reconciler.realized_pnl)
+                if self.reconciler.realized_pnl < Decimal("0")
+                else Decimal("0"),
+                self.reconciler.cumulative_realized_loss,
+            )
+            if cum_loss >= self.interlock.loss_ceiling_usdt or self.interlock.circuit_state in (
+                CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT,
+                CircuitBreakerState.EMERGENCY_FLATTENING,
+                CircuitBreakerState.RECOVERY_PENDING,
+            ):
+                raise IntraPhaseLossCeilingExceededError(
+                    f"Circuit breaker active: {self.interlock.circuit_state.value}"
+                )
+
+            # 3. Pre-validate Aggressive Order Restrictions under Severe Cross-Impact
+            regime = self.interlock.engine.get_regime(sym)
+            lead_lag = self.interlock.engine.get_lead_lag_state(sym)
+            if order_type == OrderType.MARKET:
+                if (
+                    regime == OfiCrossImpactRegime.SEVERE_CONTROLS
+                    or lead_lag == LeadLagAdverseState.SEVERE_FRONT_RUNNING_RISK
+                ):
+                    raise AggressiveOrderRejectedError(
+                        f"Aggressive parent order rejected for {sym}: "
+                        f"regime={regime.value}, lead_lag={lead_lag.value}"
+                    )
+
+            # 4. Pre-validate parent order target notional against caps and headroom
             curr_allocated = self.reconciler.allocated_margin
             curr_committed = self.interlock.get_total_committed_margin()
             active_cap = self.interlock.get_stage_exposure_cap()
@@ -3185,6 +3314,15 @@ class OfiCrossImpactMicroOrderDispatcher:
                     f"{max_per_asset_margin} USDT"
                 )
 
+            # 5. Pre-validate Unencumbered Cash Reserve Buffer >= 40%
+            required_cash_reserve = starting_eq * MIN_RESERVE_BUFFER_PCT  # 40%
+            projected_cash = self.reconciler.cash - curr_committed - t_notional
+            if projected_cash < required_cash_reserve:
+                raise CashReserveBufferBreachedError(
+                    f"Projected cash {projected_cash} falls below 40% reserve buffer "
+                    f"{required_cash_reserve} USDT"
+                )
+
             parent_cid = f"parent-{uuid4().hex[:12]}"
             self.interlock.reserve_parent_working_margin(
                 sym, t_notional, parent_client_order_id=parent_cid
@@ -3192,6 +3330,7 @@ class OfiCrossImpactMicroOrderDispatcher:
 
             try:
                 regime = self.interlock.engine.get_regime(sym)
+                lead_lag = self.interlock.engine.get_lead_lag_state(sym)
                 cushion_bps = self.interlock.engine.get_limit_offset_cushion_bps(sym)
                 if cushion_bps > Decimal("0") and order_type == OrderType.LIMIT:
                     if side == OrderSide.BUY:
@@ -3211,9 +3350,15 @@ class OfiCrossImpactMicroOrderDispatcher:
                 base_chunk = min(
                     _safe_decimal(slice_chunk_notional), DYNAMIC_SLICING_MAX_CHUNK_USDT
                 )
-                if regime == OfiCrossImpactRegime.SEVERE_CONTROLS:
+                if (
+                    regime == OfiCrossImpactRegime.SEVERE_CONTROLS
+                    or lead_lag == LeadLagAdverseState.SEVERE_FRONT_RUNNING_RISK
+                ):
                     scaled_chunk = min(base_chunk, Decimal("1.25"))
-                elif regime == OfiCrossImpactRegime.ELEVATED_CROSS_IMPACT:
+                elif (
+                    regime == OfiCrossImpactRegime.ELEVATED_CROSS_IMPACT
+                    or lead_lag == LeadLagAdverseState.LEAD_LAG_DIVERGENCE
+                ):
                     scaled_chunk = min(base_chunk, Decimal("1.75"))
                 else:
                     scaled_chunk = base_chunk

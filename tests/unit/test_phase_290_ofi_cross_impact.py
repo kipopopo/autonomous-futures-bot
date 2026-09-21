@@ -38,7 +38,9 @@ import sys
 import time
 from decimal import Decimal
 from pathlib import Path
+from uuid import uuid4
 
+import numpy as np
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +48,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from autonomous_futures.feed.canary_activation import (  # noqa: E402
+    DEFAULT_REFERENCE_PRICES,
     OrderSide,
     OrderType,
 )
@@ -61,8 +64,10 @@ from autonomous_futures.feed.ofi_cross_impact import (  # noqa: E402
     STAGE_11_OFI_CROSS_IMPACT_EXPANSION_CAP_USDT,
     AggressiveOrderRejectedError,
     CapitalExpansionStage,
+    CashReserveBufferBreachedError,
     CircuitBreakerState,
     GatewayHeartbeatMonitor,
+    GatewayHeartbeatStaleError,
     HeartbeatStatus,
     IndividualMicroCapExceededError,
     IntraPhaseLossCeilingExceededError,
@@ -721,3 +726,320 @@ def test_cli_runner_simulate_adverse_drift_failure(tmp_path: Path):
     out_dir = tmp_path / "p290_test_drift"
     ret = cli_main(["--output-dir", str(out_dir), "--track", "1", "--simulate-adverse-drift"])
     assert ret == 1
+
+
+# ---------------------------------------------------------------------------
+# 11. Adversarial & Edge Case Tests (Phase 290 Round 1 Reviewer)
+# ---------------------------------------------------------------------------
+
+
+def test_client_order_id_extended_uuid_formats():
+    """Verify client order ID validation accepts 8-32 hex tags and standard RFC-4122 UUIDs."""
+    now_ms = int(time.time() * 1000)
+    # Standard 12-char hex
+    assert validate_canary_client_order_id(
+        f"c=canary-p290-btcusdt-{now_ms}-a1b2c3d4e5f6", "BTCUSDT"
+    )
+    # 8-char hex
+    assert validate_canary_client_order_id(f"c=canary-p290-ethusdt-{now_ms}-12345678", "ETHUSDT")
+    # 32-char hex (full uuid4().hex)
+    hex32 = uuid4().hex
+    assert validate_canary_client_order_id(f"c=canary-p290-solusdt-{now_ms}-{hex32}", "SOLUSDT")
+    # Standard RFC-4122 36-char hyphenated UUID
+    uuid_hyphenated = str(uuid4())
+    assert validate_canary_client_order_id(
+        f"c=canary-p290-btcusdt-{now_ms}-{uuid_hyphenated}", "BTCUSDT"
+    )
+
+    # Reject symbol mismatch
+    assert not validate_canary_client_order_id(f"c=canary-p290-ethusdt-{now_ms}-{hex32}", "BTCUSDT")
+    # Reject invalid prefix or malformed structure
+    assert not validate_canary_client_order_id(f"c=prod-p290-btcusdt-{now_ms}-12345678", "BTCUSDT")
+    assert not validate_canary_client_order_id("c=canary-p290-btcusdt", "BTCUSDT")
+    assert not validate_canary_client_order_id("", "BTCUSDT")
+
+
+def test_gateway_heartbeat_uninitialized_fail_closed(temp_telemetry_store, temp_jsonl_sink):
+    """Verify heartbeat monitor fails closed when 0 heartbeats recorded."""
+    monitor = GatewayHeartbeatMonitor()
+    # Before any heartbeat is recorded, health check must be False
+    ok, reason = monitor.check_health()
+    assert not ok
+    assert "no gateway heartbeat" in reason.lower()
+
+    # Pre-dispatch evaluation must block order fail-closed
+    gateway = MockBinanceOfiCrossImpactGateway()
+    reconciler = OfiCrossImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    engine = OfiCrossImpactEngine(telemetry_store=temp_telemetry_store)
+    interlock = OfiCrossImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=monitor,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_11_OFI_CROSS_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = OfiCrossImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    with pytest.raises(GatewayHeartbeatStaleError):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btc",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("60000.00"),
+            client_order_id=generate_canary_client_order_id("BTCUSDT"),
+        )
+
+
+def test_rolling_cross_impact_matrix_ridge_regression():
+    """Verify regularized ridge regression estimation of Gamma (ΔP = Γ · OFI + ε)."""
+    engine = OfiCrossImpactEngine()
+
+    # Synthetic observations: 20 samples across BTC, ETH, SOL
+    np.random.seed(42)
+    ofi_btc = np.array(
+        [
+            2.0,
+            3.5,
+            -1.0,
+            4.0,
+            1.5,
+            -2.0,
+            5.0,
+            0.5,
+            -1.5,
+            3.0,
+            2.5,
+            4.0,
+            -0.5,
+            3.0,
+            1.0,
+            -3.0,
+            4.5,
+            0.0,
+            -2.0,
+            3.5,
+        ]
+    )
+    ofi_eth = np.array(
+        [
+            1.5,
+            2.0,
+            -0.5,
+            2.5,
+            1.0,
+            -1.0,
+            3.0,
+            0.2,
+            -1.0,
+            2.0,
+            1.8,
+            2.5,
+            -0.2,
+            2.0,
+            0.8,
+            -2.0,
+            3.0,
+            0.1,
+            -1.2,
+            2.2,
+        ]
+    )
+    ofi_sol = np.array(
+        [
+            0.5,
+            1.0,
+            -0.2,
+            1.2,
+            0.5,
+            -0.5,
+            1.5,
+            0.1,
+            -0.5,
+            1.0,
+            0.8,
+            1.2,
+            -0.1,
+            1.0,
+            0.4,
+            -1.0,
+            1.5,
+            0.0,
+            -0.6,
+            1.1,
+        ]
+    )
+    X = np.column_stack([ofi_btc, ofi_eth, ofi_sol])
+
+    # Price displacements with BTC -> SOL spillover transmission
+    dp_btc = 0.40 * ofi_btc + 0.15 * ofi_eth + np.random.normal(0, 0.02, 20)
+    dp_eth = 0.20 * ofi_btc + 0.35 * ofi_eth + np.random.normal(0, 0.02, 20)
+    dp_sol = 0.60 * ofi_btc + 0.25 * ofi_eth + 0.45 * ofi_sol + np.random.normal(0, 0.02, 20)
+    Y = np.column_stack([dp_btc, dp_eth, dp_sol])
+
+    gamma_dict = engine.estimate_cross_impact_matrix(
+        ofi_matrix=X,
+        displacement_matrix=Y,
+        lambda_reg=0.05,
+        ewma_weight=1.0,  # full update
+    )
+
+    # Self-impact on diagonal must be positive and within [0.01, 10.0]
+    for sym in CANARY_STAGED_SYMBOLS:
+        assert Decimal("0.01") <= gamma_dict[(sym, sym)] <= Decimal("10.0")
+
+    # Cross-impact must be within [-2.0, 2.0]
+    for s1 in CANARY_STAGED_SYMBOLS:
+        for s2 in CANARY_STAGED_SYMBOLS:
+            if s1 != s2:
+                assert Decimal("-2.0") <= gamma_dict[(s1, s2)] <= Decimal("2.0")
+
+    # Primary BTC -> Satellite SOL spillover coefficient should be elevated
+    gamma_sol_btc = engine.get_gamma("SOLUSDT", "BTCUSDT")
+    assert gamma_sol_btc > Decimal("0.40")
+
+
+def test_collinear_and_singular_ofi_regression_stability():
+    """Attack regularized ridge regression under collinear and all-zero OFI flow (ISSUE-03)."""
+    engine = OfiCrossImpactEngine()
+
+    # 1. Perfectly collinear OFI: rank(X) = 1 (ETH = 2*BTC, SOL = 0.5*BTC)
+    btc_flow = np.linspace(-5.0, 5.0, 25)
+    X_collinear = np.column_stack([btc_flow, 2.0 * btc_flow, 0.5 * btc_flow])
+    Y_displacements = np.column_stack([0.3 * btc_flow, 0.5 * btc_flow, 0.4 * btc_flow])
+
+    # Must solve stably via L2 regularizer lambda=0.05 without LinAlgError
+    gamma_collinear = engine.estimate_cross_impact_matrix(
+        ofi_matrix=X_collinear,
+        displacement_matrix=Y_displacements,
+        lambda_reg=0.05,
+    )
+    for v in gamma_collinear.values():
+        assert not v.is_nan()
+        assert not v.is_infinite()
+        assert Decimal("-2.0") <= v <= Decimal("10.0")
+
+    # 2. All-zero singular OFI: X = 0
+    X_zero = np.zeros((10, 3))
+    Y_zero = np.zeros((10, 3))
+    gamma_zero = engine.estimate_cross_impact_matrix(
+        ofi_matrix=X_zero,
+        displacement_matrix=Y_zero,
+        lambda_reg=0.05,
+    )
+    for v in gamma_zero.values():
+        assert not v.is_nan()
+        assert not v.is_infinite()
+
+
+def test_twap_prevalidation_and_lead_lag_downscaling(temp_telemetry_store, temp_jsonl_sink):
+    """Verify TWAP pre-validations and dynamic child slice downscaling under adverse selection."""
+    gateway = MockBinanceOfiCrossImpactGateway()
+    reconciler = OfiCrossImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = OfiCrossImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = OfiCrossImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_11_OFI_CROSS_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = OfiCrossImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    # 1. Pre-validation rejects aggressive MARKET order under SEVERE_CONTROLS
+    engine.record_lead_lag_shock(
+        symbol="SOLUSDT",
+        latency_ms=180.0,
+        cross_impact_gamma=Decimal("0.85"),
+    )
+    with pytest.raises(AggressiveOrderRejectedError):
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-sol",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            target_notional=Decimal("4.50"),
+            limit_price=DEFAULT_REFERENCE_PRICES["SOLUSDT"],
+        )
+
+    # 2. Pre-validation rejects parent order under INTRA_PHASE_LOSS_LOCKOUT
+    interlock.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+    with pytest.raises(IntraPhaseLossCeilingExceededError):
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-sol",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=Decimal("4.50"),
+            limit_price=DEFAULT_REFERENCE_PRICES["SOLUSDT"],
+        )
+    interlock.circuit_state = CircuitBreakerState.NORMAL
+
+    # 3. Pre-validation rejects parent order when cash reserve buffer (< 40%) would be breached
+    # Starting equity is 100 USDT, 40% reserve buffer is 40 USDT
+    # Set cash to 42 USDT -> 4.50 USDT parent order would leave 37.50 < 40
+    reconciler.cash = Decimal("42.00")
+    with pytest.raises(CashReserveBufferBreachedError):
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-sol",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=Decimal("4.50"),
+            limit_price=DEFAULT_REFERENCE_PRICES["SOLUSDT"],
+        )
+    reconciler.cash = Decimal("100.00")
+
+    # 4. Dynamic slicing downscaling under SEVERE_FRONT_RUNNING_RISK:
+    # 4.50 USDT parent order sliced into chunks <= 1.25 USDT (min 4 slices)
+    parent = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-sol",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("4.50"),
+        limit_price=DEFAULT_REFERENCE_PRICES["SOLUSDT"],
+        slice_chunk_notional=Decimal("2.50"),  # requested 2.50, but clamped to 1.25
+    )
+    assert parent.dispatch_complete
+    assert parent.child_count >= 4  # 4.50 / 1.25 = 3.6 -> 4 child slices
+
+
+def test_process_orderbook_rolling_estimation_trigger():
+    """Verify that multi-symbol orderbook updates register observations and update Gamma."""
+    engine = OfiCrossImpactEngine()
+
+    for step in range(8):
+        for sym in CANARY_STAGED_SYMBOLS:
+            base_px = DEFAULT_REFERENCE_PRICES[sym]
+            step_dec = Decimal(str(step + 1))
+            engine.process_orderbook_update(
+                symbol=sym,
+                bid_price=base_px + step_dec * Decimal("0.05"),
+                bid_qty=Decimal("5.0") + step_dec,
+                ask_price=base_px + step_dec * Decimal("0.06"),
+                ask_qty=Decimal("4.0"),
+            )
+
+    assert len(engine._observation_history) >= 5
+    # Verify Gamma matrix reflects multi-asset updates
+    for sym in CANARY_STAGED_SYMBOLS:
+        assert engine.get_gamma(sym, sym) > Decimal("0.0")
