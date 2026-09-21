@@ -77,6 +77,7 @@ from autonomous_futures.feed.hawkes_cascades import (  # noqa: E402
     EndogenousCascadeThrottledError,
     GatewayHeartbeatMonitor,
     GatewayHeartbeatStaleError,
+    HawkesCascadeAutonomousDaemon,
     HawkesCascadeEngine,
     HawkesCascadeMicroOrderDispatcher,
     HawkesCascadeOrderDispatchInterlock,
@@ -1235,3 +1236,404 @@ def test_zero_beta_guard_in_branching_ratio(
     engine._beta[("BTCUSDT", "ETHUSDT")] = Decimal("0.0")
     ratio = engine.get_branching_ratio("BTCUSDT", "ETHUSDT")
     assert ratio == Decimal("0.0000")
+
+
+def test_negative_and_zero_price_quantity_rejection(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that orders with non-positive price or quantity are rejected fail-closed."""
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    # Test in interlock
+    with pytest.raises(CanaryHawkesCascadeError, match="strictly positive"):
+        interlock.evaluate_order_pre_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("-0.00005"),
+            price=Decimal("-60000.00"),
+        )
+
+    with pytest.raises(CanaryHawkesCascadeError, match="strictly positive"):
+        interlock.evaluate_order_pre_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.0"),
+            price=Decimal("60000.00"),
+        )
+
+    with pytest.raises(CanaryHawkesCascadeError, match="strictly positive"):
+        interlock.evaluate_order_pre_dispatch(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("0.0"),
+        )
+
+    # Test in dispatcher
+    cid = generate_canary_client_order_id("BTCUSDT")
+    with pytest.raises(CanaryHawkesCascadeError, match="strictly positive"):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("-0.00005"),
+            price=Decimal("-60000.00"),
+            client_order_id=cid,
+        )
+
+
+def test_closing_order_without_open_position_rejection(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that closing orders are rejected fail-closed if no open position exists."""
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    cid = generate_canary_client_order_id("ETHUSDT")
+    with pytest.raises(CanaryHawkesCascadeError, match="No open position exists"):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-ethusdt",
+            symbol="ETHUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.001"),
+            price=Decimal("3000.00"),
+            client_order_id=cid,
+            is_closing=True,
+        )
+
+
+def test_order_cancellation_and_lifecycle_transition(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies order cancellation transitions order to CANCELLED, releases margin,
+    records lifecycle transition in SQLite, and logs to JSONL sink."""
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    cid = generate_canary_client_order_id("BTCUSDT")
+    from autonomous_futures.feed.hawkes_cascades import HawkesCascadeOrderRecord
+
+    ord_rec = HawkesCascadeOrderRecord(
+        client_order_id=cid,
+        order_id="ord-mock-cancel-1",
+        track_id="test_track",
+        candidate_id="cand-btcusdt",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        price="60000.00",
+        quantity="0.00005",
+        notional_usdt="3.00",
+        status=OrderLifecycleState.NEW,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+    )
+    with dispatcher._lock:
+        dispatcher.orders[cid] = ord_rec
+        dispatcher._order_committed_notionals[cid] = Decimal("3.00")
+        interlock.reserve_committed_margin("BTCUSDT", Decimal("3.00"))
+
+    assert interlock.get_total_committed_margin("BTCUSDT") == Decimal("3.00")
+    assert gateway.cancel_order(cid) is True
+
+    cancelled = dispatcher.cancel_order(cid, track_id="test_track")
+    assert cancelled is True
+    assert dispatcher.orders[cid].status == OrderLifecycleState.CANCELLED
+    assert interlock.get_total_committed_margin("BTCUSDT") == Decimal("0.00")
+
+    # Verify lifecycle transition recorded in SQLite
+    row = temp_telemetry_store.conn.execute(
+        "SELECT * FROM lifecycle_transitions WHERE client_order_id = ?;", (cid,)
+    ).fetchone()
+    assert row is not None
+    assert row["from_state"] == OrderLifecycleState.NEW.value
+    assert row["to_state"] == OrderLifecycleState.CANCELLED.value
+    assert row["trigger_reason"] == "ORDER_CANCELLED"
+
+    # Verify JSONL record written
+    import json
+
+    lines = [
+        json.loads(line)
+        for line in temp_jsonl_sink.file_path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(
+        entry.get("client_order_id") == cid and entry.get("status") == "CANCELLED"
+        for entry in lines
+    )
+
+    # Verify alias cancel_micro_order exists and returns False for non-existent
+    assert dispatcher.cancel_micro_order("non_existent_cid") is False
+
+
+def test_filled_order_logged_to_jsonl_sink(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that an immediately filled order logs its FILLED state to the JSONL sink."""
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    cid = generate_canary_client_order_id("BTCUSDT")
+    ord_rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btcusdt",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00005"),
+        price=Decimal("60000.00"),
+        client_order_id=cid,
+        track_id="test_fill",
+    )
+    assert ord_rec.status == OrderLifecycleState.FILLED
+
+    import json
+
+    lines = [
+        json.loads(line)
+        for line in temp_jsonl_sink.file_path.read_text().splitlines()
+        if line.strip()
+    ]
+    filled_entries = [
+        entry
+        for entry in lines
+        if entry.get("client_order_id") == cid and entry.get("status") == "FILLED"
+    ]
+    assert len(filled_entries) == 1
+
+
+def test_per_asset_margin_headroom_with_depressed_price(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+):
+    """Verifies per-asset margin calculation uses max(per_asset_margin, abs(pos)*price)
+    to prevent headroom under-reporting when limit price is depressed."""
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(
+        starting_equity=Decimal("100.00"), telemetry_store=temp_telemetry_store
+    )
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    # Simulate existing SOL position with per_asset_margin = 18.00 USDT (entry @ 150)
+    reconciler.positions["SOLUSDT"] = Decimal("0.12")
+    reconciler.per_asset_margin["SOLUSDT"] = Decimal("18.00")
+    # Max per-asset margin is 20% of 100 = 20.00 USDT.
+    # An incoming buy order with notional 3.00 USDT at depressed price 10.00 USDT:
+    # If using abs(pos)*price = 0.12 * 10 = 1.20 USDT, cand_margin would appear
+    # as 1.20 + 3.00 = 4.20 <= 20 (false pass).
+    # With max(per_asset_margin, abs(pos)*price) = max(18.00, 1.20) = 18.00 USDT.
+    # 18.00 + 3.00 = 21.00 > 20.00 -> correctly rejects!
+    with pytest.raises(MarginAllocationExceededError):
+        interlock.evaluate_order_pre_dispatch(
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.30"),
+            price=Decimal("10.00"),  # 3.00 USDT
+        )
+
+
+def test_parent_order_partial_fill_telemetry_recording(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that if a child slice fails mid-TWAP, parent order record is written to SQLite
+    with PARTIALLY_FILLED and accurate executed notional and quantity."""
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    real_dispatch = dispatcher.dispatch_micro_order
+    call_count = 0
+
+    def failing_dispatch(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise RuntimeError("Synthetic child slice failure")
+        return real_dispatch(*args, **kwargs)
+
+    dispatcher.dispatch_micro_order = failing_dispatch  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="Synthetic child slice failure"):
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-btcusdt",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=Decimal("4.00"),  # 2 slices of 2.00 USDT
+            limit_price=Decimal("60000.00"),
+        )
+
+    # Inspect SQLite parent_orders table
+    row = temp_telemetry_store.conn.execute(
+        "SELECT * FROM parent_orders WHERE symbol = 'BTCUSDT';"
+    ).fetchone()
+    assert row is not None
+    assert row["status"] == OrderLifecycleState.PARTIALLY_FILLED.value
+    assert Decimal(row["executed_notional_usdt"]) > Decimal("0.0")
+    assert Decimal(row["executed_quantity"]) > Decimal("0.0")
+
+
+def test_hawkes_intensity_temporal_decay_over_lookback(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+):
+    """Verifies that Hawkes jump intensity lambda(t) continuously decays toward
+    baseline mu as time passes."""
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    t0 = 1000.0
+    engine.record_event_arrival("BTCUSDT", timestamp_sec=t0)
+    int_t0 = engine.get_jump_intensity("BTCUSDT", timestamp_sec=t0)
+    int_t5 = engine.get_jump_intensity("BTCUSDT", timestamp_sec=t0 + 5.0)
+    int_t60 = engine.get_jump_intensity("BTCUSDT", timestamp_sec=t0 + 60.0)
+
+    assert int_t0 > int_t5 > int_t60
+    assert int_t60 >= engine._mu["BTCUSDT"]
+
+
+def test_daemon_start_and_shutdown_balance_snapshots(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies daemon writes INITIALIZED and SHUTDOWN balance snapshots to SQLite."""
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+    daemon = HawkesCascadeAutonomousDaemon(
+        dispatcher=dispatcher,
+        reconciler=reconciler,
+        interlock=interlock,
+        heartbeat_monitor=heartbeat_mon,
+        telemetry_store=temp_telemetry_store,
+        track_id="test_daemon",
+    )
+    daemon.start()
+    daemon.shutdown(graceful=True)
+
+    rows = temp_telemetry_store.conn.execute(
+        "SELECT * FROM balance_snapshots WHERE track_id = 'test_daemon' ORDER BY timestamp_utc ASC;"
+    ).fetchall()
+    assert len(rows) == 2
+    triggers = [r["trigger_event"] for r in rows]
+    assert "DAEMON_INITIALIZED" in triggers
+    assert "DAEMON_SHUTDOWN" in triggers

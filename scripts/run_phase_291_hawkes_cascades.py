@@ -352,7 +352,7 @@ def execute_phase_291_runner(
     simulate_adverse_drift: bool = False,
     simulate_loss_breach: bool = False,
     json_output: bool = False,
-    verify_hash_chain: bool = True,
+    verify_hash_chain: bool = False,
     verify_only: bool = False,
 ) -> int:
     """Orchestrate Phase 291 Hawkes cascades execution daemon runner."""

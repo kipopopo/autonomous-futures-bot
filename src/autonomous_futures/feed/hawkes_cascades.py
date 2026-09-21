@@ -1594,9 +1594,25 @@ class HawkesCascadeEngine:
                 return Decimal("0.0000")
             return (a / b).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
 
-    def get_jump_intensity(self, symbol: str) -> Decimal:
+    def _compute_intensity_at(self, symbol: str, t_now: float) -> Decimal:
+        """Compute instantaneous multivariate Hawkes jump intensity lambda_i(t)."""
+        sym = symbol.strip().upper()
+        intensity = self._mu.get(sym, Decimal("0.10"))
+        cutoff = t_now - HAWKES_LOOKBACK_WINDOW_SECONDS
+        for t_ev, s_ev in self._event_history:
+            if cutoff <= t_ev <= t_now:
+                dt = t_now - t_ev
+                a = float(self._alpha.get((sym, s_ev), Decimal("0.0")))
+                b = float(self._beta.get((sym, s_ev), Decimal("1.0")))
+                decay = np.exp(-b * dt) if b > 0 else 1.0
+                intensity += Decimal(str(f"{a * decay:.6f}"))
+        return intensity
+
+    def get_jump_intensity(self, symbol: str, timestamp_sec: float | None = None) -> Decimal:
         sym = symbol.strip().upper()
         with self._global_lock:
+            if timestamp_sec is not None:
+                return self._compute_intensity_at(sym, timestamp_sec)
             return self._current_intensity.get(sym, self._mu.get(sym, Decimal("0.10")))
 
     def get_regime(self, symbol: str) -> HawkesRegime:
@@ -1666,15 +1682,7 @@ class HawkesCascadeEngine:
 
             # Recalculate lambda_i(t) for all symbols
             for s_target in self._symbols:
-                intensity = self._mu[s_target]
-                for t_ev, s_ev in self._event_history:
-                    if t_ev <= t_now:
-                        dt = t_now - t_ev
-                        a = float(self._alpha.get((s_target, s_ev), Decimal("0.0")))
-                        b = float(self._beta.get((s_target, s_ev), Decimal("1.0")))
-                        decay = np.exp(-b * dt) if b > 0 else 1.0
-                        intensity += Decimal(str(f"{a * decay:.6f}"))
-
+                intensity = self._compute_intensity_at(s_target, t_now)
                 self._prev_intensity[s_target] = self._current_intensity[s_target]
                 self._current_intensity[s_target] = intensity
                 self._prev_intensity_time[s_target] = t_now
@@ -1746,12 +1754,24 @@ class HawkesCascadeEngine:
     ) -> HawkesCascadeSnapshot:
         """Inject severe cross-asset cascade jump burst (Track 2 drill)."""
         sym = symbol.strip().upper()
+        t_now = time.time()
         with self._global_lock:
             self._alpha[(sym, sym)] = Decimal(str(alpha_self))
             if alpha_cross_btc is not None:
                 self._alpha[(sym, "BTCUSDT")] = Decimal(str(alpha_cross_btc))
             if alpha_cross_eth is not None:
                 self._alpha[(sym, "ETHUSDT")] = Decimal(str(alpha_cross_eth))
+
+            self._event_history.append((t_now, sym))
+            cutoff = t_now - HAWKES_LOOKBACK_WINDOW_SECONDS
+            while self._event_history and self._event_history[0][0] < cutoff:
+                self._event_history.popleft()
+
+            for s_target in self._symbols:
+                intensity = self._compute_intensity_at(s_target, t_now)
+                self._prev_intensity[s_target] = self._current_intensity[s_target]
+                self._current_intensity[s_target] = intensity
+                self._prev_intensity_time[s_target] = t_now
 
             self._spectral_radius = self._compute_spectral_radius()
             rho = self._spectral_radius
@@ -1781,9 +1801,22 @@ class HawkesCascadeEngine:
         track_id: str = "hawkes_cascades",
     ) -> HawkesCascadeSnapshot:
         """Inject runaway supercritical excitation (rho >= 1.0) for Track 3 drill."""
+        t_now = time.time()
         with self._global_lock:
             for s in self._symbols:
                 self._alpha[(s, s)] = Decimal("1.20")
+                self._event_history.append((t_now, s))
+
+            cutoff = t_now - HAWKES_LOOKBACK_WINDOW_SECONDS
+            while self._event_history and self._event_history[0][0] < cutoff:
+                self._event_history.popleft()
+
+            for s_target in self._symbols:
+                intensity = self._compute_intensity_at(s_target, t_now)
+                self._prev_intensity[s_target] = self._current_intensity[s_target]
+                self._current_intensity[s_target] = intensity
+                self._prev_intensity_time[s_target] = t_now
+
             self._spectral_radius = self._compute_spectral_radius()
             for s in self._symbols:
                 self._regimes[s] = HawkesRegime.SUPERCRITICAL_CASCADE
@@ -2216,6 +2249,12 @@ class HawkesCascadeOrderDispatchInterlock:
     ) -> None:
         """Validate all safety interlocks fail-closed before order submission."""
         sym = symbol.strip().upper()
+        if quantity <= Decimal("0.0") or price <= Decimal("0.0"):
+            with self._lock:
+                self.interlock_blocks_count += 1
+            raise CanaryHawkesCascadeError(
+                f"Order quantity ({quantity}) and price ({price}) must be strictly positive"
+            )
         notional = (quantity * price).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
         with self._lock:
@@ -2227,7 +2266,21 @@ class HawkesCascadeOrderDispatchInterlock:
                     raise HeartbeatFreezeActiveError(hb_reason)
                 raise GatewayHeartbeatStaleError(hb_reason)
 
-            # 2. Circuit Breaker State
+            # 2. Circuit Breaker State & Intra-Phase Loss Ceiling
+            cum_loss = max(
+                abs(self.reconciler.realized_pnl)
+                if self.reconciler.realized_pnl < Decimal("0")
+                else Decimal("0"),
+                self.reconciler.cumulative_realized_loss,
+            )
+            if cum_loss >= self.loss_ceiling_usdt:
+                self.interlock_blocks_count += 1
+                self.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+                if not is_closing:
+                    raise IntraPhaseLossCeilingExceededError(
+                        f"Cumulative loss {cum_loss} exceeds ceiling {self.loss_ceiling_usdt} USDT"
+                    )
+
             if self.circuit_state != CircuitBreakerState.NORMAL and not is_closing:
                 self.interlock_blocks_count += 1
                 if self.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT:
@@ -2314,7 +2367,10 @@ class HawkesCascadeOrderDispatchInterlock:
             # 6. Throttled Per-Candidate Cap under Severe Controls
             if reg == HawkesRegime.SEVERE_HAWKES_CONTROLS or rho >= self.engine.critical_threshold:
                 cand_committed = self.get_total_committed_margin(sym)
-                cand_pos = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * price
+                cand_pos = max(
+                    self.reconciler.per_asset_margin.get(sym, Decimal("0.0")),
+                    abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * price,
+                )
                 if (cand_committed + cand_pos + notional) > THROTTLED_PER_CANDIDATE_CAP_USDT:
                     self.interlock_blocks_count += 1
                     raise EndogenousCascadeThrottledError(
@@ -2346,7 +2402,10 @@ class HawkesCascadeOrderDispatchInterlock:
 
             # 9. Dynamic Margin Headroom: Per-Asset Margin <= 20%
             max_per_asset_margin = starting_eq * MAX_PER_ASSET_MARGIN_PCT
-            existing_allocated = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * price
+            existing_allocated = max(
+                self.reconciler.per_asset_margin.get(sym, Decimal("0.0")),
+                abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * price,
+            )
             cand_margin = existing_allocated + self.get_total_committed_margin(sym) + notional
             if cand_margin > max_per_asset_margin:
                 self.interlock_blocks_count += 1
@@ -2413,6 +2472,10 @@ class MockBinanceHawkesCascadeGateway:
     def check_listen_key_valid(self) -> bool:
         return (time.time() - self.listen_key_created_at) < LISTEN_KEY_LIFETIME_SECONDS
 
+    def cancel_order(self, client_order_id: str) -> bool:
+        """Simulate order cancellation at gateway."""
+        return bool(client_order_id)
+
 
 MockBinanceOfiCrossImpactGateway = MockBinanceHawkesCascadeGateway
 
@@ -2469,6 +2532,11 @@ class HawkesCascadeMicroOrderDispatcher:
             qty = _safe_decimal(quantity).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
             px = _safe_decimal(price).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
             notional = (qty * px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+
+            if qty <= Decimal("0.0") or px <= Decimal("0.0"):
+                raise CanaryHawkesCascadeError(
+                    f"Order quantity ({qty}) and price ({px}) must be strictly positive"
+                )
 
             if not validate_canary_client_order_id(client_order_id, sym):
                 raise InvalidClientOrderIdTagError(
@@ -2618,6 +2686,7 @@ class HawkesCascadeMicroOrderDispatcher:
                     )
                 )
                 self.telemetry_store.record_order(ord_rec)
+                self.jsonl_sink.record_order(ord_rec)
 
             return ord_rec
 
@@ -2626,6 +2695,7 @@ class HawkesCascadeMicroOrderDispatcher:
         with self._lock:
             ord_rec = self.orders.get(client_order_id)
             if ord_rec and ord_rec.status == OrderLifecycleState.NEW:
+                old_status = ord_rec.status
                 ord_rec.status = OrderLifecycleState.CANCELLED
                 self.orders_cancelled_count += 1
                 self.stream_events_count += 1
@@ -2634,10 +2704,22 @@ class HawkesCascadeMicroOrderDispatcher:
                     comm_margin = self._order_committed_notionals.pop(client_order_id)
                     self.interlock.release_committed_margin(ord_rec.symbol, comm_margin)
 
+                self.telemetry_store.record_lifecycle_transition(
+                    OrderLifecycleTransition(
+                        track_id=track_id,
+                        order_id=ord_rec.order_id,
+                        client_order_id=client_order_id,
+                        from_state=old_status,
+                        to_state=OrderLifecycleState.CANCELLED,
+                        trigger_reason="ORDER_CANCELLED",
+                    )
+                )
                 self.telemetry_store.record_order(ord_rec)
                 self.jsonl_sink.record_order(ord_rec)
                 return True
             return False
+
+    cancel_micro_order = cancel_order
 
     def dispatch_twap_sliced_parent(
         self,
@@ -2709,7 +2791,10 @@ class HawkesCascadeMicroOrderDispatcher:
                 or rho >= self.interlock.engine.critical_threshold
             ):
                 cand_committed = self.interlock.get_total_committed_margin(sym)
-                cand_pos_notional = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * l_px
+                cand_pos_notional = max(
+                    self.reconciler.per_asset_margin.get(sym, Decimal("0.0")),
+                    abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * l_px,
+                )
                 if (
                     cand_committed + cand_pos_notional + t_notional
                 ) > THROTTLED_PER_CANDIDATE_CAP_USDT:
@@ -2738,7 +2823,10 @@ class HawkesCascadeMicroOrderDispatcher:
                 )
 
             max_per_asset_margin = starting_eq * MAX_PER_ASSET_MARGIN_PCT  # 20%
-            existing_allocated = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * l_px
+            existing_allocated = max(
+                self.reconciler.per_asset_margin.get(sym, Decimal("0.0")),
+                abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * l_px,
+            )
             cand_margin = (
                 existing_allocated + self.interlock.get_total_committed_margin(sym) + t_notional
             )
@@ -2868,7 +2956,13 @@ class HawkesCascadeMicroOrderDispatcher:
                         cum_exec_notional += c_notional
                         cum_exec_qty += c_qty
                     except Exception:
-                        parent_rec.status = OrderLifecycleState.PARTIALLY_FILLED
+                        if cum_exec_qty > Decimal("0.0"):
+                            parent_rec.status = OrderLifecycleState.PARTIALLY_FILLED
+                        else:
+                            parent_rec.status = OrderLifecycleState.REJECTED
+                        parent_rec.executed_notional_usdt = str(cum_exec_notional)
+                        parent_rec.executed_quantity = str(cum_exec_qty)
+                        self.telemetry_store.record_parent_order(parent_rec)
                         raise
 
                 parent_rec.executed_notional_usdt = str(cum_exec_notional)
@@ -3028,29 +3122,40 @@ class HawkesCascadeAutonomousDaemon:
     def start(self) -> None:
         with self._lock:
             self.state = DaemonState.RUNNING
-            self.telemetry_store._execute_write(
-                "INSERT INTO balance_snapshots (snapshot_id, timestamp_utc, track_id, "
-                "cash_usdt, allocated_margin_usdt, unrealized_pnl_usdt, realized_pnl_usdt, "
-                "starting_equity_usdt, drift_usdt, zero_balance_drift, trigger_event) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                (
-                    f"bal-init-{uuid4().hex[:8]}",
-                    datetime.now(UTC).isoformat(),
-                    self.track_id,
-                    str(self.reconciler.cash),
-                    str(self.reconciler.allocated_margin),
-                    str(self.reconciler.unrealized_pnl),
-                    str(self.reconciler.realized_pnl),
-                    str(self.reconciler.starting_equity),
-                    str(self.reconciler.mathematical_drift),
-                    1 if self.reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT else 0,
-                    "DAEMON_INITIALIZED",
-                ),
+            self.telemetry_store.record_balance_snapshot(
+                BalanceSnapshotRecord(
+                    snapshot_id=f"bal-init-{uuid4().hex[:8]}",
+                    timestamp_utc=datetime.now(UTC).isoformat(),
+                    track_id=self.track_id,
+                    cash_usdt=str(self.reconciler.cash),
+                    allocated_margin_usdt=str(self.reconciler.allocated_margin),
+                    unrealized_pnl_usdt=str(self.reconciler.unrealized_pnl),
+                    realized_pnl_usdt=str(self.reconciler.realized_pnl),
+                    starting_equity_usdt=str(self.reconciler.starting_equity),
+                    drift_usdt=str(self.reconciler.mathematical_drift),
+                    zero_balance_drift=self.reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT,
+                    trigger_event="DAEMON_INITIALIZED",
+                )
             )
 
     def shutdown(self, graceful: bool = True) -> None:
         with self._lock:
             self.state = DaemonState.SHUTDOWN
+            self.telemetry_store.record_balance_snapshot(
+                BalanceSnapshotRecord(
+                    snapshot_id=f"bal-term-{uuid4().hex[:8]}",
+                    timestamp_utc=datetime.now(UTC).isoformat(),
+                    track_id=self.track_id,
+                    cash_usdt=str(self.reconciler.cash),
+                    allocated_margin_usdt=str(self.reconciler.allocated_margin),
+                    unrealized_pnl_usdt=str(self.reconciler.unrealized_pnl),
+                    realized_pnl_usdt=str(self.reconciler.realized_pnl),
+                    starting_equity_usdt=str(self.reconciler.starting_equity),
+                    drift_usdt=str(self.reconciler.mathematical_drift),
+                    zero_balance_drift=self.reconciler.mathematical_drift < DOUBLE_ENTRY_MAX_DRIFT,
+                    trigger_event="DAEMON_SHUTDOWN",
+                )
+            )
 
 
 OfiCrossImpactAutonomousDaemon = HawkesCascadeAutonomousDaemon
@@ -3943,7 +4048,7 @@ class CanaryHawkesCascadeRunner:
         self.active_store.record_heartbeat(hb_rec)
 
         # Open multi-symbol positions within micro-caps (<= 5.00 USDT per order):
-        # BTCUSDT: 2 x 0.00005 @ 60,000 = 6.00 USDT
+        # BTCUSDT: 2 x 0.00006 @ 60,000 = 7.20 USDT
         # ETHUSDT: 0.0015 @ 3,000 = 4.50 USDT
         candidate_ids = {
             sym: manifest.candidates[sym].candidate_id for sym in CANARY_STAGED_SYMBOLS
@@ -3953,7 +4058,7 @@ class CanaryHawkesCascadeRunner:
             symbol="BTCUSDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=Decimal("0.00005"),
+            quantity=Decimal("0.00006"),
             price=Decimal("60000.00"),
             client_order_id=generate_canary_client_order_id("BTCUSDT"),
             track_id="track_3",
@@ -3963,7 +4068,7 @@ class CanaryHawkesCascadeRunner:
             symbol="BTCUSDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=Decimal("0.00005"),
+            quantity=Decimal("0.00006"),
             price=Decimal("60000.00"),
             client_order_id=generate_canary_client_order_id("BTCUSDT"),
             track_id="track_3",
@@ -3978,7 +4083,7 @@ class CanaryHawkesCascadeRunner:
             client_order_id=generate_canary_client_order_id("ETHUSDT"),
             track_id="track_3",
         )
-        assert reconciler.positions["BTCUSDT"] == Decimal("0.00010")
+        assert reconciler.positions["BTCUSDT"] == Decimal("0.00012")
         assert reconciler.positions["ETHUSDT"] == Decimal("0.0015")
 
         # Simulate supercritical cascade collapse (rho >= 1.0) & loss breach > 7.00 USDT
@@ -3986,7 +4091,7 @@ class CanaryHawkesCascadeRunner:
         assert engine.get_spectral_radius() >= Decimal("1.0")
 
         # BTC plunges to 0.01 USDT -> close BTC position
-        # Realized loss = 0.00010 * (60,000 - 0.01) ~ 6.00 USDT
+        # Realized loss = 0.00012 * (60,000 - 0.01) = 7.1999988 USDT >= 7.00 USDT loss ceiling
         btc_loss_px = Decimal("0.01")
         close_btc_cid = generate_canary_client_order_id("BTCUSDT")
         dispatcher.dispatch_micro_order(
@@ -4001,10 +4106,7 @@ class CanaryHawkesCascadeRunner:
             track_id="track_3",
         )
 
-        # Trigger loss ceiling lockout by setting circuit state or simulated breach
-        interlock.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
-
-        # Opening orders blocked under lockout
+        # Opening orders naturally blocked under intra-phase loss budget ceiling breach
         try:
             dispatcher.dispatch_micro_order(
                 candidate_id=candidate_ids["SOLUSDT"],
@@ -4017,7 +4119,7 @@ class CanaryHawkesCascadeRunner:
                 track_id="track_3",
             )
         except IntraPhaseLossCeilingExceededError:
-            pass  # Expected lockout
+            pass  # Naturally caught via reconciler realized PnL breach
 
         # Liquidate remaining open position (ETHUSDT) in micro-chunks <= 5.00 USDT
         dispatcher.emergency_micro_chunk_liquidate_all(
