@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
+  Activity,
   AlertTriangle,
   Bot as BotIcon,
   CheckCircle2,
@@ -8,13 +9,24 @@ import {
   DatabaseZap,
   LockKeyhole,
   RefreshCw,
+  Scale,
+  ShieldAlert,
   ShieldCheck,
 } from 'lucide-react'
 
+import { AccountingPage } from '@/components/accounting-page'
 import { CreatorPage } from '@/components/creator-page'
 import { LearnerPage } from '@/components/learner-page'
 import { MagicCard } from '@/components/magic-card'
-import { fetchOverviewData } from '@/lib/api'
+import { MicrostructurePage } from '@/components/microstructure-page'
+import { RiskPage } from '@/components/risk-page'
+import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
+import {
+  buildAccountingModel,
+  buildMicrostructureModel,
+  buildRiskModel,
+  type CanaryDashboardData,
+} from '@/lib/canary'
 import { buildCreatorModel } from '@/lib/creator'
 import { buildLearnerModel } from '@/lib/learner'
 import { buildQualificationModel } from '@/lib/qualification'
@@ -31,6 +43,14 @@ const EMPTY_API_DATA: DashboardApiData = {
   health: null,
   bundle: null,
   components: null,
+}
+
+const EMPTY_CANARY_DATA: CanaryDashboardData = {
+  summary: null,
+  hawkes: null,
+  risk: null,
+  accounting: null,
+  error: null,
 }
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -192,23 +212,33 @@ function App() {
   ))
   const [state, setState] = useState<LoadState>('loading')
   const [apiData, setApiData] = useState<DashboardApiData>(EMPTY_API_DATA)
+  const [canaryData, setCanaryData] = useState<CanaryDashboardData>(EMPTY_CANARY_DATA)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null)
+
   const model = useMemo(() => buildOverviewModel(apiData), [apiData])
   const creatorModel = useMemo(() => buildCreatorModel(apiData), [apiData])
   const qualificationModel = useMemo(() => buildQualificationModel(apiData), [apiData])
   const learnerModel = useMemo(() => buildLearnerModel(apiData), [apiData])
+  const microstructureModel = useMemo(() => buildMicrostructureModel(canaryData.hawkes), [canaryData.hawkes])
+  const riskModel = useMemo(() => buildRiskModel(canaryData.risk), [canaryData.risk])
+  const accountingModel = useMemo(() => buildAccountingModel(canaryData.accounting), [canaryData.accounting])
 
   const loadData = useCallback(async () => {
     setState('loading')
     setErrorMessage(null)
     try {
-      const nextData = await fetchOverviewData()
-      setApiData(nextData)
+      const [nextOverview, nextCanary] = await Promise.all([
+        fetchOverviewData(),
+        fetchCanaryDashboardData(),
+      ])
+      setApiData(nextOverview)
+      setCanaryData(nextCanary)
       setLastFetchedAt(new Date())
       setState('ready')
     } catch (error) {
       setApiData(EMPTY_API_DATA)
+      setCanaryData(EMPTY_CANARY_DATA)
       setState('error')
       setErrorMessage(error instanceof Error ? error.message : 'Verified data request failed')
     }
@@ -229,7 +259,10 @@ function App() {
   const isOverviewPage = page === 'overview'
   const isCreatorPage = page === 'creator'
   const isLearnerPage = page === 'learner'
-  const inventoryVisible = !isCreatorPage && !isLearnerPage && state === 'ready' && model.components.length > 0
+  const isMicrostructurePage = page === 'microstructure'
+  const isRiskPage = page === 'risk'
+  const isAccountingPage = page === 'accounting'
+  const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
     <div className="app-shell">
@@ -252,19 +285,68 @@ function App() {
             <ShieldCheck size={17} aria-hidden="true" />
             <span>Learner</span>
           </a>
+          <a className={`nav-item ${isMicrostructurePage ? 'nav-item-active' : ''}`} href="#/microstructure" aria-current={isMicrostructurePage ? 'page' : undefined}>
+            <Activity size={17} aria-hidden="true" />
+            <span>Microstructure</span>
+          </a>
+          <a className={`nav-item ${isRiskPage ? 'nav-item-active' : ''}`} href="#/risk" aria-current={isRiskPage ? 'page' : undefined}>
+            <ShieldAlert size={17} aria-hidden="true" />
+            <span>Risk Controls</span>
+          </a>
+          <a className={`nav-item ${isAccountingPage ? 'nav-item-active' : ''}`} href="#/accounting" aria-current={isAccountingPage ? 'page' : undefined}>
+            <Scale size={17} aria-hidden="true" />
+            <span>Accounting</span>
+          </a>
         </nav>
         <div className="sidebar-footer">
-          <span className="sidebar-label">PHASE 3A</span>
-          <span>Learner readiness</span>
+          <span className="sidebar-label">PHASE 291</span>
+          <span>Hawkes Canary</span>
         </div>
       </aside>
 
       <main className="main-content" id="overview">
         <header className="page-header">
           <div>
-            <p className="eyebrow">Autonomous Futures / {isCreatorPage ? 'Creator plane' : isLearnerPage ? 'Learner plane' : 'Data plane'}</p>
-            <h1>{isCreatorPage ? 'Creator' : isLearnerPage ? 'Learner' : 'Overview'}</h1>
-            <p className="page-subtitle">{isCreatorPage ? 'Research generation readiness · MYT (GMT+8)' : isLearnerPage ? 'Model-learning readiness · MYT (GMT+8)' : 'Causal market-data foundation · MYT (GMT+8)'}</p>
+            <p className="eyebrow">
+              Autonomous Futures /{' '}
+              {isCreatorPage
+                ? 'Creator plane'
+                : isLearnerPage
+                  ? 'Learner plane'
+                  : isMicrostructurePage
+                    ? 'Telemetry plane'
+                    : isRiskPage
+                      ? 'Risk plane'
+                      : isAccountingPage
+                        ? 'Accounting plane'
+                        : 'Data plane'}
+            </p>
+            <h1>
+              {isCreatorPage
+                ? 'Creator'
+                : isLearnerPage
+                  ? 'Learner'
+                  : isMicrostructurePage
+                    ? 'Microstructure'
+                    : isRiskPage
+                      ? 'Risk Controls'
+                      : isAccountingPage
+                        ? 'Accounting Ledger'
+                        : 'Overview'}
+            </h1>
+            <p className="page-subtitle">
+              {isCreatorPage
+                ? 'Research generation readiness · MYT (GMT+8)'
+                : isLearnerPage
+                  ? 'Model-learning readiness · MYT (GMT+8)'
+                  : isMicrostructurePage
+                    ? 'Hawkes jump cascades & execution hazard · MYT (GMT+8)'
+                    : isRiskPage
+                      ? 'Stepped exposure & circuit breakers · MYT (GMT+8)'
+                      : isAccountingPage
+                        ? 'Mathematical double-entry zero-drift · MYT (GMT+8)'
+                        : 'Causal market-data foundation · MYT (GMT+8)'}
+            </p>
           </div>
           <button className="refresh-button" type="button" onClick={() => void loadData()} disabled={state === 'loading'}>
             <RefreshCw size={16} className={state === 'loading' ? 'spin' : undefined} aria-hidden="true" />
@@ -284,7 +366,7 @@ function App() {
           </div>
         )}
 
-        {!isCreatorPage && !isLearnerPage && (
+        {isOverviewPage && (
           <>
             <section className="fact-grid" aria-label="Verified dataset summary">
               <FactCard label="Verification" value={status.label} detail={state === 'ready' ? 'Registry + artifacts verified' : 'No fallback values'} />
@@ -319,6 +401,9 @@ function App() {
 
         {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
         {isLearnerPage && state === 'ready' && <LearnerPage model={learnerModel} />}
+        {isMicrostructurePage && state === 'ready' && <MicrostructurePage model={microstructureModel} />}
+        {isRiskPage && state === 'ready' && <RiskPage model={riskModel} />}
+        {isAccountingPage && state === 'ready' && <AccountingPage model={accountingModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer">

@@ -13,6 +13,13 @@ import type {
   LearnerQualificationEvidenceResponse,
   LearnerTrainingEvidenceResponse,
 } from './dashboard'
+import type {
+  CanaryAccountingResponse,
+  CanaryDashboardData,
+  CanaryHawkesResponse,
+  CanaryRiskResponse,
+  CanarySummaryResponse,
+} from './canary'
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
@@ -210,4 +217,69 @@ export async function fetchOverviewData(): Promise<DashboardApiData> {
     learnerMetricQualityQualification,
     learnerMetricQualityQualificationError,
   }
+}
+
+export async function fetchCanarySummary(): Promise<CanarySummaryResponse | null> {
+  const path = '/api/v1/canary/summary'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as CanarySummaryResponse
+}
+
+export async function fetchCanaryHawkes(): Promise<CanaryHawkesResponse | null> {
+  const path = '/api/v1/canary/hawkes'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as CanaryHawkesResponse
+}
+
+export async function fetchCanaryRisk(): Promise<CanaryRiskResponse | null> {
+  const path = '/api/v1/canary/risk'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as CanaryRiskResponse
+}
+
+export async function fetchCanaryAccounting(): Promise<CanaryAccountingResponse | null> {
+  const path = '/api/v1/canary/accounting'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as CanaryAccountingResponse
+}
+
+export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
+  let summary: CanarySummaryResponse | null = null
+  let hawkes: CanaryHawkesResponse | null = null
+  let risk: CanaryRiskResponse | null = null
+  let accounting: CanaryAccountingResponse | null = null
+  let error: string | null = null
+
+  try {
+    const results = await Promise.allSettled([
+      fetchCanarySummary(),
+      fetchCanaryHawkes(),
+      fetchCanaryRisk(),
+      fetchCanaryAccounting(),
+    ])
+
+    if (results[0].status === 'fulfilled') summary = results[0].value
+    if (results[1].status === 'fulfilled') hawkes = results[1].value
+    if (results[2].status === 'fulfilled') risk = results[2].value
+    if (results[3].status === 'fulfilled') accounting = results[3].value
+
+    for (const res of results) {
+      if (res.status === 'rejected') {
+        error = res.reason instanceof Error ? res.reason.message : 'Telemetry request failed'
+        break
+      }
+    }
+  } catch (err) {
+    error = err instanceof Error ? err.message : 'Telemetry fetch failed'
+  }
+
+  return { summary, hawkes, risk, accounting, error }
 }

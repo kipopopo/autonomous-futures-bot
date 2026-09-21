@@ -29,6 +29,18 @@ from .artifacts import (
     ArtifactIntegrityError,
     inspect_dataset_artifacts,
 )
+from .canary import (
+    CanaryAccountingResponse,
+    CanaryEvidenceIntegrityError,
+    CanaryEvidenceNotFoundError,
+    CanaryHawkesResponse,
+    CanaryRiskResponse,
+    CanarySummaryResponse,
+    load_verified_canary_accounting,
+    load_verified_canary_hawkes,
+    load_verified_canary_risk,
+    load_verified_canary_summary,
+)
 from .catalog import (
     DatasetCatalogIntegrityError,
     VerifiedDatasetCatalog,
@@ -204,6 +216,7 @@ def create_app(
     learner_metric_quality_policy_path: Path | None = None,
     learner_metric_quality_qualification_evidence_path: Path | None = None,
     learner_metric_quality_qualification_policy_path: Path | None = None,
+    canary_phase_dir: Path | None = None,
 ) -> FastAPI:
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
@@ -296,6 +309,9 @@ def create_app(
             "AFBOT_LEARNER_METRIC_QUALITY_QUALIFICATION_POLICY_PATH",
             "data/learner-metric-quality-qualification-policy.json",
         )
+    )
+    configured_canary_phase_dir = canary_phase_dir or _configured_path(
+        "AFBOT_CANARY_PHASE_DIR", "artifacts/research/phase291"
     )
 
     app = FastAPI(
@@ -737,6 +753,54 @@ def create_app(
             rows=rows,
         )
 
+    @app.get("/api/v1/canary/summary", response_model=CanarySummaryResponse)
+    def canary_summary() -> CanarySummaryResponse:
+        try:
+            return load_verified_canary_summary(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="canary evidence unavailable") from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary evidence integrity verification failed",
+            ) from exc
+
+    @app.get("/api/v1/canary/hawkes", response_model=CanaryHawkesResponse)
+    def canary_hawkes() -> CanaryHawkesResponse:
+        try:
+            return load_verified_canary_hawkes(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="canary evidence unavailable") from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary evidence integrity verification failed",
+            ) from exc
+
+    @app.get("/api/v1/canary/risk", response_model=CanaryRiskResponse)
+    def canary_risk() -> CanaryRiskResponse:
+        try:
+            return load_verified_canary_risk(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="canary evidence unavailable") from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary evidence integrity verification failed",
+            ) from exc
+
+    @app.get("/api/v1/canary/accounting", response_model=CanaryAccountingResponse)
+    def canary_accounting() -> CanaryAccountingResponse:
+        try:
+            return load_verified_canary_accounting(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="canary evidence unavailable") from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary evidence integrity verification failed",
+            ) from exc
+
     return app
 
 
@@ -745,6 +809,10 @@ app = create_app()
 
 __all__ = [
     "BundleResponse",
+    "CanaryAccountingResponse",
+    "CanaryHawkesResponse",
+    "CanaryRiskResponse",
+    "CanarySummaryResponse",
     "ComponentsResponse",
     "CreatorRegistryResponse",
     "CreatorQualificationResponse",
