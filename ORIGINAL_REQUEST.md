@@ -2097,3 +2097,167 @@ Enforce mathematical precision and autonomous safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA pushed to `origin/main` cleanly with verified local quality gates.
+
+## 2026-09-21T01:42:00Z
+
+Implement the production canary full autonomous multi-candidate cross-asset Order Flow Imbalance (OFI) runner, Cross-Impact Matrix ($\Gamma_{ij}$) price transmission governance, stepped exposure scaling up to 55.00 USDT, and continuous balance reconciliation across staged canary symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) under Candidate Registry Manifest Version 2 (Phase 290) to govern cross-asset lead-lag price displacement, information share spillover, aggregate margin headroom protection, and session longevity verification.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout. Adopt the "Push & Proceed" asynchronous CI protocol: verify strict local unit tests and static quality gates before committing and pushing, then proceed to review and audit without blocking on remote CI runner completion.
+
+## Requirements
+
+### R1. Upstream Verification & Cryptographic DAG Hash Chain Ingress
+Implement and execute the deterministic Phase 290 OFI and cross-impact runner (`scripts/run_phase_290_ofi_cross_impact.py` & `src/autonomous_futures/feed/ofi_cross_impact.py`):
+- Ingest upstream Phase 289 market impact report (`artifacts/research/phase289/canary-market-impact-report.json`, `market-impact-summary.json`), Phase 288 flow toxicity report, Phase 287 depth imbalance report, Phase 286 liquidity shock report, Phase 285 volatility spillover report, Phase 284 liquidity regime report, Phase 283 adaptive execution report, Phase 282 continuous daemon report, Phase 281 expansion report, Phase 280 deployment report, Phase 279 mainnet authorization report, Phase 278 testnet report, Phase 277 gateway report, and Phase 276 activation certificate.
+- Verify continuous cryptographic SHA-256 Merkle DAG hash chain without gaps across Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Validate prerequisite qualification criteria: `market_impact_status == MARKET_IMPACT_VERIFIED` with zero balance drift.
+
+### R2. Order Flow Imbalance (OFI), Cross-Impact Matrix & Stepped Exposure Ceilings
+Implement cross-asset OFI tracking, cross-impact matrix governance, and stepped exposure scaling interlocks:
+- **Cross-Asset OFI & Cross-Impact Matrix ($\Gamma$) Monitoring**:
+  - Dynamically compute multi-level Order Flow Imbalance:
+    $$\text{OFI}_{t} = \Delta q_t^b - \Delta q_t^a$$
+    across `BTCUSDT`, `ETHUSDT`, and `SOLUSDT`.
+  - Maintain rolling multi-asset cross-impact matrix $\mathbf{\Gamma} \in \mathbb{R}^{3 \times 3}$ linking joint order flow imbalances to instantaneous price displacements:
+    $$\Delta \mathbf{P}_t = \mathbf{\Gamma} \cdot \mathbf{OFI}_t + \mathbf{\epsilon}_t$$
+    capturing cross-asset lead-lag transmission and information share spillover from primary assets (`BTCUSDT`, `ETHUSDT`) to satellite assets (`SOLUSDT`).
+  - Automatically downscale order slice sizing or widen passive limit offset cushions when cross-impact transmission or OFI divergence exceeds tolerance boundaries.
+- **Dynamic Information Spillover & Adverse Lead-Lag Selection Governance**:
+  - Dynamically monitor cross-asset lead-lag latency and off-diagonal cross-impact coefficients across canary candidates.
+  - When lead-lag cross-asset adverse selection spikes, dynamically throttle aggressive order dispatches on lagging symbols to avoid adverse queue front-running.
+  - Apply hysteresis bands between regimes (`NOMINAL`, `ELEVATED_CROSS_IMPACT`, `SEVERE_CONTROLS`) to prevent order rejection flapping.
+- **Stepped Exposure Scaling Limits**:
+  - Individual Micro Child Order Cap: Strictly $\le 5.00$ USDT notional per order with `ROUND_DOWN` precision.
+  - Sequential TWAP Slicing Child Cap: Strictly $\le 2.50$ USDT child slices with $1.00$ USDT floor.
+  - Aggregate Concurrent Exposure Cap: Stepped expansion up to $\le 55.00$ USDT aggregate concurrent active exposure across all symbols (Stage 11: `STAGE_11_OFI_CROSS_IMPACT_EXPANSION`).
+- **Dynamic Margin Headroom Interlock**: Real-time evaluation ensuring active portfolio margin allocation never exceeds $\le 60.00\%$ (preserving $\ge 40.00\%$ unencumbered cash reserve buffer) and per-asset allocation never exceeds $\le 20.00\%$.
+- **Active Committed Working Margin**: Dynamically track and reserve committed margin across concurrent working parent and child orders across symbols to prevent over-allocation without double-counting.
+- **Intra-Phase Cumulative Loss Budget**: Cumulative loss ceiling of $\le 6.50$ USDT; breach triggers immediate portfolio-wide fail-closed lockout and emergency micro-chunked position liquidation ($\le 5.00$ USDT chunks).
+- **Gateway Heartbeat & Clock Skew Guard**: Order placement permitted ONLY if gateway heartbeat age $\le 500$ ms; backward NTP clock drift $> 250$ ms triggers immediate `HEARTBEAT_FREEZE` with 50 ms recovery hysteresis.
+- **Dual-Confirmation Client Order Tagging**: Unique client order IDs tagged with deterministic format (`c=canary-p290-{sym}-{ts}-{uuid}`).
+
+### R3. Deterministic Multi-Track OFI & Cross-Impact Verification Drills & Telemetry Storage
+Execute 4 deterministic simulation tracks in `artifacts/research/phase290/`:
+1. **Track 1: Multi-Candidate OFI & Cross-Impact Ingress Replay** (Nominal OFI tracking, cross-impact matrix monitoring across `BTCUSDT`, `ETHUSDT`, `SOLUSDT` $\rightarrow$ parallel lifecycle management $\rightarrow$ clean ledger updates).
+2. **Track 2: Asymmetric Cross-Asset Lead-Lag Shock & Adaptive Pacing Throttling Drill** (Simulate severe lead-lag spillover from BTC/ETH to SOL $\rightarrow$ dynamic child order downscaling, limit offset widening, and fail-closed dispatch rejection on carry risk boundaries).
+3. **Track 3: Systemic Cross-Impact Correlation Breakdown & Circuit Breaker Liquidation Drill** (Simulate systemic multi-asset correlation rupture and loss budget breach $\rightarrow$ immediate fail-closed lockout and emergency micro-chunked position liquidation $\le 5.00$ USDT).
+4. **Track 4: Extended Multi-Day Session Continuity, WebSocket Heartbeat Renewal & REST Reconciliation Drill** (Simulate extended daemon execution, listen-key refresh, sequence wrap recovery, backfill missing events via REST, idempotent trade deduplication).
+- Store execution marks, orders, lifecycle transitions, and telemetry in isolated SQLite database (`artifacts/research/phase290/canary-ofi-cross-impact-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-ofi-cross-impact-report.json`, `ofi-cross-impact-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Push & Proceed Protocol
+Enforce mathematical precision and autonomous safety:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks ($|\text{drift}| = |\text{final\_cash} + \text{allocated\_margin} + \text{unrealized\_pnl} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Maintain strict containment: `execution_authority: false`, `orders: 0` on uncontrolled real live mainnet capital, `api_keys_loaded: 0`, `exchange_access: false` (zero real secrets committed/logged).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_290_ofi_cross_impact.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and proceed with reviewer and auditor iterations under "Push & Proceed" mode.
+
+## Acceptance Criteria
+
+### Upstream Hash Chain & Ingress
+- [ ] Ingests Phase 289 market impact report and validates cryptographic SHA-256 Merkle DAG hash chain.
+- [ ] Confirms Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+
+### OFI & Cross-Impact Governance
+- [ ] Daemon dynamically tracks OFI and cross-impact matrix ($\Gamma$) metrics across symbols.
+- [ ] Concurrent orders across symbols respect individual $\le 5.00$ USDT and aggregate $\le 55.00$ USDT caps.
+- [ ] Dynamic margin headroom blocks orders when aggregate margin allocation would exceed 60.00%.
+- [ ] Gateway heartbeat age $> 500$ ms immediately blocks order dispatch fail-closed.
+- [ ] Cumulative loss exceeding 6.50 USDT triggers immediate lockout and micro-chunked position liquidation.
+
+### Accounting & Containment Invariants
+- [ ] Mathematical double-entry reconciliation drift is exactly zero ($|\text{drift}| < 10^{-15}$ USDT) across all tracks and snapshots.
+- [ ] Strict containment verified: `execution_authority: false`, `orders: 0`, `api_keys_loaded: 0`.
+- [ ] Zero API keys or secrets logged or committed.
+
+### Quality & Push & Proceed Verification
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA pushed to `origin/main` cleanly with verified local quality gates.
+
+## 2026-09-21T02:18:00Z
+
+Implement the production canary full autonomous multi-candidate cross-asset Hawkes process jump intensity runner, mutually exciting order arrival cascades governance ($\mathbf{A} \in \mathbb{R}^{3 \times 3}$ cross-excitation matrix), stepped exposure scaling up to 60.00 USDT, and continuous balance reconciliation across staged canary symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) under Candidate Registry Manifest Version 2 (Phase 291) to govern cross-asset liquidity cascade self-excitation, endogenous execution hazard decay, aggregate margin headroom protection, and session longevity verification.
+
+Working directory: C:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Team Specification
+This is a single self-contained run; keep it small and focused with one implementer (sole coding writer). Do not run competing coding agents against this checkout. Adopt the "Push & Proceed" asynchronous CI protocol: verify strict local unit tests and static quality gates before committing and pushing, then proceed to review and audit without blocking on remote CI runner completion.
+
+## Requirements
+
+### R1. Upstream Verification & Cryptographic DAG Hash Chain Ingress
+Implement and execute the deterministic Phase 291 Hawkes jump intensity and cascade runner (`scripts/run_phase_291_hawkes_cascades.py` & `src/autonomous_futures/feed/hawkes_cascades.py`):
+- Ingest upstream Phase 290 OFI cross-impact report (`artifacts/research/phase290/canary-ofi-cross-impact-report.json`, `ofi-cross-impact-summary.json`), Phase 289 market impact report, Phase 288 flow toxicity report, Phase 287 depth imbalance report, Phase 286 liquidity shock report, Phase 285 volatility spillover report, Phase 284 liquidity regime report, Phase 283 adaptive execution report, Phase 282 continuous daemon report, Phase 281 expansion report, Phase 280 deployment report, Phase 279 mainnet authorization report, Phase 278 testnet report, Phase 277 gateway report, and Phase 276 activation certificate.
+- Verify continuous cryptographic SHA-256 Merkle DAG hash chain without gaps across Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Validate prerequisite qualification criteria: `ofi_cross_impact_status == OFI_CROSS_IMPACT_VERIFIED` with zero balance drift.
+
+### R2. Hawkes Jump Intensity, Endogenous Cascades & Stepped Exposure Ceilings
+Implement cross-asset Hawkes process modeling, self/cross-excitation cascade governance, and stepped exposure scaling interlocks:
+- **Cross-Asset Hawkes Process & Jump Intensity Monitoring**:
+  - Dynamically model multivariate mutually exciting order arrival intensity:
+    $$\lambda_i(t) = \mu_i + \sum_{j=1}^M \sum_{t_{j,k} < t} \alpha_{ij} e^{-\beta_{ij}(t - t_{j,k})}$$
+    across `BTCUSDT`, `ETHUSDT`, and `SOLUSDT`.
+  - Maintain rolling spectral radius of the branching matrix $\mathbf{\Gamma}_{\text{Hawkes}} = \left[\frac{\alpha_{ij}}{\beta_{ij}}\right] \in \mathbb{R}^{3 \times 3}$ to detect supercritical self-exciting cascade regimes ($\rho(\mathbf{\Gamma}_{\text{Hawkes}}) \ge 1.0$).
+  - Automatically downscale order slice sizing or widen passive limit offset cushions when branching ratio or cross-symbol jump intensity exceeds critical stability thresholds ($\rho \ge 0.85$).
+- **Dynamic Endogenous Cascade & Execution Hazard Governance**:
+  - Dynamically monitor rolling event clustering, trade burst acceleration, and jump contagion from primary assets (`BTCUSDT`, `ETHUSDT`) to secondary assets (`SOLUSDT`).
+  - If endogenous cascade risk spikes or jump clustering suggests predatory front-running bursts, dynamically throttle aggressive order dispatches to avoid cascade slippage.
+  - Apply hysteresis bands between regimes (`NOMINAL`, `ELEVATED_INTENSITY`, `SEVERE_HAWKES_CONTROLS`) to prevent order rejection flapping.
+- **Stepped Exposure Scaling Limits**:
+  - Individual Micro Child Order Cap: Strictly $\le 5.00$ USDT notional per order with `ROUND_DOWN` precision.
+  - Sequential TWAP Slicing Child Cap: Strictly $\le 2.50$ USDT child slices with $1.00$ USDT floor.
+  - Aggregate Concurrent Exposure Cap: Stepped expansion up to $\le 60.00$ USDT aggregate concurrent active exposure across all symbols (Stage 12: `STAGE_12_HAWKES_CASCADE_EXPANSION`).
+- **Dynamic Margin Headroom Interlock**: Real-time evaluation ensuring active portfolio margin allocation never exceeds $\le 60.00\%$ (preserving $\ge 40.00\%$ unencumbered cash reserve buffer) and per-asset allocation never exceeds $\le 20.00\%$.
+- **Active Committed Working Margin**: Dynamically track and reserve committed margin across concurrent working parent and child orders across symbols to prevent over-allocation without double-counting.
+- **Intra-Phase Cumulative Loss Budget**: Cumulative loss ceiling of $\le 7.00$ USDT; breach triggers immediate portfolio-wide fail-closed lockout and emergency micro-chunked position liquidation ($\le 5.00$ USDT chunks).
+- **Gateway Heartbeat & Clock Skew Guard**: Order placement permitted ONLY if gateway heartbeat age $\le 500$ ms; backward NTP clock drift $> 250$ ms triggers immediate `HEARTBEAT_FREEZE` with 50 ms recovery hysteresis.
+- **Dual-Confirmation Client Order Tagging**: Unique client order IDs tagged with deterministic format (`c=canary-p291-{sym}-{ts}-{uuid}`).
+
+### R3. Deterministic Multi-Track Hawkes Cascade Verification Drills & Telemetry Storage
+Execute 4 deterministic simulation tracks in `artifacts/research/phase291/`:
+1. **Track 1: Multi-Candidate Hawkes Intensity & Order Arrival Ingress Replay** (Nominal jump intensity tracking, cross-excitation monitoring across `BTCUSDT`, `ETHUSDT`, `SOLUSDT` $\rightarrow$ parallel lifecycle management $\rightarrow$ clean ledger updates).
+2. **Track 2: Asymmetric Endogenous Jump Burst & Adaptive Pacing Throttling Drill** (Simulate severe cross-asset cascade jump burst $\rightarrow$ dynamic child order downscaling, limit offset widening, and fail-closed dispatch rejection on carry risk boundaries).
+3. **Track 3: Supercritical Cascade Collapse & Circuit Breaker Liquidation Drill** (Simulate branching ratio runaway $\rho \ge 1.0$ and loss budget breach $\rightarrow$ immediate fail-closed lockout and emergency micro-chunked position liquidation $\le 5.00$ USDT).
+4. **Track 4: Extended Multi-Day Session Continuity, WebSocket Heartbeat Renewal & REST Reconciliation Drill** (Simulate extended daemon execution, listen-key refresh, sequence wrap recovery, backfill missing events via REST, idempotent trade deduplication).
+- Store execution marks, orders, lifecycle transitions, and telemetry in isolated SQLite database (`artifacts/research/phase291/canary-hawkes-telemetry.sqlite3`) and JSONL log (`canary-orders.jsonl`).
+- Generate structured audit reports: `canary-hawkes-report.json`, `hawkes-summary.json`, and `paper-summary.json` bound in a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Exact Double-Entry Accounting, Targeted Testing & Push & Proceed Protocol
+Enforce mathematical precision and autonomous safety:
+- Reconcile portfolio balance: verify exact mathematical double-entry reconciliation across all tracks ($|\text{drift}| = |\text{final\_cash} + \text{allocated\_margin} + \text{unrealized\_pnl} - (\text{starting\_equity} + \text{realized\_pnl})| < 10^{-15}\text{ USDT}$).
+- Maintain strict containment: `execution_authority: false`, `orders: 0` on uncontrolled real live mainnet capital, `api_keys_loaded: 0`, `exchange_access: false` (zero real secrets committed/logged).
+- Implement comprehensive targeted unit tests in `tests/unit/test_phase_291_hawkes_cascades.py`.
+- **DO NOT run the full test suite locally** (`uv run pytest`); leave the full regression suite to GitHub Actions CI.
+- Execute local static quality gates: `ruff check`, `ruff format --check`, `mypy src scripts`, `uv lock --check`, `git diff --check`, and preflight secret scan.
+- Commit, push to `origin/main`, and proceed with reviewer and auditor iterations under "Push & Proceed" mode.
+
+## Acceptance Criteria
+
+### Upstream Hash Chain & Ingress
+- [ ] Ingests Phase 290 OFI cross-impact report and validates cryptographic SHA-256 Merkle DAG hash chain.
+- [ ] Confirms Candidate Registry Manifest Version 2 symbols (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+
+### Hawkes Cascades & Hazard Governance
+- [ ] Daemon dynamically tracks Hawkes jump intensity and branching ratio ($\rho$) metrics across symbols.
+- [ ] Concurrent orders across symbols respect individual $\le 5.00$ USDT and aggregate $\le 60.00$ USDT caps.
+- [ ] Dynamic margin headroom blocks orders when aggregate margin allocation would exceed 60.00%.
+- [ ] Gateway heartbeat age $> 500$ ms immediately blocks order dispatch fail-closed.
+- [ ] Cumulative loss exceeding 7.00 USDT triggers immediate lockout and micro-chunked position liquidation.
+
+### Accounting & Containment Invariants
+- [ ] Mathematical double-entry reconciliation drift is exactly zero ($|\text{drift}| < 10^{-15}$ USDT) across all tracks and snapshots.
+- [ ] Strict containment verified: `execution_authority: false`, `orders: 0`, `api_keys_loaded: 0`.
+- [ ] Zero API keys or secrets logged or committed.
+
+### Quality & Push & Proceed Verification
+- [ ] Targeted unit tests pass locally in < 30 seconds.
+- [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
+- [ ] Pushed commit SHA pushed to `origin/main` cleanly with verified local quality gates.
