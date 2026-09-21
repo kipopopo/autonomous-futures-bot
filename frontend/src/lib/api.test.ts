@@ -69,4 +69,20 @@ describe('fetchOverviewData metric-quality qualification evidence', () => {
       'GET /api/v1/learner/metric-quality-qualification failed with HTTP 503',
     )
   })
+
+  it('tolerates 503 or 404 for optional dataset bundle and components without failing overview', async () => {
+    const fetchMock = vi.fn().mockImplementation((path: string) => {
+      if (path === '/health') return response(200, { status: 'ok', paper_safe: true, execution_authority: false })
+      if (path === '/api/v1/dataset/bundle') return response(503)
+      if (path === '/api/v1/dataset/components') return response(503)
+      return response(404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchOverviewData()
+
+    expect(result.health?.status).toBe('ok')
+    expect(result.bundle).toBeNull()
+    expect(result.components).toBeNull()
+  })
 })

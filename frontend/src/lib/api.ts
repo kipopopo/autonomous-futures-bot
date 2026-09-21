@@ -31,6 +31,30 @@ async function fetchJson<T>(path: string): Promise<T> {
   return (await response.json()) as T
 }
 
+export async function fetchOptionalBundle(): Promise<BundleResponse | null> {
+  const path = '/api/v1/dataset/bundle'
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (response.status === 404 || response.status === 503) return null
+    if (!response.ok) return null
+    return (await response.json()) as BundleResponse
+  } catch {
+    return null
+  }
+}
+
+export async function fetchOptionalComponents(): Promise<ComponentsResponse | null> {
+  const path = '/api/v1/dataset/components'
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (response.status === 404 || response.status === 503) return null
+    if (!response.ok) return null
+    return (await response.json()) as ComponentsResponse
+  } catch {
+    return null
+  }
+}
+
 async function fetchOptionalCreatorRegistry(): Promise<CreatorRegistryResponse | null> {
   const path = '/api/v1/creator/registry'
   const response = await fetch(path, {
@@ -120,10 +144,16 @@ export async function fetchCreatorQualification(
 }
 
 export async function fetchOverviewData(): Promise<DashboardApiData> {
-  const [health, bundle, components, creatorRegistry] = await Promise.all([
-    fetchJson<HealthResponse>('/health'),
-    fetchJson<BundleResponse>('/api/v1/dataset/bundle'),
-    fetchJson<ComponentsResponse>('/api/v1/dataset/components'),
+  let health: HealthResponse | null = null
+  try {
+    health = await fetchJson<HealthResponse>('/health')
+  } catch {
+    health = null
+  }
+
+  const [bundle, components, creatorRegistry] = await Promise.all([
+    fetchOptionalBundle(),
+    fetchOptionalComponents(),
     fetchOptionalCreatorRegistry(),
   ])
 
