@@ -1452,6 +1452,14 @@ class GatewayHeartbeatMonitor:
 
             if self.is_frozen:
                 return False, f"Heartbeat monitor is frozen ({self.status.value})"
+            if age < -self.max_clock_skew_ms:
+                self.is_frozen = True
+                self.status = HeartbeatStatus.CLOCK_SKEW_FREEZE
+                return (
+                    False,
+                    f"Backward NTP clock drift {abs(age):.1f}ms exceeds threshold "
+                    f"{self.max_clock_skew_ms:.1f}ms",
+                )
             if age > self.freshness_ceiling_ms:
                 self.stale_count += 1
                 return (
@@ -1506,6 +1514,8 @@ class OfiCrossImpactEngine:
         # Order book state tracking for OFI computation: Δq_t^b - Δq_t^a
         self._prev_bids: dict[str, tuple[Decimal, Decimal]] = {}  # (price, qty)
         self._prev_asks: dict[str, tuple[Decimal, Decimal]] = {}  # (price, qty)
+        self._prev_multi_bids: dict[str, list[tuple[Decimal, Decimal]]] = {}  # list of (px, qty)
+        self._prev_multi_asks: dict[str, list[tuple[Decimal, Decimal]]] = {}  # list of (px, qty)
         self._prev_mid_prices: dict[str, Decimal] = {}
 
         # Rolling OFI and price displacement series
@@ -1548,6 +1558,8 @@ class OfiCrossImpactEngine:
         self._prev_mid_prices[sym] = ref_px
         self._prev_bids[sym] = (ref_px * Decimal("0.9999"), Decimal("10.0"))
         self._prev_asks[sym] = (ref_px * Decimal("1.0001"), Decimal("10.0"))
+        self._prev_multi_bids[sym] = [(ref_px * Decimal("0.9999"), Decimal("10.0"))]
+        self._prev_multi_asks[sym] = [(ref_px * Decimal("1.0001"), Decimal("10.0"))]
         self._current_ofi[sym] = Decimal("0.0")
         self._latest_obs[sym] = (Decimal("0.0"), Decimal("0.0"))
         self._rolling_ofi[sym] = deque(maxlen=20)
@@ -1565,6 +1577,135 @@ class OfiCrossImpactEngine:
                     self._symbol_locks[sym] = threading.RLock()
         return self._symbol_locks[sym]
 
+    def process_multi_level_orderbook_update(
+        self,
+        symbol: str,
+        bids: Sequence[tuple[Decimal | float | str | int, Decimal | float | str | int]],
+        asks: Sequence[tuple[Decimal | float | str | int, Decimal | float | str | int]],
+        level_weights: Sequence[float | Decimal] | None = None,
+        timestamp_utc: str | None = None,
+        track_id: str = "ofi_cross_impact",
+    ) -> OfiCrossImpactSnapshot | None:
+        """Process multi-level depth update and compute multi-level Order Flow Imbalance.
+
+        OFI_t = Σ_{k=1}^K w_k (Δq_t^{b,k} - Δq_t^{a,k})
+        """
+        sym = symbol.strip().upper()
+        if not bids or not asks:
+            return None
+
+        clean_bids: list[tuple[Decimal, Decimal]] = [
+            (_safe_decimal(p), _safe_decimal(q)) for p, q in bids
+        ]
+        clean_asks: list[tuple[Decimal, Decimal]] = [
+            (_safe_decimal(p), _safe_decimal(q)) for p, q in asks
+        ]
+
+        # Validate best bid and best ask sanity
+        bp, bq = clean_bids[0]
+        ap, aq = clean_asks[0]
+        if (
+            bp <= Decimal("0")
+            or ap <= Decimal("0")
+            or bq < Decimal("0")
+            or aq < Decimal("0")
+            or bp >= ap
+        ):
+            return None
+
+        snap: OfiCrossImpactSnapshot | None = None
+        with self._get_symbol_lock(sym):
+            if sym not in self._prev_bids or sym not in self._prev_multi_bids:
+                self._init_symbol_state(sym)
+
+            prev_multi_b = self._prev_multi_bids.get(
+                sym, [(self._prev_bids[sym][0], self._prev_bids[sym][1])]
+            )
+            prev_multi_a = self._prev_multi_asks.get(
+                sym, [(self._prev_asks[sym][0], self._prev_asks[sym][1])]
+            )
+            prev_mid = self._prev_mid_prices[sym]
+
+            num_levels = min(len(clean_bids), len(clean_asks))
+            if level_weights is not None:
+                weights = [Decimal(str(w)) for w in level_weights[:num_levels]]
+            else:
+                # Default 1/k weighting for level k >= 1
+                weights = [Decimal("1.0") / Decimal(str(k + 1)) for k in range(num_levels)]
+
+            total_ofi = Decimal("0.0")
+            for k in range(num_levels):
+                cur_bp, cur_bq = clean_bids[k]
+                cur_ap, cur_aq = clean_asks[k]
+                prev_bp, prev_bq = prev_multi_b[k] if k < len(prev_multi_b) else (cur_bp, cur_bq)
+                prev_ap, prev_aq = prev_multi_a[k] if k < len(prev_multi_a) else (cur_ap, cur_aq)
+
+                # Bid flow at level k
+                if cur_bp > prev_bp:
+                    delta_q_b = cur_bq
+                elif cur_bp == prev_bp:
+                    delta_q_b = cur_bq - prev_bq
+                else:
+                    delta_q_b = -prev_bq
+
+                # Ask flow at level k
+                if cur_ap < prev_ap:
+                    delta_q_a = cur_aq
+                elif cur_ap == prev_ap:
+                    delta_q_a = cur_aq - prev_aq
+                else:
+                    delta_q_a = -prev_aq
+
+                level_ofi = delta_q_b - delta_q_a
+                w = weights[k] if k < len(weights) else Decimal("1.0")
+                total_ofi += w * level_ofi
+
+            inst_ofi = total_ofi.quantize(Decimal("0.0001"))
+            self._prev_multi_bids[sym] = clean_bids
+            self._prev_multi_asks[sym] = clean_asks
+            self._prev_bids[sym] = (bp, bq)
+            self._prev_asks[sym] = (ap, aq)
+
+            # Instantaneous price displacement ΔP_bps based on top-of-book mid
+            cur_mid = ((bp + ap) / Decimal("2.0")).quantize(Decimal("0.01"))
+            self._prev_mid_prices[sym] = cur_mid
+            delta_p = cur_mid - prev_mid
+            delta_bps = (
+                (delta_p / prev_mid) * Decimal("10000") if prev_mid > Decimal("0") else Decimal("0")
+            ).quantize(Decimal("0.0001"))
+            self._price_displacements_bps[sym] = delta_bps
+
+            # EWMA smoothing of OFI
+            prev_ofi = self._current_ofi[sym]
+            ewma_ofi = (
+                self.base_ewma_alpha * inst_ofi + (Decimal("1.0") - self.base_ewma_alpha) * prev_ofi
+            ).quantize(Decimal("0.0001"))
+            self._current_ofi[sym] = ewma_ofi
+            self._rolling_ofi[sym].append(inst_ofi)
+
+            with self._global_lock:
+                self._latest_obs[sym] = (ewma_ofi, delta_bps)
+                # Synchronized observation row for ridge regression:
+                # The updating symbol has its instantaneous delta_bps.
+                # Non-updating symbols have instantaneous delta_bps = Decimal("0.0").
+                obs_row = {
+                    s: (
+                        self._current_ofi.get(s, Decimal("0.0")),
+                        delta_bps if s == sym else Decimal("0.0"),
+                    )
+                    for s in CANARY_STAGED_SYMBOLS
+                }
+                self._observation_history.append(obs_row)
+                if len(self._observation_history) >= self.min_observations_for_regression:
+                    self.estimate_cross_impact_matrix()
+
+            snap = self._recalculate_symbol_state(sym, track_id, timestamp_utc)
+
+        if self.telemetry_store and snap is not None:
+            self.telemetry_store.record_ofi_snapshot(snap)
+
+        return snap
+
     def process_orderbook_update(
         self,
         symbol: str,
@@ -1579,75 +1720,13 @@ class OfiCrossImpactEngine:
 
         OFI_t = Δq_t^b - Δq_t^a
         """
-        sym = symbol.strip().upper()
-        snap: OfiCrossImpactSnapshot | None = None
-        with self._get_symbol_lock(sym):
-            bp = _safe_decimal(bid_price)
-            bq = _safe_decimal(bid_qty)
-            ap = _safe_decimal(ask_price)
-            aq = _safe_decimal(ask_qty)
-
-            if bp <= Decimal("0") or ap <= Decimal("0") or bq < Decimal("0") or aq < Decimal("0"):
-                return None
-
-            if sym not in self._prev_bids:
-                self._init_symbol_state(sym)
-
-            prev_bp, prev_bq = self._prev_bids[sym]
-            prev_ap, prev_aq = self._prev_asks[sym]
-            prev_mid = self._prev_mid_prices[sym]
-
-            # 1. Compute Δq_t^b (Bid side flow)
-            if bp > prev_bp:
-                delta_q_b = bq
-            elif bp == prev_bp:
-                delta_q_b = bq - prev_bq
-            else:
-                delta_q_b = -prev_bq
-
-            # 2. Compute Δq_t^a (Ask side flow)
-            if ap < prev_ap:
-                delta_q_a = aq
-            elif ap == prev_ap:
-                delta_q_a = aq - prev_aq
-            else:
-                delta_q_a = -prev_aq
-
-            # 3. Order Flow Imbalance: OFI_t = Δq_t^b - Δq_t^a
-            inst_ofi = (delta_q_b - delta_q_a).quantize(Decimal("0.0001"))
-            self._prev_bids[sym] = (bp, bq)
-            self._prev_asks[sym] = (ap, aq)
-
-            # 4. Instantaneous price displacement ΔP_bps
-            cur_mid = ((bp + ap) / Decimal("2.0")).quantize(Decimal("0.01"))
-            self._prev_mid_prices[sym] = cur_mid
-            delta_p = cur_mid - prev_mid
-            delta_bps = (
-                (delta_p / prev_mid) * Decimal("10000") if prev_mid > Decimal("0") else Decimal("0")
-            ).quantize(Decimal("0.0001"))
-            self._price_displacements_bps[sym] = delta_bps
-
-            # 5. EWMA smoothing of OFI
-            prev_ofi = self._current_ofi[sym]
-            ewma_ofi = (
-                self.base_ewma_alpha * inst_ofi + (Decimal("1.0") - self.base_ewma_alpha) * prev_ofi
-            ).quantize(Decimal("0.0001"))
-            self._current_ofi[sym] = ewma_ofi
-            self._rolling_ofi[sym].append(inst_ofi)
-            self._latest_obs[sym] = (ewma_ofi, delta_bps)
-
-            # 6. Synchronized observation registration and cross-impact matrix update
-            if all(s in self._latest_obs for s in CANARY_STAGED_SYMBOLS):
-                self._observation_history.append(dict(self._latest_obs))
-                if len(self._observation_history) >= self.min_observations_for_regression:
-                    self.estimate_cross_impact_matrix()
-
-            snap = self._recalculate_symbol_state(sym, track_id, timestamp_utc)
-
-        if self.telemetry_store and snap is not None:
-            self.telemetry_store.record_ofi_snapshot(snap)
-
-        return snap
+        return self.process_multi_level_orderbook_update(
+            symbol=symbol,
+            bids=[(bid_price, bid_qty)],
+            asks=[(ask_price, ask_qty)],
+            timestamp_utc=timestamp_utc,
+            track_id=track_id,
+        )
 
     def process_trade(
         self,
@@ -1946,7 +2025,7 @@ class OfiCrossImpactEngine:
                     return dict(self._gamma_matrix)
                 x_rows = []
                 y_rows = []
-                for obs in self._observation_history:
+                for obs in list(self._observation_history):
                     if all(s in obs for s in symbols):
                         x_rows.append([float(obs[s][0]) for s in symbols])
                         y_rows.append([float(obs[s][1]) for s in symbols])
@@ -2273,6 +2352,8 @@ class OfiCrossImpactUserDataStreamReconciler:
         commission: Decimal | float | str | int,
         is_closing: bool = False,
         track_id: str | None = None,
+        order_id: str | None = None,
+        client_order_id: str | None = None,
     ) -> ExecutionMark:
         with self._lock:
             sym_key = str(symbol).strip().upper()
@@ -2284,8 +2365,8 @@ class OfiCrossImpactUserDataStreamReconciler:
                 return ExecutionMark(
                     trade_id=trade_id,
                     track_id=t_id,
-                    order_id="0",
-                    client_order_id="",
+                    order_id=order_id or "0",
+                    client_order_id=client_order_id or "",
                     symbol=sym_key,
                     side=side if isinstance(side, OrderSide) else OrderSide(str(side).upper()),
                     price=str(px),
@@ -2389,8 +2470,8 @@ class OfiCrossImpactUserDataStreamReconciler:
             mark = ExecutionMark(
                 trade_id=trade_id,
                 track_id=t_id,
-                order_id=f"ord-{len(self.processed_trades)}",
-                client_order_id="",
+                order_id=order_id or f"ord-{len(self.processed_trades)}",
+                client_order_id=client_order_id or "",
                 symbol=sym_key,
                 side=side_enum,
                 price=str(px),
@@ -2429,6 +2510,8 @@ class OfiCrossImpactUserDataStreamReconciler:
         is_closing: bool = False,
         fee_rate: Decimal | float | str | int | None = None,
         track_id: str = "ofi_cross_impact",
+        order_id: str | None = None,
+        client_order_id: str | None = None,
     ) -> ExecutionMark:
         with self._lock:
             self.fill_count += 1
@@ -2447,6 +2530,8 @@ class OfiCrossImpactUserDataStreamReconciler:
                 commission=commission,
                 is_closing=is_closing,
                 track_id=track_id,
+                order_id=order_id,
+                client_order_id=client_order_id,
             )
 
 
@@ -3172,6 +3257,8 @@ class OfiCrossImpactMicroOrderDispatcher:
                         commission=comm_fee,
                         is_closing=is_closing,
                         track_id=track_id,
+                        order_id=order_id,
+                        client_order_id=client_order_id,
                     )
                     self.telemetry_store.record_order(ord_rec)
                     self.jsonl_sink.record_order(ord_rec)
@@ -3281,7 +3368,26 @@ class OfiCrossImpactMicroOrderDispatcher:
                         f"regime={regime.value}, lead_lag={lead_lag.value}"
                     )
 
-            # 4. Pre-validate parent order target notional against caps and headroom
+            # 4. Pre-validate candidate throttled cap under elevated/severe regime
+            if (
+                regime
+                in (
+                    OfiCrossImpactRegime.ELEVATED_CROSS_IMPACT,
+                    OfiCrossImpactRegime.SEVERE_CONTROLS,
+                )
+                or lead_lag != LeadLagAdverseState.NORMAL
+            ):
+                cand_committed = self.interlock.get_total_committed_margin(sym)
+                cand_pos_notional = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * l_px
+                if (
+                    cand_committed + cand_pos_notional + t_notional
+                ) > THROTTLED_PER_CANDIDATE_CAP_USDT:
+                    raise LeadLagAdverseSelectionThrottledError(
+                        f"Parent order candidate exposure for {sym} would exceed throttled cap "
+                        f"{THROTTLED_PER_CANDIDATE_CAP_USDT} USDT"
+                    )
+
+            # 5. Pre-validate parent order target notional against caps and headroom
             curr_allocated = self.reconciler.allocated_margin
             curr_committed = self.interlock.get_total_committed_margin()
             active_cap = self.interlock.get_stage_exposure_cap()

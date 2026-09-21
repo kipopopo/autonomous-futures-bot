@@ -62,6 +62,7 @@ from autonomous_futures.feed.ofi_cross_impact import (  # noqa: E402
     DOUBLE_ENTRY_MAX_DRIFT,
     ORDERED_EXPANSION_STAGES,
     STAGE_11_OFI_CROSS_IMPACT_EXPANSION_CAP_USDT,
+    AggregateExposureCapExceededError,
     AggressiveOrderRejectedError,
     CapitalExpansionStage,
     CashReserveBufferBreachedError,
@@ -72,6 +73,7 @@ from autonomous_futures.feed.ofi_cross_impact import (  # noqa: E402
     IndividualMicroCapExceededError,
     IntraPhaseLossCeilingExceededError,
     JsonlCanaryOrderSink,
+    LeadLagAdverseSelectionThrottledError,
     MarginAllocationExceededError,
     MicroNotionalFloorViolationError,
     MockBinanceOfiCrossImpactGateway,
@@ -1043,3 +1045,298 @@ def test_process_orderbook_rolling_estimation_trigger():
     # Verify Gamma matrix reflects multi-asset updates
     for sym in CANARY_STAGED_SYMBOLS:
         assert engine.get_gamma(sym, sym) > Decimal("0.0")
+
+
+def test_backward_clock_jump_check_health_fail_closed():
+    """Verify that local backward clock drift > 250 ms in check_health triggers
+
+    freeze fail-closed.
+    """
+    monitor = GatewayHeartbeatMonitor(freshness_ceiling_ms=500.0, max_clock_skew_ms=250.0)
+    now_ms = 1_000_000
+    monitor.record_heartbeat(
+        server_time_ms=now_ms,
+        latency_ms=20.0,
+        local_time_ms=now_ms,
+    )
+    assert not monitor.is_frozen
+    # Healthy before backward jump
+    ok, _ = monitor.check_health(current_time_ms=now_ms + 100)
+    assert ok
+
+    # Simulate backward NTP clock jump by 300 ms (< -250 ms threshold)
+    ok_skew, reason = monitor.check_health(current_time_ms=now_ms - 300)
+    assert not ok_skew
+    assert monitor.is_frozen
+    assert monitor.status == HeartbeatStatus.CLOCK_SKEW_FREEZE
+    assert "backward ntp clock drift" in reason.lower()
+
+
+def test_crossed_orderbook_rejection():
+    """Verify that crossed or locked order book updates (bid >= ask) are rejected fail-closed."""
+    engine = OfiCrossImpactEngine()
+    snap_valid = engine.process_orderbook_update(
+        symbol="BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        bid_qty=Decimal("1.0"),
+        ask_price=Decimal("60001.00"),
+        ask_qty=Decimal("1.0"),
+    )
+    assert snap_valid is not None
+
+    # Crossed book: bid > ask
+    snap_crossed = engine.process_orderbook_update(
+        symbol="BTCUSDT",
+        bid_price=Decimal("60005.00"),
+        bid_qty=Decimal("1.0"),
+        ask_price=Decimal("60000.00"),
+        ask_qty=Decimal("1.0"),
+    )
+    assert snap_crossed is None
+
+    # Locked book: bid == ask
+    snap_locked = engine.process_orderbook_update(
+        symbol="BTCUSDT",
+        bid_price=Decimal("60000.00"),
+        bid_qty=Decimal("1.0"),
+        ask_price=Decimal("60000.00"),
+        ask_qty=Decimal("1.0"),
+    )
+    assert snap_locked is None
+
+
+def test_multi_level_ofi_computation():
+    """Verify multi-level OFI computation across 3 depth levels with decreasing level weights."""
+    engine = OfiCrossImpactEngine()
+    # Level 1, 2, 3 quotes:
+    # Bids: (59990, 2.0), (59980, 5.0), (59970, 10.0)
+    # Asks: (60010, 2.0), (60020, 5.0), (60030, 10.0)
+    bids_t0 = [
+        (Decimal("59990"), Decimal("2.0")),
+        (Decimal("59980"), Decimal("5.0")),
+        (Decimal("59970"), Decimal("10.0")),
+    ]
+    asks_t0 = [
+        (Decimal("60010"), Decimal("2.0")),
+        (Decimal("60020"), Decimal("5.0")),
+        (Decimal("60030"), Decimal("10.0")),
+    ]
+    snap0 = engine.process_multi_level_orderbook_update(
+        symbol="BTCUSDT",
+        bids=bids_t0,
+        asks=asks_t0,
+        level_weights=[1.0, 0.5, 0.25],
+    )
+    assert snap0 is not None
+
+    # Update at t1:
+    # Level 1: bid size increases by +1.0 (delta_q_b = 1.0, w1=1.0 -> +1.0)
+    # Level 2: bid price increases to 59985, size 4.0 (delta_q_b = 4.0, w2=0.5 -> +2.0)
+    # Level 3: ask size increases by +2.0 (delta_q_a = 2.0, w3=0.25 -> -0.5)
+    # Total multi-level OFI = 1.0*(1.0-0) + 0.5*(4.0-0) + 0.25*(0-2.0)
+    # = 1.0 + 2.0 - 0.5 = 2.50
+    bids_t1 = [
+        (Decimal("59990"), Decimal("3.0")),
+        (Decimal("59985"), Decimal("4.0")),
+        (Decimal("59970"), Decimal("10.0")),
+    ]
+    asks_t1 = [
+        (Decimal("60010"), Decimal("2.0")),
+        (Decimal("60020"), Decimal("5.0")),
+        (Decimal("60030"), Decimal("12.0")),
+    ]
+    snap1 = engine.process_multi_level_orderbook_update(
+        symbol="BTCUSDT",
+        bids=bids_t1,
+        asks=asks_t1,
+        level_weights=[1.0, 0.5, 0.25],
+    )
+    assert snap1 is not None
+    assert Decimal(snap1.instantaneous_ofi) == Decimal("2.5000")
+
+
+def test_no_phantom_cross_impact_when_single_asset_moves():
+    """Verify that consecutive price movements in asset A do NOT pollute asset B displacement."""
+    engine = OfiCrossImpactEngine()
+    for s in CANARY_STAGED_SYMBOLS:
+        p = DEFAULT_REFERENCE_PRICES[s]
+        engine.process_orderbook_update(s, p, Decimal("10.0"), p + Decimal("1.0"), Decimal("10.0"))
+
+    # Now move BTC 10 times with large price jumps
+    for step in range(10):
+        p = DEFAULT_REFERENCE_PRICES["BTCUSDT"] + Decimal(str((step + 1) * 20))
+        engine.process_orderbook_update(
+            "BTCUSDT", p, Decimal("10.0"), p + Decimal("1.0"), Decimal("10.0")
+        )
+
+    # For recent observations generated by BTC updates, verify ETH instantaneous displacement is 0.0
+    recent_obs = list(engine._observation_history)[-5:]
+    for obs in recent_obs:
+        # ETH did not move during these BTC updates, so its displacement in obs must be 0.0 bps
+        assert obs["ETHUSDT"][1] == Decimal("0.0")
+        assert obs["SOLUSDT"][1] == Decimal("0.0")
+
+
+def test_twap_prevalidation_throttled_candidate_cap(temp_telemetry_store, temp_jsonl_sink):
+    """Verify that dispatch_twap_sliced_parent enforces THROTTLED_PER_CANDIDATE_CAP_USDT upfront."""
+    gateway = MockBinanceOfiCrossImpactGateway()
+    reconciler = OfiCrossImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = OfiCrossImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = OfiCrossImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_11_OFI_CROSS_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = OfiCrossImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    # Set SOLUSDT to SEVERE_CONTROLS
+    engine.set_regime_override("SOLUSDT", OfiCrossImpactRegime.SEVERE_CONTROLS)
+
+    # Attempt to dispatch parent order with 12.00 USDT target notional (> 10.00 USDT throttled cap)
+    with pytest.raises(LeadLagAdverseSelectionThrottledError) as exc_info:
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-sol",
+            symbol="SOLUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=Decimal("12.00"),
+            limit_price=DEFAULT_REFERENCE_PRICES["SOLUSDT"],
+        )
+    assert "throttled cap" in str(exc_info.value).lower()
+    # Ensure working margin was not leaked
+    assert interlock.get_total_committed_margin("SOLUSDT") == Decimal("0.0")
+
+
+def test_execution_mark_client_order_id_linking(temp_telemetry_store, temp_jsonl_sink):
+    """Verify that ExecutionMark records in reconciler and telemetry link to client_order_id."""
+    gateway = MockBinanceOfiCrossImpactGateway()
+    reconciler = OfiCrossImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = OfiCrossImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = OfiCrossImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = OfiCrossImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    cid = generate_canary_client_order_id("BTCUSDT")
+    ord_rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00005"),
+        price=Decimal("60000.00"),
+        client_order_id=cid,
+        simulate_fill_immediately=True,
+    )
+    assert ord_rec.status == OrderLifecycleState.FILLED
+
+    # Query execution marks from telemetry database
+    cursor = temp_telemetry_store.conn.cursor()
+    cursor.execute(
+        "SELECT client_order_id, order_id, symbol FROM execution_marks WHERE client_order_id = ?;",
+        (cid,),
+    )
+    row = cursor.fetchone()
+    assert row is not None
+    assert row["client_order_id"] == cid
+    assert row["order_id"] == ord_rec.order_id
+    assert row["symbol"] == "BTCUSDT"
+
+
+def test_concurrent_orderbook_updates_no_deque_mutation_crash():
+    """Verify thread-safe concurrent order book updates and absence of deque mutation crashes."""
+    import threading
+
+    engine = OfiCrossImpactEngine()
+    errors: list[Exception] = []
+
+    def worker(sym: str, count: int):
+        base_px = DEFAULT_REFERENCE_PRICES[sym]
+        for i in range(count):
+            try:
+                engine.process_orderbook_update(
+                    symbol=sym,
+                    bid_price=base_px + Decimal(str(i * 0.01)),
+                    bid_qty=Decimal("5.0"),
+                    ask_price=base_px + Decimal(str(i * 0.01 + 0.5)),
+                    ask_qty=Decimal("5.0"),
+                )
+            except Exception as e:
+                errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(sym, 30)) for sym in CANARY_STAGED_SYMBOLS * 2]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"Concurrent orderbook updates produced errors: {errors}"
+    assert len(engine._observation_history) >= 5
+
+
+def test_sequential_expansion_stage_transitions(temp_telemetry_store):
+    """Verify transition_to_stage sequence from Stage 1 up to Stage 11 and
+
+    exposure downscale blocks.
+    """
+    reconciler = OfiCrossImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = OfiCrossImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = OfiCrossImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_1_SEED_PROBE,
+        telemetry_store=temp_telemetry_store,
+    )
+
+    # Step through all 11 stages up to STAGE_11
+    for st in ORDERED_EXPANSION_STAGES:
+        cap = interlock.transition_to_stage(st)
+        assert interlock.expansion_stage == st
+        assert cap == interlock.get_stage_exposure_cap()
+
+    assert interlock.expansion_stage == CapitalExpansionStage.STAGE_11_OFI_CROSS_IMPACT_EXPANSION
+    assert interlock.get_stage_exposure_cap() == Decimal("55.00")
+
+    # Allocate 12.00 USDT exposure
+    reconciler.allocated_margin = Decimal("12.00")
+
+    # Attempting to downscale to Stage 1 (cap 5.00) or Stage 2 (cap 10.00) must fail closed
+    assert not interlock.can_transition_to(CapitalExpansionStage.STAGE_1_SEED_PROBE)
+    assert not interlock.can_transition_to(CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT)
+    with pytest.raises(AggregateExposureCapExceededError):
+        interlock.transition_to_stage(CapitalExpansionStage.STAGE_2_EXPANDED_CONCURRENT)
+
+    # Can transition to Stage 3 (cap 15.00 >= 12.00)
+    assert interlock.can_transition_to(CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION)
+    cap3 = interlock.transition_to_stage(CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION)
+    assert cap3 == Decimal("15.00")
