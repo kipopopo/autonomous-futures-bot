@@ -297,4 +297,3 @@ def test_load_verified_canary_autonomous_lifecycle_directory_fallback(
     res = load_verified_canary_autonomous_lifecycle(sub_dir)
     assert res.phase == "phase_296"
     assert res.verified is True
-

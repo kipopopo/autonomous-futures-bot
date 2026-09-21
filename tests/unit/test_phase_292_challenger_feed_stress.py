@@ -711,7 +711,7 @@ def test_backoff_overflow_on_large_attempts_empirical_reproduction() -> None:
     assert delay_100 == pytest.approx(8.0)
 
     # Attempt 1025 overflows IEEE 754 double precision
-    with pytest.raises(OverflowError, match="Result too large"):
+    with pytest.raises(OverflowError, match=r"(Result too large|Numerical result out of range)"):
         BinancePublicFeedClient.compute_backoff_delay(attempt=1025, jitter=0.0)
 
 

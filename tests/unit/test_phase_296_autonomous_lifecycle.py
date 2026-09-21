@@ -440,9 +440,7 @@ class TestContinuousFailClosedRiskInterlocks:
         # Open a position
         orders, _ = daemon.evaluate_strategy(symbol="BTCUSDT", force_side=OrderSide.BUY)
         fill_price = orders[0].price
-        daemon.on_trade(
-            make_trade("BTCUSDT", fill_price, Decimal("5.0"), 200, is_buyer_maker=True)
-        )
+        daemon.on_trade(make_trade("BTCUSDT", fill_price, Decimal("5.0"), 200, is_buyer_maker=True))
         assert daemon.ledger.allocated_margin > Decimal("0")
 
         # Simulate intra-phase loss breach
@@ -455,10 +453,9 @@ class TestContinuousFailClosedRiskInterlocks:
         assert len(new_orders) == 0
         assert len(flatten_fills) > 0
         assert daemon.ledger.allocated_margin == Decimal("0")
-        assert (
-            "BTCUSDT" not in daemon.ledger.positions
-            or daemon.ledger.positions["BTCUSDT"].quantity == Decimal("0")
-        )
+        assert "BTCUSDT" not in daemon.ledger.positions or daemon.ledger.positions[
+            "BTCUSDT"
+        ].quantity == Decimal("0")
         is_valid, drift = daemon.verify_zero_drift()
         assert is_valid is True
         assert drift < DOUBLE_ENTRY_MAX_DRIFT

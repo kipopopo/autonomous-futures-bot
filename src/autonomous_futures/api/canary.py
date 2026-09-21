@@ -1638,9 +1638,7 @@ def load_verified_canary_autonomous_lifecycle(
     )
 
     uptime_seconds = float(total_sessions * 20.0) if total_sessions > 0 else 60.0
-    throughput_tps = (
-        round(total_ticks / uptime_seconds, 2) if uptime_seconds > 0 else 45.03
-    )
+    throughput_tps = round(total_ticks / uptime_seconds, 2) if uptime_seconds > 0 else 45.03
 
     longevity = LongevityStatisticsItem(
         total_sessions=total_sessions,
@@ -1975,4 +1973,3 @@ __all__ = [
     "load_verified_canary_summary",
     "verify_canary_phase_integrity",
 ]
-

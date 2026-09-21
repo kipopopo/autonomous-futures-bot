@@ -516,10 +516,9 @@ class TestAdversarialSupercriticalAndLossBudgetLockout:
         assert len(orders) == 0, "All new orders must be blocked fail-closed under loss breach"
         assert len(flatten_fills) >= 1, "Open positions must be cleanly flattened"
         assert daemon.ledger.allocated_margin == Decimal("0.00")
-        assert (
-            sym not in daemon.ledger.positions
-            or daemon.ledger.positions[sym].quantity == Decimal("0")
-        )
+        assert sym not in daemon.ledger.positions or daemon.ledger.positions[
+            sym
+        ].quantity == Decimal("0")
         assert daemon.risk.circuit_state == CircuitState.INTRA_PHASE_LOSS_LOCKOUT
 
         is_valid, drift = daemon.verify_zero_drift()
