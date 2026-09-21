@@ -22,6 +22,7 @@ import type {
   CanaryPaperExecutionResponse,
   CanaryRiskResponse,
   CanaryStrategyActivationResponse,
+  CanaryStressFaultInjectionResponse,
   CanarySummaryResponse,
 } from './canary'
 
@@ -317,6 +318,14 @@ export async function fetchCanaryAutonomousLifecycle(): Promise<CanaryAutonomous
   return (await response.json()) as CanaryAutonomousLifecycleResponse
 }
 
+export async function fetchCanaryStressFaultInjection(): Promise<CanaryStressFaultInjectionResponse | null> {
+  const path = '/api/v1/canary/stress-fault-injection'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as CanaryStressFaultInjectionResponse
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
@@ -326,6 +335,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let paperExecution: CanaryPaperExecutionResponse | null = null
   let strategyActivation: CanaryStrategyActivationResponse | null = null
   let autonomousLifecycle: CanaryAutonomousLifecycleResponse | null = null
+  let stressFaultInjection: CanaryStressFaultInjectionResponse | null = null
   let error: string | null = null
 
   try {
@@ -338,6 +348,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryPaperExecution(),
       fetchCanaryStrategyActivation(),
       fetchCanaryAutonomousLifecycle(),
+      fetchCanaryStressFaultInjection(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
@@ -348,6 +359,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     if (results[5].status === 'fulfilled') paperExecution = results[5].value
     if (results[6].status === 'fulfilled') strategyActivation = results[6].value
     if (results[7].status === 'fulfilled') autonomousLifecycle = results[7].value
+    if (results[8].status === 'fulfilled') stressFaultInjection = results[8].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -359,5 +371,5 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     error = err instanceof Error ? err.message : 'Telemetry fetch failed'
   }
 
-  return { summary, hawkes, risk, accounting, liveMarket, paperExecution, strategyActivation, autonomousLifecycle, error }
+  return { summary, hawkes, risk, accounting, liveMarket, paperExecution, strategyActivation, autonomousLifecycle, stressFaultInjection, error }
 }

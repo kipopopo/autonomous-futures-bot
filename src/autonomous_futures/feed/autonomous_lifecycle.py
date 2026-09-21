@@ -370,6 +370,11 @@ class AutonomousLifecycleDaemon:
         """Current lifecycle session status."""
         return self._status
 
+    @status.setter
+    def status(self, val: SessionStatus) -> None:
+        """Set lifecycle session status."""
+        self._status = val
+
     def get_status(self) -> SessionStatus:
         """Return current lifecycle session status dynamically."""
         return self._status
@@ -777,14 +782,20 @@ class AutonomousLifecycleDaemon:
             all_child_orders: list[ChildOrderIntention] = []
             all_fills: list[OrderExecutionFill] = []
 
-            # Check if loss budget ceiling is breached or circuit state is INTRA_PHASE_LOSS_LOCKOUT
+            # Check loss budget ceiling or circuit state INTRA_PHASE_LOSS_LOCKOUT / HALTED
             is_loss_lockout = (
                 self.risk.cumulative_loss >= Decimal("7.00")
-                or self.risk.circuit_state == CircuitState.INTRA_PHASE_LOSS_LOCKOUT
-                or str(self.risk.circuit_state) == "INTRA_PHASE_LOSS_LOCKOUT"
+                or self.risk.circuit_state
+                in (CircuitState.INTRA_PHASE_LOSS_LOCKOUT, CircuitState.HALTED)
+                or str(self.risk.circuit_state) in ("INTRA_PHASE_LOSS_LOCKOUT", "HALTED")
+                or self.status == SessionStatus.HALTED
             )
             if is_loss_lockout:
-                self.risk.circuit_state = CircuitState.INTRA_PHASE_LOSS_LOCKOUT
+                if (
+                    self.risk.circuit_state != CircuitState.HALTED
+                    and self.status != SessionStatus.HALTED
+                ):
+                    self.risk.circuit_state = CircuitState.INTRA_PHASE_LOSS_LOCKOUT
                 has_open_positions = any(
                     abs(pos.quantity) > Decimal("0") for pos in self.ledger.positions.values()
                 )
@@ -926,10 +937,22 @@ class AutonomousLifecycleDaemon:
                 )
 
                 # Execute Child Orders against Passive Matching Engine
+                current_spread_pct = Decimal("0.0")
+                if (
+                    current_depth.best_bid_price
+                    and current_depth.best_ask_price
+                    and current_depth.best_bid_price > Decimal("0")
+                ):
+                    current_spread_pct = (
+                        (current_depth.best_ask_price - current_depth.best_bid_price)
+                        / current_depth.best_bid_price
+                    ) * Decimal("100")
+
                 for child in child_orders:
                     pre_dec = self.risk.validate_pre_trade_interlocks(
                         symbol=child.symbol,
                         proposed_notional=child.notional_usdt,
+                        bid_ask_spread_pct=current_spread_pct,
                     )
                     self._interlock_events.append(pre_dec)
                     if not pre_dec.allowed:
@@ -962,14 +985,20 @@ class AutonomousLifecycleDaemon:
         self,
         reason: str = "emergency_loss_lockout",
     ) -> list[OrderExecutionFill]:
-        """Flatten active positions in micro slices with zero-drift balance validation."""
+        """Flatten active positions in micro slices (<= 5.00 USDT).
+
+        Enforces zero-drift balance validation and transitions to HALTED.
+        """
         with self._lock:
             fills: list[OrderExecutionFill] = []
             open_positions = dict(self.ledger.positions)
             ts_ms = int(time.time() * 1000)
+            filters_map = get_default_exchange_filters()
+            chunk_cap = HARD_MICRO_NOTIONAL_CAP_USDT
 
             for sym, pos in open_positions.items():
-                if abs(pos.quantity) <= Decimal("0"):
+                abs_qty = abs(pos.quantity)
+                if abs_qty <= Decimal("0"):
                     continue
 
                 close_side = OrderSide.SELL if pos.side == OrderSide.BUY else OrderSide.BUY
@@ -980,43 +1009,80 @@ class AutonomousLifecycleDaemon:
                         exit_price = d_q[-1].best_bid_price or d_q[-1].best_ask_price
                 if not exit_price or exit_price <= Decimal("0"):
                     exit_price = Decimal("100.00")
-                notional = (pos.quantity * exit_price).quantize(
-                    Decimal("0.00000001"), rounding=ROUND_DOWN
-                )
-                fee = (notional * DEFAULT_TAKER_FEE_RATE).quantize(
-                    Decimal("0.00000001"), rounding=ROUND_DOWN
-                )
 
-                fill = OrderExecutionFill(
-                    fill_id=f"flat_{uuid.uuid4().hex[:8]}",
-                    client_order_id=f"c=canary-p296-flatten-{sym.lower()}-{ts_ms}",
-                    parent_order_id=f"p=canary-p296-flatten-{sym.lower()}",
-                    child_index=0,
-                    symbol=sym,
-                    side=close_side,
-                    fill_price=exit_price,
-                    fill_quantity=pos.quantity,
-                    fill_notional_usdt=notional,
-                    fee_usdt=fee,
-                    fee_rate=DEFAULT_TAKER_FEE_RATE,
-                    is_maker=False,
-                    slippage_bps=DEFAULT_TAKER_SLIPPAGE_BPS,
-                    fill_time_ms=ts_ms,
-                    timestamp_ms=ts_ms,
-                )
-                self.risk.release_working_notional(sym, notional)
-                self.ledger.record_fill(fill)
-                self.risk.update_active_exposure(sym, self.ledger.allocated_margin)
-                self.ledger.verify_zero_drift()
-                self._execution_marks.append(fill)
-                self._session_fills += 1
-                fills.append(fill)
+                f = filters_map.get(sym)
+                step_size = f.quantity_step_size if f else Decimal("0.00001")
+
+                remaining_qty = abs_qty
+                c_idx = 0
+                while remaining_qty > Decimal("0"):
+                    remaining_notional = (remaining_qty * exit_price).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+                    if remaining_notional <= chunk_cap:
+                        chunk_qty = remaining_qty
+                    else:
+                        max_qty_for_cap = (chunk_cap / exit_price).quantize(
+                            step_size, rounding=ROUND_DOWN
+                        )
+                        if max_qty_for_cap < step_size:
+                            chunk_qty = (chunk_cap / exit_price).quantize(
+                                Decimal("0.00000001"), rounding=ROUND_DOWN
+                            )
+                        else:
+                            chunk_qty = min(remaining_qty, max_qty_for_cap)
+                            if chunk_qty >= step_size:
+                                chunk_qty = (chunk_qty // step_size) * step_size
+
+                    if chunk_qty <= Decimal("0"):
+                        chunk_qty = remaining_qty
+
+                    chunk_notional = (chunk_qty * exit_price).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+                    fee = (chunk_notional * DEFAULT_TAKER_FEE_RATE).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
+
+                    fill = OrderExecutionFill(
+                        fill_id=f"flat_{uuid.uuid4().hex[:8]}",
+                        client_order_id=f"c=canary-p297-flatten-{sym.lower()}-{ts_ms}-{c_idx}",
+                        parent_order_id=f"p=canary-p297-flatten-{sym.lower()}",
+                        child_index=c_idx,
+                        symbol=sym,
+                        side=close_side,
+                        fill_price=exit_price,
+                        fill_quantity=chunk_qty,
+                        fill_notional_usdt=chunk_notional,
+                        fee_usdt=fee,
+                        fee_rate=DEFAULT_TAKER_FEE_RATE,
+                        is_maker=False,
+                        slippage_bps=DEFAULT_TAKER_SLIPPAGE_BPS,
+                        fill_time_ms=ts_ms,
+                        timestamp_ms=ts_ms,
+                    )
+                    self.risk.release_working_notional(sym, chunk_notional)
+                    self.ledger.record_fill(fill)
+                    self.risk.update_active_exposure(sym, self.ledger.allocated_margin)
+                    self.ledger.verify_zero_drift()
+                    self._execution_marks.append(fill)
+                    self._session_fills += 1
+                    fills.append(fill)
+
+                    remaining_qty -= chunk_qty
+                    c_idx += 1
 
             self.matching_engine.cancel_all_orders()
+            self.status = SessionStatus.HALTED
+            self.risk.circuit_state = CircuitState.HALTED
             self.ledger.create_snapshot()
             self.ledger.verify_zero_drift()
             logger.warning(
-                "Emergency flattening completed for %d positions: %s", len(fills), reason
+                "Emergency auto-flattening completed for %d chunks across %d positions: %s "
+                "(circuit set to HALTED)",
+                len(fills),
+                len(open_positions),
+                reason,
             )
             return fills
 

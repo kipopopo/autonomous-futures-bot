@@ -39,6 +39,7 @@ from .canary import (
     CanaryPaperExecutionResponse,
     CanaryRiskResponse,
     CanaryStrategyActivationResponse,
+    CanaryStressFaultInjectionResponse,
     CanarySummaryResponse,
     CandidatePromotionItem,
     CandidateSignalItem,
@@ -51,6 +52,7 @@ from .canary import (
     load_verified_canary_paper_execution,
     load_verified_canary_risk,
     load_verified_canary_strategy_activation,
+    load_verified_canary_stress_fault_injection,
     load_verified_canary_summary,
 )
 from .catalog import (
@@ -884,6 +886,25 @@ def create_app(
                 detail="canary autonomous lifecycle integrity verification failed",
             ) from exc
 
+    # Phase 297: Extreme Market Stress, Flash Crash Simulation & Fault Injection Resilience
+    @app.get(
+        "/api/v1/canary/stress-fault-injection",
+        response_model=CanaryStressFaultInjectionResponse,
+    )
+    def canary_stress_fault_injection() -> CanaryStressFaultInjectionResponse:
+        try:
+            return load_verified_canary_stress_fault_injection(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary stress fault injection evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary stress fault injection integrity verification failed",
+            ) from exc
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -910,11 +931,13 @@ app = create_app()
 __all__ = [
     "BundleResponse",
     "CanaryAccountingResponse",
+    "CanaryAutonomousLifecycleResponse",
     "CanaryHawkesResponse",
     "CanaryLiveMarketResponse",
     "CanaryPaperExecutionResponse",
     "CanaryRiskResponse",
     "CanaryStrategyActivationResponse",
+    "CanaryStressFaultInjectionResponse",
     "CanarySummaryResponse",
     "CandidatePromotionItem",
     "CandidateSignalItem",

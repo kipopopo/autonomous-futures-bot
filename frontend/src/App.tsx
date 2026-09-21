@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clock3,
   DatabaseZap,
+  Flame,
   Layers,
   LockKeyhole,
   Radio,
@@ -28,6 +29,7 @@ import { MagicCard } from '@/components/magic-card'
 import { MicrostructurePage } from '@/components/microstructure-page'
 import { RiskPage } from '@/components/risk-page'
 import { StrategyActivationPage } from '@/components/strategy-activation-page'
+import { StressPage } from '@/components/stress-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
@@ -38,6 +40,7 @@ import {
   buildPaperExecutionModel,
   buildRiskModel,
   buildStrategyActivationModel,
+  buildStressFaultInjectionModel,
   type CanaryDashboardData,
 } from '@/lib/canary'
 import { buildCreatorModel } from '@/lib/creator'
@@ -66,6 +69,8 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   liveMarket: null,
   paperExecution: null,
   strategyActivation: null,
+  autonomousLifecycle: null,
+  stressFaultInjection: null,
   error: null,
 }
 
@@ -285,6 +290,10 @@ function App() {
     () => buildAutonomousLifecycleModel(canaryData.autonomousLifecycle ?? null),
     [canaryData.autonomousLifecycle]
   )
+  const stressModel = useMemo(
+    () => buildStressFaultInjectionModel(canaryData.stressFaultInjection ?? null),
+    [canaryData.stressFaultInjection]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -309,7 +318,8 @@ function App() {
       nextCanary.liveMarket?.verified ||
       nextCanary.paperExecution?.verified ||
       nextCanary.strategyActivation?.verified ||
-      nextCanary.autonomousLifecycle?.verified
+      nextCanary.autonomousLifecycle?.verified ||
+      nextCanary.stressFaultInjection?.verified
     )
 
     if (hasData) {
@@ -345,7 +355,8 @@ function App() {
             nextCanary.liveMarket?.verified ||
             nextCanary.paperExecution?.verified ||
             nextCanary.strategyActivation?.verified ||
-            nextCanary.autonomousLifecycle?.verified
+            nextCanary.autonomousLifecycle?.verified ||
+            nextCanary.stressFaultInjection?.verified
           )
 
           if (hasData) {
@@ -376,7 +387,8 @@ function App() {
     canaryData.hawkes?.verified ||
     canaryData.paperExecution?.verified ||
     canaryData.strategyActivation?.verified ||
-    canaryData.autonomousLifecycle?.verified
+    canaryData.autonomousLifecycle?.verified ||
+    canaryData.stressFaultInjection?.verified
   )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
@@ -392,6 +404,7 @@ function App() {
   const isExecutionPage = page === 'execution'
   const isActivationPage = page === 'strategy-activation'
   const isLifecyclePage = page === 'lifecycle'
+  const isStressPage = page === 'stress'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -443,10 +456,14 @@ function App() {
             <Layers size={17} aria-hidden="true" />
             <span>Mission Control</span>
           </a>
+          <a className={`nav-item ${isStressPage ? 'nav-item-active' : ''}`} href="#/stress" aria-current={isStressPage ? 'page' : undefined}>
+            <Flame size={17} aria-hidden="true" />
+            <span>Stress Resilience</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 296</span>
-          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Autonomous Lifecycle</span>
+          <span className="sidebar-label">PHASE 297</span>
+          <span className="badge badge-error badge-xs py-2 px-2 font-mono font-semibold">Stress Resilience</span>
         </div>
       </aside>
 
@@ -455,7 +472,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isLifecyclePage
+              {isStressPage
+                ? 'Stress resilience plane'
+                : isLifecyclePage
                 ? 'Mission control plane'
                 : isMarketPage
                 ? 'Market plane'
@@ -476,7 +495,9 @@ function App() {
                               : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isLifecyclePage
+              {isStressPage
+                ? 'Canary Stress Resilience: Fault Injection & Emergency Flattening'
+                : isLifecyclePage
                 ? 'CANARY MISSION CONTROL'
                 : isMarketPage
                 ? 'Live Market Ingress'
@@ -497,7 +518,9 @@ function App() {
                               : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isLifecyclePage
+              {isStressPage
+                ? 'Phase 297 Extreme Market Distress, Sub-ms Circuit Breakers & Capital Preservation · MYT (GMT+8)'
+                : isLifecyclePage
                 ? 'Phase 296 24/7 Autonomous Lifecycle Daemon & Multi-Session Longevity · MYT (GMT+8)'
                 : isMarketPage
                 ? 'Public perpetual book depth & trade ingress · MYT (GMT+8)'
@@ -682,6 +705,7 @@ function App() {
         {isExecutionPage && state === 'ready' && <ExecutionPage model={paperExecutionModel} />}
         {isActivationPage && state === 'ready' && <StrategyActivationPage model={strategyActivationModel} />}
         {isLifecyclePage && state === 'ready' && <LifecyclePage model={autonomousLifecycleModel} />}
+        {isStressPage && state === 'ready' && <StressPage model={stressModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">

@@ -2554,3 +2554,57 @@ Integrity mode: development
 - [ ] Pytest suite covers daemon coordination, multi-session recovery, memory boundedness, and double-entry accounting.
 - [ ] Vitest test suite covers frontend lifecycle telemetry and dashboard components with 0 failures.
 - [ ] Static quality gates (`ruff`, `mypy`, `tsc`) pass with 0 errors.
+
+## 2026-09-21T15:42:16Z
+
+Implement Phase 297: Extreme Market Stress, Flash Crash Simulation & Fault Injection Resilience for Autonomous Futures Bot, establishing real-time synthetic microstructure fault injection, automated fail-closed circuit breaker enforcement, emergency auto-flattening capital preservation, and continuous mathematical double-entry zero-drift balance governance against extreme market distress without live execution authority.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Online Microstructure Stress & Fault Injection Harness
+Implement `MarketFaultInjector` and `OnlineStressEvaluationEngine` in `src/autonomous_futures/feed/stress_fault_injection.py`:
+- Ingest real-time Binance USDⓈ-M public market feeds (top-of-book depth, trades, mark prices) and Hawkes jump intensities/spectral radius from Phases 292-296.
+- Synthesize and inject calibrated adverse shocks on the fly:
+  1. **Flash Crash Shock**: Instantaneous -15% to -25% price drop within 100 ms across depth bids/asks and trade prints.
+  2. **Liquidity Evaporation & Wide Spread Shock**: Sudden spread widening up to 10.0% (from 1.0 bps) and 95% orderbook depth depletion.
+  3. **Phantom Depth / Spoofing & Toxic Flow Shock**: Extreme orderbook asymmetry (|OFI| > 0.95) with predatory rapid quote cancellations.
+  4. **Telemetry Degradation / Clock Skew & Packet Drought**: Clock skew > 500 ms, massive sequence gap jumps (> 1,000 dropped packets), and packet silence.
+
+### R2. Fail-Closed Risk Interlocks & Emergency Auto-Flattening
+Integrate with `AutonomousLifecycleDaemon` to enforce fail-closed circuit breakers:
+- Sub-millisecond circuit breaker tripping upon anomaly detection (< 1 ms latency).
+- Hawkes supercritical runaway (rho >= 1.0) or severe hazard instantly vetoes child order dispatch.
+- Spread shock veto blocks new order placement when bid-ask spread > 1.0%.
+- Heartbeat age > 500 ms or clock skew > 500 ms triggers immediate veto.
+- Emergency Auto-Flattening: If intra-phase loss reaches or threatens the loss budget (<= 7.00 USDT), automatically execute emergency position closure, cancel outstanding child orders, and transition circuit breaker to `HALTED`.
+
+### R3. Continuous Mathematical Double-Entry Zero-Drift Ledger
+Maintain strict real-time double-entry reconciliation across all candidate tracks (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`):
+$$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ across every shock, simulated liquidation/flattening, fee deduction, and equity snapshot.
+Persist structured audit artifacts in `artifacts/research/phase297/` bound by a cryptographic SHA-256 Merkle DAG hash chain linking Phase 296 (`aadff07fae3505f6f2b7f57519dc4d322a1d9d913d697be02354dea3b0c5c718`).
+
+### R4. Observational Backend API & Dashboard Telemetry
+- Expose read-only FastAPI endpoints:
+  - `GET /api/v1/canary/stress-fault-injection`
+  - Update `GET /api/v1/canary/summary`
+- Update React frontend dashboard:
+  - Create `frontend/src/components/stress-page.tsx` with DaisyUI 5.7.42 dark theme rendering:
+    - Real-time Shock Vector Status Matrix
+    - Circuit Breaker Reaction Latencies (sub-millisecond trigger time)
+    - Auto-Flattening & Capital Preservation Audit
+    - Double-Entry Solvency Meter (|drift| < 10^-15 USDT)
+  - Add "Stress Resilience" navigation tab (`#/stress`) in `frontend/src/App.tsx`.
+
+### R5. Strict Paper-Safe Confinement
+Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+- [ ] `scripts/run_phase_297_stress_fault_injection.py` executes 4 deterministic simulation tracks (Nominal/Recovery, Flash Crash Auto-Flat, Liquidity Spread Shock, Multi-Vector Crisis & Merkle DAG) with 0 failures and verified zero balance drift.
+- [ ] Comprehensive pytest suite covers fault injection, circuit breaker tripping, emergency auto-flattening, and double-entry reconciliation.
+- [ ] Vitest frontend test suite covers Stress Resilience dashboard component with 0 failures.
+- [ ] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
+

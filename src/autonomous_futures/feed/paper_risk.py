@@ -49,6 +49,7 @@ CLOCK_SKEW_RECOVERY_HYSTERESIS_MS: float = 200.0
 
 HAWKES_SUPERCRITICAL_THRESHOLD: Decimal = Decimal("1.00")
 HAWKES_SEVERE_REGIME_THRESHOLD: Decimal = Decimal("0.85")
+SPREAD_SHOCK_THRESHOLD_PCT: Decimal = Decimal("1.00")  # Max relative spread (1.00% / 100 bps)
 
 
 # =====================================================================
@@ -105,6 +106,7 @@ class CircuitState(StrEnum):
     TIER_2_HARD_ABORT = "TIER_2_HARD_ABORT"
     INTRA_PHASE_LOSS_LOCKOUT = "INTRA_PHASE_LOSS_LOCKOUT"
     SUPERCRITICAL_CASCADE_LOCKOUT = "SUPERCRITICAL_CASCADE_LOCKOUT"
+    HALTED = "HALTED"
 
 
 class InterlockCode(StrEnum):
@@ -119,6 +121,7 @@ class InterlockCode(StrEnum):
     MARGIN_HEADROOM_BREACH = "MARGIN_HEADROOM_BREACH"
     GATEWAY_HEARTBEAT_STALE = "GATEWAY_HEARTBEAT_STALE"
     CLOCK_SKEW_BREACH = "CLOCK_SKEW_BREACH"
+    SPREAD_SHOCK_VETO = "SPREAD_SHOCK_VETO"
     CIRCUIT_BREAKER_ACTIVE = "CIRCUIT_BREAKER_ACTIVE"
 
 
@@ -387,6 +390,8 @@ class LivePaperRiskInterlock:
         heartbeat_age_ms: float = 0.0,
         clock_skew_ms: float = 0.0,
         is_predatory: bool = False,
+        bid_ask_spread_pct: Decimal = Decimal("0.0"),
+        **kwargs: Any,
     ) -> InterlockDecision:
         """Evaluate pre-trade risk interlocks in strict order. Return decision."""
         now = datetime.now(UTC)
@@ -429,7 +434,33 @@ class LivePaperRiskInterlock:
             self._interlock_events.append(decision)
             return decision
 
-        # 3. Active Circuit Breakers
+        # 3. Relative Spread Shock Check (> 1.0% / 100 bps)
+        effective_spread_pct = bid_ask_spread_pct
+        if effective_spread_pct <= Decimal("0.0") and "relative_spread" in kwargs:
+            raw_rs = kwargs["relative_spread"]
+            if isinstance(raw_rs, Decimal):
+                effective_spread_pct = (
+                    raw_rs * Decimal("100") if raw_rs <= Decimal("1.0") else raw_rs
+                )
+        if effective_spread_pct > SPREAD_SHOCK_THRESHOLD_PCT:
+            decision = InterlockDecision(
+                event_id=eid,
+                allowed=False,
+                code=InterlockCode.SPREAD_SHOCK_VETO,
+                reason=InterlockReasonStr(
+                    f"Relative spread {effective_spread_pct:.2f}% exceeds "
+                    f"{SPREAD_SHOCK_THRESHOLD_PCT:.2f}% tolerance",
+                    code=InterlockCode.SPREAD_SHOCK_VETO,
+                ),
+                circuit_state=self._circuit_state,
+                symbol=symbol,
+                proposed_notional=proposed_notional,
+                timestamp_utc=now,
+            )
+            self._interlock_events.append(decision)
+            return decision
+
+        # 4. Active Circuit Breakers
         if (
             self._circuit_state != CircuitState.NORMAL
             and self._circuit_state != CircuitBreakerState.NORMAL
@@ -445,6 +476,11 @@ class LivePaperRiskInterlock:
                 CircuitBreakerState.SUPERCRITICAL_CASCADE_LOCKOUT,
             ):
                 breaker_code = InterlockCode.SUPERCRITICAL_CASCADE_LOCKOUT
+            elif self._circuit_state in (
+                CircuitState.HALTED,
+                "HALTED",
+            ):
+                breaker_code = InterlockCode.CIRCUIT_BREAKER_ACTIVE
 
             decision = InterlockDecision(
                 event_id=eid,
@@ -804,6 +840,7 @@ __all__ = [
     "PaperRiskEngine",
     "PaperRiskError",
     "PerAssetExposureCapExceededError",
+    "SPREAD_SHOCK_THRESHOLD_PCT",
     "STARTING_EQUITY_USDT",
     "flatten_portfolio_emergency",
 ]
