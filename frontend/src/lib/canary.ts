@@ -407,3 +407,78 @@ export function buildLiveMarketModel(data: CanaryLiveMarketResponse | null): Liv
     streamStats: data.stream_stats || {},
   }
 }
+
+// ---------------------------------------------------------------------------
+// Phase 293: Live Hawkes Telemetry Streaming Types
+// ---------------------------------------------------------------------------
+
+export interface PaperSafeMetadata {
+  execution_authority: boolean
+  paper_safe: boolean
+  zero_drift_verified: boolean
+  drift_usdt: string
+}
+
+export interface HawkesLiveMetricsData {
+  timestamp_utc: string
+  symbol: string
+  jump_intensity: Record<string, string>
+  spectral_radius: string
+  branching_ratios: Record<string, string>
+  regimes: Record<string, string>
+  cascade_states: Record<string, string>
+  pacing_intervals_ms: Record<string, number>
+  limit_offset_cushions_bps: Record<string, string>
+  full_branching_matrix: Record<string, Record<string, string>>
+  is_supercritical: boolean
+  is_predatory_front_running: boolean
+}
+
+export interface MicrostructureTelemetryData {
+  timestamp_utc: string
+  symbol: string
+  bid_price: string
+  ask_price: string
+  spread_bps: string
+  mark_price?: string | null
+  funding_rate?: string | null
+  last_trade_price?: string | null
+  last_trade_quantity?: string | null
+  bids: string[][]
+  asks: string[][]
+}
+
+export interface RegimeChangeData {
+  timestamp_utc: string
+  symbol: string
+  previous_regime: string
+  current_regime: string
+  spectral_radius: string
+  pacing_interval_ms: number
+  limit_offset_cushion_bps: string
+  reason: string
+}
+
+export interface HazardAlertData {
+  timestamp_utc: string
+  alert_id: string
+  severity: 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO'
+  hazard_type: string
+  symbol: string
+  spectral_radius: string
+  message: string
+  action_taken: string
+}
+
+export interface TelemetryStreamEnvelope {
+  type:
+    | 'hawkes_metrics'
+    | 'microstructure_snapshot'
+    | 'regime_change'
+    | 'hazard_alert'
+    | 'heartbeat'
+    | 'initial_state'
+  timestamp: string
+  data: unknown
+  paper_safe_metadata: PaperSafeMetadata
+}

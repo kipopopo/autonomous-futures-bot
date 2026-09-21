@@ -23,6 +23,7 @@ import { MagicCard } from '@/components/magic-card'
 import { MicrostructurePage } from '@/components/microstructure-page'
 import { RiskPage } from '@/components/risk-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
+import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
   buildAccountingModel,
   buildLiveMarketModel,
@@ -101,7 +102,17 @@ function statusFor(state: LoadState, model: OverviewModel, hasCanary: boolean): 
   return { label: 'NO VERIFIED DATA', tone: 'error', icon: AlertTriangle }
 }
 
-function SafetyRail({ state, model, hasCanary }: { state: LoadState; model: OverviewModel; hasCanary: boolean }) {
+function SafetyRail({
+  state,
+  model,
+  hasCanary,
+  telemetryStatus,
+}: {
+  state: LoadState
+  model: OverviewModel
+  hasCanary: boolean
+  telemetryStatus?: ConnectionStatus
+}) {
   const status = statusFor(state, model, hasCanary)
   const StatusIcon = status.icon
   return (
@@ -117,6 +128,22 @@ function SafetyRail({ state, model, hasCanary }: { state: LoadState; model: Over
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2.5">
+        {telemetryStatus === 'STREAMING' ? (
+          <div className="badge badge-success gap-1.5 py-3 px-3 font-semibold text-xs tracking-wide shadow-sm">
+            <Radio size={14} className="animate-pulse" aria-hidden="true" />
+            <span>STREAMING</span>
+          </div>
+        ) : telemetryStatus === 'RECONNECTING' ? (
+          <div className="badge badge-warning gap-1.5 py-3 px-3 font-semibold text-xs tracking-wide shadow-sm">
+            <RefreshCw size={14} className="animate-spin" aria-hidden="true" />
+            <span>RECONNECTING</span>
+          </div>
+        ) : (
+          <div className="badge badge-ghost opacity-60 gap-1.5 py-3 px-3 font-semibold text-xs tracking-wide">
+            <Radio size={14} aria-hidden="true" />
+            <span>DISCONNECTED</span>
+          </div>
+        )}
         <div
           className={`badge ${
             status.tone === 'verified'
@@ -217,6 +244,7 @@ function ComponentInventory({ components }: { components: ComponentInspection[] 
 }
 
 function App() {
+  const telemetry = useTelemetryWebSocket()
   const [page, setPage] = useState<DashboardPage>(() => (
     typeof window === 'undefined' ? 'overview' : pageFromHash(window.location.hash)
   ))
@@ -367,8 +395,8 @@ function App() {
           </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 292</span>
-          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Live Ingress</span>
+          <span className="sidebar-label">PHASE 293</span>
+          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Hawkes Streaming</span>
         </div>
       </aside>
 
@@ -433,7 +461,12 @@ function App() {
           </button>
         </header>
 
-        <SafetyRail state={state} model={model} hasCanary={hasCanary} />
+        <SafetyRail
+          state={state}
+          model={model}
+          hasCanary={hasCanary}
+          telemetryStatus={telemetry.status}
+        />
 
         {errorMessage && (
           <div className="alert alert-warning shadow-lg mb-6" role="alert">
@@ -573,7 +606,9 @@ function App() {
         {isMarketPage && state === 'ready' && <LiveMarketPage model={liveMarketModel} />}
         {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
         {isLearnerPage && state === 'ready' && <LearnerPage model={learnerModel} />}
-        {isMicrostructurePage && state === 'ready' && <MicrostructurePage model={microstructureModel} />}
+        {isMicrostructurePage && state === 'ready' && (
+          <MicrostructurePage model={microstructureModel} telemetry={telemetry} />
+        )}
         {isRiskPage && state === 'ready' && <RiskPage model={riskModel} />}
         {isAccountingPage && state === 'ready' && <AccountingPage model={accountingModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}

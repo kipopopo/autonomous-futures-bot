@@ -88,6 +88,10 @@ from .query import (
     QueryError,
     query_component_rows,
 )
+from .telemetry_ws import (
+    TelemetryBroadcastManager,
+    register_telemetry_websocket,
+)
 
 
 class HealthResponse(DomainModel):
@@ -219,6 +223,7 @@ def create_app(
     learner_metric_quality_qualification_evidence_path: Path | None = None,
     learner_metric_quality_qualification_policy_path: Path | None = None,
     canary_phase_dir: Path | None = None,
+    telemetry_broadcaster: TelemetryBroadcastManager | None = None,
 ) -> FastAPI:
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
@@ -815,6 +820,9 @@ def create_app(
                 detail="canary evidence integrity verification failed",
             ) from exc
 
+    # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
+    register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
+
     return app
 
 
@@ -841,6 +849,8 @@ __all__ = [
     "LearnerTrainingEvidenceResponse",
     "RegistryResponse",
     "RowsResponse",
+    "TelemetryBroadcastManager",
     "app",
     "create_app",
+    "register_telemetry_websocket",
 ]
