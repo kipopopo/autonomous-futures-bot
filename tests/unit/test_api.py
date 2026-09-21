@@ -189,3 +189,24 @@ def test_api_fails_closed_on_tampered_bundle(tmp_path: Path) -> None:
     response = _request(app, "GET", "/api/v1/dataset/bundle")
     assert response.status_code == 503
     assert response.json() == {"detail": "dataset catalog integrity verification failed"}
+
+
+def test_api_serves_frontend_dist(tmp_path: Path) -> None:
+    bundle_path, registry_path = _write_catalog(tmp_path)
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    index_html = dist_dir / "index.html"
+    index_html.write_text(
+        "<!DOCTYPE html><html><body>Mission Control</body></html>",
+        encoding="utf-8",
+    )
+
+    app = create_app(
+        bundle_path=bundle_path,
+        registry_path=registry_path,
+        frontend_dist_path=dist_dir,
+    )
+
+    response = _request(app, "GET", "/")
+    assert response.status_code == 200
+    assert "Mission Control" in response.text

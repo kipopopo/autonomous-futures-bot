@@ -234,6 +234,7 @@ def create_app(
     learner_metric_quality_qualification_policy_path: Path | None = None,
     canary_phase_dir: Path | None = None,
     telemetry_broadcaster: TelemetryBroadcastManager | None = None,
+    frontend_dist_path: Path | None = None,
 ) -> FastAPI:
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
@@ -885,6 +886,20 @@ def create_app(
 
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
+
+    # Serve production frontend single-page application if dist exists
+    default_frontend_dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    configured_frontend_dist = frontend_dist_path or Path(
+        os.environ.get("AFBOT_FRONTEND_DIST_PATH", str(default_frontend_dist))
+    )
+    if configured_frontend_dist.is_dir():
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount(
+            "/",
+            StaticFiles(directory=str(configured_frontend_dist), html=True),
+            name="frontend",
+        )
 
     return app
 
