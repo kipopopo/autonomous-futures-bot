@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clock3,
   DatabaseZap,
+  Layers,
   LockKeyhole,
   Radio,
   RefreshCw,
@@ -21,6 +22,7 @@ import { AccountingPage } from '@/components/accounting-page'
 import { CreatorPage } from '@/components/creator-page'
 import { ExecutionPage } from '@/components/execution-page'
 import { LearnerPage } from '@/components/learner-page'
+import { LifecyclePage } from '@/components/lifecycle-page'
 import { LiveMarketPage } from '@/components/live-market-page'
 import { MagicCard } from '@/components/magic-card'
 import { MicrostructurePage } from '@/components/microstructure-page'
@@ -30,6 +32,7 @@ import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
   buildAccountingModel,
+  buildAutonomousLifecycleModel,
   buildLiveMarketModel,
   buildMicrostructureModel,
   buildPaperExecutionModel,
@@ -278,6 +281,10 @@ function App() {
     () => buildStrategyActivationModel(canaryData.strategyActivation ?? null),
     [canaryData.strategyActivation]
   )
+  const autonomousLifecycleModel = useMemo(
+    () => buildAutonomousLifecycleModel(canaryData.autonomousLifecycle ?? null),
+    [canaryData.autonomousLifecycle]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -301,7 +308,8 @@ function App() {
       nextCanary.accounting?.verified ||
       nextCanary.liveMarket?.verified ||
       nextCanary.paperExecution?.verified ||
-      nextCanary.strategyActivation?.verified
+      nextCanary.strategyActivation?.verified ||
+      nextCanary.autonomousLifecycle?.verified
     )
 
     if (hasData) {
@@ -336,7 +344,8 @@ function App() {
             nextCanary.accounting?.verified ||
             nextCanary.liveMarket?.verified ||
             nextCanary.paperExecution?.verified ||
-            nextCanary.strategyActivation?.verified
+            nextCanary.strategyActivation?.verified ||
+            nextCanary.autonomousLifecycle?.verified
           )
 
           if (hasData) {
@@ -366,7 +375,8 @@ function App() {
     canaryData.summary?.verified ||
     canaryData.hawkes?.verified ||
     canaryData.paperExecution?.verified ||
-    canaryData.strategyActivation?.verified
+    canaryData.strategyActivation?.verified ||
+    canaryData.autonomousLifecycle?.verified
   )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
@@ -381,6 +391,7 @@ function App() {
   const isAccountingPage = page === 'accounting'
   const isExecutionPage = page === 'execution'
   const isActivationPage = page === 'strategy-activation'
+  const isLifecyclePage = page === 'lifecycle'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -428,10 +439,14 @@ function App() {
             <TrendingUp size={17} aria-hidden="true" />
             <span>Strategy Activation</span>
           </a>
+          <a className={`nav-item ${isLifecyclePage ? 'nav-item-active' : ''}`} href="#/lifecycle" aria-current={isLifecyclePage ? 'page' : undefined}>
+            <Layers size={17} aria-hidden="true" />
+            <span>Mission Control</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 295</span>
-          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Strategy Activation</span>
+          <span className="sidebar-label">PHASE 296</span>
+          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Autonomous Lifecycle</span>
         </div>
       </aside>
 
@@ -440,7 +455,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isMarketPage
+              {isLifecyclePage
+                ? 'Mission control plane'
+                : isMarketPage
                 ? 'Market plane'
                 : isCreatorPage
                   ? 'Creator plane'
@@ -459,7 +476,9 @@ function App() {
                               : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isMarketPage
+              {isLifecyclePage
+                ? 'CANARY MISSION CONTROL'
+                : isMarketPage
                 ? 'Live Market Ingress'
                 : isCreatorPage
                   ? 'Creator'
@@ -478,7 +497,9 @@ function App() {
                               : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isMarketPage
+              {isLifecyclePage
+                ? 'Phase 296 24/7 Autonomous Lifecycle Daemon & Multi-Session Longevity · MYT (GMT+8)'
+                : isMarketPage
                 ? 'Public perpetual book depth & trade ingress · MYT (GMT+8)'
                 : isCreatorPage
                   ? 'Research generation readiness · MYT (GMT+8)'
@@ -660,6 +681,7 @@ function App() {
         {isAccountingPage && state === 'ready' && <AccountingPage model={accountingModel} />}
         {isExecutionPage && state === 'ready' && <ExecutionPage model={paperExecutionModel} />}
         {isActivationPage && state === 'ready' && <StrategyActivationPage model={strategyActivationModel} />}
+        {isLifecyclePage && state === 'ready' && <LifecyclePage model={autonomousLifecycleModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">

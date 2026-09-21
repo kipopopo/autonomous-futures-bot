@@ -8,6 +8,7 @@ export type DashboardPage =
   | 'market'
   | 'execution'
   | 'strategy-activation'
+  | 'lifecycle'
 
 export function pageFromHash(hash: string): DashboardPage {
   const normalized = hash.replace(/^#\/?/, '')
@@ -19,5 +20,6 @@ export function pageFromHash(hash: string): DashboardPage {
   if (normalized === 'market' || normalized === 'live-market') return 'market'
   if (normalized === 'execution' || normalized === 'paper-execution') return 'execution'
   if (normalized === 'strategy-activation' || normalized === 'activation') return 'strategy-activation'
+  if (normalized === 'lifecycle' || normalized === 'mission-control') return 'lifecycle'
   return 'overview'
 }

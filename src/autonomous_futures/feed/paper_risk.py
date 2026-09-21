@@ -689,7 +689,12 @@ def flatten_portfolio_emergency(
         if isinstance(raw_pos, dict):
             qty = Decimal(str(raw_pos.get("quantity", "0")))
             side_str = str(raw_pos.get("side", "BUY")).upper()
-            close_side = OrderSide.SELL if side_str == "BUY" else OrderSide.BUY
+            close_side = OrderSide.SELL if "BUY" in side_str else OrderSide.BUY
+        elif hasattr(raw_pos, "quantity") and hasattr(raw_pos, "side"):
+            qty = Decimal(str(raw_pos.quantity))
+            side_raw = raw_pos.side
+            side_str = getattr(side_raw, "value", str(side_raw)).upper()
+            close_side = OrderSide.SELL if "BUY" in side_str else OrderSide.BUY
         else:
             qty = Decimal(str(raw_pos))
             if qty > Decimal("0"):

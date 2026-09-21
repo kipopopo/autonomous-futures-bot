@@ -215,6 +215,7 @@ export interface CanaryDashboardData {
   liveMarket: CanaryLiveMarketResponse | null
   paperExecution?: CanaryPaperExecutionResponse | null
   strategyActivation?: CanaryStrategyActivationResponse | null
+  autonomousLifecycle?: CanaryAutonomousLifecycleResponse | null
   error: string | null
 }
 
@@ -868,5 +869,268 @@ export function buildStrategyActivationModel(
     isMarginBreached: Boolean(data.vetoes?.margin_headroom_breach),
   }
 }
+
+
+// =====================================================================
+// Phase 296: Full Autonomous Lifecycle Orchestration & Multi-Session Longevity
+// =====================================================================
+
+export interface LongevityStatisticsItem {
+  total_sessions: number
+  total_ticks_processed: number
+  uptime_seconds: number
+  throughput_tps: number
+  disconnect_count: number
+  reconnect_count: number
+  sequence_gap_count: number
+  duplicate_packets_count: number
+  memory_bounded: boolean
+  ring_buffer_capacity: number
+}
+
+export interface ComponentHealthItem {
+  name: string
+  status: string
+  details: string
+  updated_at: string
+}
+
+export interface SessionLongevityItem {
+  session_id: string
+  session_index: number
+  start_time_utc: string
+  end_time_utc: string
+  duration_seconds: number
+  ticks_processed: number
+  orders_placed: number
+  fills_count: number
+  starting_equity_usdt: number
+  ending_cash_usdt: number
+  ending_equity_usdt: number
+  realized_pnl_usdt: number
+  drift_usdt: number
+  zero_balance_drift: boolean
+  disconnect_count: number
+  reconnect_count: number
+  status: string
+}
+
+export interface RiskCircuitIndicatorsItem {
+  circuit_state: string
+  spectral_radius_rho: number
+  hawkes_cutoff_threshold: number
+  hawkes_supercritical: boolean
+  heartbeat_age_ms: number
+  heartbeat_threshold_ms: number
+  gateway_heartbeat_stale: boolean
+  aggregate_exposure_usdt: number
+  aggregate_exposure_cap_usdt: number
+  margin_headroom_breach: boolean
+  intra_phase_loss_usdt: number
+  intra_phase_loss_ceiling_usdt: number
+  loss_ceiling_breached: boolean
+  cash_reserve_pct: number
+  min_cash_reserve_floor_pct: number
+  cash_reserve_depleted: boolean
+}
+
+export interface OperationalSwitchItem {
+  name: string
+  label: string
+  enabled: boolean
+  fail_closed: boolean
+  value_display: string
+  description: string
+}
+
+export interface CanaryAutonomousLifecycleResponse {
+  verified: boolean
+  phase: string
+  status: string
+  timestamp_ms: number
+  timestamp_utc?: string
+  execution_authority: boolean
+  paper_safe: boolean
+  daemon_status: string
+  circuit_state: string
+  longevity: LongevityStatisticsItem
+  components: ComponentHealthItem[]
+  sessions: SessionLongevityItem[]
+  risk_circuits: RiskCircuitIndicatorsItem
+  operational_switches: OperationalSwitchItem[]
+  ledger: LedgerReconciliationItem
+  candidates?: CandidatePromotionItem[]
+  orders_stats?: Record<string, unknown>
+  upstream_hash: string
+  phase_hash: string
+  merkle_root: string
+  artifact_hashes?: Record<string, string>
+  upstream_merkle_dag?: Record<string, string>
+}
+
+export interface AutonomousLifecycleModel {
+  phase: string
+  verified: boolean
+  status: string
+  daemonStatus: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  longevity: LongevityStatisticsItem
+  components: ComponentHealthItem[]
+  sessions: SessionLongevityItem[]
+  riskCircuits: RiskCircuitIndicatorsItem
+  operationalSwitches: OperationalSwitchItem[]
+  ledger: LedgerReconciliationItem
+  candidates: CandidatePromotionItem[]
+  upstreamHash: string
+  phaseHash: string
+  merkleRoot: string
+}
+
+export function buildAutonomousLifecycleModel(
+  data: CanaryAutonomousLifecycleResponse | null
+): AutonomousLifecycleModel {
+  if (!data) {
+    return {
+      phase: '—',
+      verified: false,
+      status: 'UNAVAILABLE',
+      daemonStatus: 'UNKNOWN',
+      circuitState: 'UNKNOWN',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      longevity: {
+        total_sessions: 0,
+        total_ticks_processed: 0,
+        uptime_seconds: 0,
+        throughput_tps: 0,
+        disconnect_count: 0,
+        reconnect_count: 0,
+        sequence_gap_count: 0,
+        duplicate_packets_count: 0,
+        memory_bounded: true,
+        ring_buffer_capacity: 1000,
+      },
+      components: [
+        { name: 'Public Ingress Gateway', status: 'UNKNOWN', details: 'Awaiting verified telemetry', updated_at: '' },
+        { name: 'Hawkes Microstructure Streamer', status: 'UNKNOWN', details: 'Awaiting verified telemetry', updated_at: '' },
+        { name: 'Strategy Activation Engine', status: 'UNKNOWN', details: 'Awaiting verified telemetry', updated_at: '' },
+        { name: 'Passive Matching Simulator', status: 'UNKNOWN', details: 'Awaiting verified telemetry', updated_at: '' },
+        { name: 'Zero-Drift Ledger', status: 'UNKNOWN', details: 'Awaiting verified telemetry', updated_at: '' },
+      ],
+      sessions: [],
+      riskCircuits: {
+        circuit_state: 'UNKNOWN',
+        spectral_radius_rho: 0,
+        hawkes_cutoff_threshold: 1.0,
+        hawkes_supercritical: false,
+        heartbeat_age_ms: 0,
+        heartbeat_threshold_ms: 500,
+        gateway_heartbeat_stale: false,
+        aggregate_exposure_usdt: 0,
+        aggregate_exposure_cap_usdt: 60,
+        margin_headroom_breach: false,
+        intra_phase_loss_usdt: 0,
+        intra_phase_loss_ceiling_usdt: 7,
+        loss_ceiling_breached: false,
+        cash_reserve_pct: 100,
+        min_cash_reserve_floor_pct: 40,
+        cash_reserve_depleted: false,
+      },
+      operationalSwitches: [
+        { name: 'paper_safe', label: 'Paper-Safe Mode', enabled: true, fail_closed: true, value_display: 'ENABLED', description: 'Strict offline sandbox isolation' },
+        { name: 'execution_authority', label: 'Live Execution Authority', enabled: false, fail_closed: true, value_display: 'DISABLED', description: 'Hard fail-closed block' },
+        { name: 'hawkes_cutoff', label: 'Hawkes Runaway Cutoff', enabled: true, fail_closed: true, value_display: 'rho < 1.0000', description: 'Order suppression on runaway' },
+        { name: 'heartbeat_freshness', label: 'Heartbeat Freshness Gate', enabled: true, fail_closed: true, value_display: '<= 500 ms', description: 'Latency freshness gate' },
+        { name: 'aggregate_margin_cap', label: 'Aggregate Exposure Ceiling', enabled: true, fail_closed: true, value_display: '<= 60.00 USDT', description: 'Margin cap' },
+      ],
+      ledger: {
+        starting_equity: 100.0,
+        cash: 100.0,
+        allocated_margin: 0.0,
+        unrealized_pnl: 0.0,
+        realized_pnl: 0.0,
+        drift: 0.0,
+        zero_balance_drift: true,
+      },
+      candidates: [],
+      upstreamHash: '—',
+      phaseHash: '—',
+      merkleRoot: '—',
+    }
+  }
+
+  const isZeroDrift =
+    data.ledger?.zero_balance_drift !== undefined
+      ? Boolean(data.ledger.zero_balance_drift)
+      : Math.abs(data.ledger?.drift ?? 0) < 1e-15
+
+  return {
+    phase: data.phase,
+    verified: Boolean(data.verified ?? true),
+    status: data.status,
+    daemonStatus: data.daemon_status || 'ACTIVE',
+    circuitState: data.circuit_state || 'NORMAL',
+    timestampMs: data.timestamp_ms,
+    timestampUtc: data.timestamp_utc || (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data.paper_safe,
+    isExecutionOff: !data.execution_authority,
+    isZeroDrift,
+    longevity: data.longevity || {
+      total_sessions: 0,
+      total_ticks_processed: 0,
+      uptime_seconds: 0,
+      throughput_tps: 0,
+      disconnect_count: 0,
+      reconnect_count: 0,
+      sequence_gap_count: 0,
+      duplicate_packets_count: 0,
+      memory_bounded: true,
+      ring_buffer_capacity: 1000,
+    },
+    components: data.components || [],
+    sessions: data.sessions || [],
+    riskCircuits: data.risk_circuits || {
+      circuit_state: 'NORMAL',
+      spectral_radius_rho: 0,
+      hawkes_cutoff_threshold: 1.0,
+      hawkes_supercritical: false,
+      heartbeat_age_ms: 0,
+      heartbeat_threshold_ms: 500,
+      gateway_heartbeat_stale: false,
+      aggregate_exposure_usdt: 0,
+      aggregate_exposure_cap_usdt: 60,
+      margin_headroom_breach: false,
+      intra_phase_loss_usdt: 0,
+      intra_phase_loss_ceiling_usdt: 7,
+      loss_ceiling_breached: false,
+      cash_reserve_pct: 100,
+      min_cash_reserve_floor_pct: 40,
+      cash_reserve_depleted: false,
+    },
+    operationalSwitches: data.operational_switches || [],
+    ledger: data.ledger || {
+      starting_equity: 100.0,
+      cash: 100.0,
+      allocated_margin: 0.0,
+      unrealized_pnl: 0.0,
+      realized_pnl: 0.0,
+      drift: 0.0,
+      zero_balance_drift: true,
+    },
+    candidates: data.candidates || [],
+    upstreamHash: data.upstream_hash || '—',
+    phaseHash: data.phase_hash || '—',
+    merkleRoot: data.merkle_root || '—',
+  }
+}
+
 
 

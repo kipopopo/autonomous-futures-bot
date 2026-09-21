@@ -2489,3 +2489,68 @@ Integrity mode: development
 - [ ] Pytest suite covers strategy signal generation, OOS gate evaluation, veto interlocks, and paper execution binding.
 - [ ] Vitest test suite covers frontend strategy activation telemetry and UI components with 0 failures.
 - [ ] Static quality gates (`ruff`, `mypy`, `tsc`) pass with 0 errors.
+
+
+## 2026-09-21T12:28:00Z
+
+Implement Phase 296: Full Autonomous Lifecycle Orchestration & Multi-Session Longevity Runner for Autonomous Futures Bot, unifying the real-time public market ingress (Phase 292), Hawkes microstructure streamer (Phase 293), micro child order slicing and passive matching simulator (Phase 294), and walk-forward OOS strategy activation engine (Phase 295) into a resilient, continuous 24/7 autonomous lifecycle daemon with rigorous multi-session reconnection drills, memory-leak-free endurance, and continuous mathematical double-entry zero-drift balance governance.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Unified Autonomous Lifecycle Daemon Architecture
+- Implement `AutonomousLifecycleDaemon` unifying all prior canary pipelines into a single resilient, non-blocking asynchronous event loop:
+  - Phase 292 `BinancePublicFeedClient` for live public orderbook depth (`@depth5@100ms`), aggregate trades (`@aggTrade`), and mark prices.
+  - Phase 293 `HawkesOnlineStreamer` for real-time multivariate jump intensities and spectral radius $\rho$.
+  - Phase 295 `StrategyActivationEngine` evaluating candidate strategies (`cand-btcusdt-dcb-002`, `cand-ethusdt-dcb-003`, `cand-solusdt-rgb-001`) with causal feature calculations and OOS promotion gating.
+  - Phase 294 `ChildOrderGenerator` and `PassiveMatchingSimulator` for micro child order slicing ($\le 5.00\text{ USDT}$, `ROUND_DOWN`) and book-depth matching.
+  - Continuous fail-closed risk interlocks: spectral radius $\rho < 1.0$, gateway freshness $\le 500\text{ ms}$, aggregate exposure $\le 60.00\text{ USDT}$, intra-phase loss budget $\le 7.00\text{ USDT}$, and margin cash reserve $\ge 40\%$.
+
+### R2. Multi-Session Longevity, Auto-Recovery & Deduplication Drills
+- Execute multi-session endurance drills simulating extended 24/7 operation across multiple disjoint market sessions.
+- Graceful recovery and state preservation across simulated network disconnects, TCP drops, WebSocket keepalive resets, and NTP clock drifts.
+- Sequence gap detection, packet deduplication, and idempotent event ingestion preventing stale state replay.
+- Memory leak protection: bounded deque buffers and ring buffers preventing unbounded memory growth over millions of ticks.
+
+### R3. Continuous Mathematical Double-Entry Zero-Drift Ledger & Merkle DAG Chain
+- Real-time double-entry reconciliation across all active tracks and candidate symbols:
+  $$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+  enforcing strict absolute drift tolerance $|\Delta| < 10^{-15}\text{ USDT}$ at every balance update, position open/close, and fee deduction.
+- Produce immutable cryptographic audit artifacts in `artifacts/research/phase296/`:
+  - `canary-lifecycle-telemetry.sqlite3`
+  - `canary-orders.jsonl`
+  - `canary-lifecycle-report.json`
+  - `lifecycle-summary.json`
+  - `paper-summary.json`
+  chained to upstream Phase 295 artifacts via SHA-256 Merkle DAG hash chain.
+
+### R4. Observational Backend API & Mission Control Dashboard
+- Expose read-only FastAPI endpoints (`/api/v1/canary/autonomous-lifecycle`) returning overall daemon status, uptime/session longevity statistics, component health states (ingress, Hawkes, strategy, execution, ledger), risk circuit indicators, and aggregate throughput.
+- Update the web app dashboard with an interactive Mission Control / Lifecycle view (`#/lifecycle` or `#/mission-control`) featuring real-time health scorecards, session timeline, and live operational switches.
+
+### R5. Strict Paper-Safe Confinement
+- Strictly enforce `EXECUTION AUTHORITY: OFF` across all models and handlers.
+- Zero exchange private keys or credentials loaded or required.
+- Zero live orders transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+
+### Unified Lifecycle Daemon
+- [ ] Unified daemon coordinates ingress, Hawkes streaming, strategy evaluation, order slicing, and matching simulation without race conditions or deadlocks.
+- [ ] Fail-closed circuit breakers immediately halt order placement upon $\rho \ge 1.0$, loss breach, stale heartbeat, or margin depletion.
+
+### Multi-Session Longevity & Recovery
+- [ ] Multi-session simulation runs across multiple distinct sessions without state corruption or balance leakage.
+- [ ] Network disconnect and reconnect simulation recovers cleanly with zero sequence gaps and no process crash.
+- [ ] Memory consumption remains strictly bounded under sustained high-throughput event loops.
+
+### Zero-Drift Balance Conservation
+- [ ] Double-entry ledger reconciliation maintains exact zero drift ($|\text{drift}| = 0.00\text{ USDT} < 10^{-15}\text{ USDT}$) across all simulated sessions and fills.
+- [ ] Verification runner `scripts/run_phase_296_autonomous_lifecycle.py` passes all verification tracks with exit code 0.
+
+### Automated Testing & Quality Gates
+- [ ] Pytest suite covers daemon coordination, multi-session recovery, memory boundedness, and double-entry accounting.
+- [ ] Vitest test suite covers frontend lifecycle telemetry and dashboard components with 0 failures.
+- [ ] Static quality gates (`ruff`, `mypy`, `tsc`) pass with 0 errors.

@@ -15,6 +15,7 @@ import type {
 } from './dashboard'
 import type {
   CanaryAccountingResponse,
+  CanaryAutonomousLifecycleResponse,
   CanaryDashboardData,
   CanaryHawkesResponse,
   CanaryLiveMarketResponse,
@@ -308,6 +309,14 @@ export async function fetchCanaryStrategyActivation(): Promise<CanaryStrategyAct
   return (await response.json()) as CanaryStrategyActivationResponse
 }
 
+export async function fetchCanaryAutonomousLifecycle(): Promise<CanaryAutonomousLifecycleResponse | null> {
+  const path = '/api/v1/canary/autonomous-lifecycle'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as CanaryAutonomousLifecycleResponse
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
@@ -316,6 +325,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let liveMarket: CanaryLiveMarketResponse | null = null
   let paperExecution: CanaryPaperExecutionResponse | null = null
   let strategyActivation: CanaryStrategyActivationResponse | null = null
+  let autonomousLifecycle: CanaryAutonomousLifecycleResponse | null = null
   let error: string | null = null
 
   try {
@@ -327,6 +337,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryLiveMarket(),
       fetchCanaryPaperExecution(),
       fetchCanaryStrategyActivation(),
+      fetchCanaryAutonomousLifecycle(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
@@ -336,6 +347,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     if (results[4].status === 'fulfilled') liveMarket = results[4].value
     if (results[5].status === 'fulfilled') paperExecution = results[5].value
     if (results[6].status === 'fulfilled') strategyActivation = results[6].value
+    if (results[7].status === 'fulfilled') autonomousLifecycle = results[7].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -347,5 +359,5 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     error = err instanceof Error ? err.message : 'Telemetry fetch failed'
   }
 
-  return { summary, hawkes, risk, accounting, liveMarket, paperExecution, strategyActivation, error }
+  return { summary, hawkes, risk, accounting, liveMarket, paperExecution, strategyActivation, autonomousLifecycle, error }
 }

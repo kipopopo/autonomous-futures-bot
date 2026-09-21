@@ -31,6 +31,7 @@ from .artifacts import (
 )
 from .canary import (
     CanaryAccountingResponse,
+    CanaryAutonomousLifecycleResponse,
     CanaryEvidenceIntegrityError,
     CanaryEvidenceNotFoundError,
     CanaryHawkesResponse,
@@ -44,6 +45,7 @@ from .canary import (
     LedgerReconciliationItem,
     VetoInterlockItem,
     load_verified_canary_accounting,
+    load_verified_canary_autonomous_lifecycle,
     load_verified_canary_hawkes,
     load_verified_canary_live_market,
     load_verified_canary_paper_execution,
@@ -860,6 +862,25 @@ def create_app(
             raise HTTPException(
                 status_code=503,
                 detail="canary strategy activation integrity verification failed",
+            ) from exc
+
+    # Phase 296: Full Autonomous Lifecycle Orchestration & Multi-Session Longevity
+    @app.get(
+        "/api/v1/canary/autonomous-lifecycle",
+        response_model=CanaryAutonomousLifecycleResponse,
+    )
+    def canary_autonomous_lifecycle() -> CanaryAutonomousLifecycleResponse:
+        try:
+            return load_verified_canary_autonomous_lifecycle(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary autonomous lifecycle evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary autonomous lifecycle integrity verification failed",
             ) from exc
 
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
