@@ -1340,3 +1340,285 @@ def test_sequential_expansion_stage_transitions(temp_telemetry_store):
     assert interlock.can_transition_to(CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION)
     cap3 = interlock.transition_to_stage(CapitalExpansionStage.STAGE_3_CONTINUOUS_EXPANSION)
     assert cap3 == Decimal("15.00")
+
+
+# ---------------------------------------------------------------------------
+# 11. Adversarial Edge Cases & Microstructure Boundary Hardening (Round 3)
+# ---------------------------------------------------------------------------
+
+
+def test_twap_child_orders_properly_tagged_in_jsonl_and_sqlite(
+    temp_telemetry_store, temp_jsonl_sink
+):
+    """Verify child orders dispatched via TWAP are tagged with is_child=True, parent ID,
+
+    and child index in BOTH SQLite and JSONL audit logs.
+    """
+    import json
+
+    gateway = MockBinanceOfiCrossImpactGateway()
+    reconciler = OfiCrossImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = OfiCrossImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = OfiCrossImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_11_OFI_CROSS_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = OfiCrossImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    parent = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-eth",
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("4.50"),
+        limit_price=DEFAULT_REFERENCE_PRICES["ETHUSDT"],
+        slice_chunk_notional=Decimal("2.25"),
+    )
+    assert len(parent.child_order_ids) == 2
+
+    # Check SQLite orders table
+    cursor = temp_telemetry_store.conn.cursor()
+    cursor.execute(
+        "SELECT client_order_id, parent_client_order_id, is_child, child_index "
+        "FROM orders WHERE is_child = 1;"
+    )
+    db_rows = cursor.fetchall()
+    assert len(db_rows) == 2
+    for r in db_rows:
+        assert r["parent_client_order_id"] == parent.parent_client_order_id
+        assert r["is_child"] == 1
+        assert r["client_order_id"] in parent.child_order_ids
+
+    # Check JSONL file content
+    jsonl_lines = temp_jsonl_sink.file_path.read_text(encoding="utf-8").strip().splitlines()
+    child_json_records = [
+        json.loads(line) for line in jsonl_lines if json.loads(line).get("is_child") is True
+    ]
+    assert len(child_json_records) >= 2
+    for c_rec in child_json_records:
+        assert c_rec["parent_client_order_id"] == parent.parent_client_order_id
+        assert c_rec["is_child"] is True
+        assert c_rec["child_index"] in (0, 1)
+
+
+def test_parent_working_margin_memory_leak_prevention(temp_telemetry_store, temp_jsonl_sink):
+    """Verify that completing a TWAP parent order cleans up parent working margin mapping."""
+    gateway = MockBinanceOfiCrossImpactGateway()
+    reconciler = OfiCrossImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = OfiCrossImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = OfiCrossImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_11_OFI_CROSS_IMPACT_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = OfiCrossImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    parent = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("4.50"),
+        limit_price=DEFAULT_REFERENCE_PRICES["BTCUSDT"],
+        slice_chunk_notional=Decimal("2.25"),
+    )
+    p_cid = parent.parent_client_order_id
+
+    # Verify that working margin mappings are empty and not retaining references
+    assert p_cid not in interlock._parent_order_working_notionals
+    assert p_cid not in interlock._parent_order_symbols
+    assert interlock.parent_working_margin["BTCUSDT"] == Decimal("0.0")
+
+
+def test_multi_level_orderbook_negative_and_non_monotonic_prices_rejected():
+    """Verify that multi-level depth updates with non-positive prices, negative quantities,
+
+    or non-monotonic ladder levels are strictly rejected fail-closed.
+    """
+    engine = OfiCrossImpactEngine()
+
+    # Case 1: Negative price at level 1
+    bad_bids_neg_px = [
+        (Decimal("100.0"), Decimal("1.0")),
+        (Decimal("-50.0"), Decimal("2.0")),
+    ]
+    asks = [(Decimal("101.0"), Decimal("1.0")), (Decimal("102.0"), Decimal("2.0"))]
+    assert engine.process_multi_level_orderbook_update("SOLUSDT", bad_bids_neg_px, asks) is None
+
+    # Case 2: Negative quantity at level 1
+    bad_bids_neg_qty = [
+        (Decimal("100.0"), Decimal("1.0")),
+        (Decimal("99.0"), Decimal("-2.0")),
+    ]
+    assert engine.process_multi_level_orderbook_update("SOLUSDT", bad_bids_neg_qty, asks) is None
+
+    # Case 3: Inverted / non-monotonic bids (level 1 price >= level 0 price)
+    bad_bids_inverted = [
+        (Decimal("100.0"), Decimal("1.0")),
+        (Decimal("105.0"), Decimal("2.0")),
+    ]
+    assert engine.process_multi_level_orderbook_update("SOLUSDT", bad_bids_inverted, asks) is None
+
+    # Case 4: Inverted / non-monotonic asks (level 1 price <= level 0 price)
+    bad_asks_inverted = [
+        (Decimal("101.0"), Decimal("1.0")),
+        (Decimal("100.5"), Decimal("2.0")),
+    ]
+    bids = [(Decimal("100.0"), Decimal("1.0")), (Decimal("99.0"), Decimal("2.0"))]
+    assert engine.process_multi_level_orderbook_update("SOLUSDT", bids, bad_asks_inverted) is None
+
+
+def test_cross_impact_matrix_nan_inf_poisoning_defense():
+    """Verify that NaN or Inf in regression matrices does not poison cross-impact."""
+    engine = OfiCrossImpactEngine()
+
+    # Input matrix containing NaN
+    X_nan = np.array([[1.0, 2.0, float("nan")], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+    Y_clean = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]])
+    res = engine.estimate_cross_impact_matrix(ofi_matrix=X_nan, displacement_matrix=Y_clean)
+
+    # Matrix must retain clean numeric Decimal values without NaN
+    for k, v in res.items():
+        assert not v.is_nan(), f"Gamma matrix element {k} poisoned with NaN: {v}"
+        assert not v.is_infinite()
+
+    # Input matrix containing Inf
+    X_inf = np.array([[1.0, 2.0, float("inf")], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+    res_inf = engine.estimate_cross_impact_matrix(ofi_matrix=X_inf, displacement_matrix=Y_clean)
+    for _k, v in res_inf.items():
+        assert not v.is_nan()
+        assert not v.is_infinite()
+
+
+def test_emergency_liquidation_chunk_cap_boundaries(temp_telemetry_store, temp_jsonl_sink):
+    """Verify that emergency liquidation chunk cap is bounded between 1.00 and 5.00 USDT."""
+    gateway = MockBinanceOfiCrossImpactGateway()
+    reconciler = OfiCrossImpactUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = OfiCrossImpactEngine(telemetry_store=temp_telemetry_store)
+
+    interlock = OfiCrossImpactOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = OfiCrossImpactMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    # Open position in SOLUSDT: 0.04 SOL @ 150.00 = 6.00 USDT
+    cid1 = generate_canary_client_order_id("SOLUSDT")
+    cid2 = generate_canary_client_order_id("SOLUSDT")
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-sol",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.02"),
+        price=Decimal("150.00"),
+        client_order_id=cid1,
+    )
+    dispatcher.dispatch_micro_order(
+        candidate_id="cand-sol",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.02"),
+        price=Decimal("150.00"),
+        client_order_id=cid2,
+    )
+    assert reconciler.positions["SOLUSDT"] == Decimal("0.04")
+
+    # Liquidate with chunk_cap = 0 (must floor at 1.00 USDT and not hang or error)
+    cand_map = {"SOLUSDT": "cand-sol", "BTCUSDT": "cand-btc", "ETHUSDT": "cand-eth"}
+    orders = dispatcher.emergency_micro_chunk_liquidate_all(
+        candidate_ids=cand_map,
+        prices={"SOLUSDT": Decimal("150.00")},
+        chunk_cap=Decimal("0.0"),
+    )
+    assert len(orders) >= 1
+    assert reconciler.positions["SOLUSDT"] == Decimal("0.0")
+    assert reconciler.allocated_margin == Decimal("0.0")
+    assert interlock.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+
+
+def test_cancelled_order_cannot_be_filled_in_gateway():
+    """Verify that an order cancelled on mock gateway cannot receive simulated fills."""
+    gateway = MockBinanceOfiCrossImpactGateway()
+    cid = "c=canary-p290-btcusdt-12345-abcdef12"
+    gateway.place_order(
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.0001"),
+        price=Decimal("60000.00"),
+        client_order_id=cid,
+    )
+    assert gateway.cancel_order(cid) is True
+
+    # Attempting to fill cancelled order must return None
+    fill = gateway.simulate_fill(cid)
+    assert fill is None
+
+
+def test_gateway_heartbeat_staleness_freezes_monitor():
+    """Verify that heartbeat age > 500 ms freezes monitor and requires hysteresis recovery."""
+    monitor = GatewayHeartbeatMonitor(freshness_ceiling_ms=500.0, recovery_hysteresis_ms=450.0)
+    t0 = 1700000000000
+    monitor.record_heartbeat(server_time_ms=t0, latency_ms=20.0, local_time_ms=t0)
+
+    # Health check at t0 + 600 ms (> 500 ms ceiling)
+    ok, reason = monitor.check_health(current_time_ms=t0 + 600)
+    assert ok is False
+    assert monitor.is_frozen is True
+    assert monitor.status == HeartbeatStatus.STALE
+
+    # Record heartbeat with latency 480 ms (> 450 ms recovery hysteresis)
+    rec1 = monitor.record_heartbeat(
+        server_time_ms=t0 + 610, latency_ms=480.0, local_time_ms=t0 + 610
+    )
+    assert rec1.is_healthy is False
+    assert monitor.is_frozen is True
+
+    # Record heartbeat with latency 400 ms (<= 450 ms recovery hysteresis)
+    rec2 = monitor.record_heartbeat(
+        server_time_ms=t0 + 620, latency_ms=400.0, local_time_ms=t0 + 620
+    )
+    assert rec2.is_healthy is True
+    assert monitor.is_frozen is False
+    assert monitor.status == HeartbeatStatus.HEALTHY

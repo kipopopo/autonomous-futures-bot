@@ -1330,6 +1330,10 @@ class SqliteCanaryOfiCrossImpactTelemetryStore:
     def close(self) -> None:
         with self._lock:
             try:
+                self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            except Exception:
+                pass
+            try:
                 self.conn.close()
             except Exception:
                 pass
@@ -1461,6 +1465,8 @@ class GatewayHeartbeatMonitor:
                     f"{self.max_clock_skew_ms:.1f}ms",
                 )
             if age > self.freshness_ceiling_ms:
+                self.is_frozen = True
+                self.status = HeartbeatStatus.STALE
                 self.stale_count += 1
                 return (
                     False,
@@ -1601,16 +1607,23 @@ class OfiCrossImpactEngine:
             (_safe_decimal(p), _safe_decimal(q)) for p, q in asks
         ]
 
-        # Validate best bid and best ask sanity
+        # Validate all levels for positive prices, non-negative quantities, and monotonic depth
+        for k in range(len(clean_bids)):
+            p_k, q_k = clean_bids[k]
+            if p_k <= Decimal("0") or q_k < Decimal("0"):
+                return None
+            if k > 0 and p_k >= clean_bids[k - 1][0]:
+                return None
+        for k in range(len(clean_asks)):
+            p_k, q_k = clean_asks[k]
+            if p_k <= Decimal("0") or q_k < Decimal("0"):
+                return None
+            if k > 0 and p_k <= clean_asks[k - 1][0]:
+                return None
+
         bp, bq = clean_bids[0]
         ap, aq = clean_asks[0]
-        if (
-            bp <= Decimal("0")
-            or ap <= Decimal("0")
-            or bq < Decimal("0")
-            or aq < Decimal("0")
-            or bp >= ap
-        ):
+        if bp >= ap:
             return None
 
         snap: OfiCrossImpactSnapshot | None = None
@@ -2011,7 +2024,10 @@ class OfiCrossImpactEngine:
             Diagonal Γ_ii (self-impact) clamped to [0.01, 10.0]
             Off-diagonal Γ_ij (cross-spillover) clamped to [-2.0, 2.0]
         """
-        l_reg = lambda_reg if lambda_reg is not None else self.ridge_regularization_lambda
+        l_reg = max(
+            1e-6,
+            float(lambda_reg if lambda_reg is not None else self.ridge_regularization_lambda),
+        )
         alpha = ewma_weight if ewma_weight is not None else float(self.base_ewma_alpha)
 
         symbols = CANARY_STAGED_SYMBOLS
@@ -2037,6 +2053,9 @@ class OfiCrossImpactEngine:
         if X.ndim != 2 or Y.ndim != 2 or X.shape[1] != len(symbols) or Y.shape[1] != len(symbols):
             return dict(self._gamma_matrix)
 
+        if np.isnan(X).any() or np.isinf(X).any() or np.isnan(Y).any() or np.isinf(Y).any():
+            return dict(self._gamma_matrix)
+
         N = X.shape[0]
         if N < 1:
             return dict(self._gamma_matrix)
@@ -2054,6 +2073,8 @@ class OfiCrossImpactEngine:
             for i, s_row in enumerate(symbols):
                 for j, s_col in enumerate(symbols):
                     val = float(estimated_gamma[i, j])
+                    if np.isnan(val) or np.isinf(val):
+                        continue
                     if i == j:
                         clamped = max(0.01, min(10.0, val))
                     else:
@@ -2168,11 +2189,14 @@ class MockBinanceOfiCrossImpactGateway:
             if client_order_id not in self.orders:
                 return None
             ord_entry = self.orders[client_order_id]
+            if ord_entry.get("status") in ("CANCELLED", "FILLED"):
+                return None
             orig_qty = _safe_decimal(ord_entry["origQty"])
             curr_exec_qty = _safe_decimal(ord_entry.get("executedQty", "0.0"))
-            qty_slice = (
-                _safe_decimal(fill_qty) if fill_qty is not None else (orig_qty - curr_exec_qty)
-            )
+            rem_qty = orig_qty - curr_exec_qty
+            if rem_qty <= Decimal("0.0"):
+                return None
+            qty_slice = min(_safe_decimal(fill_qty) if fill_qty is not None else rem_qty, rem_qty)
             px_to_fill = str(fill_price) if fill_price is not None else ord_entry["price"]
             new_exec_qty = curr_exec_qty + qty_slice
             ord_entry["executedQty"] = str(new_exec_qty)
@@ -2637,7 +2661,8 @@ class OfiCrossImpactOrderDispatchInterlock:
         with self._lock:
             p_id = parent_client_order_id.strip()
             rem = self._parent_order_working_notionals.pop(p_id, Decimal("0.0"))
-            sym = (symbol or self._parent_order_symbols.pop(p_id, None) or "").strip().upper()
+            recorded_sym = self._parent_order_symbols.pop(p_id, None)
+            sym = (symbol or recorded_sym or "").strip().upper()
             if sym and rem > Decimal("0.0"):
                 curr_sym = self.parent_working_margin.get(sym, Decimal("0.0"))
                 self.parent_working_margin[sym] = max(Decimal("0.0"), curr_sym - rem)
@@ -3108,6 +3133,9 @@ class OfiCrossImpactMicroOrderDispatcher:
         track_id: str = "ofi_cross_impact",
         simulate_fill_immediately: bool = True,
         current_time_ms: int | None = None,
+        parent_client_order_id: str | None = None,
+        is_child: bool = False,
+        child_index: int = 0,
     ) -> OfiCrossImpactOrderRecord:
         """Evaluate pre-dispatch interlocks and submit micro-order."""
         with self._lock:
@@ -3150,6 +3178,9 @@ class OfiCrossImpactMicroOrderDispatcher:
                     gamma_value=str(self.interlock.engine.get_gamma(sym, sym)),
                     lead_lag_state=self.interlock.engine.get_lead_lag_state(sym),
                     pacing_interval_ms=self.interlock.engine.get_pacing_interval_ms(sym),
+                    parent_client_order_id=parent_client_order_id,
+                    is_child=is_child,
+                    child_index=child_index,
                     rejection_reason=str(exc),
                 )
                 self.telemetry_store.record_order(rej_rec)
@@ -3204,6 +3235,9 @@ class OfiCrossImpactMicroOrderDispatcher:
                 gamma_value=str(self.interlock.engine.get_gamma(sym, sym)),
                 lead_lag_state=self.interlock.engine.get_lead_lag_state(sym),
                 pacing_interval_ms=self.interlock.engine.get_pacing_interval_ms(sym),
+                parent_client_order_id=parent_client_order_id,
+                is_child=is_child,
+                child_index=child_index,
             )
             self.orders[client_order_id] = ord_rec
             self.telemetry_store.record_order(ord_rec)
@@ -3313,6 +3347,7 @@ class OfiCrossImpactMicroOrderDispatcher:
         limit_price: Decimal | float | str | int,
         slice_chunk_notional: Decimal | float | str | int = DYNAMIC_SLICING_MAX_CHUNK_USDT,
         track_id: str = "ofi_cross_impact",
+        current_time_ms: int | None = None,
     ) -> ParentOrderRecord:
         """Slice parent order into <= 2.50 USDT child slices with 1.00 USDT floor."""
         with self._lock:
@@ -3331,7 +3366,7 @@ class OfiCrossImpactMicroOrderDispatcher:
                 )
 
             # 1. Pre-validate Gateway Heartbeat Freshness
-            hb_ok, hb_reason = self.interlock.heartbeat_monitor.check_health()
+            hb_ok, hb_reason = self.interlock.heartbeat_monitor.check_health(current_time_ms)
             if not hb_ok:
                 if "frozen" in hb_reason.lower() or self.interlock.heartbeat_monitor.is_frozen:
                     raise HeartbeatFreezeActiveError(hb_reason)
@@ -3514,6 +3549,7 @@ class OfiCrossImpactMicroOrderDispatcher:
                     estimated_slippage_bps=str(cushion_bps),
                 )
                 self.parent_orders[parent_cid] = parent_rec
+                self.telemetry_store.record_parent_order(parent_rec)
 
                 cum_exec_notional = Decimal("0.0")
                 cum_exec_qty = Decimal("0.0")
@@ -3530,7 +3566,7 @@ class OfiCrossImpactMicroOrderDispatcher:
                     )
 
                     try:
-                        c_ord = self.dispatch_micro_order(
+                        _ = self.dispatch_micro_order(
                             candidate_id=candidate_id,
                             symbol=sym,
                             side=side,
@@ -3541,11 +3577,11 @@ class OfiCrossImpactMicroOrderDispatcher:
                             is_closing=False,
                             track_id=track_id,
                             simulate_fill_immediately=True,
+                            current_time_ms=current_time_ms,
+                            parent_client_order_id=parent_cid,
+                            is_child=True,
+                            child_index=idx,
                         )
-                        c_ord.parent_client_order_id = parent_cid
-                        c_ord.is_child = True
-                        c_ord.child_index = idx
-                        self.telemetry_store.record_order(c_ord)
                         cum_exec_notional += c_notional
                         cum_exec_qty += c_qty
                     except Exception:
@@ -3557,6 +3593,7 @@ class OfiCrossImpactMicroOrderDispatcher:
                 parent_rec.executed_quantity = str(cum_exec_qty)
                 parent_rec.status = OrderLifecycleState.FILLED
                 parent_rec.dispatch_complete = True
+                self.interlock.release_parent_order_working_margin(parent_cid, sym)
                 self.telemetry_store.record_parent_order(parent_rec)
 
             except Exception:
@@ -3575,7 +3612,10 @@ class OfiCrossImpactMicroOrderDispatcher:
         """Liquidate all open positions in sequential micro-chunks <= 5.00 USDT."""
         with self._lock:
             liquidated_orders: list[OfiCrossImpactOrderRecord] = []
-            effective_chunk_cap = min(_safe_decimal(chunk_cap), HARD_MICRO_NOTIONAL_CAP_USDT)
+            effective_chunk_cap = max(
+                MIN_MICRO_NOTIONAL_CAP_USDT,
+                min(_safe_decimal(chunk_cap), HARD_MICRO_NOTIONAL_CAP_USDT),
+            )
             if self.interlock.circuit_state == CircuitBreakerState.NORMAL:
                 self.interlock.circuit_state = CircuitBreakerState.EMERGENCY_FLATTENING
 
@@ -3637,11 +3677,9 @@ class OfiCrossImpactMicroOrderDispatcher:
                         )
                         liquidated_orders.append(ord_rec)
                         remaining_qty -= actual_slice_qty
-
+            finally:
                 if self.interlock.circuit_state == CircuitBreakerState.EMERGENCY_FLATTENING:
                     self.interlock.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
-            except Exception:
-                raise
 
             return liquidated_orders
 
@@ -5113,6 +5151,32 @@ def verify_phase_290_hash_chain(
     if paper_hashes.get("ofi-cross-impact-summary.json") != actual_summary_hash:
         logger.error("Paper summary ofi-cross-impact-summary.json hash mismatch")
         return False
+    if paper_hashes.get("canary-ofi-cross-impact-report.json") != actual_report_hash:
+        logger.error("Paper summary canary-ofi-cross-impact-report.json hash mismatch")
+        return False
+    if paper_hashes.get("canary-ofi-cross-impact-telemetry.sqlite3") != actual_db_hash:
+        logger.error("Paper summary canary-ofi-cross-impact-telemetry.sqlite3 hash mismatch")
+        return False
+    if paper_hashes.get("canary-orders.jsonl") != actual_jsonl_hash:
+        logger.error("Paper summary canary-orders.jsonl hash mismatch")
+        return False
+    if paper_data.get("cryptographic_signature") != actual_summary_hash:
+        logger.error("Paper summary cryptographic_signature mismatch")
+        return False
+
+    # Verify candidate presence across manifest, summary and paper summary
+    sum_candidates = sum_data.get("candidates", [])
+    paper_candidates = paper_data.get("candidates", {})
+    for sym in CANARY_STAGED_SYMBOLS:
+        if sym not in manifest.candidates:
+            logger.error("Candidate %s missing from manifest", sym)
+            return False
+        if sym not in sum_candidates:
+            logger.error("Candidate %s missing from summary candidates", sym)
+            return False
+        if sym not in paper_candidates:
+            logger.error("Candidate %s missing from paper summary candidates", sym)
+            return False
 
     comp = report_data.get("compliance", {})
     if not comp.get("all_criteria_passed"):
