@@ -50,43 +50,47 @@ export function AccountingPage({ model }: { model: AccountingModel }) {
       {/* Conservation Formula & Key Accounting Metrics */}
       <div className="card bg-base-200 border border-base-300 shadow-xl overflow-hidden">
         <div className="card-body p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 pb-3 mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 pb-3 mb-3">
             <div className="flex items-center gap-2.5">
               <div className="p-2 rounded-lg bg-primary/10 text-primary">
                 <Scale size={20} />
               </div>
               <div>
                 <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">Double-Entry Conservation Formula</p>
-                <h3 className="text-sm font-semibold font-mono text-base-content">
-                  Cash + Allocated Margin + Unrealized PnL = Starting Equity + Realized PnL
+                <h3 className="text-base font-bold text-base-content">
+                  Mathematical Balance Invariant
                 </h3>
               </div>
             </div>
-            <span className="badge badge-success gap-1 font-mono text-xs font-semibold py-2 px-3">
+            <span className="badge badge-success gap-1 font-mono text-xs font-semibold py-2.5 px-3 shadow-sm">
               Δ = {model.drift} USDT
             </span>
           </div>
 
-          <div className="stats stats-vertical sm:stats-horizontal shadow bg-base-300/60 border border-base-300 w-full">
-            <div className="stat">
-              <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Starting Capital</div>
-              <div className="stat-value font-mono text-lg">{model.startingCapital} USDT</div>
-              <div className="stat-desc text-xs mt-0.5">Initial allocated pool</div>
+          <div className="bg-base-300/60 p-3 rounded-lg border border-base-300 font-mono text-xs text-base-content font-medium overflow-x-auto whitespace-nowrap mb-4">
+            Cash + Allocated Margin + Unrealized PnL = Starting Equity + Realized PnL
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="bg-base-300/60 p-3.5 rounded-xl border border-base-300 flex flex-col justify-between">
+              <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Starting Capital</span>
+              <p className="font-mono text-lg font-bold mt-1">{model.startingCapital} USDT</p>
+              <span className="text-xs opacity-60 mt-1">Initial allocated pool</span>
             </div>
-            <div className="stat">
-              <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Final Cash</div>
-              <div className="stat-value font-mono text-lg text-primary">{model.finalCash} USDT</div>
-              <div className="stat-desc text-xs mt-0.5">Settled cash balance</div>
+            <div className="bg-base-300/60 p-3.5 rounded-xl border border-base-300 flex flex-col justify-between">
+              <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Final Cash</span>
+              <p className="font-mono text-lg font-bold text-primary mt-1">{model.finalCash} USDT</p>
+              <span className="text-xs opacity-60 mt-1">Settled cash balance</span>
             </div>
-            <div className="stat">
-              <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Realized PnL</div>
-              <div className="stat-value font-mono text-lg text-warning">{model.realizedPnl} USDT</div>
-              <div className="stat-desc text-xs mt-0.5">Closed fills net return</div>
+            <div className="bg-base-300/60 p-3.5 rounded-xl border border-base-300 flex flex-col justify-between">
+              <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Realized PnL</span>
+              <p className="font-mono text-lg font-bold text-warning mt-1">{model.realizedPnl} USDT</p>
+              <span className="text-xs opacity-60 mt-1">Closed fills net return</span>
             </div>
-            <div className="stat">
-              <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Total Fees &amp; Slippage</div>
-              <div className="stat-value font-mono text-lg">{model.totalFees} USDT</div>
-              <div className="stat-desc text-xs mt-0.5 text-success">0.00 slippage guaranteed</div>
+            <div className="bg-base-300/60 p-3.5 rounded-xl border border-base-300 flex flex-col justify-between">
+              <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Total Fees &amp; Slippage</span>
+              <p className="font-mono text-lg font-bold mt-1">{model.totalFees} USDT</p>
+              <span className="text-xs text-success font-medium mt-1">0.00 slippage guaranteed</span>
             </div>
           </div>
         </div>
@@ -111,15 +115,15 @@ export function AccountingPage({ model }: { model: AccountingModel }) {
             <table className="table table-zebra table-sm w-full font-sans">
               <thead className="bg-base-300/60 text-base-content/70 text-xs font-mono uppercase">
                 <tr>
-                  <th>Track ID</th>
-                  <th>Track Name</th>
-                  <th>Starting Equity</th>
-                  <th>Final Cash</th>
-                  <th>Realized PnL</th>
-                  <th>Fees Paid</th>
-                  <th>Orders (Placed/Filled/Rej)</th>
-                  <th>Balance Drift</th>
-                  <th>Reconciliation</th>
+                  <th className="min-w-[120px]">Track ID</th>
+                  <th className="min-w-[180px]">Track Name</th>
+                  <th className="min-w-[120px]">Starting Equity</th>
+                  <th className="min-w-[120px]">Final Cash</th>
+                  <th className="min-w-[110px]">Realized PnL</th>
+                  <th className="min-w-[100px]">Fees Paid</th>
+                  <th className="min-w-[160px]">Orders (Placed/Filled/Rej)</th>
+                  <th className="min-w-[120px]">Balance Drift</th>
+                  <th className="min-w-[120px]">Reconciliation</th>
                 </tr>
               </thead>
               <tbody className="text-xs">
@@ -165,13 +169,13 @@ export function AccountingPage({ model }: { model: AccountingModel }) {
             <table className="table table-zebra table-sm w-full font-sans">
               <thead className="bg-base-300/60 text-base-content/70 text-xs font-mono uppercase">
                 <tr>
-                  <th>Timestamp (MYT)</th>
-                  <th>Track</th>
-                  <th>Trigger Event</th>
-                  <th>Cash (USDT)</th>
-                  <th>Allocated Margin</th>
-                  <th>Realized PnL</th>
-                  <th>Balance Drift</th>
+                  <th className="min-w-[140px]">Timestamp (MYT)</th>
+                  <th className="min-w-[120px]">Track</th>
+                  <th className="min-w-[220px]">Trigger Event</th>
+                  <th className="min-w-[130px]">Cash (USDT)</th>
+                  <th className="min-w-[130px]">Allocated Margin</th>
+                  <th className="min-w-[120px]">Realized PnL</th>
+                  <th className="min-w-[120px]">Balance Drift</th>
                 </tr>
               </thead>
               <tbody className="text-xs">
@@ -179,7 +183,7 @@ export function AccountingPage({ model }: { model: AccountingModel }) {
                   <tr key={snap.snapshot_id} className="hover">
                     <td className="font-mono text-xs">{formatMyt(snap.timestamp_utc)}</td>
                     <td><code className="badge badge-xs badge-neutral font-mono">{snap.track_id}</code></td>
-                    <td className="font-mono text-xs font-semibold">{snap.trigger_event}</td>
+                    <td className="font-mono text-xs font-semibold break-all">{snap.trigger_event}</td>
                     <td className="font-mono">{snap.cash_usdt}</td>
                     <td className="font-mono">{snap.allocated_margin_usdt}</td>
                     <td className="font-mono">{snap.realized_pnl_usdt}</td>

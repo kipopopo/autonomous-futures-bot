@@ -309,9 +309,9 @@ function App() {
 
   const hasCanary = Boolean(canaryData.summary?.verified || canaryData.hawkes?.verified)
   const status = statusFor(state, model, hasCanary)
-  const symbols = model.symbols.length > 0
-    ? model.symbols.join(', ')
-    : (canaryData.summary?.candidates.join(', ') || '—')
+  const symbolList = model.symbols.length > 0
+    ? model.symbols
+    : (canaryData.summary?.candidates ?? [])
   const isOverviewPage = page === 'overview'
   const isCreatorPage = page === 'creator'
   const isLearnerPage = page === 'learner'
@@ -429,30 +429,42 @@ function App() {
 
         {isOverviewPage && state === 'ready' && (
           <>
-            <div className="stats stats-vertical sm:stats-horizontal shadow-lg bg-base-200 border border-base-300 w-full mb-6">
-              <div className="stat">
-                <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">System Verification</div>
-                <div className="stat-value text-lg font-bold text-success flex items-center gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+              <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-xs uppercase tracking-wider font-semibold opacity-70">System Verification</span>
+                <div className="text-lg font-bold text-success flex items-center gap-2 mt-2">
                   <CheckCircle2 size={18} /> {status.label}
                 </div>
-                <div className="stat-desc text-xs mt-1">Autonomous Hawkes & Risk Verified</div>
+                <span className="text-xs opacity-60 mt-2">Autonomous Hawkes &amp; Risk Verified</span>
               </div>
-              <div className="stat">
-                <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Staged Universe</div>
-                <div className="stat-value text-lg font-mono font-bold text-primary">{symbols}</div>
-                <div className="stat-desc text-xs mt-1">Staged perpetual candidates</div>
+              <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Staged Universe</span>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {symbolList.length > 0 ? (
+                    symbolList.map((s) => (
+                      <span key={s} className="badge badge-primary badge-outline font-mono text-xs font-semibold py-2 px-2.5">
+                        {s}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="font-mono text-base opacity-70">—</span>
+                  )}
+                </div>
+                <span className="text-xs opacity-60 mt-2">Staged perpetual candidates</span>
               </div>
-              <div className="stat">
-                <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Telemetry Phase</div>
-                <div className="stat-value text-lg font-mono font-bold uppercase">{canaryData.summary?.phase || 'Phase 291'}</div>
-                <div className="stat-desc text-xs mt-1">Hawkes jump arrival cascades</div>
+              <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Telemetry Phase</span>
+                <div className="text-lg font-mono font-bold uppercase text-base-content mt-2">
+                  {canaryData.summary?.phase || 'Phase 291'}
+                </div>
+                <span className="text-xs opacity-60 mt-2">Hawkes jump arrival cascades</span>
               </div>
-              <div className="stat">
-                <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Accounting Drift</div>
-                <div className="stat-value text-lg font-mono font-bold text-success flex items-center gap-1.5">
+              <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Accounting Drift</span>
+                <div className="text-lg font-mono font-bold text-success flex items-center gap-1.5 mt-2">
                   <Scale size={16} /> |Δ| &lt; 10⁻¹⁵
                 </div>
-                <div className="stat-desc text-xs mt-1">Zero-drift double-entry balance</div>
+                <span className="text-xs opacity-60 mt-2">Zero-drift double-entry balance</span>
               </div>
             </div>
 
@@ -468,7 +480,7 @@ function App() {
                       <span className="text-xs font-mono font-semibold uppercase tracking-wider text-primary">
                         Active Phase 291 Hawkes Telemetry
                       </span>
-                      <h2 className="text-xl font-bold tracking-tight">Causal Microstructure & Execution Governance</h2>
+                      <h2 className="text-xl font-bold tracking-tight">Causal Microstructure &amp; Execution Governance</h2>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -481,7 +493,7 @@ function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 pt-4">
                   <div className="bg-base-300/60 p-4 rounded-xl border border-base-300">
                     <span className="text-xs text-base-content/60 font-mono uppercase font-semibold">Orders Executed</span>
                     <p className="text-xl font-mono font-bold text-base-content mt-1">

@@ -52,44 +52,44 @@ export function RiskPage({ model }: { model: RiskModel }) {
         (≥ 40% unencumbered cash), and sub-second gateway heartbeat age verification.
       </p>
 
-      {/* Risk Metrics Fact Grid via DaisyUI Stats */}
-      <div className="stats stats-vertical lg:stats-horizontal shadow-lg bg-base-200 border border-base-300 w-full">
-        <div className="stat">
-          <div className="stat-figure text-primary">
-            <Layers size={22} />
+      {/* Risk Metrics Fact Grid via Responsive Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Concurrent Exposure Cap</span>
+            <span className="text-primary"><Layers size={20} /></span>
           </div>
-          <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Concurrent Exposure Cap</div>
-          <div className="stat-value font-mono text-xl text-primary">{model.exposureCapUsdt} USDT</div>
-          <div className="stat-desc text-xs mt-1">Stage 12 Stepped Expansion Cap</div>
+          <p className="font-mono text-xl font-bold text-primary mt-2">{model.exposureCapUsdt} USDT</p>
+          <span className="text-xs opacity-60 mt-1">Stage 12 Stepped Expansion Cap</span>
         </div>
 
-        <div className="stat">
-          <div className="stat-figure text-secondary">
-            <DollarSign size={22} />
+        <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Micro Child Order Cap</span>
+            <span className="text-secondary"><DollarSign size={20} /></span>
           </div>
-          <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Micro Child Order Cap</div>
-          <div className="stat-value font-mono text-xl">{model.microCapUsdt} USDT</div>
-          <div className="stat-desc text-xs mt-1">Precision ROUND_DOWN slicing</div>
+          <p className="font-mono text-xl font-bold mt-2">{model.microCapUsdt} USDT</p>
+          <span className="text-xs opacity-60 mt-1">Precision ROUND_DOWN slicing</span>
         </div>
 
-        <div className="stat">
-          <div className="stat-figure text-warning">
-            <AlertOctagon size={22} />
+        <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Intra-Phase Loss Ceiling</span>
+            <span className="text-warning"><AlertOctagon size={20} /></span>
           </div>
-          <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Intra-Phase Loss Ceiling</div>
-          <div className="stat-value font-mono text-xl text-warning">{model.lossCeilingUsdt} USDT</div>
-          <div className="stat-desc text-xs mt-1">Auto fail-closed emergency liquidation</div>
+          <p className="font-mono text-xl font-bold text-warning mt-2">{model.lossCeilingUsdt} USDT</p>
+          <span className="text-xs opacity-60 mt-1">Auto fail-closed liquidation</span>
         </div>
 
-        <div className="stat">
-          <div className="stat-figure text-success">
-            <Wifi size={22} />
+        <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Gateway Heartbeat</span>
+            <span className="text-success"><Wifi size={20} /></span>
           </div>
-          <div className="stat-title text-xs uppercase tracking-wider font-semibold opacity-70">Gateway Heartbeat</div>
-          <div className="stat-value font-mono text-xl text-success">{heartbeatLatency.toFixed(1)} ms</div>
-          <div className="stat-desc text-xs mt-1">
+          <p className="font-mono text-xl font-bold text-success mt-2">{heartbeatLatency.toFixed(1)} ms</p>
+          <span className="text-xs opacity-60 mt-1">
             {isHealthyGateway ? `NTP Clock Skew: ${clockSkew.toFixed(1)} ms` : 'GATEWAY STALE'}
-          </div>
+          </span>
         </div>
       </div>
 
@@ -147,13 +147,13 @@ export function RiskPage({ model }: { model: RiskModel }) {
             <table className="table table-zebra table-sm w-full font-sans">
               <thead className="bg-base-300/60 text-base-content/70 text-xs font-mono uppercase">
                 <tr>
-                  <th>Time (MYT)</th>
-                  <th>Track ID</th>
-                  <th>Interlock Type</th>
-                  <th>Action</th>
-                  <th>Symbol</th>
-                  <th>Notional</th>
-                  <th>Details</th>
+                  <th className="min-w-[140px]">Time (MYT)</th>
+                  <th className="min-w-[120px]">Track ID</th>
+                  <th className="min-w-[160px]">Interlock Type</th>
+                  <th className="min-w-[90px]">Action</th>
+                  <th className="min-w-[90px]">Symbol</th>
+                  <th className="min-w-[110px]">Notional</th>
+                  <th className="min-w-[280px]">Details</th>
                 </tr>
               </thead>
               <tbody className="text-xs">
@@ -169,7 +169,7 @@ export function RiskPage({ model }: { model: RiskModel }) {
                     </td>
                     <td>{event.symbol ?? '—'}</td>
                     <td className="font-mono">{event.notional_usdt ? `${event.notional_usdt} USDT` : '—'}</td>
-                    <td className="text-xs text-base-content/70">{event.details}</td>
+                    <td className="text-xs text-base-content/70 whitespace-normal break-words">{event.details}</td>
                   </tr>
                 ))}
               </tbody>
