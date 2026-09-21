@@ -245,8 +245,28 @@ function App() {
   }, [])
 
   useEffect(() => {
-    void loadData()
-  }, [loadData])
+    let ignore = false
+    void Promise.all([fetchOverviewData(), fetchCanaryDashboardData()])
+      .then(([nextOverview, nextCanary]) => {
+        if (!ignore) {
+          setApiData(nextOverview)
+          setCanaryData(nextCanary)
+          setLastFetchedAt(new Date())
+          setState('ready')
+        }
+      })
+      .catch((error) => {
+        if (!ignore) {
+          setApiData(EMPTY_API_DATA)
+          setCanaryData(EMPTY_CANARY_DATA)
+          setState('error')
+          setErrorMessage(error instanceof Error ? error.message : 'Verified data request failed')
+        }
+      })
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   useEffect(() => {
     const handleHashChange = () => setPage(pageFromHash(window.location.hash))
