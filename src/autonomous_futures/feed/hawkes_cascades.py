@@ -20,7 +20,7 @@ import threading
 import time
 from collections import deque
 from datetime import UTC, datetime
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, TypeVar
@@ -1542,7 +1542,7 @@ class HawkesCascadeEngine:
         }
 
         # Event arrival history per symbol: deque of (timestamp_sec, symbol)
-        self._event_history: deque[tuple[float, str]] = deque(maxlen=2000)
+        self._event_history: deque[tuple[float, str]] = deque(maxlen=10000)
 
         # Dynamic rolling intensity lambda_i(t)
         self._current_intensity: dict[str, Decimal] = {s: self._mu[s] for s in self._symbols}
@@ -1590,45 +1590,62 @@ class HawkesCascadeEngine:
         with self._global_lock:
             a = self._alpha.get((sym_i, sym_j), Decimal("0.0"))
             b = self._beta.get((sym_i, sym_j), Decimal("1.0"))
+            if b <= Decimal("0.0"):
+                return Decimal("0.0000")
             return (a / b).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
 
     def get_jump_intensity(self, symbol: str) -> Decimal:
         sym = symbol.strip().upper()
-        with self._get_symbol_lock(sym):
+        with self._global_lock:
             return self._current_intensity.get(sym, self._mu.get(sym, Decimal("0.10")))
 
     def get_regime(self, symbol: str) -> HawkesRegime:
         sym = symbol.strip().upper()
-        with self._get_symbol_lock(sym):
+        with self._global_lock:
             return self._regimes.get(sym, HawkesRegime.NOMINAL)
 
     def get_cascade_state(self, symbol: str) -> CascadeEndogenousState:
         sym = symbol.strip().upper()
-        with self._get_symbol_lock(sym):
+        with self._global_lock:
             return self._cascade_states.get(sym, CascadeEndogenousState.NORMAL)
 
     def get_pacing_interval_ms(self, symbol: str) -> float:
-        reg = self.get_regime(symbol)
-        if reg == HawkesRegime.SEVERE_HAWKES_CONTROLS or reg == HawkesRegime.SUPERCRITICAL_CASCADE:
-            return SEVERE_PACING_INTERVAL_MS
-        if reg == HawkesRegime.ELEVATED_INTENSITY:
-            return ELEVATED_PACING_INTERVAL_MS
-        return BASE_PACING_INTERVAL_MS
+        with self._global_lock:
+            rho = self._spectral_radius
+            reg = self.get_regime(symbol)
+            if rho >= self.critical_threshold or reg in (
+                HawkesRegime.SEVERE_HAWKES_CONTROLS,
+                HawkesRegime.SUPERCRITICAL_CASCADE,
+            ):
+                return SEVERE_PACING_INTERVAL_MS
+            if rho > self.nominal_threshold or reg == HawkesRegime.ELEVATED_INTENSITY:
+                return ELEVATED_PACING_INTERVAL_MS
+            return BASE_PACING_INTERVAL_MS
 
     def get_limit_offset_cushion_bps(self, symbol: str) -> Decimal:
-        reg = self.get_regime(symbol)
-        if reg == HawkesRegime.SEVERE_HAWKES_CONTROLS or reg == HawkesRegime.SUPERCRITICAL_CASCADE:
-            return SEVERE_LIMIT_CUSHION_BPS
-        if reg == HawkesRegime.ELEVATED_INTENSITY:
-            return ELEVATED_LIMIT_CUSHION_BPS
-        return NOMINAL_LIMIT_CUSHION_BPS
+        with self._global_lock:
+            rho = self._spectral_radius
+            reg = self.get_regime(symbol)
+            if rho >= self.critical_threshold or reg in (
+                HawkesRegime.SEVERE_HAWKES_CONTROLS,
+                HawkesRegime.SUPERCRITICAL_CASCADE,
+            ):
+                return SEVERE_LIMIT_CUSHION_BPS
+            if rho > self.nominal_threshold or reg == HawkesRegime.ELEVATED_INTENSITY:
+                return ELEVATED_LIMIT_CUSHION_BPS
+            return NOMINAL_LIMIT_CUSHION_BPS
 
     def get_slice_chunk_cap(self, symbol: str) -> Decimal:
         """Dynamically downscale sequential TWAP child slices under elevated/severe cascades."""
-        reg = self.get_regime(symbol)
-        if reg in (HawkesRegime.SEVERE_HAWKES_CONTROLS, HawkesRegime.SUPERCRITICAL_CASCADE):
-            return DYNAMIC_SLICING_DOWNSCALED_CHUNK_USDT
-        return DYNAMIC_SLICING_MAX_CHUNK_USDT
+        with self._global_lock:
+            rho = self._spectral_radius
+            reg = self.get_regime(symbol)
+            if rho >= self.critical_threshold or reg in (
+                HawkesRegime.SEVERE_HAWKES_CONTROLS,
+                HawkesRegime.SUPERCRITICAL_CASCADE,
+            ):
+                return DYNAMIC_SLICING_DOWNSCALED_CHUNK_USDT
+            return DYNAMIC_SLICING_MAX_CHUNK_USDT
 
     def record_event_arrival(
         self,
@@ -1740,14 +1757,18 @@ class HawkesCascadeEngine:
             rho = self._spectral_radius
 
             if rho >= self.supercritical_threshold:
-                self._regimes[sym] = HawkesRegime.SUPERCRITICAL_CASCADE
-                self._cascade_states[sym] = CascadeEndogenousState.SEVERE_PREDATORY_FRONT_RUNNING
+                for s in self._symbols:
+                    self._regimes[s] = HawkesRegime.SUPERCRITICAL_CASCADE
+                    self._cascade_states[s] = CascadeEndogenousState.SEVERE_PREDATORY_FRONT_RUNNING
             elif rho >= self.critical_threshold:
-                self._regimes[sym] = HawkesRegime.SEVERE_HAWKES_CONTROLS
-                self._cascade_states[sym] = CascadeEndogenousState.SEVERE_PREDATORY_FRONT_RUNNING
+                for s in self._symbols:
+                    self._regimes[s] = HawkesRegime.SEVERE_HAWKES_CONTROLS
+                    self._cascade_states[s] = CascadeEndogenousState.SEVERE_PREDATORY_FRONT_RUNNING
             else:
-                self._regimes[sym] = HawkesRegime.ELEVATED_INTENSITY
-                self._cascade_states[sym] = CascadeEndogenousState.ELEVATED_CASCADE_RISK
+                for s in self._symbols:
+                    if s == sym or rho > self.nominal_threshold:
+                        self._regimes[s] = HawkesRegime.ELEVATED_INTENSITY
+                        self._cascade_states[s] = CascadeEndogenousState.ELEVATED_CASCADE_RISK
 
             snap = self._create_snapshot(sym, track_id)
             if self.telemetry_store:
@@ -2130,6 +2151,26 @@ class HawkesCascadeOrderDispatchInterlock:
                 self.parent_working_margin.get(sym, Decimal("0.0")) + notional
             )
 
+    def deduct_parent_working_margin(
+        self, symbol: str, notional: Decimal, parent_client_order_id: str | None = None
+    ) -> None:
+        """Deduct slice notional from parent order working margin to prevent double-counting."""
+        with self._lock:
+            sym = symbol.strip().upper()
+            notional_dec = _safe_decimal(notional)
+            if parent_client_order_id:
+                p_id = parent_client_order_id.strip()
+                curr_p = self._parent_order_working_notionals.get(p_id, Decimal("0.0"))
+                actual_deduct = min(curr_p, notional_dec)
+                self._parent_order_working_notionals[p_id] = max(
+                    Decimal("0.0"), curr_p - actual_deduct
+                )
+                curr_sym = self.parent_working_margin.get(sym, Decimal("0.0"))
+                self.parent_working_margin[sym] = max(Decimal("0.0"), curr_sym - actual_deduct)
+            else:
+                curr = self.parent_working_margin.get(sym, Decimal("0.0"))
+                self.parent_working_margin[sym] = max(Decimal("0.0"), curr - notional_dec)
+
     def release_parent_order_working_margin(
         self, parent_client_order_id: str, symbol: str | None = None
     ) -> None:
@@ -2201,8 +2242,33 @@ class HawkesCascadeOrderDispatchInterlock:
                     f"Order rejected under circuit breaker state: {self.circuit_state}"
                 )
 
-            # Closing orders bypass exposure & sizing checks
+            # Closing orders validate position direction, size bounds, and micro cap
             if is_closing:
+                curr_pos = self.reconciler.positions.get(sym, Decimal("0.0"))
+                if curr_pos > Decimal("0.0") and side != OrderSide.SELL:
+                    self.interlock_blocks_count += 1
+                    raise CanaryHawkesCascadeError(
+                        f"Cannot close LONG position with BUY order for {sym}"
+                    )
+                if curr_pos < Decimal("0.0") and side != OrderSide.BUY:
+                    self.interlock_blocks_count += 1
+                    raise CanaryHawkesCascadeError(
+                        f"Cannot close SHORT position with SELL order for {sym}"
+                    )
+                if abs(curr_pos) > Decimal("0.0") and (quantity - abs(curr_pos)) > Decimal(
+                    "0.00000001"
+                ):
+                    self.interlock_blocks_count += 1
+                    raise CanaryHawkesCascadeError(
+                        f"Closing order quantity {quantity} exceeds open position "
+                        f"{abs(curr_pos)} for {sym}"
+                    )
+                if notional > HARD_MICRO_NOTIONAL_CAP_USDT:
+                    self.interlock_blocks_count += 1
+                    raise IndividualMicroCapExceededError(
+                        f"Closing order notional {notional} exceeds micro cap "
+                        f"{HARD_MICRO_NOTIONAL_CAP_USDT} USDT"
+                    )
                 return
 
             # 3. Individual Micro Child Order Cap (<= 5.00 USDT) and Floor (>= 1.00 USDT)
@@ -2246,7 +2312,7 @@ class HawkesCascadeOrderDispatchInterlock:
                     )
 
             # 6. Throttled Per-Candidate Cap under Severe Controls
-            if reg == HawkesRegime.SEVERE_HAWKES_CONTROLS:
+            if reg == HawkesRegime.SEVERE_HAWKES_CONTROLS or rho >= self.engine.critical_threshold:
                 cand_committed = self.get_total_committed_margin(sym)
                 cand_pos = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * price
                 if (cand_committed + cand_pos + notional) > THROTTLED_PER_CANDIDATE_CAP_USDT:
@@ -2300,7 +2366,12 @@ class HawkesCascadeOrderDispatchInterlock:
                 )
 
             # 11. Intra-Phase Loss Ceiling (<= 7.00 USDT)
-            cum_loss = abs(min(Decimal("0.0"), self.reconciler.realized_pnl))
+            cum_loss = max(
+                abs(self.reconciler.realized_pnl)
+                if self.reconciler.realized_pnl < Decimal("0")
+                else Decimal("0"),
+                self.reconciler.cumulative_realized_loss,
+            )
             if cum_loss >= self.loss_ceiling_usdt:
                 self.interlock_blocks_count += 1
                 self.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
@@ -2404,6 +2475,11 @@ class HawkesCascadeMicroOrderDispatcher:
                     f"Invalid client order ID format: {client_order_id}"
                 )
 
+            if is_closing and abs(self.reconciler.positions.get(sym, Decimal("0.0"))) <= Decimal(
+                "0.00000001"
+            ):
+                raise CanaryHawkesCascadeError(f"No open position exists for {sym} to close")
+
             # Evaluate interlocks
             try:
                 self.interlock.evaluate_order_pre_dispatch(
@@ -2452,8 +2528,8 @@ class HawkesCascadeMicroOrderDispatcher:
             self.orders_placed_count += 1
             self.stream_events_count += 1
 
-            # Standalone orders reserve committed margin
-            if not is_closing and not is_child:
+            # Active working orders reserve committed margin
+            if not is_closing:
                 self.interlock.reserve_committed_margin(sym, notional)
                 self._order_committed_notionals[client_order_id] = notional
 
@@ -2605,6 +2681,20 @@ class HawkesCascadeMicroOrderDispatcher:
                     f"{self.interlock.circuit_state}"
                 )
 
+            # Upfront loss budget ceiling check
+            cum_loss = max(
+                abs(self.reconciler.realized_pnl)
+                if self.reconciler.realized_pnl < Decimal("0")
+                else Decimal("0"),
+                self.reconciler.cumulative_realized_loss,
+            )
+            if cum_loss >= self.interlock.loss_ceiling_usdt:
+                self.interlock.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+                raise IntraPhaseLossCeilingExceededError(
+                    f"Parent order dispatch rejected under loss ceiling: {cum_loss} >= "
+                    f"{self.interlock.loss_ceiling_usdt} USDT"
+                )
+
             # 3. Supercritical cascade check
             rho = self.interlock.engine.get_spectral_radius()
             if rho >= self.interlock.engine.supercritical_threshold:
@@ -2614,7 +2704,10 @@ class HawkesCascadeMicroOrderDispatcher:
                 )
 
             reg = self.interlock.engine.get_regime(sym)
-            if reg == HawkesRegime.SEVERE_HAWKES_CONTROLS:
+            if (
+                reg == HawkesRegime.SEVERE_HAWKES_CONTROLS
+                or rho >= self.interlock.engine.critical_threshold
+            ):
                 cand_committed = self.interlock.get_total_committed_margin(sym)
                 cand_pos_notional = abs(self.reconciler.positions.get(sym, Decimal("0.0"))) * l_px
                 if (
@@ -2687,7 +2780,21 @@ class HawkesCascadeMicroOrderDispatcher:
                     remaining -= chunk_cap
 
             parent_cid = f"parent-p291-{sym.lower()}-{int(time.time() * 1000)}-{uuid4().hex[:8]}"
-            total_parent_qty = (t_notional / l_px).quantize(
+
+            cushion_bps = self.interlock.engine.get_limit_offset_cushion_bps(sym)
+            if cushion_bps > Decimal("0") and order_type == OrderType.LIMIT:
+                if side == OrderSide.BUY:
+                    effective_l_px = (
+                        l_px * (Decimal("1.0") - cushion_bps / Decimal("10000"))
+                    ).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                else:
+                    effective_l_px = (
+                        l_px * (Decimal("1.0") + cushion_bps / Decimal("10000"))
+                    ).quantize(Decimal("0.01"), rounding=ROUND_UP)
+            else:
+                effective_l_px = l_px
+
+            total_parent_qty = (t_notional / effective_l_px).quantize(
                 Decimal("0.00000001"), rounding=ROUND_DOWN
             )
 
@@ -2695,7 +2802,6 @@ class HawkesCascadeMicroOrderDispatcher:
             self.interlock.reserve_parent_order_working_margin(parent_cid, sym, t_notional)
 
             try:
-                cushion_bps = self.interlock.engine.get_limit_offset_cushion_bps(sym)
                 parent_rec = ParentOrderRecord(
                     parent_client_order_id=parent_cid,
                     track_id=track_id,
@@ -2721,7 +2827,9 @@ class HawkesCascadeMicroOrderDispatcher:
                 cum_exec_qty = Decimal("0.0")
 
                 for idx, c_notional in enumerate(chunks):
-                    c_qty = (c_notional / l_px).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                    c_qty = (c_notional / effective_l_px).quantize(
+                        Decimal("0.00000001"), rounding=ROUND_DOWN
+                    )
                     child_cid = generate_canary_client_order_id(sym)
                     parent_rec.child_order_ids.append(child_cid)
 
@@ -2735,6 +2843,11 @@ class HawkesCascadeMicroOrderDispatcher:
                         pacing_ms,
                     )
 
+                    # Deduct slice from parent working margin to prevent double-counting
+                    self.interlock.deduct_parent_working_margin(
+                        sym, c_notional, parent_client_order_id=parent_cid
+                    )
+
                     try:
                         _ = self.dispatch_micro_order(
                             candidate_id=candidate_id,
@@ -2742,7 +2855,7 @@ class HawkesCascadeMicroOrderDispatcher:
                             side=side,
                             order_type=order_type,
                             quantity=c_qty,
-                            price=l_px,
+                            price=effective_l_px,
                             client_order_id=child_cid,
                             is_closing=False,
                             track_id=track_id,

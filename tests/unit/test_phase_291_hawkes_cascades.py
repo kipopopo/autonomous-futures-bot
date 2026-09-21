@@ -70,6 +70,7 @@ from autonomous_futures.feed.hawkes_cascades import (  # noqa: E402
     STAGE_12_HAWKES_CASCADE_EXPANSION_CAP_USDT,
     SUPERCRITICAL_BRANCHING_RATIO,
     AggressiveOrderRejectedError,
+    CanaryHawkesCascadeError,
     CapitalExpansionStage,
     CascadeEndogenousState,
     CircuitBreakerState,
@@ -929,3 +930,308 @@ def test_cli_runner_simulate_adverse_drift_failure(tmp_path: Path):
     out_dir = tmp_path / "p291_test_drift"
     ret = cli_main(["--output-dir", str(out_dir), "--track", "1", "--simulate-adverse-drift"])
     assert ret == 1
+
+
+# ---------------------------------------------------------------------------
+# 11. Adversarial Edge Cases & Invariant Hardening (Round 1 Review)
+# ---------------------------------------------------------------------------
+
+
+def test_twap_parent_committed_margin_deduction_near_cap(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that parent TWAP working margin does not double-count against child
+    slice reservations, allowing valid orders to execute up to stage cap (60 USDT)."""
+    hb = GatewayHeartbeatMonitor()
+    hb.record_heartbeat(int(time.time() * 1000), 15.0)
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=hb,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        loss_ceiling_usdt=Decimal("7.00"),
+        telemetry_store=temp_telemetry_store,
+    )
+    gw = MockBinanceHawkesCascadeGateway()
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gw,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # Establish initial exposure across BTC & ETH: 54.00 USDT
+    # BTC: 30.00 USDT position
+    reconciler.positions["BTCUSDT"] = Decimal("0.0005")  # @ 60,000 = 30 USDT
+    reconciler.allocated_margin += Decimal("30.00")
+    # ETH: 24.00 USDT position
+    reconciler.positions["ETHUSDT"] = Decimal("0.008")  # @ 3,000 = 24 USDT
+    reconciler.allocated_margin += Decimal("24.00")
+
+    # Current exposure is 54.00 USDT. Headroom to 60.00 USDT is 6.00 USDT.
+    # Dispatch a TWAP parent order for 4.50 USDT on SOLUSDT (splits into 2.50 + 2.00 USDT).
+    parent_rec = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-solusdt",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("4.50"),
+        limit_price=Decimal("150.00"),
+        track_id="adversarial_review_t1",
+    )
+    assert parent_rec.status == OrderLifecycleState.FILLED
+    assert len(parent_rec.child_order_ids) == 2
+    assert Decimal(parent_rec.executed_notional_usdt) == Decimal("4.50")
+    # Total committed working margin should be completely released after execution
+    assert interlock.get_total_committed_margin() == Decimal("0.0")
+
+
+def test_closing_order_invariants_and_direction_safety(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that closing orders are strictly validated for direction, position bounds,
+    and individual micro cap (<= 5.00 USDT), eliminating bypasses."""
+    hb = GatewayHeartbeatMonitor()
+    hb.record_heartbeat(int(time.time() * 1000), 15.0)
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=hb,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    gw = MockBinanceHawkesCascadeGateway()
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gw,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # Setup open LONG position: 0.0001 BTC @ 60,000 = 6.00 USDT
+    reconciler.positions["BTCUSDT"] = Decimal("0.0001")
+    reconciler.allocated_margin = Decimal("6.00")
+
+    # 1. Closing LONG with BUY must fail
+    with pytest.raises(CanaryHawkesCascadeError, match="Cannot close LONG position with BUY"):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("60000.00"),
+            client_order_id=generate_canary_client_order_id("BTCUSDT"),
+            is_closing=True,
+        )
+
+    # 2. Closing with quantity exceeding open position must fail
+    with pytest.raises(CanaryHawkesCascadeError, match="exceeds open position"):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.0002"),  # 0.0002 > 0.0001
+            price=Decimal("60000.00"),
+            client_order_id=generate_canary_client_order_id("BTCUSDT"),
+            is_closing=True,
+        )
+
+    # 3. Closing order with notional > 5.00 USDT must fail (individual micro cap)
+    with pytest.raises(IndividualMicroCapExceededError):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00009"),  # 0.00009 * 60,000 = 5.40 USDT > 5.00 USDT
+            price=Decimal("60000.00"),
+            client_order_id=generate_canary_client_order_id("BTCUSDT"),
+            is_closing=True,
+        )
+
+    # 4. Closing order on symbol with NO open position must fail
+    with pytest.raises(CanaryHawkesCascadeError, match="No open position exists"):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-ethusdt",
+            symbol="ETHUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.001"),
+            price=Decimal("3000.00"),
+            client_order_id=generate_canary_client_order_id("ETHUSDT"),
+            is_closing=True,
+        )
+
+    # 5. Valid closing order (0.00005 BTC = 3.00 USDT <= 5.00 USDT) succeeds
+    rec = dispatcher.dispatch_micro_order(
+        candidate_id="cand-btcusdt",
+        symbol="BTCUSDT",
+        side=OrderSide.SELL,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.00005"),
+        price=Decimal("60000.00"),
+        client_order_id=generate_canary_client_order_id("BTCUSDT"),
+        is_closing=True,
+        simulate_fill_immediately=True,
+    )
+    assert rec.status == OrderLifecycleState.FILLED
+    assert reconciler.positions["BTCUSDT"] == Decimal("0.00005")
+
+
+def test_cumulative_gross_loss_intra_phase_budget(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that cumulative gross realized loss triggers fail-closed lockout
+    even if current net realized PnL was offset by earlier gains."""
+    hb = GatewayHeartbeatMonitor()
+    hb.record_heartbeat(int(time.time() * 1000), 15.0)
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=hb,
+        engine=engine,
+        loss_ceiling_usdt=Decimal("7.00"),
+        telemetry_store=temp_telemetry_store,
+    )
+    gw = MockBinanceHawkesCascadeGateway()
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gw,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # Simulate gross loss reaching ceiling: cumulative_realized_loss = 7.00 USDT
+    # But net realized_pnl is 0.00 (e.g. +7.00 followed by -7.00)
+    reconciler.cumulative_realized_loss = Decimal("7.00")
+    reconciler.realized_pnl = Decimal("0.00")
+
+    # 1. Standalone micro order must be rejected
+    with pytest.raises(IntraPhaseLossCeilingExceededError):
+        dispatcher.dispatch_micro_order(
+            candidate_id="cand-btcusdt",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("0.00005"),
+            price=Decimal("60000.00"),
+            client_order_id=generate_canary_client_order_id("BTCUSDT"),
+        )
+    assert interlock.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+
+    # 2. TWAP parent dispatch must also be rejected upfront when circuit_state is NORMAL
+    interlock.circuit_state = CircuitBreakerState.NORMAL
+    with pytest.raises(IntraPhaseLossCeilingExceededError):
+        dispatcher.dispatch_twap_sliced_parent(
+            candidate_id="cand-ethusdt",
+            symbol="ETHUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            target_notional=Decimal("3.00"),
+            limit_price=Decimal("3000.00"),
+        )
+    assert interlock.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+
+
+def test_twap_limit_offset_cushion_applied_to_child_prices(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that passive limit offset cushion (+2 bps / +5 bps) is applied to
+    effective child limit prices in TWAP slicing."""
+    hb = GatewayHeartbeatMonitor()
+    hb.record_heartbeat(int(time.time() * 1000), 15.0)
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=hb,
+        engine=engine,
+        telemetry_store=temp_telemetry_store,
+    )
+    gw = MockBinanceHawkesCascadeGateway()
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gw,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+
+    # Transition engine into ELEVATED_INTENSITY regime (2.0 bps cushion)
+    engine._regimes["BTCUSDT"] = HawkesRegime.ELEVATED_INTENSITY
+    assert engine.get_limit_offset_cushion_bps("BTCUSDT") == Decimal("2.0")
+
+    # Dispatch TWAP BUY parent order at base limit 60,000.00
+    # Expected cushioned price: 60000 * (1 - 0.0002) = 59,988.00
+    rec = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-btcusdt",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("4.00"),
+        limit_price=Decimal("60000.00"),
+    )
+    assert rec.status == OrderLifecycleState.FILLED
+    assert len(rec.child_order_ids) == 2
+    for child_id in rec.child_order_ids:
+        child_ord = dispatcher.orders[child_id]
+        assert Decimal(child_ord.price) == Decimal("59988.00")
+
+    # Transition to SEVERE_HAWKES_CONTROLS regime (5.0 bps cushion)
+    engine._regimes["ETHUSDT"] = HawkesRegime.SEVERE_HAWKES_CONTROLS
+    # Dispatch TWAP SELL parent order at base limit 3,000.00
+    # Expected cushioned price: 3000 * (1 + 0.0005) = 3,001.50
+    rec_sell = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-ethusdt",
+        symbol="ETHUSDT",
+        side=OrderSide.SELL,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("2.50"),
+        limit_price=Decimal("3000.00"),
+    )
+    assert rec_sell.status == OrderLifecycleState.FILLED
+    for child_id in rec_sell.child_order_ids:
+        child_ord = dispatcher.orders[child_id]
+        assert Decimal(child_ord.price) == Decimal("3001.50")
+
+
+def test_cross_asset_regime_synchronization_on_jump_burst_shock(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+):
+    """Verifies that record_jump_burst_shock on one symbol synchronizes severe cascade
+    controls across all staged symbols when systemic spectral radius exceeds critical threshold."""
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+
+    # Induce large jump shock on BTCUSDT
+    engine.record_jump_burst_shock("BTCUSDT", alpha_self=Decimal("0.90"))
+
+    assert engine.get_spectral_radius() >= engine.critical_threshold
+    # All staged symbols must reflect severe controls
+    for sym in CANARY_STAGED_SYMBOLS:
+        assert engine.get_regime(sym) == HawkesRegime.SEVERE_HAWKES_CONTROLS
+        assert engine.get_pacing_interval_ms(sym) == 1000.0
+        assert engine.get_limit_offset_cushion_bps(sym) == Decimal("5.0")
+        assert engine.get_slice_chunk_cap(sym) == DYNAMIC_SLICING_DOWNSCALED_CHUNK_USDT
+
+
+def test_zero_beta_guard_in_branching_ratio(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+):
+    """Verifies that get_branching_ratio safely returns 0.0000 when beta is zero or negative."""
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    engine._beta[("BTCUSDT", "ETHUSDT")] = Decimal("0.0")
+    ratio = engine.get_branching_ratio("BTCUSDT", "ETHUSDT")
+    assert ratio == Decimal("0.0000")
