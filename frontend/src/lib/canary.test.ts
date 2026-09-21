@@ -6,11 +6,13 @@ import {
   buildMicrostructureModel,
   buildPaperExecutionModel,
   buildRiskModel,
+  buildStrategyActivationModel,
   type CanaryAccountingResponse,
   type CanaryHawkesResponse,
   type CanaryLiveMarketResponse,
   type CanaryPaperExecutionResponse,
   type CanaryRiskResponse,
+  type CanaryStrategyActivationResponse,
 } from './canary'
 
 describe('canary models', () => {
@@ -393,6 +395,130 @@ describe('canary models', () => {
       expect(model.orderStats.total_child_orders).toBe(10)
       expect(model.matchingStats.passive_maker_fills_count).toBe(8)
       expect(model.ledger.starting_equity_usdt).toBe('100.00000000')
+    })
+  })
+
+  describe('buildStrategyActivationModel', () => {
+    it('handles null data safely with default values', () => {
+      const model = buildStrategyActivationModel(null)
+      expect(model.phase).toBe('—')
+      expect(model.verified).toBe(false)
+      expect(model.status).toBe('UNAVAILABLE')
+      expect(model.circuitState).toBe('UNKNOWN')
+      expect(model.isPaperSafe).toBe(true)
+      expect(model.isExecutionOff).toBe(true)
+      expect(model.isZeroDrift).toBe(true)
+      expect(model.candidates).toHaveLength(3)
+      expect(model.candidates[0].candidate_id).toBe('cand-btcusdt-dcb-002')
+      expect(model.candidates[1].candidate_id).toBe('cand-ethusdt-dcb-003')
+      expect(model.candidates[2].candidate_id).toBe('cand-solusdt-rgb-001')
+      expect(model.signals).toHaveLength(0)
+      expect(model.isHawkesSupercritical).toBe(false)
+      expect(model.isHeartbeatStale).toBe(false)
+      expect(model.isMarginBreached).toBe(false)
+      expect(model.childOrdersCount).toBe(0)
+      expect(model.fillsCount).toBe(0)
+    })
+
+    it('processes verified strategy activation response correctly', () => {
+      const fixture: CanaryStrategyActivationResponse = {
+        verified: true,
+        phase: 'phase_295',
+        status: 'STREAMING',
+        timestamp_ms: 1789447964946,
+        paper_safe: true,
+        execution_authority: false,
+        candidates: [
+          {
+            candidate_id: 'cand-btcusdt-dcb-002',
+            symbol: 'BTCUSDT',
+            status: 'PROMOTED',
+            average_return_pct: 0.045,
+            worst_drawdown_pct: 0.021,
+            profit_factor: 1.85,
+            trade_count: 42,
+            window_count: 5,
+            qualified: true,
+          },
+          {
+            candidate_id: 'cand-ethusdt-dcb-003',
+            symbol: 'ETHUSDT',
+            status: 'PROMOTED',
+            average_return_pct: 0.038,
+            worst_drawdown_pct: 0.019,
+            profit_factor: 1.72,
+            trade_count: 36,
+            window_count: 5,
+            qualified: true,
+          },
+          {
+            candidate_id: 'cand-solusdt-rgb-001',
+            symbol: 'SOLUSDT',
+            status: 'PROMOTED',
+            average_return_pct: 0.052,
+            worst_drawdown_pct: 0.028,
+            profit_factor: 1.91,
+            trade_count: 51,
+            window_count: 5,
+            qualified: true,
+          },
+        ],
+        signals: [
+          {
+            signal_id: 'sig-001',
+            candidate_id: 'cand-btcusdt-dcb-002',
+            timestamp_ms: 1789447964900,
+            symbol: 'BTCUSDT',
+            side: 'BUY',
+            order_type: 'LIMIT',
+            limit_price: '65000.00',
+            notional_usdt: 4.50,
+            client_order_id: 'ord-001',
+          },
+        ],
+        vetoes: {
+          hawkes_supercritical: false,
+          gateway_heartbeat_stale: false,
+          margin_headroom_breach: false,
+          clock_skew_breach: false,
+          intra_phase_loss_lockout: false,
+        },
+        ledger: {
+          starting_equity: 100.0,
+          cash: 95.5,
+          allocated_margin: 4.5,
+          unrealized_pnl: 0.05,
+          realized_pnl: 0.02,
+          drift: 0.0,
+          zero_balance_drift: true,
+        },
+        upstream_hash: '3f04f21a64c4c23db2be92c10b47fe7343e2646271c66299b9cf9c63fb93cb89',
+        phase_hash: '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae',
+        child_orders_count: 10,
+        fills_count: 9,
+        circuit_state: 'NORMAL',
+      }
+
+      const model = buildStrategyActivationModel(fixture)
+      expect(model.phase).toBe('phase_295')
+      expect(model.verified).toBe(true)
+      expect(model.status).toBe('STREAMING')
+      expect(model.circuitState).toBe('NORMAL')
+      expect(model.isPaperSafe).toBe(true)
+      expect(model.isExecutionOff).toBe(true)
+      expect(model.isZeroDrift).toBe(true)
+      expect(model.candidates).toHaveLength(3)
+      expect(model.candidates[0].candidate_id).toBe('cand-btcusdt-dcb-002')
+      expect(model.candidates[0].qualified).toBe(true)
+      expect(model.signals).toHaveLength(1)
+      expect(model.signals[0].signal_id).toBe('sig-001')
+      expect(model.isHawkesSupercritical).toBe(false)
+      expect(model.isHeartbeatStale).toBe(false)
+      expect(model.isMarginBreached).toBe(false)
+      expect(model.childOrdersCount).toBe(10)
+      expect(model.fillsCount).toBe(9)
+      expect(model.upstreamHash).toBe('3f04f21a64c4c23db2be92c10b47fe7343e2646271c66299b9cf9c63fb93cb89')
+      expect(model.phaseHash).toBe('2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae')
     })
   })
 })

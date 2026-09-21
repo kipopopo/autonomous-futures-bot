@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sqlite3
+import time
+from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -10,6 +13,8 @@ from typing import Any, Literal
 from pydantic import Field
 
 from ..domain.contracts import DomainModel
+
+logger = logging.getLogger("autonomous_futures.api.canary")
 
 
 class CanaryEvidenceNotFoundError(FileNotFoundError):
@@ -1045,6 +1050,362 @@ def load_verified_canary_paper_execution(phase_dir: Path) -> CanaryPaperExecutio
     )
 
 
+# =====================================================================
+# Phase 295: Live Strategy Activation & Walk-Forward OOS Promotion Gates
+# =====================================================================
+
+
+class CandidatePromotionItem(DomainModel):
+    candidate_id: str
+    symbol: str
+    status: str
+    average_return_pct: float
+    worst_drawdown_pct: float
+    profit_factor: float
+    trade_count: int
+    window_count: int
+    qualified: bool
+
+
+class CandidateSignalItem(DomainModel):
+    signal_id: str | None = None
+    candidate_id: str | None = None
+    timestamp_ms: int = 0
+    symbol: str
+    side: str
+    order_type: str = "LIMIT"
+    limit_price: str | None = None
+    notional_usdt: float = 0.0
+    client_order_id: str | None = None
+
+
+class VetoInterlockItem(DomainModel):
+    hawkes_supercritical: bool = False
+    gateway_heartbeat_stale: bool = False
+    margin_headroom_breach: bool = False
+    clock_skew_breach: bool = False
+    intra_phase_loss_lockout: bool = False
+
+
+class LedgerReconciliationItem(DomainModel):
+    starting_equity: float = 100.0
+    cash: float = 100.0
+    allocated_margin: float = 0.0
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    drift: float = 0.0
+    zero_balance_drift: bool = True
+
+
+class CanaryStrategyActivationResponse(DomainModel):
+    verified: bool = True
+    phase: str = "phase_295"
+    status: str = "STRATEGY_ACTIVATION_VERIFIED"
+    timestamp_ms: int
+    execution_authority: Literal[False] = False
+    paper_safe: Literal[True] = True
+    candidates: list[CandidatePromotionItem] = Field(default_factory=list)
+    signals: list[CandidateSignalItem] = Field(default_factory=list)
+    vetoes: VetoInterlockItem = Field(default_factory=VetoInterlockItem)
+    ledger: LedgerReconciliationItem = Field(default_factory=LedgerReconciliationItem)
+    upstream_hash: str = ""
+    phase_hash: str = ""
+    child_orders_count: int = 0
+    fills_count: int = 0
+    orders_stats: dict[str, Any] = Field(default_factory=dict)
+    circuit_state: str = "NORMAL"
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, str] = Field(default_factory=dict)
+
+
+def load_verified_canary_strategy_activation(
+    phase_dir: Path | None = None,
+) -> CanaryStrategyActivationResponse:
+    if phase_dir is None:
+        target_dir = Path("artifacts/research/phase295")
+    else:
+        target_dir = phase_dir
+        if not (target_dir / "strategy-activation-summary.json").is_file():
+            alt_p295 = target_dir.parent / "phase295"
+            if (alt_p295 / "strategy-activation-summary.json").is_file() and "artifacts" in str(
+                target_dir
+            ):
+                target_dir = alt_p295
+            elif not (target_dir / "canary-strategy-activation-telemetry.sqlite3").is_file():
+                raise CanaryEvidenceNotFoundError(
+                    f"Strategy activation telemetry not found in {phase_dir}"
+                )
+
+    summary_file = target_dir / "strategy-activation-summary.json"
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(f"Strategy activation summary not found in {target_dir}")
+
+    report_file = target_dir / "canary-strategy-activation-report.json"
+    if not report_file.is_file():
+        raise CanaryEvidenceNotFoundError(f"Strategy activation report not found in {target_dir}")
+
+    try:
+        raw_summary = json.loads(summary_file.read_text(encoding="utf-8"))
+        if not isinstance(raw_summary, dict):
+            raise CanaryEvidenceIntegrityError(f"Root JSON is not an object in {summary_file}")
+        summary_data: dict[str, Any] = raw_summary
+    except Exception as exc:
+        if isinstance(exc, (CanaryEvidenceNotFoundError, CanaryEvidenceIntegrityError)):
+            raise
+        raise CanaryEvidenceIntegrityError(f"Malformed JSON in {summary_file}") from exc
+
+    raw_hashes = summary_data.get("artifact_hashes", {})
+    if not isinstance(raw_hashes, dict):
+        raise CanaryEvidenceIntegrityError("artifact_hashes must be a dict in summary")
+    for fname, expected_hash in raw_hashes.items():
+        fp = target_dir / fname
+        if not fp.is_file():
+            raise CanaryEvidenceNotFoundError(
+                f"Referenced artifact {fname} missing in {target_dir}"
+            )
+        actual_hash = hashlib.sha256(fp.read_bytes()).hexdigest()
+        if actual_hash.lower() != expected_hash.lower():
+            raise CanaryEvidenceIntegrityError(
+                f"Hash mismatch for {fname}: expected {expected_hash}, got {actual_hash}"
+            )
+
+    upstream_merkle = summary_data.get("upstream_merkle_dag", {})
+    upstream_hash = ""
+    if isinstance(upstream_merkle, dict):
+        upstream_hash = str(upstream_merkle.get("phase294_summary_hash", ""))
+        if upstream_hash:
+            upstream_p294_file = target_dir.parent / "phase294" / "paper-execution-summary.json"
+            if not upstream_p294_file.is_file():
+                upstream_p294_file = target_dir.parent / "phase294" / "paper-summary.json"
+            if upstream_p294_file.is_file():
+                calc_up_hash = hashlib.sha256(upstream_p294_file.read_bytes()).hexdigest()
+                if calc_up_hash.lower() != upstream_hash.lower():
+                    raise CanaryEvidenceIntegrityError(
+                        f"Upstream Phase 294 summary hash mismatch: "
+                        f"expected {upstream_hash}, got {calc_up_hash}"
+                    )
+
+    try:
+        raw_report = json.loads(report_file.read_text(encoding="utf-8"))
+        if not isinstance(raw_report, dict):
+            raise CanaryEvidenceIntegrityError(f"Root JSON is not an object in {report_file}")
+        report_data: dict[str, Any] = raw_report
+    except Exception as exc:
+        if isinstance(exc, (CanaryEvidenceNotFoundError, CanaryEvidenceIntegrityError)):
+            raise
+        raise CanaryEvidenceIntegrityError(f"Malformed JSON in {report_file}") from exc
+
+    drift_raw = report_data.get("drift_usdt", summary_data.get("drift_usdt", "0.0"))
+    try:
+        drift_dec = Decimal(str(drift_raw))
+    except Exception as exc:
+        raise CanaryEvidenceIntegrityError(f"Invalid drift format: {drift_raw}") from exc
+
+    if abs(drift_dec) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Balance drift {drift_dec} exceeds strict tolerance |Delta| < 10^-15 USDT"
+        )
+
+    zero_drift_flag = bool(
+        report_data.get("zero_balance_drift", summary_data.get("zero_balance_drift", True))
+    )
+    if not zero_drift_flag:
+        raise CanaryEvidenceIntegrityError("zero_balance_drift invariant violated in report")
+
+    candidates: list[CandidatePromotionItem] = []
+    raw_cands = summary_data.get("candidates") or report_data.get("candidates") or []
+    if isinstance(raw_cands, list):
+        for c in raw_cands:
+            if isinstance(c, dict):
+                avg_ret = c.get("average_return_pct")
+                if avg_ret is None:
+                    avg_ret = c.get("oos_average_return_pct", 0.0)
+                worst_dd = c.get("worst_drawdown_pct")
+                if worst_dd is None:
+                    worst_dd = c.get("oos_worst_drawdown_pct", 0.0)
+                pf = c.get("profit_factor")
+                if pf is None:
+                    pf = c.get("oos_profit_factor", 0.0)
+                trades = c.get("trade_count")
+                if trades is None:
+                    trades = c.get("oos_trade_count", 0)
+                windows = c.get("window_count")
+                if windows is None:
+                    windows = c.get("oos_window_count", 0)
+
+                candidates.append(
+                    CandidatePromotionItem(
+                        candidate_id=str(c.get("candidate_id", "")),
+                        symbol=str(c.get("symbol", "")),
+                        status=str(c.get("status", "UNPROMOTED")),
+                        average_return_pct=float(avg_ret or 0.0),
+                        worst_drawdown_pct=float(worst_dd or 0.0),
+                        profit_factor=float(pf or 0.0),
+                        trade_count=int(trades or 0),
+                        window_count=int(windows or 0),
+                        qualified=bool(c.get("qualified", False)),
+                    )
+                )
+
+    signals: list[CandidateSignalItem] = []
+    seen_signals: set[str] = set()
+    orders_jsonl = target_dir / "canary-orders.jsonl"
+    if orders_jsonl.is_file():
+        try:
+            for line in orders_jsonl.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                p_id = row.get("parent_order_id") or row.get("client_order_id") or ""
+                if p_id and p_id not in seen_signals:
+                    seen_signals.add(p_id)
+                    signals.append(
+                        CandidateSignalItem(
+                            signal_id=str(p_id),
+                            candidate_id=row.get("candidate_id"),
+                            timestamp_ms=int(row.get("created_time_ms", 0)),
+                            symbol=str(row.get("symbol", "")),
+                            side=str(row.get("side", "")),
+                            order_type=str(row.get("order_type", "LIMIT")),
+                            limit_price=str(row.get("price", ""))
+                            if row.get("price") is not None
+                            else None,
+                            notional_usdt=float(row.get("notional_usdt", 0.0)),
+                            client_order_id=str(row.get("client_order_id", "")),
+                        )
+                    )
+        except Exception as exc:
+            logger.warning("Error reading canary-orders.jsonl: %s", exc)
+
+    hawkes_supercritical = False
+    gateway_heartbeat_stale = False
+    margin_headroom_breach = False
+    clock_skew_breach = False
+    intra_phase_loss_lockout = False
+
+    circuit_state = str(
+        report_data.get("circuit_state", summary_data.get("circuit_state", "NORMAL"))
+    )
+    if circuit_state == "SUPERCRITICAL_CASCADE_LOCKOUT":
+        hawkes_supercritical = True
+    elif circuit_state == "INTRA_PHASE_LOSS_LOCKOUT":
+        intra_phase_loss_lockout = True
+
+    raw_vetoes = report_data.get("vetoes") or summary_data.get("vetoes")
+    if isinstance(raw_vetoes, dict):
+        hawkes_supercritical = bool(raw_vetoes.get("hawkes_supercritical", hawkes_supercritical))
+        gateway_heartbeat_stale = bool(
+            raw_vetoes.get("gateway_heartbeat_stale", gateway_heartbeat_stale)
+        )
+        margin_headroom_breach = bool(
+            raw_vetoes.get("margin_headroom_breach", margin_headroom_breach)
+        )
+        clock_skew_breach = bool(raw_vetoes.get("clock_skew_breach", clock_skew_breach))
+        intra_phase_loss_lockout = bool(
+            raw_vetoes.get("intra_phase_loss_lockout", intra_phase_loss_lockout)
+        )
+
+    db_path = target_dir / "canary-strategy-activation-telemetry.sqlite3"
+    if db_path.is_file():
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT code, allowed FROM interlock_events ORDER BY record_id DESC LIMIT 50"
+                )
+                for r in cur.fetchall():
+                    if not bool(r["allowed"]):
+                        c_code = str(r["code"])
+                        if "SUPERCRITICAL" in c_code or "HAWKES" in c_code:
+                            hawkes_supercritical = True
+                        if "HEARTBEAT" in c_code or "STALE" in c_code:
+                            gateway_heartbeat_stale = True
+                        if "EXPOSURE" in c_code or "MARGIN" in c_code:
+                            margin_headroom_breach = True
+                        if "CLOCK" in c_code or "SKEW" in c_code:
+                            clock_skew_breach = True
+                        if "LOSS" in c_code:
+                            intra_phase_loss_lockout = True
+            except sqlite3.OperationalError:
+                pass
+            conn.close()
+        except Exception:
+            pass
+
+    vetoes = VetoInterlockItem(
+        hawkes_supercritical=hawkes_supercritical,
+        gateway_heartbeat_stale=gateway_heartbeat_stale,
+        margin_headroom_breach=margin_headroom_breach,
+        clock_skew_breach=clock_skew_breach,
+        intra_phase_loss_lockout=intra_phase_loss_lockout,
+    )
+
+    starting_equity = float(
+        report_data.get("starting_equity_usdt", summary_data.get("starting_capital_usdt", 100.0))
+    )
+    cash = float(report_data.get("final_cash_usdt", summary_data.get("final_cash_usdt", 100.0)))
+    allocated_margin = float(report_data.get("allocated_margin_usdt", 0.0))
+    unrealized_pnl = float(report_data.get("unrealized_pnl_usdt", 0.0))
+    realized_pnl = float(
+        report_data.get("realized_pnl_usdt", summary_data.get("realized_pnl_usdt", 0.0))
+    )
+
+    ledger = LedgerReconciliationItem(
+        starting_equity=starting_equity,
+        cash=cash,
+        allocated_margin=allocated_margin,
+        unrealized_pnl=unrealized_pnl,
+        realized_pnl=realized_pnl,
+        drift=float(drift_dec),
+        zero_balance_drift=zero_drift_flag,
+    )
+
+    phase_hash = hashlib.sha256(summary_file.read_bytes()).hexdigest()
+    ts_str = str(report_data.get("timestamp_utc", summary_data.get("timestamp_utc", "")))
+    timestamp_ms = int(time.time() * 1000)
+    if ts_str:
+        try:
+            dt = datetime.fromisoformat(ts_str)
+            timestamp_ms = int(dt.timestamp() * 1000)
+        except Exception:
+            pass
+
+    child_count = int(
+        summary_data.get(
+            "child_orders_count",
+            report_data.get("orders_stats", {}).get("total_child_orders", len(signals)),
+        )
+    )
+    fills_count = int(
+        summary_data.get(
+            "fills_count",
+            report_data.get("orders_stats", {}).get("filled_orders", 0),
+        )
+    )
+
+    return CanaryStrategyActivationResponse(
+        phase=str(summary_data.get("phase", "phase_295")),
+        status=str(summary_data.get("status", "STRATEGY_ACTIVATION_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        execution_authority=False,
+        paper_safe=True,
+        candidates=candidates,
+        signals=signals,
+        vetoes=vetoes,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=phase_hash,
+        child_orders_count=child_count,
+        fills_count=fills_count,
+        orders_stats=report_data.get("orders_stats", {}),
+        circuit_state=circuit_state,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+        upstream_merkle_dag=dict(upstream_merkle) if isinstance(upstream_merkle, dict) else {},
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "BalanceSnapshotItem",
@@ -1055,12 +1416,16 @@ __all__ = [
     "CanaryLiveMarketResponse",
     "CanaryPaperExecutionResponse",
     "CanaryRiskResponse",
+    "CanaryStrategyActivationResponse",
     "CanarySummaryResponse",
+    "CandidatePromotionItem",
+    "CandidateSignalItem",
     "DaemonTrackItem",
     "GatewayHealthItem",
     "HawkesSnapshotItem",
     "HeartbeatItem",
     "InterlockEventItem",
+    "LedgerReconciliationItem",
     "MarkPriceItem",
     "OrderBookDepthItem",
     "OrderBookLevelItem",
@@ -1069,11 +1434,13 @@ __all__ = [
     "PaperLedgerSnapshotItem",
     "PaperMatchingStatsItem",
     "PaperOrderStatsItem",
+    "VetoInterlockItem",
     "load_verified_canary_accounting",
     "load_verified_canary_hawkes",
     "load_verified_canary_live_market",
     "load_verified_canary_paper_execution",
     "load_verified_canary_risk",
+    "load_verified_canary_strategy_activation",
     "load_verified_canary_summary",
     "verify_canary_phase_integrity",
 ]

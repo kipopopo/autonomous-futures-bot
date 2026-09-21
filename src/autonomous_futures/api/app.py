@@ -37,12 +37,18 @@ from .canary import (
     CanaryLiveMarketResponse,
     CanaryPaperExecutionResponse,
     CanaryRiskResponse,
+    CanaryStrategyActivationResponse,
     CanarySummaryResponse,
+    CandidatePromotionItem,
+    CandidateSignalItem,
+    LedgerReconciliationItem,
+    VetoInterlockItem,
     load_verified_canary_accounting,
     load_verified_canary_hawkes,
     load_verified_canary_live_market,
     load_verified_canary_paper_execution,
     load_verified_canary_risk,
+    load_verified_canary_strategy_activation,
     load_verified_canary_summary,
 )
 from .catalog import (
@@ -837,6 +843,25 @@ def create_app(
                 detail="canary paper execution integrity verification failed",
             ) from exc
 
+    # Phase 295: Live Strategy Activation & Walk-Forward OOS Promotion Gates
+    @app.get(
+        "/api/v1/canary/strategy-activation",
+        response_model=CanaryStrategyActivationResponse,
+    )
+    def canary_strategy_activation() -> CanaryStrategyActivationResponse:
+        try:
+            return load_verified_canary_strategy_activation(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary strategy activation evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary strategy activation integrity verification failed",
+            ) from exc
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -853,7 +878,10 @@ __all__ = [
     "CanaryLiveMarketResponse",
     "CanaryPaperExecutionResponse",
     "CanaryRiskResponse",
+    "CanaryStrategyActivationResponse",
     "CanarySummaryResponse",
+    "CandidatePromotionItem",
+    "CandidateSignalItem",
     "ComponentsResponse",
     "CreatorRegistryResponse",
     "CreatorQualificationResponse",
@@ -865,9 +893,11 @@ __all__ = [
     "LearnerRunResponse",
     "LearnerQualificationEvidenceResponse",
     "LearnerTrainingEvidenceResponse",
+    "LedgerReconciliationItem",
     "RegistryResponse",
     "RowsResponse",
     "TelemetryBroadcastManager",
+    "VetoInterlockItem",
     "app",
     "create_app",
     "register_telemetry_websocket",

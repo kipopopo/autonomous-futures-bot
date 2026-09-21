@@ -2424,3 +2424,68 @@ Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, 
 - [ ] Pytest suite covers order slicing, fill simulation, Hawkes lockout triggers, and double-entry reconciliation.
 - [ ] Vitest test suite covers frontend paper execution state handling and dashboard integration with 0 failures.
 - [ ] Static quality gates (`ruff`, `mypy`, `tsc`) pass with 0 errors.
+
+
+## 2026-09-21T09:47:00Z
+
+Implement Phase 295: Live Strategy Activation & Walk-Forward OOS Promotion Gates for Autonomous Futures Bot, linking staged quantitative candidate strategies to live Binance market feeds and real-time Hawkes microstructure telemetry, enforcing rigorous multi-tier out-of-sample promotion gates and veto interlocks, and driving promoted signals directly into the paper-safe execution simulator with continuous mathematical zero-drift balance validation.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Live Quantitative Strategy Evaluation & Signal Generation
+- Ingest real-time Binance USDⓈ-M public market feeds (top-of-book depth, trades, mark prices) and Hawkes jump intensities/spectral radius from Phases 292-293.
+- Bind and evaluate active candidate strategies from the Candidate Registry (`cand-btcusdt-dcb-002`, `cand-ethusdt-dcb-003`, `cand-solusdt-rgb-001`).
+- Compute strategy indicator features (e.g. Donchian channel breakouts, rolling volatility, trade momentum) on incoming market ticks.
+- Generate typed, causal parent order intentions (`ParentOrderIntention`) with deterministic client tagging (`c=canary-p295-{sym}-{ts}-{uuid}`).
+
+### R2. Multi-Tier Walk-Forward OOS Promotion Gates & Veto Interlocks
+- Enforce strict qualification criteria before any strategy signal is permitted to transition from probation to active promotion:
+  - Walk-Forward OOS Average Return: $\ge 0.0$
+  - Walk-Forward OOS Worst Drawdown: $\le 15.0\%$
+  - Walk-Forward OOS Profit Factor: $\ge 1.05$
+  - Minimum OOS Trade Count: $\ge 5$ trades across $\ge 1$ validation window
+- Implement fail-closed real-time veto interlocks:
+  - Hawkes Microstructure Veto: Immediately suppress signal dispatch if spectral radius $\rho \ge 1.0$ or severe hazard regime is active.
+  - Heartbeat & Skew Veto: Reject signal generation if market feed latency/heartbeat age $> 500\text{ ms}$.
+  - Exposure & Margin Veto: Reject signal generation if portfolio active exposure $> 60.00\text{ USDT}$ or cash reserve $< 40\%$.
+
+### R3. Seamless Pipeline to Phase 294 Paper Execution Engine & Zero-Drift Ledger
+- Dispatch promoted parent order intentions into Phase 294 `ChildOrderGenerator` with micro child order slicing ($\le 5.00\text{ USDT}$ cap, `ROUND_DOWN` precision, Binance filter compliance).
+- Execute simulated fills via `PassiveMatchingSimulator` against live orderbook depth and trade stream.
+- Reconcile continuous double-entry ledger invariant across all candidate tracks:
+  $$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+  enforcing strict absolute drift tolerance $|\Delta| < 10^{-15}\text{ USDT}$.
+- Persist structured audit artifacts in `artifacts/research/phase295/` bound by a cryptographic SHA-256 Merkle DAG hash chain.
+
+### R4. Observational Backend API & Dashboard Strategy Activation Telemetry
+- Expose read-only FastAPI endpoints (`/api/v1/canary/strategy-activation`) providing candidate promotion statuses, OOS gate evaluation metrics, active strategy signals, veto triggers, and generated child order statistics.
+- Update the web app dashboard with an interactive Strategy Activation view displaying live candidate health, promotion gate scorecards, and signal timeline.
+
+### R5. Strict Paper-Safe Confinement
+- Strictly enforce `EXECUTION AUTHORITY: OFF` across all models and handlers.
+- Zero exchange private keys or credentials loaded or required.
+- Zero live orders transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+
+### Strategy Evaluation & Signal Generation
+- [ ] Strategy evaluator processes live ticks and computes candidate signals (Donchian breakout / regime filters) with causal timestamp ordering.
+- [ ] Generated parent order intentions are typed, bounded, and deterministically tagged.
+
+### OOS Promotion Gates & Veto Interlocks
+- [ ] Candidates failing OOS qualification gates (return, drawdown, profit factor, trade count) remain `UNPROMOTED` or `BLOCKED`.
+- [ ] Hawkes supercritical regime ($\rho \ge 1.0$) or stale gateway heartbeat immediately suppresses signal dispatch.
+- [ ] Active exposure ceiling ($\le 60.00\text{ USDT}$) and margin reserve floor ($\ge 40\%$) prevent signal over-allocation.
+
+### Execution Integration & Double-Entry Accounting
+- [ ] Promoted signals slice into child orders strictly $\le 5.00\text{ USDT}$ with precision `ROUND_DOWN`.
+- [ ] Matching simulation preserves exact zero-drift balance ($|\text{drift}| = 0.00\text{ USDT} < 10^{-15}\text{ USDT}$).
+- [ ] Verification runner `scripts/run_phase_295_strategy_activation.py` completes cleanly with exit code 0.
+
+### Automated Testing & Quality Gates
+- [ ] Pytest suite covers strategy signal generation, OOS gate evaluation, veto interlocks, and paper execution binding.
+- [ ] Vitest test suite covers frontend strategy activation telemetry and UI components with 0 failures.
+- [ ] Static quality gates (`ruff`, `mypy`, `tsc`) pass with 0 errors.

@@ -13,6 +13,7 @@ import {
   Scale,
   ShieldAlert,
   ShieldCheck,
+  TrendingUp,
   Zap,
 } from 'lucide-react'
 
@@ -24,6 +25,7 @@ import { LiveMarketPage } from '@/components/live-market-page'
 import { MagicCard } from '@/components/magic-card'
 import { MicrostructurePage } from '@/components/microstructure-page'
 import { RiskPage } from '@/components/risk-page'
+import { StrategyActivationPage } from '@/components/strategy-activation-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
@@ -32,6 +34,7 @@ import {
   buildMicrostructureModel,
   buildPaperExecutionModel,
   buildRiskModel,
+  buildStrategyActivationModel,
   type CanaryDashboardData,
 } from '@/lib/canary'
 import { buildCreatorModel } from '@/lib/creator'
@@ -59,6 +62,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   accounting: null,
   liveMarket: null,
   paperExecution: null,
+  strategyActivation: null,
   error: null,
 }
 
@@ -270,6 +274,10 @@ function App() {
     () => buildPaperExecutionModel(canaryData.paperExecution ?? null),
     [canaryData.paperExecution]
   )
+  const strategyActivationModel = useMemo(
+    () => buildStrategyActivationModel(canaryData.strategyActivation ?? null),
+    [canaryData.strategyActivation]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -292,7 +300,8 @@ function App() {
       nextCanary.risk?.verified ||
       nextCanary.accounting?.verified ||
       nextCanary.liveMarket?.verified ||
-      nextCanary.paperExecution?.verified
+      nextCanary.paperExecution?.verified ||
+      nextCanary.strategyActivation?.verified
     )
 
     if (hasData) {
@@ -326,7 +335,8 @@ function App() {
             nextCanary.risk?.verified ||
             nextCanary.accounting?.verified ||
             nextCanary.liveMarket?.verified ||
-            nextCanary.paperExecution?.verified
+            nextCanary.paperExecution?.verified ||
+            nextCanary.strategyActivation?.verified
           )
 
           if (hasData) {
@@ -355,7 +365,8 @@ function App() {
   const hasCanary = Boolean(
     canaryData.summary?.verified ||
     canaryData.hawkes?.verified ||
-    canaryData.paperExecution?.verified
+    canaryData.paperExecution?.verified ||
+    canaryData.strategyActivation?.verified
   )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
@@ -369,6 +380,7 @@ function App() {
   const isRiskPage = page === 'risk'
   const isAccountingPage = page === 'accounting'
   const isExecutionPage = page === 'execution'
+  const isActivationPage = page === 'strategy-activation'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -412,10 +424,14 @@ function App() {
             <Zap size={17} aria-hidden="true" />
             <span>Paper Execution</span>
           </a>
+          <a className={`nav-item ${isActivationPage ? 'nav-item-active' : ''}`} href="#/strategy-activation" aria-current={isActivationPage ? 'page' : undefined}>
+            <TrendingUp size={17} aria-hidden="true" />
+            <span>Strategy Activation</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 294</span>
-          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Paper Execution</span>
+          <span className="sidebar-label">PHASE 295</span>
+          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Strategy Activation</span>
         </div>
       </aside>
 
@@ -438,7 +454,9 @@ function App() {
                           ? 'Accounting plane'
                           : isExecutionPage
                             ? 'Execution plane'
-                            : 'Data plane'}
+                            : isActivationPage
+                              ? 'Strategy activation plane'
+                              : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
               {isMarketPage
@@ -455,7 +473,9 @@ function App() {
                           ? 'Accounting Ledger'
                           : isExecutionPage
                             ? 'Paper Execution'
-                            : 'Overview'}
+                            : isActivationPage
+                              ? 'Strategy Activation'
+                              : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
               {isMarketPage
@@ -472,7 +492,9 @@ function App() {
                           ? 'Mathematical double-entry zero-drift · MYT (GMT+8)'
                           : isExecutionPage
                             ? 'Passive matching simulator & micro child order slicing · MYT (GMT+8)'
-                            : 'Causal market-data foundation · MYT (GMT+8)'}
+                            : isActivationPage
+                              ? 'Promoted strategy candidates & fail-closed veto interlock · MYT (GMT+8)'
+                              : 'Causal market-data foundation · MYT (GMT+8)'}
             </p>
           </div>
           <button
@@ -637,6 +659,7 @@ function App() {
         {isRiskPage && state === 'ready' && <RiskPage model={riskModel} />}
         {isAccountingPage && state === 'ready' && <AccountingPage model={accountingModel} />}
         {isExecutionPage && state === 'ready' && <ExecutionPage model={paperExecutionModel} />}
+        {isActivationPage && state === 'ready' && <StrategyActivationPage model={strategyActivationModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">

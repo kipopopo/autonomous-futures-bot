@@ -214,6 +214,7 @@ export interface CanaryDashboardData {
   accounting: CanaryAccountingResponse | null
   liveMarket: CanaryLiveMarketResponse | null
   paperExecution?: CanaryPaperExecutionResponse | null
+  strategyActivation?: CanaryStrategyActivationResponse | null
   error: string | null
 }
 
@@ -666,4 +667,206 @@ export function buildPaperExecutionModel(
     recentInterlocks: data.recent_interlocks || [],
   }
 }
+
+export interface CandidatePromotionItem {
+  candidate_id: string
+  symbol: string
+  status: string
+  average_return_pct: number
+  worst_drawdown_pct: number
+  profit_factor: number
+  trade_count: number
+  window_count: number
+  qualified: boolean
+}
+
+export interface CandidateSignalItem {
+  signal_id?: string | null
+  candidate_id?: string | null
+  timestamp_ms: number
+  symbol: string
+  side: string
+  order_type?: string
+  limit_price?: string | null
+  notional_usdt: number
+  client_order_id?: string | null
+}
+
+export interface VetoInterlockItem {
+  hawkes_supercritical: boolean
+  gateway_heartbeat_stale: boolean
+  margin_headroom_breach: boolean
+  clock_skew_breach?: boolean
+  intra_phase_loss_lockout?: boolean
+}
+
+export interface LedgerReconciliationItem {
+  starting_equity: number
+  cash: number
+  allocated_margin: number
+  unrealized_pnl: number
+  realized_pnl: number
+  drift: number
+  zero_balance_drift?: boolean
+}
+
+export interface CanaryStrategyActivationResponse {
+  verified?: boolean
+  phase: string
+  status: string
+  timestamp_ms: number
+  paper_safe: boolean
+  execution_authority: boolean
+  candidates: CandidatePromotionItem[]
+  signals: CandidateSignalItem[]
+  vetoes: VetoInterlockItem
+  ledger: LedgerReconciliationItem
+  upstream_hash: string
+  phase_hash: string
+  child_orders_count?: number
+  fills_count?: number
+  orders_stats?: Record<string, unknown>
+  circuit_state?: string
+  artifact_hashes?: Record<string, string>
+  upstream_merkle_dag?: Record<string, string>
+}
+
+export interface StrategyActivationModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  candidates: CandidatePromotionItem[]
+  signals: CandidateSignalItem[]
+  vetoes: VetoInterlockItem
+  ledger: LedgerReconciliationItem
+  upstreamHash: string
+  phaseHash: string
+  childOrdersCount: number
+  fillsCount: number
+  isHawkesSupercritical: boolean
+  isHeartbeatStale: boolean
+  isMarginBreached: boolean
+}
+
+export function buildStrategyActivationModel(
+  data: CanaryStrategyActivationResponse | null
+): StrategyActivationModel {
+  if (!data) {
+    return {
+      phase: '—',
+      verified: false,
+      status: 'UNAVAILABLE',
+      circuitState: 'UNKNOWN',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      candidates: [
+        {
+          candidate_id: 'cand-btcusdt-dcb-002',
+          symbol: 'BTCUSDT',
+          status: 'UNPROMOTED',
+          average_return_pct: 0,
+          worst_drawdown_pct: 0,
+          profit_factor: 0,
+          trade_count: 0,
+          window_count: 0,
+          qualified: false,
+        },
+        {
+          candidate_id: 'cand-ethusdt-dcb-003',
+          symbol: 'ETHUSDT',
+          status: 'UNPROMOTED',
+          average_return_pct: 0,
+          worst_drawdown_pct: 0,
+          profit_factor: 0,
+          trade_count: 0,
+          window_count: 0,
+          qualified: false,
+        },
+        {
+          candidate_id: 'cand-solusdt-rgb-001',
+          symbol: 'SOLUSDT',
+          status: 'UNPROMOTED',
+          average_return_pct: 0,
+          worst_drawdown_pct: 0,
+          profit_factor: 0,
+          trade_count: 0,
+          window_count: 0,
+          qualified: false,
+        },
+      ],
+      signals: [],
+      vetoes: {
+        hawkes_supercritical: false,
+        gateway_heartbeat_stale: false,
+        margin_headroom_breach: false,
+      },
+      ledger: {
+        starting_equity: 100.0,
+        cash: 100.0,
+        allocated_margin: 0.0,
+        unrealized_pnl: 0.0,
+        realized_pnl: 0.0,
+        drift: 0.0,
+        zero_balance_drift: true,
+      },
+      upstreamHash: '—',
+      phaseHash: '—',
+      childOrdersCount: 0,
+      fillsCount: 0,
+      isHawkesSupercritical: false,
+      isHeartbeatStale: false,
+      isMarginBreached: false,
+    }
+  }
+
+  const isZeroDrift =
+    data.ledger?.zero_balance_drift !== undefined
+      ? Boolean(data.ledger.zero_balance_drift)
+      : Math.abs(data.ledger?.drift ?? 0) < 1e-15
+
+  return {
+    phase: data.phase,
+    verified: Boolean(data.verified ?? true),
+    status: data.status,
+    circuitState: data.circuit_state ?? 'NORMAL',
+    timestampMs: data.timestamp_ms,
+    timestampUtc: data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : '',
+    isPaperSafe: data.paper_safe,
+    isExecutionOff: !data.execution_authority,
+    isZeroDrift,
+    candidates: data.candidates || [],
+    signals: data.signals || [],
+    vetoes: data.vetoes || {
+      hawkes_supercritical: false,
+      gateway_heartbeat_stale: false,
+      margin_headroom_breach: false,
+    },
+    ledger: data.ledger || {
+      starting_equity: 100.0,
+      cash: 100.0,
+      allocated_margin: 0.0,
+      unrealized_pnl: 0.0,
+      realized_pnl: 0.0,
+      drift: 0.0,
+      zero_balance_drift: true,
+    },
+    upstreamHash: data.upstream_hash || '—',
+    phaseHash: data.phase_hash || '—',
+    childOrdersCount: data.child_orders_count ?? 0,
+    fillsCount: data.fills_count ?? 0,
+    isHawkesSupercritical: Boolean(data.vetoes?.hawkes_supercritical),
+    isHeartbeatStale: Boolean(data.vetoes?.gateway_heartbeat_stale),
+    isMarginBreached: Boolean(data.vetoes?.margin_headroom_breach),
+  }
+}
+
 
