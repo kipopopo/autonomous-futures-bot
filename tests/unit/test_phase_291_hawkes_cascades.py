@@ -1637,3 +1637,259 @@ def test_daemon_start_and_shutdown_balance_snapshots(
     triggers = [r["trigger_event"] for r in rows]
     assert "DAEMON_INITIALIZED" in triggers
     assert "DAEMON_SHUTDOWN" in triggers
+
+
+def test_gateway_heartbeat_backward_clock_skew_freeze():
+    """Verifies that negative clock drift (local clock behind server by > 250ms) triggers freeze."""
+    heartbeat_mon = GatewayHeartbeatMonitor(max_clock_skew_ms=250)
+    now_ms = int(time.time() * 1000)
+    # Server time is ahead of local time by 300ms -> abs(local - server) = 300ms
+    server_time = now_ms + 300
+    res = heartbeat_mon.record_heartbeat(
+        server_time_ms=server_time, latency_ms=20, local_time_ms=now_ms
+    )
+    assert res.is_healthy is False
+    assert heartbeat_mon.is_frozen is True
+    assert "NTP clock drift" in heartbeat_mon.freeze_reason
+
+    ok, reason = heartbeat_mon.check_health(current_time_ms=now_ms)
+    assert ok is False
+    assert "freeze" in reason.lower()
+
+
+def test_twap_slicing_strictly_enforces_chunk_cap_and_floor(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that parent orders are partitioned such that child slices are
+    <= chunk_cap and >= 1.00 USDT.
+    """
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    # Test parent order of 3.20 USDT (which previously yielded a 3.20 slice or breach)
+    parent_320 = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-btcusdt",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("3.20"),
+        limit_price=Decimal("60000.00"),
+        slice_chunk_notional=Decimal("2.50"),
+    )
+    assert len(parent_320.child_order_ids) >= 2
+    for cid in parent_320.child_order_ids:
+        child_ord = dispatcher.orders[cid]
+        c_notional = Decimal(child_ord.notional_usdt)
+        assert c_notional <= Decimal("2.50")
+        assert c_notional >= Decimal("1.00")
+
+    # Test parent order of 5.20 USDT
+    parent_520 = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-btcusdt",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("5.20"),
+        limit_price=Decimal("60000.00"),
+        slice_chunk_notional=Decimal("2.50"),
+    )
+    assert len(parent_520.child_order_ids) >= 3
+    for cid in parent_520.child_order_ids:
+        child_ord = dispatcher.orders[cid]
+        c_notional = Decimal(child_ord.notional_usdt)
+        assert c_notional <= Decimal("2.50")
+        assert c_notional >= Decimal("1.00")
+
+
+def test_twap_slicing_under_downscaled_regime_cap(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that under severe regime (rho >= 0.85), chunk cap is downscaled to 1.25."""
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    # Push SOLUSDT into severe hawkes controls (rho >= 0.85)
+    engine.record_jump_burst_shock("SOLUSDT", alpha_self=0.90, alpha_cross_btc=0.20)
+    assert engine.get_slice_chunk_cap("SOLUSDT") == Decimal("1.25")
+
+    parent = dispatcher.dispatch_twap_sliced_parent(
+        candidate_id="cand-solusdt",
+        symbol="SOLUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        target_notional=Decimal("2.50"),
+        limit_price=Decimal("150.00"),
+    )
+    assert len(parent.child_order_ids) == 2
+    for cid in parent.child_order_ids:
+        child_ord = dispatcher.orders[cid]
+        c_notional = Decimal(child_ord.notional_usdt)
+        assert c_notional <= Decimal("1.25")
+        assert c_notional >= Decimal("1.00")
+
+
+def test_stream_sequencer_epoch_wrap_preserves_post_wrap_packets():
+    """Verifies that sequence wrap correctly resets deduplication namespace across epochs."""
+    sequencer = HawkesCascadeStreamSequencer(wrap_threshold=1000)
+
+    # Event 100 in epoch 0
+    is_dup, is_ooo, is_wrap = sequencer.process_event({"u": 100})
+    assert not is_dup and not is_wrap
+
+    # Event 999 near threshold
+    is_dup, is_ooo, is_wrap = sequencer.process_event({"u": 999})
+    assert not is_dup and not is_wrap
+
+    # Wrap: event 100 in epoch 1
+    is_dup, is_ooo, is_wrap = sequencer.process_event({"u": 100})
+    assert not is_dup
+    assert is_wrap is True
+    assert sequencer.sequence_wrap_count == 1
+
+    # Ingest event 100 again in epoch 1 -> now deduplicated!
+    is_dup2, _, _ = sequencer.process_event({"u": 100})
+    assert is_dup2 is True
+
+
+def test_sqlite_interlock_events_and_websocket_events_persistence(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+):
+    """Verifies that interlock_events and websocket_events are persisted in SQLite."""
+    from autonomous_futures.feed.hawkes_cascades import (
+        InterlockEventRecord,
+        InterlockType,
+        WebSocketEventType,
+        WebSocketPushEvent,
+    )
+
+    # Record interlock event
+    evt = InterlockEventRecord(
+        event_id="test-il-1",
+        timestamp_utc="2026-09-21T00:00:00Z",
+        interlock_type=InterlockType.HEARTBEAT_FRESHNESS,
+        allowed=False,
+        symbol="BTCUSDT",
+        notional_usdt="5.00",
+        details="Stale latency test",
+        track_id="test_track",
+    )
+    temp_telemetry_store.record_interlock_event(evt)
+
+    row = temp_telemetry_store.conn.execute(
+        "SELECT * FROM interlock_events WHERE event_id = 'test-il-1';"
+    ).fetchone()
+    assert row is not None
+    assert row["interlock_type"] == InterlockType.HEARTBEAT_FRESHNESS.value
+    assert row["allowed"] == 0
+
+    # Record websocket event
+    ws_evt = WebSocketPushEvent(
+        track_id="test_track",
+        event_type=WebSocketEventType.BOOK_TICKER,
+        symbol="ETHUSDT",
+        sequence_number=12345,
+        raw_payload_hash="payload-hash-123",
+        is_deduplicated=False,
+        is_out_of_order=False,
+    )
+    temp_telemetry_store.record_websocket_event(ws_evt)
+
+    ws_row = temp_telemetry_store.conn.execute(
+        "SELECT * FROM websocket_events WHERE symbol = 'ETHUSDT';"
+    ).fetchone()
+    assert ws_row is not None
+    assert ws_row["sequence_number"] == 12345
+    assert ws_row["raw_payload_hash"] == "payload-hash-123"
+
+
+def test_dispatcher_cancel_order_propagates_to_gateway(
+    temp_telemetry_store: SqliteCanaryHawkesTelemetryStore,
+    temp_jsonl_sink: JsonlCanaryOrderSink,
+):
+    """Verifies that dispatcher.cancel_order cancels the order in both dispatcher
+    and mock gateway.
+    """
+    gateway = MockBinanceHawkesCascadeGateway()
+    reconciler = HawkesCascadeUserDataStreamReconciler(telemetry_store=temp_telemetry_store)
+    heartbeat_mon = GatewayHeartbeatMonitor()
+    engine = HawkesCascadeEngine(telemetry_store=temp_telemetry_store)
+    interlock = HawkesCascadeOrderDispatchInterlock(
+        reconciler=reconciler,
+        heartbeat_monitor=heartbeat_mon,
+        engine=engine,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+        telemetry_store=temp_telemetry_store,
+    )
+    dispatcher = HawkesCascadeMicroOrderDispatcher(
+        gateway=gateway,
+        interlock=interlock,
+        reconciler=reconciler,
+        telemetry_store=temp_telemetry_store,
+        jsonl_sink=temp_jsonl_sink,
+    )
+    hb = gateway.generate_heartbeat()
+    heartbeat_mon.record_heartbeat(hb["serverTime"], hb["latencyMs"])
+
+    cid = generate_canary_client_order_id("BTCUSDT")
+
+    from autonomous_futures.feed.hawkes_cascades import HawkesCascadeOrderRecord
+
+    dispatcher.orders[cid] = HawkesCascadeOrderRecord(
+        client_order_id=cid,
+        order_id="gw-ord-1",
+        track_id="test",
+        candidate_id="cand-btc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        price="60000.00",
+        quantity="0.00005",
+        notional_usdt="3.00",
+        status=OrderLifecycleState.NEW,
+        expansion_stage=CapitalExpansionStage.STAGE_12_HAWKES_CASCADE_EXPANSION,
+    )
+    dispatcher._order_committed_notionals[cid] = Decimal("3.00")
+    interlock.reserve_committed_margin("BTCUSDT", Decimal("3.00"))
+
+    res = dispatcher.cancel_order(cid)
+    assert res is True
+    # Verify gateway also cancelled the order
+    assert cid in gateway.cancelled_order_ids

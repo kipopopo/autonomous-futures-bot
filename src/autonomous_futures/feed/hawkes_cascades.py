@@ -1411,19 +1411,22 @@ class GatewayHeartbeatMonitor:
                     f"Gateway latency {latency_ms:.1f} ms exceeds ceiling {self.max_age_ms:.1f} ms"
                 )
                 details = self.freeze_reason
-            elif clock_skew > self.max_clock_skew_ms:
+            elif abs(clock_skew) > self.max_clock_skew_ms:
                 status = HeartbeatStatus.CLOCK_SKEW_FREEZE
                 is_healthy = False
                 self.is_frozen = True
                 self.drift_freeze_count += 1
                 self.freeze_reason = (
-                    f"Backward NTP clock drift {clock_skew:.1f} ms exceeds ceiling "
+                    f"NTP clock drift {clock_skew:.1f} ms exceeds ceiling "
                     f"{self.max_clock_skew_ms:.1f} ms"
                 )
                 details = self.freeze_reason
             elif self.is_frozen:
                 # Recovery hysteresis
-                if clock_skew <= self.clock_skew_recovery_ms and latency_ms <= self.recovery_age_ms:
+                if (
+                    abs(clock_skew) <= self.clock_skew_recovery_ms
+                    and latency_ms <= self.recovery_age_ms
+                ):
                     self.is_frozen = False
                     self.freeze_reason = ""
                     details = "Gateway recovered from drift freeze via hysteresis"
@@ -1432,7 +1435,7 @@ class GatewayHeartbeatMonitor:
                 else:
                     status = (
                         HeartbeatStatus.CLOCK_SKEW_FREEZE
-                        if clock_skew > self.clock_skew_recovery_ms
+                        if abs(clock_skew) > self.clock_skew_recovery_ms
                         else HeartbeatStatus.STALE
                     )
                     is_healthy = False
@@ -2236,6 +2239,27 @@ class HawkesCascadeOrderDispatchInterlock:
             self._parent_order_working_notionals.clear()
             self._parent_order_symbols.clear()
 
+    def _record_interlock(
+        self,
+        interlock_type: InterlockType,
+        allowed: bool,
+        symbol: str | None = None,
+        notional_usdt: str | None = None,
+        details: str = "",
+        track_id: str = "hawkes_cascades",
+    ) -> None:
+        """Audit interlock evaluations to SQLite telemetry store."""
+        if self.telemetry_store:
+            evt = InterlockEventRecord(
+                track_id=track_id,
+                interlock_type=interlock_type,
+                allowed=allowed,
+                symbol=symbol,
+                notional_usdt=notional_usdt,
+                details=details,
+            )
+            self.telemetry_store.record_interlock_event(evt)
+
     def evaluate_order_pre_dispatch(
         self,
         symbol: str,
@@ -2252,6 +2276,15 @@ class HawkesCascadeOrderDispatchInterlock:
         if quantity <= Decimal("0.0") or price <= Decimal("0.0"):
             with self._lock:
                 self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.INDIVIDUAL_MICRO_CAP,
+                    allowed=False,
+                    symbol=sym,
+                    details=(
+                        f"Order quantity ({quantity}) and price ({price}) must be strictly positive"
+                    ),
+                    track_id=track_id,
+                )
             raise CanaryHawkesCascadeError(
                 f"Order quantity ({quantity}) and price ({price}) must be strictly positive"
             )
@@ -2262,6 +2295,14 @@ class HawkesCascadeOrderDispatchInterlock:
             hb_ok, hb_reason = self.heartbeat_monitor.check_health(current_time_ms)
             if not hb_ok:
                 self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.HEARTBEAT_FRESHNESS,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=hb_reason,
+                    track_id=track_id,
+                )
                 if "frozen" in hb_reason.lower() or self.heartbeat_monitor.is_frozen:
                     raise HeartbeatFreezeActiveError(hb_reason)
                 raise GatewayHeartbeatStaleError(hb_reason)
@@ -2276,6 +2317,16 @@ class HawkesCascadeOrderDispatchInterlock:
             if cum_loss >= self.loss_ceiling_usdt:
                 self.interlock_blocks_count += 1
                 self.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+                self._record_interlock(
+                    InterlockType.LOSS_BUDGET_CEILING,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=(
+                        f"Cumulative loss {cum_loss} exceeds ceiling {self.loss_ceiling_usdt} USDT"
+                    ),
+                    track_id=track_id,
+                )
                 if not is_closing:
                     raise IntraPhaseLossCeilingExceededError(
                         f"Cumulative loss {cum_loss} exceeds ceiling {self.loss_ceiling_usdt} USDT"
@@ -2283,6 +2334,14 @@ class HawkesCascadeOrderDispatchInterlock:
 
             if self.circuit_state != CircuitBreakerState.NORMAL and not is_closing:
                 self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.CIRCUIT_BREAKER,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=f"Order rejected under circuit breaker state: {self.circuit_state}",
+                    track_id=track_id,
+                )
                 if self.circuit_state == CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT:
                     raise IntraPhaseLossCeilingExceededError(
                         "Order dispatch rejected fail-closed under active INTRA_PHASE_LOSS_LOCKOUT"
@@ -2300,11 +2359,27 @@ class HawkesCascadeOrderDispatchInterlock:
                 curr_pos = self.reconciler.positions.get(sym, Decimal("0.0"))
                 if curr_pos > Decimal("0.0") and side != OrderSide.SELL:
                     self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        InterlockType.CIRCUIT_BREAKER,
+                        allowed=False,
+                        symbol=sym,
+                        notional_usdt=str(notional),
+                        details=f"Cannot close LONG position with BUY order for {sym}",
+                        track_id=track_id,
+                    )
                     raise CanaryHawkesCascadeError(
                         f"Cannot close LONG position with BUY order for {sym}"
                     )
                 if curr_pos < Decimal("0.0") and side != OrderSide.BUY:
                     self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        InterlockType.CIRCUIT_BREAKER,
+                        allowed=False,
+                        symbol=sym,
+                        notional_usdt=str(notional),
+                        details=f"Cannot close SHORT position with SELL order for {sym}",
+                        track_id=track_id,
+                    )
                     raise CanaryHawkesCascadeError(
                         f"Cannot close SHORT position with SELL order for {sym}"
                     )
@@ -2312,27 +2387,79 @@ class HawkesCascadeOrderDispatchInterlock:
                     "0.00000001"
                 ):
                     self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        InterlockType.CIRCUIT_BREAKER,
+                        allowed=False,
+                        symbol=sym,
+                        notional_usdt=str(notional),
+                        details=(
+                            f"Closing order quantity {quantity} exceeds open position "
+                            f"{abs(curr_pos)}"
+                        ),
+                        track_id=track_id,
+                    )
                     raise CanaryHawkesCascadeError(
                         f"Closing order quantity {quantity} exceeds open position "
                         f"{abs(curr_pos)} for {sym}"
                     )
                 if notional > HARD_MICRO_NOTIONAL_CAP_USDT:
                     self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        InterlockType.INDIVIDUAL_MICRO_CAP,
+                        allowed=False,
+                        symbol=sym,
+                        notional_usdt=str(notional),
+                        details=(
+                            f"Closing order notional {notional} exceeds micro cap "
+                            f"{HARD_MICRO_NOTIONAL_CAP_USDT}"
+                        ),
+                        track_id=track_id,
+                    )
                     raise IndividualMicroCapExceededError(
                         f"Closing order notional {notional} exceeds micro cap "
                         f"{HARD_MICRO_NOTIONAL_CAP_USDT} USDT"
                     )
+                self._record_interlock(
+                    InterlockType.INDIVIDUAL_MICRO_CAP,
+                    allowed=True,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details="Closing order passed interlock checks",
+                    track_id=track_id,
+                )
                 return
 
             # 3. Individual Micro Child Order Cap (<= 5.00 USDT) and Floor (>= 1.00 USDT)
             if notional > HARD_MICRO_NOTIONAL_CAP_USDT:
                 self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.INDIVIDUAL_MICRO_CAP,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=(
+                        f"Order notional {notional} exceeds micro child cap "
+                        f"{HARD_MICRO_NOTIONAL_CAP_USDT}"
+                    ),
+                    track_id=track_id,
+                )
                 raise IndividualMicroCapExceededError(
                     f"Order notional {notional} exceeds micro child cap "
                     f"{HARD_MICRO_NOTIONAL_CAP_USDT} USDT"
                 )
             if notional < MIN_MICRO_NOTIONAL_CAP_USDT:
                 self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.INDIVIDUAL_MICRO_CAP,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=(
+                        f"Order notional {notional} falls below micro floor "
+                        f"{MIN_MICRO_NOTIONAL_CAP_USDT}"
+                    ),
+                    track_id=track_id,
+                )
                 raise MicroNotionalFloorViolationError(
                     f"Order notional {notional} falls below micro floor "
                     f"{MIN_MICRO_NOTIONAL_CAP_USDT} USDT"
@@ -2343,6 +2470,17 @@ class HawkesCascadeOrderDispatchInterlock:
             if rho >= self.engine.supercritical_threshold:
                 self.interlock_blocks_count += 1
                 self.circuit_state = CircuitBreakerState.SUPERCRITICAL_CASCADE_LOCKOUT
+                self._record_interlock(
+                    InterlockType.HAWKES_STABILITY_INTERLOCK,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=(
+                        f"Hawkes branching ratio runaway rho={rho} >= "
+                        f"{self.engine.supercritical_threshold}"
+                    ),
+                    track_id=track_id,
+                )
                 raise HawkesSupercriticalCascadeError(
                     f"Hawkes branching ratio runaway rho={rho} >= "
                     f"{self.engine.supercritical_threshold}"
@@ -2359,6 +2497,16 @@ class HawkesCascadeOrderDispatchInterlock:
                     or rho >= self.engine.critical_threshold
                 ):
                     self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        InterlockType.HAWKES_STABILITY_INTERLOCK,
+                        allowed=False,
+                        symbol=sym,
+                        notional_usdt=str(notional),
+                        details=(
+                            f"Aggressive market orders strictly rejected under {reg} / rho={rho}"
+                        ),
+                        track_id=track_id,
+                    )
                     raise AggressiveOrderRejectedError(
                         f"Aggressive market orders strictly rejected fail-closed under "
                         f"{reg} / rho={rho}"
@@ -2373,6 +2521,17 @@ class HawkesCascadeOrderDispatchInterlock:
                 )
                 if (cand_committed + cand_pos + notional) > THROTTLED_PER_CANDIDATE_CAP_USDT:
                     self.interlock_blocks_count += 1
+                    self._record_interlock(
+                        InterlockType.HAWKES_STABILITY_INTERLOCK,
+                        allowed=False,
+                        symbol=sym,
+                        notional_usdt=str(notional),
+                        details=(
+                            f"Candidate exposure for {sym} would exceed throttled cap "
+                            f"{THROTTLED_PER_CANDIDATE_CAP_USDT}"
+                        ),
+                        track_id=track_id,
+                    )
                     raise EndogenousCascadeThrottledError(
                         f"Candidate exposure for {sym} would exceed throttled cap "
                         f"{THROTTLED_PER_CANDIDATE_CAP_USDT} USDT"
@@ -2385,6 +2544,17 @@ class HawkesCascadeOrderDispatchInterlock:
             projected_total = current_allocated + current_committed + notional
             if projected_total > active_cap:
                 self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.AGGREGATE_EXPOSURE_CAP,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=(
+                        f"Projected exposure {projected_total} exceeds active stage "
+                        f"cap {active_cap}"
+                    ),
+                    track_id=track_id,
+                )
                 raise AggregateExposureCapExceededError(
                     f"Projected exposure {projected_total} exceeds active stage cap "
                     f"{active_cap} USDT"
@@ -2395,6 +2565,17 @@ class HawkesCascadeOrderDispatchInterlock:
             max_agg_margin = starting_eq * MAX_AGGREGATE_MARGIN_PCT
             if projected_total > max_agg_margin:
                 self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.AGGREGATE_MARGIN_CAP,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=(
+                        f"Projected aggregate margin {projected_total} exceeds 60% ceiling "
+                        f"{max_agg_margin}"
+                    ),
+                    track_id=track_id,
+                )
                 raise MarginAllocationExceededError(
                     f"Projected aggregate margin {projected_total} exceeds 60% ceiling "
                     f"{max_agg_margin} USDT"
@@ -2409,6 +2590,17 @@ class HawkesCascadeOrderDispatchInterlock:
             cand_margin = existing_allocated + self.get_total_committed_margin(sym) + notional
             if cand_margin > max_per_asset_margin:
                 self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.PER_ASSET_MARGIN_CAP,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=(
+                        f"Candidate {sym} margin {cand_margin} exceeds per-asset 20% ceiling "
+                        f"{max_per_asset_margin}"
+                    ),
+                    track_id=track_id,
+                )
                 raise MarginAllocationExceededError(
                     f"Candidate {sym} margin {cand_margin} exceeds per-asset 20% ceiling "
                     f"{max_per_asset_margin} USDT"
@@ -2419,6 +2611,17 @@ class HawkesCascadeOrderDispatchInterlock:
             projected_cash = self.reconciler.cash - current_committed - notional
             if projected_cash < required_cash_reserve:
                 self.interlock_blocks_count += 1
+                self._record_interlock(
+                    InterlockType.CASH_RESERVE_BUFFER,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=(
+                        f"Projected cash {projected_cash} breaches 40% cash reserve buffer "
+                        f"{required_cash_reserve}"
+                    ),
+                    track_id=track_id,
+                )
                 raise CashReserveBufferBreachedError(
                     f"Projected cash {projected_cash} breaches 40% cash reserve buffer "
                     f"{required_cash_reserve} USDT"
@@ -2434,9 +2637,28 @@ class HawkesCascadeOrderDispatchInterlock:
             if cum_loss >= self.loss_ceiling_usdt:
                 self.interlock_blocks_count += 1
                 self.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+                self._record_interlock(
+                    InterlockType.LOSS_BUDGET_CEILING,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(notional),
+                    details=(
+                        f"Cumulative loss {cum_loss} exceeds ceiling {self.loss_ceiling_usdt} USDT"
+                    ),
+                    track_id=track_id,
+                )
                 raise IntraPhaseLossCeilingExceededError(
                     f"Cumulative loss {cum_loss} exceeds ceiling {self.loss_ceiling_usdt} USDT"
                 )
+
+            self._record_interlock(
+                InterlockType.INDIVIDUAL_MICRO_CAP,
+                allowed=True,
+                symbol=sym,
+                notional_usdt=str(notional),
+                details="All pre-dispatch safety interlocks passed",
+                track_id=track_id,
+            )
 
 
 OfiCrossImpactOrderDispatchInterlock = HawkesCascadeOrderDispatchInterlock
@@ -2454,6 +2676,7 @@ class MockBinanceHawkesCascadeGateway:
         self.listen_key_created_at: float = time.time()
         self.server_time_offset_ms: int = 0
         self.is_connected: bool = True
+        self.cancelled_order_ids: set[str] = set()
 
     def generate_heartbeat(self, latency_ms: float = 15.0) -> dict[str, Any]:
         server_time = int(time.time() * 1000) + self.server_time_offset_ms
@@ -2474,6 +2697,8 @@ class MockBinanceHawkesCascadeGateway:
 
     def cancel_order(self, client_order_id: str) -> bool:
         """Simulate order cancellation at gateway."""
+        if client_order_id:
+            self.cancelled_order_ids.add(client_order_id)
         return bool(client_order_id)
 
 
@@ -2700,6 +2925,8 @@ class HawkesCascadeMicroOrderDispatcher:
                 self.orders_cancelled_count += 1
                 self.stream_events_count += 1
 
+                self.gateway.cancel_order(client_order_id)
+
                 if client_order_id in self._order_committed_notionals:
                     comm_margin = self._order_committed_notionals.pop(client_order_id)
                     self.interlock.release_committed_margin(ord_rec.symbol, comm_margin)
@@ -2749,15 +2976,42 @@ class HawkesCascadeMicroOrderDispatcher:
                     f"Invalid target notional {t_notional} or price {l_px} for parent order"
                 )
 
+            if t_notional < MIN_MICRO_NOTIONAL_CAP_USDT:
+                raise MicroNotionalFloorViolationError(
+                    f"Parent order target notional {t_notional} falls below micro floor "
+                    f"{MIN_MICRO_NOTIONAL_CAP_USDT} USDT"
+                )
+
             # 1. Gateway Heartbeat Freshness
             hb_ok, hb_reason = self.interlock.heartbeat_monitor.check_health(current_time_ms)
             if not hb_ok:
+                self.interlock.interlock_blocks_count += 1
+                self.interlock._record_interlock(
+                    InterlockType.HEARTBEAT_FRESHNESS,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(t_notional),
+                    details=hb_reason,
+                    track_id=track_id,
+                )
                 if "frozen" in hb_reason.lower() or self.interlock.heartbeat_monitor.is_frozen:
                     raise HeartbeatFreezeActiveError(hb_reason)
                 raise GatewayHeartbeatStaleError(hb_reason)
 
             # 2. Circuit Breaker
             if self.interlock.circuit_state != CircuitBreakerState.NORMAL:
+                self.interlock.interlock_blocks_count += 1
+                self.interlock._record_interlock(
+                    InterlockType.CIRCUIT_BREAKER,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(t_notional),
+                    details=(
+                        f"Parent order dispatch rejected under circuit breaker "
+                        f"{self.interlock.circuit_state}"
+                    ),
+                    track_id=track_id,
+                )
                 raise CircuitBreakerAbortError(
                     f"Parent order dispatch rejected under circuit breaker "
                     f"{self.interlock.circuit_state}"
@@ -2771,7 +3025,19 @@ class HawkesCascadeMicroOrderDispatcher:
                 self.reconciler.cumulative_realized_loss,
             )
             if cum_loss >= self.interlock.loss_ceiling_usdt:
+                self.interlock.interlock_blocks_count += 1
                 self.interlock.circuit_state = CircuitBreakerState.INTRA_PHASE_LOSS_LOCKOUT
+                self.interlock._record_interlock(
+                    InterlockType.LOSS_BUDGET_CEILING,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(t_notional),
+                    details=(
+                        f"Cumulative loss {cum_loss} exceeds ceiling "
+                        f"{self.interlock.loss_ceiling_usdt}"
+                    ),
+                    track_id=track_id,
+                )
                 raise IntraPhaseLossCeilingExceededError(
                     f"Parent order dispatch rejected under loss ceiling: {cum_loss} >= "
                     f"{self.interlock.loss_ceiling_usdt} USDT"
@@ -2780,7 +3046,16 @@ class HawkesCascadeMicroOrderDispatcher:
             # 3. Supercritical cascade check
             rho = self.interlock.engine.get_spectral_radius()
             if rho >= self.interlock.engine.supercritical_threshold:
+                self.interlock.interlock_blocks_count += 1
                 self.interlock.circuit_state = CircuitBreakerState.SUPERCRITICAL_CASCADE_LOCKOUT
+                self.interlock._record_interlock(
+                    InterlockType.HAWKES_STABILITY_INTERLOCK,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(t_notional),
+                    details=f"Parent dispatch blocked under supercritical cascade rho={rho}",
+                    track_id=track_id,
+                )
                 raise HawkesSupercriticalCascadeError(
                     f"Parent dispatch blocked under supercritical cascade rho={rho}"
                 )
@@ -2798,6 +3073,17 @@ class HawkesCascadeMicroOrderDispatcher:
                 if (
                     cand_committed + cand_pos_notional + t_notional
                 ) > THROTTLED_PER_CANDIDATE_CAP_USDT:
+                    self.interlock.interlock_blocks_count += 1
+                    self.interlock._record_interlock(
+                        InterlockType.HAWKES_STABILITY_INTERLOCK,
+                        allowed=False,
+                        symbol=sym,
+                        notional_usdt=str(t_notional),
+                        details=(
+                            f"Parent order candidate exposure for {sym} would exceed throttled cap"
+                        ),
+                        track_id=track_id,
+                    )
                     raise EndogenousCascadeThrottledError(
                         f"Parent order candidate exposure for {sym} would exceed throttled cap "
                         f"{THROTTLED_PER_CANDIDATE_CAP_USDT} USDT"
@@ -2809,6 +3095,18 @@ class HawkesCascadeMicroOrderDispatcher:
             active_cap = self.interlock.get_stage_exposure_cap()
             projected_total = curr_allocated + curr_committed + t_notional
             if projected_total > active_cap:
+                self.interlock.interlock_blocks_count += 1
+                self.interlock._record_interlock(
+                    InterlockType.AGGREGATE_EXPOSURE_CAP,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(t_notional),
+                    details=(
+                        f"Projected exposure {projected_total} exceeds active stage "
+                        f"cap {active_cap}"
+                    ),
+                    track_id=track_id,
+                )
                 raise AggregateExposureCapExceededError(
                     f"Projected exposure {projected_total} exceeds active stage "
                     f"cap {active_cap} USDT"
@@ -2817,6 +3115,18 @@ class HawkesCascadeMicroOrderDispatcher:
             starting_eq = self.reconciler.starting_equity
             max_aggregate_margin = starting_eq * MAX_AGGREGATE_MARGIN_PCT  # 60%
             if projected_total > max_aggregate_margin:
+                self.interlock.interlock_blocks_count += 1
+                self.interlock._record_interlock(
+                    InterlockType.AGGREGATE_MARGIN_CAP,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(t_notional),
+                    details=(
+                        f"Projected aggregate margin {projected_total} exceeds 60% ceiling "
+                        f"{max_aggregate_margin}"
+                    ),
+                    track_id=track_id,
+                )
                 raise MarginAllocationExceededError(
                     f"Projected aggregate margin {projected_total} exceeds 60% ceiling "
                     f"{max_aggregate_margin} USDT"
@@ -2831,6 +3141,15 @@ class HawkesCascadeMicroOrderDispatcher:
                 existing_allocated + self.interlock.get_total_committed_margin(sym) + t_notional
             )
             if cand_margin > max_per_asset_margin:
+                self.interlock.interlock_blocks_count += 1
+                self.interlock._record_interlock(
+                    InterlockType.PER_ASSET_MARGIN_CAP,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(t_notional),
+                    details=f"Candidate {sym} margin {cand_margin} exceeds per-asset 20% ceiling",
+                    track_id=track_id,
+                )
                 raise MarginAllocationExceededError(
                     f"Candidate {sym} margin {cand_margin} exceeds per-asset 20% ceiling "
                     f"{max_per_asset_margin} USDT"
@@ -2839,33 +3158,44 @@ class HawkesCascadeMicroOrderDispatcher:
             required_cash_reserve = starting_eq * MIN_RESERVE_BUFFER_PCT  # 40%
             projected_cash = self.reconciler.cash - curr_committed - t_notional
             if projected_cash < required_cash_reserve:
+                self.interlock.interlock_blocks_count += 1
+                self.interlock._record_interlock(
+                    InterlockType.CASH_RESERVE_BUFFER,
+                    allowed=False,
+                    symbol=sym,
+                    notional_usdt=str(t_notional),
+                    details=f"Projected cash {projected_cash} breaches 40% cash reserve buffer",
+                    track_id=track_id,
+                )
                 raise CashReserveBufferBreachedError(
                     f"Projected cash {projected_cash} breaches 40% cash reserve buffer "
                     f"{required_cash_reserve} USDT"
                 )
 
-            # Slicing calculation
-            chunks: list[Decimal] = []
-            remaining = t_notional
-            while remaining > Decimal("0.0"):
-                if remaining <= chunk_cap:
-                    if remaining < MIN_MICRO_NOTIONAL_CAP_USDT:
-                        if chunks:
-                            last = chunks.pop()
-                            combined = last + remaining
-                            if combined <= HARD_MICRO_NOTIONAL_CAP_USDT:
-                                chunks.append(combined)
-                            else:
-                                chunks.append(last)
-                                chunks.append(MIN_MICRO_NOTIONAL_CAP_USDT)
-                        else:
-                            chunks.append(MIN_MICRO_NOTIONAL_CAP_USDT)
-                    else:
-                        chunks.append(remaining)
-                    break
+            # Slicing calculation: partition t_notional into K slices
+            # Each slice strictly <= chunk_cap (and <= 2.50) and >= 1.00 floor
+            if t_notional <= chunk_cap:
+                chunks: list[Decimal] = [t_notional]
+            else:
+                import math
+
+                k_min = int(math.ceil(float(t_notional / chunk_cap)))
+                k_max = int(float(t_notional / MIN_MICRO_NOTIONAL_CAP_USDT))
+                k = max(1, min(k_min, k_max)) if k_max >= 1 else 1
+
+                if k == 1:
+                    chunks = [t_notional]
                 else:
-                    chunks.append(chunk_cap)
-                    remaining -= chunk_cap
+                    base_chunk = (t_notional / Decimal(str(k))).quantize(
+                        Decimal("0.01"), rounding=ROUND_DOWN
+                    )
+                    chunks = [base_chunk] * k
+                    rem = t_notional - sum(chunks)
+                    cent_count = int(
+                        (rem / Decimal("0.01")).quantize(Decimal("1"), rounding=ROUND_DOWN)
+                    )
+                    for c_idx in range(cent_count):
+                        chunks[c_idx] += Decimal("0.01")
 
             parent_cid = f"parent-p291-{sym.lower()}-{int(time.time() * 1000)}-{uuid4().hex[:8]}"
 
@@ -2918,6 +3248,10 @@ class HawkesCascadeMicroOrderDispatcher:
                     c_qty = (c_notional / effective_l_px).quantize(
                         Decimal("0.00000001"), rounding=ROUND_DOWN
                     )
+                    if (c_qty * effective_l_px) < MIN_MICRO_NOTIONAL_CAP_USDT:
+                        c_qty = (MIN_MICRO_NOTIONAL_CAP_USDT / effective_l_px).quantize(
+                            Decimal("0.00000001"), rounding=ROUND_UP
+                        )
                     child_cid = generate_canary_client_order_id(sym)
                     parent_rec.child_order_ids.append(child_cid)
 
@@ -3069,24 +3403,24 @@ class HawkesCascadeStreamSequencer:
         """Validate sequence. Returns (is_deduplicated, is_out_of_order, is_wrap)."""
         with self._lock:
             seq = int(event_data.get("u", event_data.get("sequence", 0)))
-
-            if str(seq) in self.seen_hashes:
-                self.deduplicated_count += 1
-                return True, False, False
-
-            self.seen_hashes.add(str(seq))
             is_ooo = False
             is_wrap = False
 
-            if self.last_seq > 0:
-                if seq < self.last_seq:
-                    if self.last_seq >= self.wrap_threshold - 1000 and seq < 1000:
-                        is_wrap = True
-                        self.sequence_wrap_count += 1
-                    else:
-                        is_ooo = True
-                        self.out_of_order_count += 1
+            if self.last_seq > 0 and seq < self.last_seq:
+                if self.last_seq >= self.wrap_threshold - 1000 and seq < 1000:
+                    is_wrap = True
+                    self.sequence_wrap_count += 1
 
+            key = f"{seq}:{self.sequence_wrap_count}"
+            if key in self.seen_hashes:
+                self.deduplicated_count += 1
+                return True, False, False
+
+            if self.last_seq > 0 and seq < self.last_seq and not is_wrap:
+                is_ooo = True
+                self.out_of_order_count += 1
+
+            self.seen_hashes.add(key)
             self.last_seq = seq
             return False, is_ooo, is_wrap
 
@@ -4246,6 +4580,23 @@ class CanaryHawkesCascadeRunner:
         assert not is_dup1 and not is_wrap1
         assert is_dup2
         assert is_wrap3
+
+        for ev, is_dup, is_ooo in [
+            (ev1, is_dup1, is_ooo1),
+            (ev2, is_dup2, is_ooo2),
+            (ev3, is_dup3, is_ooo3),
+        ]:
+            dispatcher.stream_events_count += 1
+            ws_evt = WebSocketPushEvent(
+                track_id="track_4",
+                event_type=WebSocketEventType.DEPTH_UPDATE,
+                symbol="SOLUSDT",
+                sequence_number=int(ev.get("u", 0)),
+                raw_payload_hash=f"hash-{ev.get('u')}",
+                is_deduplicated=is_dup,
+                is_out_of_order=is_ooo,
+            )
+            self.active_store.record_websocket_event(ws_evt)
 
         # 4. Close position cleanly
         close_cid = generate_canary_client_order_id("SOLUSDT")
