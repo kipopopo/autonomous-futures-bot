@@ -79,6 +79,7 @@ def test_canary_endpoints_missing_phase_fails_404(tmp_path: Path) -> None:
     assert _request(app, "GET", "/api/v1/canary/hawkes").status_code == 404
     assert _request(app, "GET", "/api/v1/canary/risk").status_code == 404
     assert _request(app, "GET", "/api/v1/canary/accounting").status_code == 404
+    assert _request(app, "GET", "/api/v1/canary/live-market").status_code == 404
 
 
 def test_canary_endpoints_tampered_artifact_fails_503(tmp_path: Path) -> None:
@@ -99,3 +100,24 @@ def test_canary_endpoints_tampered_artifact_fails_503(tmp_path: Path) -> None:
     res = _request(app, "GET", "/api/v1/canary/summary")
     assert res.status_code == 503
     assert "integrity verification failed" in res.json()["detail"]
+    assert _request(app, "GET", "/api/v1/canary/live-market").status_code == 503
+
+
+def test_canary_live_market_endpoint_with_phase_292() -> None:
+    phase_292_dir = Path("artifacts/research/phase292")
+    app = create_app(canary_phase_dir=phase_292_dir)
+
+    res = _request(app, "GET", "/api/v1/canary/live-market")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["verified"] is True
+    assert data["phase"] == "phase_292"
+    assert data["paper_safe"] is True
+    assert data["execution_authority"] is False
+    assert data["candidates"] == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    assert "BTCUSDT" in data["orderbooks"]
+    assert "ETHUSDT" in data["orderbooks"]
+    assert "SOLUSDT" in data["orderbooks"]
+    assert len(data["recent_trades"]) >= 1
+    assert "BTCUSDT" in data["mark_prices"]
+    assert data["gateway_health"]["is_healthy"] is True

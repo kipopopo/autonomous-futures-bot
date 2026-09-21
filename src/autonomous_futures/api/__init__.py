@@ -1,5 +1,6 @@
 from .app import (
     BundleResponse,
+    CanaryLiveMarketResponse,
     ComponentsResponse,
     CreatorQualificationResponse,
     CreatorQualificationsResponse,
@@ -26,6 +27,7 @@ from .catalog import (
 
 __all__ = [
     "BundleResponse",
+    "CanaryLiveMarketResponse",
     "ComponentsResponse",
     "CreatorRegistryResponse",
     "CreatorQualificationResponse",

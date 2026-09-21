@@ -145,11 +145,74 @@ export interface CanaryAccountingResponse {
   recent_balance_snapshots: BalanceSnapshot[]
 }
 
+export interface OrderBookLevelItem {
+  price: string
+  quantity: string
+}
+
+export interface OrderBookDepthItem {
+  symbol: string
+  bids: OrderBookLevelItem[]
+  asks: OrderBookLevelItem[]
+  last_update_id: number
+  event_time_utc: string
+  best_bid: string
+  best_ask: string
+  spread_bps: string
+}
+
+export interface AggregateTradeItem {
+  symbol: string
+  aggregate_trade_id: number
+  price: string
+  quantity: string
+  trade_time_utc: string
+  is_buyer_maker: boolean
+}
+
+export interface MarkPriceItem {
+  symbol: string
+  mark_price: string
+  index_price: string
+  estimated_settle_price: string
+  funding_rate: string
+  next_funding_time_utc: string
+  timestamp_utc: string
+}
+
+export interface GatewayHealthItem {
+  status: string
+  is_healthy: boolean
+  heartbeat_age_ms: number
+  latency_ms: number
+  clock_skew_ms: number
+  reconnect_count: number
+  packet_gap_count: number
+  total_messages_received: number
+  timestamp_utc: string
+}
+
+export interface CanaryLiveMarketResponse {
+  verified: boolean
+  phase: string
+  status: string
+  timestamp_utc: string
+  candidates: string[]
+  paper_safe: boolean
+  execution_authority: boolean
+  gateway_health: GatewayHealthItem
+  orderbooks: Record<string, OrderBookDepthItem>
+  recent_trades: AggregateTradeItem[]
+  mark_prices: Record<string, MarkPriceItem>
+  stream_stats: Record<string, unknown>
+}
+
 export interface CanaryDashboardData {
   summary: CanarySummaryResponse | null
   hawkes: CanaryHawkesResponse | null
   risk: CanaryRiskResponse | null
   accounting: CanaryAccountingResponse | null
+  liveMarket: CanaryLiveMarketResponse | null
   error: string | null
 }
 
@@ -286,5 +349,61 @@ export function buildAccountingModel(data: CanaryAccountingResponse | null): Acc
     isZeroDrift: data.zero_balance_drift,
     tracks: data.tracks,
     snapshots: data.recent_balance_snapshots,
+  }
+}
+
+export interface LiveMarketModel {
+  phase: string
+  verified: boolean
+  isFresh: boolean
+  status: string
+  timestampUtc: string
+  candidates: string[]
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  gatewayHealth: GatewayHealthItem | null
+  orderbooks: Record<string, OrderBookDepthItem>
+  recentTrades: AggregateTradeItem[]
+  markPrices: Record<string, MarkPriceItem>
+  streamStats: Record<string, unknown>
+}
+
+export function buildLiveMarketModel(data: CanaryLiveMarketResponse | null): LiveMarketModel {
+  if (!data) {
+    return {
+      phase: '—',
+      verified: false,
+      isFresh: false,
+      status: 'DISCONNECTED',
+      timestampUtc: '—',
+      candidates: [],
+      isPaperSafe: true,
+      isExecutionOff: true,
+      gatewayHealth: null,
+      orderbooks: {},
+      recentTrades: [],
+      markPrices: {},
+      streamStats: {},
+    }
+  }
+
+  const isHealthy = Boolean(data.gateway_health?.is_healthy)
+  const heartbeatAge = data.gateway_health?.heartbeat_age_ms ?? 9999
+  const isFresh = isHealthy && heartbeatAge <= 500.0
+
+  return {
+    phase: data.phase,
+    verified: Boolean(data.verified),
+    isFresh,
+    status: data.status,
+    timestampUtc: data.timestamp_utc,
+    candidates: data.candidates || [],
+    isPaperSafe: data.paper_safe,
+    isExecutionOff: !data.execution_authority,
+    gatewayHealth: data.gateway_health || null,
+    orderbooks: data.orderbooks || {},
+    recentTrades: data.recent_trades || [],
+    markPrices: data.mark_prices || {},
+    streamStats: data.stream_stats || {},
   }
 }

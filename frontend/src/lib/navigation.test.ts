@@ -6,6 +6,8 @@ describe('pageFromHash', () => {
   it('routes the supported pages', () => {
     expect(pageFromHash('#/creator')).toBe('creator')
     expect(pageFromHash('#creator')).toBe('creator')
+    expect(pageFromHash('#/market')).toBe('market')
+    expect(pageFromHash('#market')).toBe('market')
     expect(pageFromHash('#/learner')).toBe('learner')
     expect(pageFromHash('#learner')).toBe('learner')
     expect(pageFromHash('#/microstructure')).toBe('microstructure')

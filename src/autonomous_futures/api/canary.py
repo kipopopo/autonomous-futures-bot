@@ -152,6 +152,68 @@ class CanaryAccountingResponse(DomainModel):
     recent_balance_snapshots: list[BalanceSnapshotItem]
 
 
+class OrderBookLevelItem(DomainModel):
+    price: str
+    quantity: str
+
+
+class OrderBookDepthItem(DomainModel):
+    symbol: str
+    bids: list[OrderBookLevelItem]
+    asks: list[OrderBookLevelItem]
+    last_update_id: int
+    event_time_utc: str
+    best_bid: str
+    best_ask: str
+    spread_bps: str
+
+
+class AggregateTradeItem(DomainModel):
+    symbol: str
+    aggregate_trade_id: int
+    price: str
+    quantity: str
+    trade_time_utc: str
+    is_buyer_maker: bool
+
+
+class MarkPriceItem(DomainModel):
+    symbol: str
+    mark_price: str
+    index_price: str
+    estimated_settle_price: str
+    funding_rate: str
+    next_funding_time_utc: str
+    timestamp_utc: str
+
+
+class GatewayHealthItem(DomainModel):
+    status: str
+    is_healthy: bool
+    heartbeat_age_ms: float
+    latency_ms: float
+    clock_skew_ms: float
+    reconnect_count: int
+    packet_gap_count: int
+    total_messages_received: int
+    timestamp_utc: str
+
+
+class CanaryLiveMarketResponse(DomainModel):
+    verified: Literal[True] = True
+    phase: str
+    status: str
+    timestamp_utc: str
+    candidates: list[str]
+    paper_safe: Literal[True] = True
+    execution_authority: Literal[False] = False
+    gateway_health: GatewayHealthItem
+    orderbooks: dict[str, OrderBookDepthItem]
+    recent_trades: list[AggregateTradeItem]
+    mark_prices: dict[str, MarkPriceItem]
+    stream_stats: dict[str, Any]
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -164,6 +226,8 @@ def verify_canary_phase_integrity(phase_dir: Path) -> dict[str, Any]:
     summary_file = phase_dir / "hawkes-summary.json"
     if not summary_file.is_file():
         summary_file = phase_dir / "paper-summary.json"
+    if not summary_file.is_file():
+        summary_file = phase_dir / "live-market-summary.json"
     if not summary_file.is_file():
         raise CanaryEvidenceNotFoundError(f"No summary artifact found in {phase_dir}")
 
@@ -506,20 +570,192 @@ def load_verified_canary_accounting(phase_dir: Path) -> CanaryAccountingResponse
     )
 
 
+def load_verified_canary_live_market(phase_dir: Path) -> CanaryLiveMarketResponse:
+    summary_data = verify_canary_phase_integrity(phase_dir)
+    db_path = phase_dir / "canary-market-telemetry.sqlite3"
+    if not db_path.is_file():
+        raise CanaryEvidenceNotFoundError(f"Market telemetry database not found: {db_path}")
+
+    orderbooks: dict[str, OrderBookDepthItem] = {}
+    recent_trades: list[AggregateTradeItem] = []
+    mark_prices: dict[str, MarkPriceItem] = {}
+    gateway_health = GatewayHealthItem(
+        status="CONNECTED",
+        is_healthy=True,
+        heartbeat_age_ms=0.0,
+        latency_ms=0.0,
+        clock_skew_ms=0.0,
+        reconnect_count=0,
+        packet_gap_count=0,
+        total_messages_received=0,
+        timestamp_utc=str(summary_data.get("timestamp_utc", "")),
+    )
+
+    try:
+        conn = sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        try:
+            cur.execute(
+                """
+                SELECT symbol, last_update_id, event_time_utc, best_bid, best_ask,
+                       spread_bps, bids_json, asks_json
+                FROM depth_snapshots
+                ORDER BY snapshot_id ASC
+                """
+            )
+            for row in cur.fetchall():
+                sym = str(row["symbol"]).upper()
+                raw_bids = json.loads(row["bids_json"]) if row["bids_json"] else []
+                raw_asks = json.loads(row["asks_json"]) if row["asks_json"] else []
+                bids = [
+                    OrderBookLevelItem(
+                        price=str(b.get("price", b[0] if isinstance(b, (list, tuple)) else "")),
+                        quantity=str(
+                            b.get("quantity", b[1] if isinstance(b, (list, tuple)) else "")
+                        ),
+                    )
+                    for b in raw_bids
+                ]
+                asks = [
+                    OrderBookLevelItem(
+                        price=str(a.get("price", a[0] if isinstance(a, (list, tuple)) else "")),
+                        quantity=str(
+                            a.get("quantity", a[1] if isinstance(a, (list, tuple)) else "")
+                        ),
+                    )
+                    for a in raw_asks
+                ]
+                orderbooks[sym] = OrderBookDepthItem(
+                    symbol=sym,
+                    bids=bids,
+                    asks=asks,
+                    last_update_id=int(row["last_update_id"]),
+                    event_time_utc=str(row["event_time_utc"]),
+                    best_bid=str(row["best_bid"]),
+                    best_ask=str(row["best_ask"]),
+                    spread_bps=str(row["spread_bps"]),
+                )
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cur.execute(
+                """
+                SELECT symbol, aggregate_trade_id, price, quantity, trade_time_utc,
+                       is_buyer_maker
+                FROM agg_trades
+                ORDER BY trade_id DESC
+                LIMIT 50
+                """
+            )
+            for row in cur.fetchall():
+                recent_trades.append(
+                    AggregateTradeItem(
+                        symbol=str(row["symbol"]).upper(),
+                        aggregate_trade_id=int(row["aggregate_trade_id"]),
+                        price=str(row["price"]),
+                        quantity=str(row["quantity"]),
+                        trade_time_utc=str(row["trade_time_utc"]),
+                        is_buyer_maker=bool(row["is_buyer_maker"]),
+                    )
+                )
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cur.execute(
+                """
+                SELECT symbol, mark_price, index_price, estimated_settle_price,
+                       funding_rate, next_funding_time_utc, event_time_utc
+                FROM mark_prices
+                ORDER BY record_id ASC
+                """
+            )
+            for row in cur.fetchall():
+                sym = str(row["symbol"]).upper()
+                mark_prices[sym] = MarkPriceItem(
+                    symbol=sym,
+                    mark_price=str(row["mark_price"]),
+                    index_price=str(row["index_price"]),
+                    estimated_settle_price=str(row["estimated_settle_price"] or ""),
+                    funding_rate=str(row["funding_rate"]),
+                    next_funding_time_utc=str(row["next_funding_time_utc"]),
+                    timestamp_utc=str(row["event_time_utc"]),
+                )
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cur.execute(
+                """
+                SELECT status, is_healthy, latency_ms, clock_skew_ms, details,
+                       timestamp_utc
+                FROM heartbeats
+                ORDER BY record_id DESC
+                LIMIT 1
+                """
+            )
+            hb_row = cur.fetchone()
+            if hb_row:
+                gateway_health = GatewayHealthItem(
+                    status=str(hb_row["status"]),
+                    is_healthy=bool(hb_row["is_healthy"]),
+                    heartbeat_age_ms=0.0,
+                    latency_ms=float(hb_row["latency_ms"]),
+                    clock_skew_ms=float(hb_row["clock_skew_ms"]),
+                    reconnect_count=int(summary_data.get("reconnect_count", 0)),
+                    packet_gap_count=int(summary_data.get("packet_gap_count", 0)),
+                    total_messages_received=int(summary_data.get("total_messages_received", 0)),
+                    timestamp_utc=str(hb_row["timestamp_utc"]),
+                )
+        except sqlite3.OperationalError:
+            pass
+
+        conn.close()
+    except Exception as exc:
+        if isinstance(exc, (CanaryEvidenceNotFoundError, CanaryEvidenceIntegrityError)):
+            raise
+        raise CanaryEvidenceIntegrityError(f"Error reading market telemetry: {exc}") from exc
+
+    candidates = list(summary_data.get("candidates", ["BTCUSDT", "ETHUSDT", "SOLUSDT"]))
+    stream_stats = dict(summary_data.get("stream_stats", summary_data.get("daemon_stats", {})))
+
+    return CanaryLiveMarketResponse(
+        phase=str(summary_data.get("phase", phase_dir.name)),
+        status=str(summary_data.get("status", summary_data.get("daemon_status", "STREAMING"))),
+        timestamp_utc=str(summary_data.get("timestamp_utc", "")),
+        candidates=candidates,
+        gateway_health=gateway_health,
+        orderbooks=orderbooks,
+        recent_trades=recent_trades,
+        mark_prices=mark_prices,
+        stream_stats=stream_stats,
+    )
+
+
 __all__ = [
+    "AggregateTradeItem",
     "BalanceSnapshotItem",
     "CanaryAccountingResponse",
     "CanaryEvidenceIntegrityError",
     "CanaryEvidenceNotFoundError",
     "CanaryHawkesResponse",
+    "CanaryLiveMarketResponse",
     "CanaryRiskResponse",
     "CanarySummaryResponse",
     "DaemonTrackItem",
+    "GatewayHealthItem",
     "HawkesSnapshotItem",
     "HeartbeatItem",
     "InterlockEventItem",
+    "MarkPriceItem",
+    "OrderBookDepthItem",
+    "OrderBookLevelItem",
     "load_verified_canary_accounting",
     "load_verified_canary_hawkes",
+    "load_verified_canary_live_market",
     "load_verified_canary_risk",
     "load_verified_canary_summary",
     "verify_canary_phase_integrity",

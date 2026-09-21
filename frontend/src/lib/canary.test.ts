@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildAccountingModel,
+  buildLiveMarketModel,
   buildMicrostructureModel,
   buildRiskModel,
   type CanaryAccountingResponse,
   type CanaryHawkesResponse,
+  type CanaryLiveMarketResponse,
   type CanaryRiskResponse,
 } from './canary'
 
@@ -200,6 +202,90 @@ describe('canary models', () => {
       expect(model.finalCash).toBe('99.99460000')
       expect(model.tracks).toHaveLength(1)
       expect(model.snapshots).toHaveLength(1)
+    })
+  })
+
+  describe('buildLiveMarketModel', () => {
+    it('handles null data safely', () => {
+      const model = buildLiveMarketModel(null)
+      expect(model.phase).toBe('—')
+      expect(model.verified).toBe(false)
+      expect(model.isFresh).toBe(false)
+      expect(model.isPaperSafe).toBe(true)
+      expect(model.isExecutionOff).toBe(true)
+      expect(model.recentTrades).toHaveLength(0)
+      expect(model.gatewayHealth).toBeNull()
+    })
+
+    it('processes live market responses with depth, trades, and mark prices', () => {
+      const fixture: CanaryLiveMarketResponse = {
+        verified: true,
+        phase: 'phase_292',
+        status: 'STREAMING',
+        timestamp_utc: '2026-09-21T05:00:00Z',
+        candidates: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+        paper_safe: true,
+        execution_authority: false,
+        gateway_health: {
+          status: 'CONNECTED',
+          is_healthy: true,
+          heartbeat_age_ms: 120,
+          latency_ms: 10,
+          clock_skew_ms: 2,
+          reconnect_count: 0,
+          packet_gap_count: 0,
+          total_messages_received: 100,
+          timestamp_utc: '2026-09-21T05:00:00Z',
+        },
+        orderbooks: {
+          BTCUSDT: {
+            symbol: 'BTCUSDT',
+            bids: [{ price: '65000.00', quantity: '1.500' }],
+            asks: [{ price: '65001.00', quantity: '2.000' }],
+            last_update_id: 1001,
+            event_time_utc: '2026-09-21T05:00:00Z',
+            best_bid: '65000.00',
+            best_ask: '65001.00',
+            spread_bps: '0.1538',
+          },
+        },
+        recent_trades: [
+          {
+            symbol: 'BTCUSDT',
+            aggregate_trade_id: 5001,
+            price: '65000.50',
+            quantity: '0.250',
+            trade_time_utc: '2026-09-21T05:00:00Z',
+            is_buyer_maker: false,
+          },
+        ],
+        mark_prices: {
+          BTCUSDT: {
+            symbol: 'BTCUSDT',
+            mark_price: '65000.20',
+            index_price: '65000.00',
+            estimated_settle_price: '65000.10',
+            funding_rate: '0.00010000',
+            next_funding_time_utc: '2026-09-21T08:00:00Z',
+            timestamp_utc: '2026-09-21T05:00:00Z',
+          },
+        },
+        stream_stats: {
+          total_messages: 100,
+        },
+      }
+
+      const model = buildLiveMarketModel(fixture)
+      expect(model.phase).toBe('phase_292')
+      expect(model.verified).toBe(true)
+      expect(model.isFresh).toBe(true)
+      expect(model.isPaperSafe).toBe(true)
+      expect(model.isExecutionOff).toBe(true)
+      expect(model.candidates).toEqual(['BTCUSDT', 'ETHUSDT', 'SOLUSDT'])
+      expect(model.orderbooks.BTCUSDT.best_bid).toBe('65000.00')
+      expect(model.recentTrades).toHaveLength(1)
+      expect(model.markPrices.BTCUSDT.funding_rate).toBe('0.00010000')
+      expect(model.gatewayHealth?.is_healthy).toBe(true)
     })
   })
 })

@@ -7,6 +7,7 @@ UTC datetimes.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -31,9 +32,9 @@ def ms_to_utc_datetime(ms: int) -> datetime:
     return datetime.fromtimestamp(seconds, tz=UTC) + timedelta(microseconds=microseconds)
 
 
-def _unwrap_stream_payload(data: dict[str, Any]) -> dict[str, Any]:
+def _unwrap_stream_payload(data: Mapping[str, Any]) -> Mapping[str, Any]:
     """Unwrap combined stream envelope {"stream": "...", "data": {...}} if present."""
-    if "stream" in data and "data" in data and isinstance(data["data"], dict):
+    if "stream" in data and "data" in data and isinstance(data["data"], (dict, Mapping)):
         return data["data"]
     return data
 
@@ -179,6 +180,154 @@ class TickerSnapshot(DomainModel):
         return (self.spread / mid) * Decimal("10000")
 
 
+def _to_int(v: object, field_name: str = "integer") -> int:
+    """Convert object to int safely, rejecting booleans and non-integers."""
+    if isinstance(v, bool):
+        raise ValueError(f"Boolean values are forbidden for {field_name}, got {v!r}")
+    if isinstance(v, int):
+        return v
+    try:
+        return int(str(v))
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid integer value for {field_name}: {v!r}") from exc
+
+
+class OrderBookLevel(DomainModel):
+    """Single level in an orderbook depth ladder."""
+
+    price: StrictPositiveDecimal
+    quantity: StrictNonNegativeDecimal
+
+    @field_validator("price", "quantity", mode="before")
+    @classmethod
+    def validate_decimals(cls, v: Any, info: Any) -> Decimal:
+        return _ensure_strict_decimal(v, info.field_name)
+
+
+class OrderBookDepthSnapshot(DomainModel):
+    """Top-of-book depth snapshot (e.g. depth5) with strict Decimal precision and UTC timestamps."""
+
+    symbol: str = Field(min_length=1, pattern=r"^[A-Z0-9]+$")
+    bids: tuple[OrderBookLevel, ...]
+    asks: tuple[OrderBookLevel, ...]
+    last_update_id: int = Field(ge=0, strict=True)
+    event_time: datetime
+    transaction_time: datetime | None = None
+    prev_last_update_id: int | None = None
+
+    @field_validator("event_time")
+    @classmethod
+    def require_utc_event_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("timezone-aware UTC timestamp required")
+        return value.astimezone(UTC)
+
+    @field_validator("transaction_time")
+    @classmethod
+    def require_utc_transaction_time(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() != timedelta(0)):
+            raise ValueError("timezone-aware UTC timestamp required")
+        return value.astimezone(UTC) if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_book_invariants(self) -> OrderBookDepthSnapshot:
+        if self.bids and self.asks:
+            best_bid = self.bids[0].price
+            best_ask = self.asks[0].price
+            if best_bid > best_ask:
+                raise ValueError(
+                    f"crossed book detected: best_bid ({best_bid}) > best_ask ({best_ask})"
+                )
+        return self
+
+    @property
+    def best_bid_price(self) -> Decimal | None:
+        return self.bids[0].price if self.bids else None
+
+    @property
+    def best_ask_price(self) -> Decimal | None:
+        return self.asks[0].price if self.asks else None
+
+    @property
+    def spread(self) -> Decimal | None:
+        if self.best_bid_price is not None and self.best_ask_price is not None:
+            return self.best_ask_price - self.best_bid_price
+        return None
+
+    @property
+    def spread_bps(self) -> Decimal | None:
+        if self.best_bid_price is not None and self.best_ask_price is not None:
+            mid = (self.best_bid_price + self.best_ask_price) / Decimal("2")
+            if mid <= Decimal("0"):
+                return Decimal("0")
+            return ((self.best_ask_price - self.best_bid_price) / mid) * Decimal("10000")
+        return None
+
+
+class AggregateTrade(DomainModel):
+    """Binance aggregate trade event with strict Decimal precision and UTC timestamps."""
+
+    symbol: str = Field(min_length=1, pattern=r"^[A-Z0-9]+$")
+    aggregate_trade_id: int = Field(ge=0, strict=True)
+    price: StrictPositiveDecimal
+    quantity: StrictPositiveDecimal
+    trade_time: datetime
+    is_buyer_maker: bool = Field(strict=True)
+    first_trade_id: int | None = None
+    last_trade_id: int | None = None
+    event_time: datetime | None = None
+
+    @field_validator("trade_time")
+    @classmethod
+    def require_utc_trade_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("timezone-aware UTC timestamp required")
+        return value.astimezone(UTC)
+
+    @field_validator("event_time")
+    @classmethod
+    def require_utc_event_time(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() != timedelta(0)):
+            raise ValueError("timezone-aware UTC timestamp required")
+        return value.astimezone(UTC) if value is not None else None
+
+    @field_validator("price", "quantity", mode="before")
+    @classmethod
+    def validate_decimals(cls, v: Any, info: Any) -> Decimal:
+        return _ensure_strict_decimal(v, info.field_name)
+
+
+class MarkPriceSnapshot(DomainModel):
+    """Mark price and funding rate snapshot with strict Decimal precision and UTC timestamps."""
+
+    symbol: str = Field(min_length=1, pattern=r"^[A-Z0-9]+$")
+    mark_price: StrictPositiveDecimal
+    index_price: StrictPositiveDecimal
+    estimated_settle_price: StrictPositiveDecimal | None = None
+    funding_rate: Decimal
+    next_funding_time: datetime
+    event_time: datetime
+
+    @field_validator("next_funding_time", "event_time")
+    @classmethod
+    def require_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("timezone-aware UTC timestamp required")
+        return value.astimezone(UTC)
+
+    @field_validator("mark_price", "index_price", "funding_rate", mode="before")
+    @classmethod
+    def validate_decimals(cls, v: Any, info: Any) -> Decimal:
+        return _ensure_strict_decimal(v, info.field_name)
+
+    @field_validator("estimated_settle_price", mode="before")
+    @classmethod
+    def validate_optional_settle_price(cls, v: Any, info: Any) -> Decimal | None:
+        if v is None or v == "":
+            return None
+        return _ensure_strict_decimal(v, info.field_name)
+
+
 def parse_binance_kline(data: dict[str, Any]) -> CanonicalBar | None:
     """Parse Binance Futures kline WebSocket message into CanonicalBar."""
     if "result" in data and "s" not in data and "k" not in data and "stream" not in data:
@@ -245,3 +394,202 @@ def parse_binance_book_ticker(data: dict[str, Any]) -> TickerSnapshot | None:
         transaction_time=ms_to_utc_datetime(t_ms),
         event_time=ms_to_utc_datetime(e_ms),
     )
+
+
+def parse_binance_depth5(payload: Mapping[str, object]) -> OrderBookDepthSnapshot:
+    """Parse Binance Futures top-5 depth WebSocket message into OrderBookDepthSnapshot."""
+    data_map: Mapping[str, object] = payload
+    if "data" in payload and isinstance(payload["data"], Mapping):
+        data_map = payload["data"]
+
+    symbol = ""
+    if "s" in data_map and data_map["s"]:
+        symbol = str(data_map["s"]).upper()
+    elif "stream" in payload and isinstance(payload["stream"], str):
+        stream_part = payload["stream"].split("@", 1)[0]
+        symbol = stream_part.upper()
+
+    if not symbol:
+        raise ValueError("Missing symbol in depth payload")
+
+    if "b" not in data_map or "a" not in data_map:
+        raise KeyError("Missing required fields in depth payload: 'b' and/or 'a'")
+
+    raw_bids = data_map["b"]
+    raw_asks = data_map["a"]
+    if not isinstance(raw_bids, (list, tuple)) or not isinstance(raw_asks, (list, tuple)):
+        raise ValueError("Invalid format for bids or asks")
+
+    bids_list: list[OrderBookLevel] = []
+    for item in raw_bids[:5]:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            raise ValueError(f"Invalid depth level format: {item!r}")
+        bids_list.append(
+            OrderBookLevel(
+                price=_ensure_strict_decimal(item[0], "bid_price"),
+                quantity=_ensure_strict_decimal(item[1], "bid_quantity"),
+            )
+        )
+
+    asks_list: list[OrderBookLevel] = []
+    for item in raw_asks[:5]:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            raise ValueError(f"Invalid depth level format: {item!r}")
+        asks_list.append(
+            OrderBookLevel(
+                price=_ensure_strict_decimal(item[0], "ask_price"),
+                quantity=_ensure_strict_decimal(item[1], "ask_quantity"),
+            )
+        )
+
+    last_update_id = _to_int(
+        data_map.get("u") or data_map.get("lastUpdateId") or 0, "last_update_id"
+    )
+    prev_last_update_id = (
+        _to_int(data_map["pu"], "prev_last_update_id")
+        if "pu" in data_map and data_map["pu"] is not None
+        else None
+    )
+
+    e_ms = data_map.get("E")
+    t_ms = data_map.get("T")
+    if e_ms is None and t_ms is not None:
+        e_ms = t_ms
+    elif e_ms is None:
+        raise KeyError("Missing event timestamp 'E' in depth payload")
+
+    event_time = ms_to_utc_datetime(_to_int(e_ms, "event_time"))
+    transaction_time = (
+        ms_to_utc_datetime(_to_int(t_ms, "transaction_time")) if t_ms is not None else None
+    )
+
+    return OrderBookDepthSnapshot(
+        symbol=symbol,
+        bids=tuple(bids_list),
+        asks=tuple(asks_list),
+        last_update_id=last_update_id,
+        event_time=event_time,
+        transaction_time=transaction_time,
+        prev_last_update_id=prev_last_update_id,
+    )
+
+
+def parse_binance_agg_trade(payload: Mapping[str, object]) -> AggregateTrade:
+    """Parse Binance Futures aggregate trade WebSocket message into AggregateTrade."""
+    data_map: Mapping[str, object] = payload
+    if "data" in payload and isinstance(payload["data"], Mapping):
+        data_map = payload["data"]
+
+    symbol = ""
+    if "s" in data_map and data_map["s"]:
+        symbol = str(data_map["s"]).upper()
+    elif "stream" in payload and isinstance(payload["stream"], str):
+        stream_part = payload["stream"].split("@", 1)[0]
+        symbol = stream_part.upper()
+
+    if not symbol:
+        raise ValueError("Missing symbol in aggTrade payload")
+
+    required_keys = ("a", "p", "q", "T", "m")
+    for k in required_keys:
+        if k not in data_map:
+            raise KeyError(f"Missing required field '{k}' in aggTrade payload")
+
+    trade_time_ms = _to_int(data_map["T"], "trade_time")
+    trade_time = ms_to_utc_datetime(trade_time_ms)
+
+    event_time = (
+        ms_to_utc_datetime(_to_int(data_map["E"], "event_time"))
+        if "E" in data_map and data_map["E"] is not None
+        else None
+    )
+
+    first_trade_id = (
+        _to_int(data_map["f"], "first_trade_id")
+        if "f" in data_map and data_map["f"] is not None
+        else None
+    )
+    last_trade_id = (
+        _to_int(data_map["l"], "last_trade_id")
+        if "l" in data_map and data_map["l"] is not None
+        else None
+    )
+
+    is_buyer_maker = data_map["m"]
+    if not isinstance(is_buyer_maker, bool):
+        raise ValueError(f"is_buyer_maker 'm' must be boolean, got {type(is_buyer_maker).__name__}")
+
+    return AggregateTrade(
+        symbol=symbol,
+        aggregate_trade_id=_to_int(data_map["a"], "aggregate_trade_id"),
+        price=_ensure_strict_decimal(data_map["p"], "price"),
+        quantity=_ensure_strict_decimal(data_map["q"], "quantity"),
+        trade_time=trade_time,
+        is_buyer_maker=is_buyer_maker,
+        first_trade_id=first_trade_id,
+        last_trade_id=last_trade_id,
+        event_time=event_time,
+    )
+
+
+def parse_binance_mark_price(payload: Mapping[str, object]) -> MarkPriceSnapshot:
+    """Parse Binance Futures markPriceUpdate WebSocket message into MarkPriceSnapshot."""
+    data_map: Mapping[str, object] = payload
+    if "data" in payload and isinstance(payload["data"], Mapping):
+        data_map = payload["data"]
+
+    symbol = ""
+    if "s" in data_map and data_map["s"]:
+        symbol = str(data_map["s"]).upper()
+    elif "stream" in payload and isinstance(payload["stream"], str):
+        stream_part = payload["stream"].split("@", 1)[0]
+        symbol = stream_part.upper()
+
+    if not symbol:
+        raise ValueError("Missing symbol in markPrice payload")
+
+    required_keys = ("p", "i", "r", "T", "E")
+    for k in required_keys:
+        if k not in data_map:
+            raise KeyError(f"Missing required field '{k}' in markPrice payload")
+
+    mark_price = _ensure_strict_decimal(data_map["p"], "mark_price")
+    index_price = _ensure_strict_decimal(data_map["i"], "index_price")
+    estimated_settle_price = (
+        _ensure_strict_decimal(data_map["P"], "estimated_settle_price")
+        if "P" in data_map and data_map["P"] is not None and data_map["P"] != ""
+        else None
+    )
+    funding_rate = _ensure_strict_decimal(data_map["r"], "funding_rate")
+
+    next_funding_time_ms = _to_int(data_map["T"], "next_funding_time")
+    next_funding_time = ms_to_utc_datetime(next_funding_time_ms)
+
+    event_time_ms = _to_int(data_map["E"], "event_time")
+    event_time = ms_to_utc_datetime(event_time_ms)
+
+    return MarkPriceSnapshot(
+        symbol=symbol,
+        mark_price=mark_price,
+        index_price=index_price,
+        estimated_settle_price=estimated_settle_price,
+        funding_rate=funding_rate,
+        next_funding_time=next_funding_time,
+        event_time=event_time,
+    )
+
+
+__all__ = [
+    "AggregateTrade",
+    "CanonicalBar",
+    "MarkPriceSnapshot",
+    "OrderBookDepthSnapshot",
+    "OrderBookLevel",
+    "TickerSnapshot",
+    "ms_to_utc_datetime",
+    "parse_binance_agg_trade",
+    "parse_binance_book_ticker",
+    "parse_binance_depth5",
+    "parse_binance_kline",
+    "parse_binance_mark_price",
+]

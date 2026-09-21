@@ -17,6 +17,7 @@ import type {
   CanaryAccountingResponse,
   CanaryDashboardData,
   CanaryHawkesResponse,
+  CanaryLiveMarketResponse,
   CanaryRiskResponse,
   CanarySummaryResponse,
 } from './canary'
@@ -281,11 +282,20 @@ export async function fetchCanaryAccounting(): Promise<CanaryAccountingResponse 
   return (await response.json()) as CanaryAccountingResponse
 }
 
+export async function fetchCanaryLiveMarket(): Promise<CanaryLiveMarketResponse | null> {
+  const path = '/api/v1/canary/live-market'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as CanaryLiveMarketResponse
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
   let risk: CanaryRiskResponse | null = null
   let accounting: CanaryAccountingResponse | null = null
+  let liveMarket: CanaryLiveMarketResponse | null = null
   let error: string | null = null
 
   try {
@@ -294,12 +304,14 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryHawkes(),
       fetchCanaryRisk(),
       fetchCanaryAccounting(),
+      fetchCanaryLiveMarket(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
     if (results[1].status === 'fulfilled') hawkes = results[1].value
     if (results[2].status === 'fulfilled') risk = results[2].value
     if (results[3].status === 'fulfilled') accounting = results[3].value
+    if (results[4].status === 'fulfilled') liveMarket = results[4].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -311,5 +323,5 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     error = err instanceof Error ? err.message : 'Telemetry fetch failed'
   }
 
-  return { summary, hawkes, risk, accounting, error }
+  return { summary, hawkes, risk, accounting, liveMarket, error }
 }

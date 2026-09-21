@@ -34,10 +34,12 @@ from .canary import (
     CanaryEvidenceIntegrityError,
     CanaryEvidenceNotFoundError,
     CanaryHawkesResponse,
+    CanaryLiveMarketResponse,
     CanaryRiskResponse,
     CanarySummaryResponse,
     load_verified_canary_accounting,
     load_verified_canary_hawkes,
+    load_verified_canary_live_market,
     load_verified_canary_risk,
     load_verified_canary_summary,
 )
@@ -801,6 +803,18 @@ def create_app(
                 detail="canary evidence integrity verification failed",
             ) from exc
 
+    @app.get("/api/v1/canary/live-market", response_model=CanaryLiveMarketResponse)
+    def canary_live_market() -> CanaryLiveMarketResponse:
+        try:
+            return load_verified_canary_live_market(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="canary evidence unavailable") from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary evidence integrity verification failed",
+            ) from exc
+
     return app
 
 
@@ -811,6 +825,7 @@ __all__ = [
     "BundleResponse",
     "CanaryAccountingResponse",
     "CanaryHawkesResponse",
+    "CanaryLiveMarketResponse",
     "CanaryRiskResponse",
     "CanarySummaryResponse",
     "ComponentsResponse",

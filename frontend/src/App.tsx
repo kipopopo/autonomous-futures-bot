@@ -8,6 +8,7 @@ import {
   Clock3,
   DatabaseZap,
   LockKeyhole,
+  Radio,
   RefreshCw,
   Scale,
   ShieldAlert,
@@ -17,12 +18,14 @@ import {
 import { AccountingPage } from '@/components/accounting-page'
 import { CreatorPage } from '@/components/creator-page'
 import { LearnerPage } from '@/components/learner-page'
+import { LiveMarketPage } from '@/components/live-market-page'
 import { MagicCard } from '@/components/magic-card'
 import { MicrostructurePage } from '@/components/microstructure-page'
 import { RiskPage } from '@/components/risk-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import {
   buildAccountingModel,
+  buildLiveMarketModel,
   buildMicrostructureModel,
   buildRiskModel,
   type CanaryDashboardData,
@@ -50,6 +53,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   hawkes: null,
   risk: null,
   accounting: null,
+  liveMarket: null,
   error: null,
 }
 
@@ -229,6 +233,7 @@ function App() {
   const microstructureModel = useMemo(() => buildMicrostructureModel(canaryData.hawkes), [canaryData.hawkes])
   const riskModel = useMemo(() => buildRiskModel(canaryData.risk), [canaryData.risk])
   const accountingModel = useMemo(() => buildAccountingModel(canaryData.accounting), [canaryData.accounting])
+  const liveMarketModel = useMemo(() => buildLiveMarketModel(canaryData.liveMarket), [canaryData.liveMarket])
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -249,7 +254,8 @@ function App() {
       nextCanary.summary?.verified ||
       nextCanary.hawkes?.verified ||
       nextCanary.risk?.verified ||
-      nextCanary.accounting?.verified
+      nextCanary.accounting?.verified ||
+      nextCanary.liveMarket?.verified
     )
 
     if (hasData) {
@@ -281,7 +287,8 @@ function App() {
             nextCanary.summary?.verified ||
             nextCanary.hawkes?.verified ||
             nextCanary.risk?.verified ||
-            nextCanary.accounting?.verified
+            nextCanary.accounting?.verified ||
+            nextCanary.liveMarket?.verified
           )
 
           if (hasData) {
@@ -313,6 +320,7 @@ function App() {
     ? model.symbols
     : (canaryData.summary?.candidates ?? [])
   const isOverviewPage = page === 'overview'
+  const isMarketPage = page === 'market'
   const isCreatorPage = page === 'creator'
   const isLearnerPage = page === 'learner'
   const isMicrostructurePage = page === 'microstructure'
@@ -332,6 +340,10 @@ function App() {
           <a className={`nav-item ${isOverviewPage ? 'nav-item-active' : ''}`} href="#overview" aria-current={isOverviewPage ? 'page' : undefined}>
             <DatabaseZap size={17} aria-hidden="true" />
             <span>Overview</span>
+          </a>
+          <a className={`nav-item ${isMarketPage ? 'nav-item-active' : ''}`} href="#/market" aria-current={isMarketPage ? 'page' : undefined}>
+            <Radio size={17} aria-hidden="true" />
+            <span>Live Market</span>
           </a>
           <a className={`nav-item ${isCreatorPage ? 'nav-item-active' : ''}`} href="#/creator" aria-current={isCreatorPage ? 'page' : undefined}>
             <BotIcon size={17} aria-hidden="true" />
@@ -355,8 +367,8 @@ function App() {
           </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 291</span>
-          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Hawkes Canary</span>
+          <span className="sidebar-label">PHASE 292</span>
+          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Live Ingress</span>
         </div>
       </aside>
 
@@ -365,43 +377,49 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isCreatorPage
-                ? 'Creator plane'
-                : isLearnerPage
-                  ? 'Learner plane'
-                  : isMicrostructurePage
-                    ? 'Telemetry plane'
-                    : isRiskPage
-                      ? 'Risk plane'
-                      : isAccountingPage
-                        ? 'Accounting plane'
-                        : 'Data plane'}
+              {isMarketPage
+                ? 'Market plane'
+                : isCreatorPage
+                  ? 'Creator plane'
+                  : isLearnerPage
+                    ? 'Learner plane'
+                    : isMicrostructurePage
+                      ? 'Telemetry plane'
+                      : isRiskPage
+                        ? 'Risk plane'
+                        : isAccountingPage
+                          ? 'Accounting plane'
+                          : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isCreatorPage
-                ? 'Creator'
-                : isLearnerPage
-                  ? 'Learner'
-                  : isMicrostructurePage
-                    ? 'Microstructure'
-                    : isRiskPage
-                      ? 'Risk Controls'
-                      : isAccountingPage
-                        ? 'Accounting Ledger'
-                        : 'Overview'}
+              {isMarketPage
+                ? 'Live Market Ingress'
+                : isCreatorPage
+                  ? 'Creator'
+                  : isLearnerPage
+                    ? 'Learner'
+                    : isMicrostructurePage
+                      ? 'Microstructure'
+                      : isRiskPage
+                        ? 'Risk Controls'
+                        : isAccountingPage
+                          ? 'Accounting Ledger'
+                          : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isCreatorPage
-                ? 'Research generation readiness · MYT (GMT+8)'
-                : isLearnerPage
-                  ? 'Model-learning readiness · MYT (GMT+8)'
-                  : isMicrostructurePage
-                    ? 'Hawkes jump cascades & execution hazard · MYT (GMT+8)'
-                    : isRiskPage
-                      ? 'Stepped exposure & circuit breakers · MYT (GMT+8)'
-                      : isAccountingPage
-                        ? 'Mathematical double-entry zero-drift · MYT (GMT+8)'
-                        : 'Causal market-data foundation · MYT (GMT+8)'}
+              {isMarketPage
+                ? 'Public perpetual book depth & trade ingress · MYT (GMT+8)'
+                : isCreatorPage
+                  ? 'Research generation readiness · MYT (GMT+8)'
+                  : isLearnerPage
+                    ? 'Model-learning readiness · MYT (GMT+8)'
+                    : isMicrostructurePage
+                      ? 'Hawkes jump cascades & execution hazard · MYT (GMT+8)'
+                      : isRiskPage
+                        ? 'Stepped exposure & circuit breakers · MYT (GMT+8)'
+                        : isAccountingPage
+                          ? 'Mathematical double-entry zero-drift · MYT (GMT+8)'
+                          : 'Causal market-data foundation · MYT (GMT+8)'}
             </p>
           </div>
           <button
@@ -552,6 +570,7 @@ function App() {
           </section>
         )}
 
+        {isMarketPage && state === 'ready' && <LiveMarketPage model={liveMarketModel} />}
         {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
         {isLearnerPage && state === 'ready' && <LearnerPage model={learnerModel} />}
         {isMicrostructurePage && state === 'ready' && <MicrostructurePage model={microstructureModel} />}

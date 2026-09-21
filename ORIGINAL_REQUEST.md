@@ -2261,3 +2261,42 @@ Enforce mathematical precision and autonomous safety:
 - [ ] Targeted unit tests pass locally in < 30 seconds.
 - [ ] Static quality checks (`ruff`, `mypy`, `uv lock`, `git diff`) pass with 0 errors.
 - [ ] Pushed commit SHA pushed to `origin/main` cleanly with verified local quality gates.
+
+
+## 2026-09-21T05:22:39Z
+
+Implement Phase 292: Live Public Market Ingress for Autonomous Futures Bot, establishing continuous, resilient, read-only WebSocket streaming of Binance USDⓈ-M perpetual market feeds across the staged candidate universe (BTCUSDT, ETHUSDT, SOLUSDT).
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Live Public WebSocket Streaming Ingress
+Continuously stream real-time public market data from Binance Futures USDⓈ-M WebSocket endpoints for staged candidates (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`), ingesting top-of-book depth (`@depth5@100ms`), aggregate trades (`@aggTrade`), mark prices (`@markPrice@1s`), and funding rates without requiring live trading API keys.
+
+### R2. Gateway Health, Heartbeat & Clock Skew Telemetry
+Enforce strict gateway telemetry monitoring ensuring event packet latency and heartbeat age remain <= 500 ms, clock skew relative to local system time is continuously computed and bound, and automatic reconnect with exponential backoff and sequence gap deduplication is executed upon network disconnects.
+
+### R3. Strict Paper-Safe & Read-Only Confinement
+Guarantee zero execution authority (`EXECUTION AUTHORITY: OFF`), strict paper-safe operational boundaries, zero private key leakage, and mathematical double-entry zero-drift preservation across all data streaming lifecycles.
+
+### R4. Observational Backend API & Dashboard Telemetry Exposure
+Expose live streaming status, heartbeat health, and parsed public orderbook/trade telemetry through read-only FastAPI backend endpoints and ensure compatibility with the live dashboard.
+
+## Acceptance Criteria
+
+### Ingress Connectivity & Stream Continuity
+- [ ] Ingress client establishes and maintains concurrent public WebSocket connections to Binance USDⓈ-M endpoints for `BTCUSDT`, `ETHUSDT`, and `SOLUSDT`.
+- [ ] Network disconnects, TCP timeouts, or malformed packets trigger graceful reconnection with exponential backoff without crashing the process.
+- [ ] Received payloads are normalized into typed, causal event structures without losing sequence or timestamps.
+
+### Telemetry & Gateway Integrity
+- [ ] Gateway heartbeat tracking computes packet latency and reports freshness within the mandatory <= 500 ms threshold.
+- [ ] NTP/local clock skew is recorded and verified to prevent stale event replay.
+- [ ] Read-only endpoints (`/api/v1/canary/live-market` or equivalent telemetry routes) expose real-time ingress status and packet statistics.
+
+### Automated Testing & Safety Verification
+- [ ] Unit and integration tests (via `pytest`) objectively verify WebSocket message parsing, backoff reconnection logic, and heartbeat freshness assertions using mocked or simulated stream fixtures.
+- [ ] Strict paper-safe validation confirms no order dispatch or execution authority is enabled.
+- [ ] Codebase linting and type-checking pass cleanly with 0 errors.
