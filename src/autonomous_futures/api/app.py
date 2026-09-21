@@ -35,11 +35,13 @@ from .canary import (
     CanaryEvidenceNotFoundError,
     CanaryHawkesResponse,
     CanaryLiveMarketResponse,
+    CanaryPaperExecutionResponse,
     CanaryRiskResponse,
     CanarySummaryResponse,
     load_verified_canary_accounting,
     load_verified_canary_hawkes,
     load_verified_canary_live_market,
+    load_verified_canary_paper_execution,
     load_verified_canary_risk,
     load_verified_canary_summary,
 )
@@ -820,6 +822,21 @@ def create_app(
                 detail="canary evidence integrity verification failed",
             ) from exc
 
+    # Phase 294: Live Paper-Safe Execution Engine & Zero-Drift Matching Simulator
+    @app.get("/api/v1/canary/paper-execution", response_model=CanaryPaperExecutionResponse)
+    def canary_paper_execution() -> CanaryPaperExecutionResponse:
+        try:
+            return load_verified_canary_paper_execution(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404, detail="canary paper execution evidence unavailable"
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary paper execution integrity verification failed",
+            ) from exc
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -834,6 +851,7 @@ __all__ = [
     "CanaryAccountingResponse",
     "CanaryHawkesResponse",
     "CanaryLiveMarketResponse",
+    "CanaryPaperExecutionResponse",
     "CanaryRiskResponse",
     "CanarySummaryResponse",
     "ComponentsResponse",

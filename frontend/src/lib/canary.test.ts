@@ -4,10 +4,12 @@ import {
   buildAccountingModel,
   buildLiveMarketModel,
   buildMicrostructureModel,
+  buildPaperExecutionModel,
   buildRiskModel,
   type CanaryAccountingResponse,
   type CanaryHawkesResponse,
   type CanaryLiveMarketResponse,
+  type CanaryPaperExecutionResponse,
   type CanaryRiskResponse,
 } from './canary'
 
@@ -286,6 +288,111 @@ describe('canary models', () => {
       expect(model.recentTrades).toHaveLength(1)
       expect(model.markPrices.BTCUSDT.funding_rate).toBe('0.00010000')
       expect(model.gatewayHealth?.is_healthy).toBe(true)
+    })
+  })
+
+  describe('buildPaperExecutionModel', () => {
+    it('handles null data safely', () => {
+      const model = buildPaperExecutionModel(null)
+      expect(model.phase).toBe('—')
+      expect(model.verified).toBe(false)
+      expect(model.circuitState).toBe('UNKNOWN')
+      expect(model.isPaperSafe).toBe(true)
+      expect(model.isExecutionOff).toBe(true)
+      expect(model.isZeroDrift).toBe(true)
+      expect(model.recentChildOrders).toHaveLength(0)
+      expect(model.recentFills).toHaveLength(0)
+    })
+
+    it('processes paper execution response correctly', () => {
+      const fixture: CanaryPaperExecutionResponse = {
+        verified: true,
+        phase: 'phase_294',
+        status: 'STREAMING',
+        circuit_state: 'NORMAL',
+        timestamp_utc: '2026-09-21T07:00:00Z',
+        paper_safe: true,
+        execution_authority: false,
+        candidates: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+        active_exposure_usdt: '4.55',
+        aggregate_exposure_cap_usdt: '60.00',
+        individual_micro_notional_cap_usdt: '5.00',
+        intra_phase_loss_ceiling_usdt: '7.00',
+        unencumbered_cash_reserve_pct: '0.9545',
+        order_stats: {
+          total_parent_orders: 2,
+          total_child_orders: 10,
+          filled_child_orders: 9,
+          cancelled_orders: 1,
+          rejected_orders: 0,
+          total_fees_usdt: '0.008000',
+          total_slippage_usdt: '0.000000',
+        },
+        matching_stats: {
+          passive_maker_fills_count: 8,
+          aggressive_taker_fills_count: 1,
+          avg_queue_wait_ms: 150.0,
+          fill_ratio: 0.9,
+        },
+        ledger: {
+          starting_equity_usdt: '100.00000000',
+          cash_usdt: '99.99200000',
+          allocated_margin_usdt: '4.50000000',
+          unrealized_pnl_usdt: '0.01000000',
+          realized_pnl_usdt: '0.00200000',
+          drift_usdt: '0.0000000000000000',
+          zero_balance_drift: true,
+        },
+        recent_child_orders: [
+          {
+            client_order_id: 'ord_1',
+            parent_order_id: 'p_1',
+            child_index: 0,
+            symbol: 'BTCUSDT',
+            side: 'BUY',
+            order_type: 'LIMIT',
+            price: '65000.00',
+            quantity: '0.00007',
+            notional_usdt: '4.55',
+            status: 'FILLED',
+            created_time_ms: 1726902000000,
+            timestamp_utc: '2026-09-21T07:00:00Z',
+          },
+        ],
+        recent_fills: [
+          {
+            fill_id: 'fill_1',
+            client_order_id: 'ord_1',
+            parent_order_id: 'p_1',
+            child_index: 0,
+            symbol: 'BTCUSDT',
+            side: 'BUY',
+            fill_price: '65000.00',
+            fill_quantity: '0.00007',
+            fill_notional_usdt: '4.55',
+            fee_usdt: '0.00091000',
+            fee_rate: '0.0002',
+            is_maker: true,
+            slippage_bps: '0.0',
+            fill_time_ms: 1726902000010,
+            timestamp_utc: '2026-09-21T07:00:00Z',
+          },
+        ],
+        recent_interlocks: [],
+      }
+
+      const model = buildPaperExecutionModel(fixture)
+      expect(model.phase).toBe('phase_294')
+      expect(model.verified).toBe(true)
+      expect(model.circuitState).toBe('NORMAL')
+      expect(model.isPaperSafe).toBe(true)
+      expect(model.isExecutionOff).toBe(true)
+      expect(model.isZeroDrift).toBe(true)
+      expect(model.recentChildOrders).toHaveLength(1)
+      expect(model.recentFills).toHaveLength(1)
+      expect(model.orderStats.total_child_orders).toBe(10)
+      expect(model.matchingStats.passive_maker_fills_count).toBe(8)
+      expect(model.ledger.starting_equity_usdt).toBe('100.00000000')
     })
   })
 })

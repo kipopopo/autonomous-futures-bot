@@ -13,10 +13,12 @@ import {
   Scale,
   ShieldAlert,
   ShieldCheck,
+  Zap,
 } from 'lucide-react'
 
 import { AccountingPage } from '@/components/accounting-page'
 import { CreatorPage } from '@/components/creator-page'
+import { ExecutionPage } from '@/components/execution-page'
 import { LearnerPage } from '@/components/learner-page'
 import { LiveMarketPage } from '@/components/live-market-page'
 import { MagicCard } from '@/components/magic-card'
@@ -28,6 +30,7 @@ import {
   buildAccountingModel,
   buildLiveMarketModel,
   buildMicrostructureModel,
+  buildPaperExecutionModel,
   buildRiskModel,
   type CanaryDashboardData,
 } from '@/lib/canary'
@@ -55,6 +58,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   risk: null,
   accounting: null,
   liveMarket: null,
+  paperExecution: null,
   error: null,
 }
 
@@ -262,6 +266,10 @@ function App() {
   const riskModel = useMemo(() => buildRiskModel(canaryData.risk), [canaryData.risk])
   const accountingModel = useMemo(() => buildAccountingModel(canaryData.accounting), [canaryData.accounting])
   const liveMarketModel = useMemo(() => buildLiveMarketModel(canaryData.liveMarket), [canaryData.liveMarket])
+  const paperExecutionModel = useMemo(
+    () => buildPaperExecutionModel(canaryData.paperExecution ?? null),
+    [canaryData.paperExecution]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -283,7 +291,8 @@ function App() {
       nextCanary.hawkes?.verified ||
       nextCanary.risk?.verified ||
       nextCanary.accounting?.verified ||
-      nextCanary.liveMarket?.verified
+      nextCanary.liveMarket?.verified ||
+      nextCanary.paperExecution?.verified
     )
 
     if (hasData) {
@@ -316,7 +325,8 @@ function App() {
             nextCanary.hawkes?.verified ||
             nextCanary.risk?.verified ||
             nextCanary.accounting?.verified ||
-            nextCanary.liveMarket?.verified
+            nextCanary.liveMarket?.verified ||
+            nextCanary.paperExecution?.verified
           )
 
           if (hasData) {
@@ -342,7 +352,11 @@ function App() {
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
-  const hasCanary = Boolean(canaryData.summary?.verified || canaryData.hawkes?.verified)
+  const hasCanary = Boolean(
+    canaryData.summary?.verified ||
+    canaryData.hawkes?.verified ||
+    canaryData.paperExecution?.verified
+  )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
     ? model.symbols
@@ -354,6 +368,7 @@ function App() {
   const isMicrostructurePage = page === 'microstructure'
   const isRiskPage = page === 'risk'
   const isAccountingPage = page === 'accounting'
+  const isExecutionPage = page === 'execution'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -393,10 +408,14 @@ function App() {
             <Scale size={17} aria-hidden="true" />
             <span>Accounting</span>
           </a>
+          <a className={`nav-item ${isExecutionPage ? 'nav-item-active' : ''}`} href="#/execution" aria-current={isExecutionPage ? 'page' : undefined}>
+            <Zap size={17} aria-hidden="true" />
+            <span>Paper Execution</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 293</span>
-          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Hawkes Streaming</span>
+          <span className="sidebar-label">PHASE 294</span>
+          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Paper Execution</span>
         </div>
       </aside>
 
@@ -417,7 +436,9 @@ function App() {
                         ? 'Risk plane'
                         : isAccountingPage
                           ? 'Accounting plane'
-                          : 'Data plane'}
+                          : isExecutionPage
+                            ? 'Execution plane'
+                            : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
               {isMarketPage
@@ -432,7 +453,9 @@ function App() {
                         ? 'Risk Controls'
                         : isAccountingPage
                           ? 'Accounting Ledger'
-                          : 'Overview'}
+                          : isExecutionPage
+                            ? 'Paper Execution'
+                            : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
               {isMarketPage
@@ -447,7 +470,9 @@ function App() {
                         ? 'Stepped exposure & circuit breakers · MYT (GMT+8)'
                         : isAccountingPage
                           ? 'Mathematical double-entry zero-drift · MYT (GMT+8)'
-                          : 'Causal market-data foundation · MYT (GMT+8)'}
+                          : isExecutionPage
+                            ? 'Passive matching simulator & micro child order slicing · MYT (GMT+8)'
+                            : 'Causal market-data foundation · MYT (GMT+8)'}
             </p>
           </div>
           <button
@@ -587,7 +612,7 @@ function App() {
               <span className="loading loading-ring loading-lg text-primary" aria-hidden="true" />
               <h2 className="text-lg font-bold">Verifying persisted telemetry & DAG proofs</h2>
               <p className="text-sm text-base-content/70 max-w-md">
-                Querying read-only API endpoints for health status, Hawkes snapshots, risk controls, and double-entry accounting ledger.
+                Querying read-only API endpoints for health status, Hawkes snapshots, risk controls, paper execution, and double-entry accounting ledger.
               </p>
             </div>
           </section>
@@ -611,6 +636,7 @@ function App() {
         )}
         {isRiskPage && state === 'ready' && <RiskPage model={riskModel} />}
         {isAccountingPage && state === 'ready' && <AccountingPage model={accountingModel} />}
+        {isExecutionPage && state === 'ready' && <ExecutionPage model={paperExecutionModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">

@@ -18,6 +18,7 @@ import type {
   CanaryDashboardData,
   CanaryHawkesResponse,
   CanaryLiveMarketResponse,
+  CanaryPaperExecutionResponse,
   CanaryRiskResponse,
   CanarySummaryResponse,
 } from './canary'
@@ -290,12 +291,21 @@ export async function fetchCanaryLiveMarket(): Promise<CanaryLiveMarketResponse 
   return (await response.json()) as CanaryLiveMarketResponse
 }
 
+export async function fetchCanaryPaperExecution(): Promise<CanaryPaperExecutionResponse | null> {
+  const path = '/api/v1/canary/paper-execution'
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  return (await response.json()) as CanaryPaperExecutionResponse
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
   let risk: CanaryRiskResponse | null = null
   let accounting: CanaryAccountingResponse | null = null
   let liveMarket: CanaryLiveMarketResponse | null = null
+  let paperExecution: CanaryPaperExecutionResponse | null = null
   let error: string | null = null
 
   try {
@@ -305,6 +315,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryRisk(),
       fetchCanaryAccounting(),
       fetchCanaryLiveMarket(),
+      fetchCanaryPaperExecution(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
@@ -312,6 +323,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     if (results[2].status === 'fulfilled') risk = results[2].value
     if (results[3].status === 'fulfilled') accounting = results[3].value
     if (results[4].status === 'fulfilled') liveMarket = results[4].value
+    if (results[5].status === 'fulfilled') paperExecution = results[5].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -323,5 +335,5 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     error = err instanceof Error ? err.message : 'Telemetry fetch failed'
   }
 
-  return { summary, hawkes, risk, accounting, liveMarket, error }
+  return { summary, hawkes, risk, accounting, liveMarket, paperExecution, error }
 }

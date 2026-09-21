@@ -2373,3 +2373,54 @@ Enforce `EXECUTION AUTHORITY: OFF`, read-only telemetry boundary, zero private k
 - [ ] Comprehensive pytest suite verifies streaming broadcast, Hawkes online updates, and client lifecycle management.
 - [ ] Vitest frontend test suite verifies WebSocket client handling and live state rendering with 0 failures.
 - [ ] Static quality gates (`ruff`, `mypy`, `tsc`) pass with 0 errors.
+
+
+## 2026-09-21T07:36:07Z
+
+Implement Phase 294: Live Paper-Safe Execution Engine & Zero-Drift Matching Simulator for Autonomous Futures Bot, establishing simulated child order slicing, real-time risk interlock enforcement, and continuous mathematical double-entry zero-drift balance validation against live Binance public orderbooks without real execution authority.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Dynamic Micro Child Order Slicing & Simulated Passive Matching
+Implement a paper-safe simulated order execution engine that ingests live book depth (`@depth5@100ms`) and aggregate trades (`@aggTrade`) from Phase 292/293 feeds, dynamically slicing orders with strict `ROUND_DOWN` precision ($\le 5.00\text{ USDT}$ micro child order cap) in compliance with Binance exchange filters (`LOT_SIZE`, `PRICE_FILTER`, `MIN_NOTIONAL`).
+
+### R2. Real-Time Risk Interlock Circuit Breakers & Headroom Enforcement
+Integrate the live Hawkes telemetry engine to enforce fail-closed order interlocks:
+- Instantaneous dispatch block when spectral radius $\rho \ge 1.0$ (supercritical runaway) or during severe predatory hazard regimes.
+- Portfolio aggregate exposure ceiling strictly bound to $\le 60.00\text{ USDT}$.
+- Intra-phase loss ceiling strictly bound to $\le 7.00\text{ USDT}$ with emergency fail-closed flattening.
+- Dynamic margin headroom preservation guaranteeing $\ge 40\%$ unencumbered cash reserve at all times.
+
+### R3. Continuous Mathematical Double-Entry Zero-Drift Ledger
+Maintain strict real-time double-entry reconciliation across all paper accounts and candidate tracks (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`):
+$$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ across every simulated fill, fee deduction, and equity snapshot.
+
+### R4. Observational Backend API & Dashboard Paper Execution Telemetry
+Expose real-time paper execution stats, filled child orders, active exposure, interlock blocks, and ledger snapshots via read-only FastAPI endpoints (`/api/v1/canary/paper-execution`) and integrate with the live dashboard.
+
+### R5. Strict Paper-Safe Confinement
+Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+
+### Execution Engine & Child Order Slicing
+- [ ] Child order generator slices parent intentions into chunks strictly $\le 5.00\text{ USDT}$ with precision `ROUND_DOWN`.
+- [ ] Simulated fills correctly calculate passive maker/taker fees and simulate fill priority against live Phase 292 top-5 book depth.
+
+### Risk Interlocks & Circuit Breakers
+- [ ] Breaching $\rho \ge 1.0$ or severe Hawkes regime immediately halts new child order dispatch.
+- [ ] Aggregate exposure limit ($\le 60.00\text{ USDT}$) and intra-phase loss limit ($\le 7.00\text{ USDT}$) reject exceeding orders.
+- [ ] Gateway heartbeat age $\le 500\text{ ms}$ is verified before simulating any order placement.
+
+### Double-Entry Accounting Invariant
+- [ ] Every simulated fill and balance state transition verifies exact zero-drift balance ($|\text{drift}| = 0.00\text{ USDT} < 10^{-15}\text{ USDT}$).
+- [ ] Ledger audit trail produces immutable cryptographic hash-linked snapshots in `artifacts/research/phase294/`.
+
+### Automated Testing & Quality Gates
+- [ ] Pytest suite covers order slicing, fill simulation, Hawkes lockout triggers, and double-entry reconciliation.
+- [ ] Vitest test suite covers frontend paper execution state handling and dashboard integration with 0 failures.
+- [ ] Static quality gates (`ruff`, `mypy`, `tsc`) pass with 0 errors.

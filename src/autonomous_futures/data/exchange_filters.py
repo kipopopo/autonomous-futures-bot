@@ -282,7 +282,15 @@ def write_exchange_filter_snapshot(
     return snapshot
 
 
-def _symbol_filters(snapshot: ExchangeFilterSnapshot, symbol: str) -> ExchangeSymbolFilters:
+def _symbol_filters(
+    snapshot: ExchangeFilterSnapshot | ExchangeSymbolFilters, symbol: str
+) -> ExchangeSymbolFilters:
+    if isinstance(snapshot, ExchangeSymbolFilters):
+        if snapshot.symbol == symbol:
+            return snapshot
+        raise ExchangeFilterViolation(
+            "symbol", f"{symbol} does not match filter symbol {snapshot.symbol}"
+        )
     for item in snapshot.symbols:
         if item.symbol == symbol:
             return item
@@ -294,8 +302,7 @@ def _aligned(value: Decimal, step: Decimal) -> bool:
 
 
 def validate_order_filters(
-    snapshot: ExchangeFilterSnapshot,
-    *,
+    snapshot: ExchangeFilterSnapshot | ExchangeSymbolFilters,
     symbol: str,
     order_type: Literal["LIMIT", "MARKET"],
     reference_price: Decimal,
@@ -314,6 +321,20 @@ def validate_order_filters(
             raise ExchangeFilterViolation("price", "price is below minPrice")
         if filters.price_max > 0 and reference_price > filters.price_max:
             raise ExchangeFilterViolation("price", "price is above maxPrice")
+
+    notional = reference_price * quantity
+    if (
+        order_type == "LIMIT" or filters.min_notional_apply_to_market
+    ) and notional < filters.min_notional:
+        raise ExchangeFilterViolation("notional", "order notional is below the minimum")
+    if (
+        filters.max_notional is not None
+        and (order_type == "LIMIT" or filters.max_notional_apply_to_market)
+        and notional > filters.max_notional
+    ):
+        raise ExchangeFilterViolation("notional", "order notional is above the maximum")
+
+    if order_type == "LIMIT":
         if not _aligned(reference_price, filters.price_tick_size):
             raise ExchangeFilterViolation("tick", "price is not aligned to tickSize")
 
@@ -331,18 +352,6 @@ def validate_order_filters(
         raise ExchangeFilterViolation("quantity", "quantity is above maxQty")
     if not _aligned(quantity, quantity_step):
         raise ExchangeFilterViolation("step", "quantity is not aligned to stepSize")
-
-    notional = reference_price * quantity
-    if (
-        order_type == "LIMIT" or filters.min_notional_apply_to_market
-    ) and notional < filters.min_notional:
-        raise ExchangeFilterViolation("notional", "order notional is below the minimum")
-    if (
-        filters.max_notional is not None
-        and (order_type == "LIMIT" or filters.max_notional_apply_to_market)
-        and notional > filters.max_notional
-    ):
-        raise ExchangeFilterViolation("notional", "order notional is above the maximum")
 
 
 __all__ = [

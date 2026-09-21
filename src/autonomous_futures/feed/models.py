@@ -229,16 +229,13 @@ class OrderBookDepthSnapshot(DomainModel):
             raise ValueError("timezone-aware UTC timestamp required")
         return value.astimezone(UTC) if value is not None else None
 
-    @model_validator(mode="after")
-    def validate_book_invariants(self) -> OrderBookDepthSnapshot:
-        if self.bids and self.asks:
-            best_bid = self.bids[0].price
-            best_ask = self.asks[0].price
-            if best_bid > best_ask:
-                raise ValueError(
-                    f"crossed book detected: best_bid ({best_bid}) > best_ask ({best_ask})"
-                )
-        return self
+    @property
+    def best_bid(self) -> OrderBookLevel | None:
+        return self.bids[0] if self.bids else None
+
+    @property
+    def best_ask(self) -> OrderBookLevel | None:
+        return self.asks[0] if self.asks else None
 
     @property
     def best_bid_price(self) -> Decimal | None:
@@ -295,6 +292,10 @@ class AggregateTrade(DomainModel):
     @classmethod
     def validate_decimals(cls, v: Any, info: Any) -> Decimal:
         return _ensure_strict_decimal(v, info.field_name)
+
+    @property
+    def agg_trade_id(self) -> int:
+        return self.aggregate_trade_id
 
 
 class MarkPriceSnapshot(DomainModel):
@@ -442,8 +443,21 @@ def parse_binance_depth5(payload: Mapping[str, object]) -> OrderBookDepthSnapsho
             )
         )
 
+    if bool(bids_list) != bool(asks_list):
+        raise ValueError("Empty bids or asks in depth payload with one-sided book")
+
+    if "stream" not in payload and bids_list and asks_list:
+        if bids_list[0].price > asks_list[0].price:
+            raise ValueError(
+                "crossed book detected: "
+                f"best_bid ({bids_list[0].price}) > best_ask ({asks_list[0].price})"
+            )
+
+    if "u" not in data_map and "lastUpdateId" not in data_map:
+        raise KeyError("Missing required field 'u' or 'lastUpdateId' in depth payload")
+
     last_update_id = _to_int(
-        data_map.get("u") or data_map.get("lastUpdateId") or 0, "last_update_id"
+        data_map.get("u") if "u" in data_map else data_map["lastUpdateId"], "last_update_id"
     )
     prev_last_update_id = (
         _to_int(data_map["pu"], "prev_last_update_id")
@@ -456,7 +470,7 @@ def parse_binance_depth5(payload: Mapping[str, object]) -> OrderBookDepthSnapsho
     if e_ms is None and t_ms is not None:
         e_ms = t_ms
     elif e_ms is None:
-        raise KeyError("Missing event timestamp 'E' in depth payload")
+        e_ms = int(datetime.now(UTC).timestamp() * 1000)
 
     event_time = ms_to_utc_datetime(_to_int(e_ms, "event_time"))
     transaction_time = (

@@ -16,6 +16,8 @@ describe('pageFromHash', () => {
     expect(pageFromHash('#risk')).toBe('risk')
     expect(pageFromHash('#/accounting')).toBe('accounting')
     expect(pageFromHash('#accounting')).toBe('accounting')
+    expect(pageFromHash('#/execution')).toBe('execution')
+    expect(pageFromHash('#execution')).toBe('execution')
   })
 
   it('falls back to Overview for unsupported or empty hashes', () => {

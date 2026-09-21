@@ -213,6 +213,7 @@ export interface CanaryDashboardData {
   risk: CanaryRiskResponse | null
   accounting: CanaryAccountingResponse | null
   liveMarket: CanaryLiveMarketResponse | null
+  paperExecution?: CanaryPaperExecutionResponse | null
   error: string | null
 }
 
@@ -482,3 +483,187 @@ export interface TelemetryStreamEnvelope {
   data: unknown
   paper_safe_metadata: PaperSafeMetadata
 }
+
+// ---------------------------------------------------------------------------
+// Phase 294: Paper Execution & Zero-Drift Matching Types
+// ---------------------------------------------------------------------------
+
+export interface PaperChildOrderItem {
+  client_order_id: string
+  parent_order_id: string
+  child_index: number
+  symbol: string
+  side: string
+  order_type: string
+  price: string
+  quantity: string
+  notional_usdt: string
+  status: string
+  created_time_ms: number
+  timestamp_utc: string
+}
+
+export interface PaperExecutionMarkItem {
+  fill_id: string
+  client_order_id: string
+  parent_order_id: string
+  child_index: number
+  symbol: string
+  side: string
+  fill_price: string
+  fill_quantity: string
+  fill_notional_usdt: string
+  fee_usdt: string
+  fee_rate: string
+  is_maker: boolean
+  slippage_bps: string
+  fill_time_ms: number
+  timestamp_utc: string
+}
+
+export interface PaperOrderStatsItem {
+  total_parent_orders: number
+  total_child_orders: number
+  filled_child_orders: number
+  cancelled_orders: number
+  rejected_orders: number
+  total_fees_usdt: string
+  total_slippage_usdt: string
+}
+
+export interface PaperMatchingStatsItem {
+  passive_maker_fills_count: number
+  aggressive_taker_fills_count: number
+  avg_queue_wait_ms: number
+  fill_ratio: number
+}
+
+export interface PaperLedgerSnapshotItem {
+  starting_equity_usdt: string
+  cash_usdt: string
+  allocated_margin_usdt: string
+  unrealized_pnl_usdt: string
+  realized_pnl_usdt: string
+  drift_usdt: string
+  zero_balance_drift: boolean
+}
+
+export interface CanaryPaperExecutionResponse {
+  verified: boolean
+  phase: string
+  status: string
+  circuit_state: string
+  timestamp_utc: string
+  paper_safe: boolean
+  execution_authority: boolean
+  candidates: string[]
+  active_exposure_usdt: string
+  aggregate_exposure_cap_usdt: string
+  individual_micro_notional_cap_usdt: string
+  intra_phase_loss_ceiling_usdt: string
+  unencumbered_cash_reserve_pct: string
+  order_stats: PaperOrderStatsItem
+  matching_stats: PaperMatchingStatsItem
+  ledger: PaperLedgerSnapshotItem
+  recent_child_orders: PaperChildOrderItem[]
+  recent_fills: PaperExecutionMarkItem[]
+  recent_interlocks: InterlockEvent[]
+  artifact_hashes?: Record<string, string>
+}
+
+export interface PaperExecutionModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  candidates: string[]
+  activeExposureUsdt: string
+  aggregateExposureCapUsdt: string
+  individualMicroCapUsdt: string
+  intraPhaseLossCeilingUsdt: string
+  unencumberedCashReservePct: string
+  isZeroDrift: boolean
+  orderStats: PaperOrderStatsItem
+  matchingStats: PaperMatchingStatsItem
+  ledger: PaperLedgerSnapshotItem
+  recentChildOrders: PaperChildOrderItem[]
+  recentFills: PaperExecutionMarkItem[]
+  recentInterlocks: InterlockEvent[]
+}
+
+export function buildPaperExecutionModel(
+  data: CanaryPaperExecutionResponse | null
+): PaperExecutionModel {
+  if (!data) {
+    return {
+      phase: '—',
+      verified: false,
+      status: 'UNAVAILABLE',
+      circuitState: 'UNKNOWN',
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      candidates: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+      activeExposureUsdt: '0.00',
+      aggregateExposureCapUsdt: '60.00',
+      individualMicroCapUsdt: '5.00',
+      intraPhaseLossCeilingUsdt: '7.00',
+      unencumberedCashReservePct: '1.000',
+      isZeroDrift: true,
+      orderStats: {
+        total_parent_orders: 0,
+        total_child_orders: 0,
+        filled_child_orders: 0,
+        cancelled_orders: 0,
+        rejected_orders: 0,
+        total_fees_usdt: '0.00000000',
+        total_slippage_usdt: '0.00000000',
+      },
+      matchingStats: {
+        passive_maker_fills_count: 0,
+        aggressive_taker_fills_count: 0,
+        avg_queue_wait_ms: 0,
+        fill_ratio: 0,
+      },
+      ledger: {
+        starting_equity_usdt: '100.00',
+        cash_usdt: '100.00',
+        allocated_margin_usdt: '0.00',
+        unrealized_pnl_usdt: '0.00',
+        realized_pnl_usdt: '0.00',
+        drift_usdt: '—',
+        zero_balance_drift: true,
+      },
+      recentChildOrders: [],
+      recentFills: [],
+      recentInterlocks: [],
+    }
+  }
+
+  return {
+    phase: data.phase,
+    verified: Boolean(data.verified),
+    status: data.status,
+    circuitState: data.circuit_state,
+    timestampUtc: data.timestamp_utc,
+    isPaperSafe: data.paper_safe,
+    isExecutionOff: !data.execution_authority,
+    candidates: data.candidates || [],
+    activeExposureUsdt: data.active_exposure_usdt,
+    aggregateExposureCapUsdt: data.aggregate_exposure_cap_usdt,
+    individualMicroCapUsdt: data.individual_micro_notional_cap_usdt,
+    intraPhaseLossCeilingUsdt: data.intra_phase_loss_ceiling_usdt,
+    unencumberedCashReservePct: data.unencumbered_cash_reserve_pct,
+    isZeroDrift: Boolean(data.ledger?.zero_balance_drift),
+    orderStats: data.order_stats,
+    matchingStats: data.matching_stats,
+    ledger: data.ledger,
+    recentChildOrders: data.recent_child_orders || [],
+    recentFills: data.recent_fills || [],
+    recentInterlocks: data.recent_interlocks || [],
+  }
+}
+
