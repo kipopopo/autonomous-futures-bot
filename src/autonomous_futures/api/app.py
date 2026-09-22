@@ -43,6 +43,7 @@ from .canary import (
     CanaryStrategyMiningResponse,
     CanaryStressFaultInjectionResponse,
     CanarySummaryResponse,
+    CanaryTestnetGatewayResponse,
     CandidatePromotionItem,
     CandidateSignalItem,
     LedgerReconciliationItem,
@@ -58,6 +59,7 @@ from .canary import (
     load_verified_canary_strategy_mining,
     load_verified_canary_stress_fault_injection,
     load_verified_canary_summary,
+    load_verified_canary_testnet_gateway,
 )
 from .catalog import (
     DatasetCatalogIntegrityError,
@@ -947,6 +949,25 @@ def create_app(
                 detail="canary portfolio rebalancing integrity verification failed",
             ) from exc
 
+    # Phase 300: Testnet Exchange Connectivity & Multi-Sig Order Gateway
+    @app.get(
+        "/api/v1/canary/testnet-gateway",
+        response_model=CanaryTestnetGatewayResponse,
+    )
+    def canary_testnet_gateway() -> CanaryTestnetGatewayResponse:
+        try:
+            return load_verified_canary_testnet_gateway(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary testnet gateway evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary testnet gateway integrity verification failed",
+            ) from exc
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -982,6 +1003,7 @@ __all__ = [
     "CanaryStrategyMiningResponse",
     "CanaryStressFaultInjectionResponse",
     "CanarySummaryResponse",
+    "CanaryTestnetGatewayResponse",
     "CandidatePromotionItem",
     "CandidateSignalItem",
     "ComponentsResponse",

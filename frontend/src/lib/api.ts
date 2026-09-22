@@ -28,6 +28,7 @@ import {
   type CanaryStrategyMiningResponse,
   type CanaryStressFaultInjectionResponse,
   type CanarySummaryResponse,
+  type CanaryTestnetGatewayData,
 } from './canary'
 
 export { getCanaryPortfolioRebalancing, getCanaryStrategyMining }
@@ -356,6 +357,18 @@ export async function fetchCanaryPortfolioRebalancing(): Promise<CanaryPortfolio
   }
 }
 
+export async function fetchCanaryTestnetGateway(): Promise<CanaryTestnetGatewayData | null> {
+  const path = '/api/v1/canary/testnet-gateway'
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+    return (await response.json()) as CanaryTestnetGatewayData
+  } catch {
+    return null
+  }
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
@@ -368,6 +381,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let stressFaultInjection: CanaryStressFaultInjectionResponse | null = null
   let strategyMining: CanaryStrategyMiningResponse | null = null
   let portfolioRebalancing: CanaryPortfolioRebalancingResponse | null = null
+  let testnetGateway: CanaryTestnetGatewayData | null = null
   let error: string | null = null
 
   try {
@@ -383,6 +397,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryStressFaultInjection(),
       fetchCanaryStrategyMining(),
       fetchCanaryPortfolioRebalancing(),
+      fetchCanaryTestnetGateway(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
@@ -396,6 +411,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     if (results[8].status === 'fulfilled') stressFaultInjection = results[8].value
     if (results[9].status === 'fulfilled') strategyMining = results[9].value
     if (results[10].status === 'fulfilled') portfolioRebalancing = results[10].value
+    if (results[11].status === 'fulfilled') testnetGateway = results[11].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -419,6 +435,8 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     stressFaultInjection,
     strategyMining,
     portfolioRebalancing,
+    testnetGateway,
     error,
   }
 }
+

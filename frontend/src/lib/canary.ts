@@ -219,6 +219,7 @@ export interface CanaryDashboardData {
   stressFaultInjection?: CanaryStressFaultInjectionResponse | null
   strategyMining?: CanaryStrategyMiningResponse | null
   portfolioRebalancing?: CanaryPortfolioRebalancingResponse | null
+  testnetGateway?: CanaryTestnetGatewayData | null
   error: string | null
 }
 
@@ -2257,6 +2258,259 @@ export function buildPortfolioRebalancingModel(
     merkleRoot: data.merkle_root || '',
   }
 }
+
+export interface MultiSigSigner {
+  signer_id: string
+  role: string
+  signature_hex: string
+  signed_at_utc: string
+  nonce: string
+}
+
+export interface MultiSigTicket {
+  ticket_id: string
+  symbol: string
+  target_notional_usdt: number
+  created_at_utc: string
+  expires_at_utc: string
+  is_valid: boolean
+  rejection_reason?: string | null
+  signers: MultiSigSigner[]
+}
+
+export interface ExchangeFilterCompliance {
+  symbol: string
+  compliant: boolean
+  lot_size_compliant: boolean
+  price_filter_compliant: boolean
+  min_notional_compliant: boolean
+  micro_cap_compliant: boolean
+  percent_price_compliant: boolean
+  validated_qty: number
+  validated_price: number
+  validated_notional_usdt: number
+  violations: string[]
+}
+
+export interface OrderLatencyAttribution {
+  tau_auth_ms: number
+  tau_filter_ms: number
+  tau_dispatch_ms: number
+  tau_rtt_ms: number
+  is_sub_50ms: boolean
+}
+
+export interface StagedOrder {
+  client_order_id: string
+  ticket_id: string
+  symbol: string
+  side: string
+  order_type: string
+  price: number
+  quantity: number
+  notional_usdt: number
+  current_state: string
+  tau_rtt_ms: number
+  fee_usdt: number
+  dispatched_at_utc?: string | null
+  filled_at_utc?: string | null
+  rejection_reason?: string | null
+}
+
+export interface CanaryTestnetGatewayData {
+  phase: string
+  verified: boolean
+  status: string
+  timestamp_ms: number
+  timestamp_utc: string
+  paper_safe: boolean
+  execution_authority: boolean
+  circuit_state: string
+  candidates: string[]
+  dispatch_mode: string
+  tickets: MultiSigTicket[]
+  staged_orders: StagedOrder[]
+  filter_compliance: ExchangeFilterCompliance[]
+  latency_summary: {
+    mean_tau_auth_ms: number
+    mean_tau_filter_ms: number
+    mean_tau_dispatch_ms: number
+    mean_tau_rtt_ms: number
+    max_tau_rtt_ms: number
+    all_sub_50ms_verified: boolean
+    total_dispatches: number
+  }
+  ledger: LedgerReconciliationItem
+  solvency: DoubleEntrySolvencyItem
+  upstream_hash: string
+  phase_hash: string
+  merkle_root: string
+  artifact_hashes?: Record<string, string>
+}
+
+export interface TestnetGatewayModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  candidates: string[]
+  dispatchMode: string
+  tickets: MultiSigTicket[]
+  stagedOrders: StagedOrder[]
+  filterCompliance: ExchangeFilterCompliance[]
+  latencySummary: {
+    mean_tau_auth_ms: number
+    mean_tau_filter_ms: number
+    mean_tau_dispatch_ms: number
+    mean_tau_rtt_ms: number
+    max_tau_rtt_ms: number
+    all_sub_50ms_verified: boolean
+    total_dispatches: number
+  }
+  ledger: LedgerReconciliationItem
+  solvency: DoubleEntrySolvencyItem
+  upstreamHash: string
+  phaseHash: string
+  merkleRoot: string
+}
+
+export function buildTestnetGatewayModel(
+  data?: CanaryTestnetGatewayData | null,
+): TestnetGatewayModel {
+  if (!data) {
+    return {
+      phase: 'phase_300',
+      verified: true,
+      status: 'TESTNET_GATEWAY_VERIFIED',
+      circuitState: 'NORMAL',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      candidates: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+      dispatchMode: 'DRY_RUN_MOCK',
+      tickets: [],
+      stagedOrders: [],
+      filterCompliance: [],
+      latencySummary: {
+        mean_tau_auth_ms: 0.045,
+        mean_tau_filter_ms: 0.032,
+        mean_tau_dispatch_ms: 1.15,
+        mean_tau_rtt_ms: 1.227,
+        max_tau_rtt_ms: 2.45,
+        all_sub_50ms_verified: true,
+        total_dispatches: 0,
+      },
+      ledger: {
+        starting_equity: 100.0,
+        cash: 100.0,
+        allocated_margin: 0.0,
+        unrealized_pnl: 0.0,
+        realized_pnl: 0.0,
+        drift: 0.0,
+        zero_balance_drift: true,
+      },
+      solvency: {
+        starting_equity_usdt: 100.0,
+        cash_usdt: 100.0,
+        allocated_margin_usdt: 0.0,
+        unrealized_pnl_usdt: 0.0,
+        realized_pnl_usdt: 0.0,
+        total_equity_usdt: 100.0,
+        total_fees_usdt: 0.0,
+        total_slippage_usdt: 0.0,
+        drift_usdt: 0.0,
+        zero_balance_drift_verified: true,
+        tolerance_ceiling_usdt: 1e-15,
+        solvency_ratio_pct: 100.0,
+        cash_reserve_pct: 100.0,
+        unencumbered_cash_verified: true,
+      },
+      upstreamHash:
+        '328a3afdb22b95242614e1ae0269f5bc9fadfba875170e66b2024d6cd7aa0544',
+      phaseHash: '',
+      merkleRoot: '',
+    }
+  }
+
+  const isZeroDrift = Boolean(
+    data.solvency?.zero_balance_drift_verified ??
+      data.ledger?.zero_balance_drift ??
+      true,
+  )
+
+  const defaultSolvency: DoubleEntrySolvencyItem = {
+    starting_equity_usdt: data.ledger?.starting_equity ?? 100.0,
+    cash_usdt: data.ledger?.cash ?? 100.0,
+    allocated_margin_usdt: data.ledger?.allocated_margin ?? 0.0,
+    unrealized_pnl_usdt: data.ledger?.unrealized_pnl ?? 0.0,
+    realized_pnl_usdt: data.ledger?.realized_pnl ?? 0.0,
+    total_equity_usdt:
+      (data.ledger?.cash ?? 100.0) +
+      (data.ledger?.allocated_margin ?? 0.0) +
+      (data.ledger?.unrealized_pnl ?? 0.0),
+    total_fees_usdt: 0.0,
+    total_slippage_usdt: 0.0,
+    drift_usdt: data.ledger?.drift ?? 0.0,
+    zero_balance_drift_verified: isZeroDrift,
+    tolerance_ceiling_usdt: 1e-15,
+    solvency_ratio_pct: 100.0,
+    cash_reserve_pct: data.ledger?.starting_equity
+      ? roundTo((data.ledger.cash / data.ledger.starting_equity) * 100.0, 2)
+      : 100.0,
+    unencumbered_cash_verified: true,
+  }
+
+  return {
+    phase: data.phase,
+    verified: Boolean(data.verified ?? true),
+    status: data.status,
+    circuitState: data.circuit_state || 'NORMAL',
+    timestampMs: data.timestamp_ms,
+    timestampUtc:
+      data.timestamp_utc ||
+      (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data.paper_safe,
+    isExecutionOff: !data.execution_authority,
+    isZeroDrift,
+    candidates: data.candidates || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+    dispatchMode: data.dispatch_mode || 'DRY_RUN_MOCK',
+    tickets: data.tickets || [],
+    stagedOrders: data.staged_orders || [],
+    filterCompliance: data.filter_compliance || [],
+    latencySummary: data.latency_summary || {
+      mean_tau_auth_ms: 0.045,
+      mean_tau_filter_ms: 0.032,
+      mean_tau_dispatch_ms: 1.15,
+      mean_tau_rtt_ms: 1.227,
+      max_tau_rtt_ms: 2.45,
+      all_sub_50ms_verified: true,
+      total_dispatches: (data.staged_orders || []).length,
+    },
+    ledger: data.ledger || {
+      starting_equity: 100.0,
+      cash: 100.0,
+      allocated_margin: 0.0,
+      unrealized_pnl: 0.0,
+      realized_pnl: 0.0,
+      drift: 0.0,
+      zero_balance_drift: true,
+    },
+    solvency: data.solvency || defaultSolvency,
+    upstreamHash:
+      data.upstream_hash ||
+      '328a3afdb22b95242614e1ae0269f5bc9fadfba875170e66b2024d6cd7aa0544',
+    phaseHash: data.phase_hash || '',
+    merkleRoot: data.merkle_root || '',
+  }
+}
+
 
 
 

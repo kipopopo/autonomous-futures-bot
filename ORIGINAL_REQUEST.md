@@ -2724,5 +2724,65 @@ Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, 
 - [ ] Vitest frontend test suite covers Portfolio Rebalancing dashboard component with 0 failures.
 - [ ] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
 
+## 2026-09-22T07:29:00Z
 
+Implement Phase 300: Testnet Exchange Connectivity, Multi-Signature Order Gateway & Live Staged Order Authorization Bridge for Autonomous Futures Bot, establishing multi-signature dual-custody order authorization, pre-dispatch exchange filter conformance guards, an idempotent order lifecycle state machine with high-resolution latency attribution, continuous mathematical double-entry zero-drift balance governance, observational FastAPI endpoints, and DaisyUI 5.7.42 dashboard telemetry without live execution authority.
 
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Testnet Exchange Connectivity & Dual-Custody Multi-Signature Gateway
+Implement `TestnetExchangeGateway` and `MultiSigOrderAuthorizer` in `src/autonomous_futures/feed/testnet_gateway.py`:
+- Establish multi-signature authorization ticket (`MultiSigAuthorizationTicket`) requiring dual-custody verification (minimum 2 independent role signatures: `ROLE_RISK_INTERLOCK` and `ROLE_PORTFOLIO_OFFICER`).
+- Verify tickets with sandboxed HMAC-SHA256 signatures, nonce deduplication, and timestamp freshness ($<= 500\text{ ms}$ clock skew, $\le 60\text{ s}$ ticket expiry).
+- Provide sandboxed mock Binance USDⓈ-M Testnet API connector simulating `/fapi/v1/order`, `/fapi/v1/batchOrders`, `/fapi/v1/openOrder`, and `/fapi/v1/allOpenOrders` in dry-run mode with deterministic round-trip confirmation.
+
+### R2. Pre-Dispatch Symbol Exchange Filter & Liquidity Guard
+Implement `OrderPreDispatchFilterGuard` in `src/autonomous_futures/feed/testnet_gateway.py`:
+- Validate candidate orders against Binance Futures exchange filters across the candidate universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`):
+  - `LOT_SIZE`: minQty, maxQty, and stepSize precision compliance with `ROUND_DOWN`.
+  - `PRICE_FILTER`: minPrice, maxPrice, and tickSize precision compliance.
+  - `MIN_NOTIONAL`: notional value $\ge 5.00\text{ USDT}$ floor.
+  - `PERCENT_PRICE`: price deviation bounded relative to prevailing mark price ($|\text{price} - \text{mark\_price}| / \text{mark\_price} \le 1.0\%$).
+  - Dynamic micro-chunk slicing: child order notional strictly bound $\le 5.00\text{ USDT}$.
+- Fail-closed reject any order violating multi-sig quorum, filter limits, or micro-chunk ceilings.
+
+### R3. Real-Time Order Lifecycle State Machine & Latency Attribution
+Implement `OrderLifecycleTracker` in `src/autonomous_futures/feed/testnet_gateway.py`:
+- Track discrete order states: `INTENDED` $\to$ `AUTHORIZED` $\to$ `STAGED` $\to$ `DISPATCHED` $\to$ `FILLED` / `EXPIRED` / `REJECTED`.
+- Enforce idempotent deduplication via unique `clientOrderId`.
+- Record high-resolution latency attribution waterfall metrics:
+  - $\tau_{\text{auth}}$: Multi-sig signature verification and quorum collation latency.
+  - $\tau_{\text{filter}}$: Pre-dispatch symbol filter validation latency.
+  - $\tau_{\text{dispatch}}$: Mock/testnet gateway dispatch transmission latency.
+  - $\tau_{\text{rtt}}$: Total round-trip confirmation latency (strictly bound $< 50\text{ ms}$).
+
+### R4. Continuous Mathematical Double-Entry Zero-Drift Ledger & Merkle DAG
+Maintain strict real-time double-entry reconciliation across all staged and executed testnet paper allocations:
+$$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ across all staged order cycles, simulated fills, fee deductions, and margin transitions.
+Persist structured research artifacts in `artifacts/research/phase300/` bound by a cryptographic SHA-256 Merkle DAG hash chain linking Phase 299 root hash (`328a3afdb22b95242614e1ae0269f5bc9fadfba875170e66b2024d6cd7aa0544`).
+
+### R5. Observational Backend API & DaisyUI 5.7.42 Dashboard
+- Expose read-only FastAPI endpoints:
+  - `GET /api/v1/canary/testnet-gateway`
+  - Update `GET /api/v1/canary/summary`
+- Update React frontend dashboard:
+  - Create `frontend/src/components/testnet-gateway-page.tsx` with DaisyUI 5.7.42 dark theme rendering:
+    - Multi-Sig Quorum Approval Queue & Signer Matrix (Dual-Custody Status, Signer Roles, Quorum Thresholds)
+    - Staged Order Dispatch Pipeline & State Transition Timeline (`INTENDED` $\to$ `FILLED`)
+    - Exchange Filter Conformance Matrix (`LOT_SIZE`, `PRICE_FILTER`, `MIN_NOTIONAL`, Micro-Chunk Cap)
+    - Latency Attribution Waterfall ($\tau_{\text{auth}}$, $\tau_{\text{filter}}$, $\tau_{\text{dispatch}}$, $\tau_{\text{rtt}}$)
+    - Double-Entry Solvency Meter ($|\Delta| < 10^{-15}\text{ USDT}$)
+  - Add "Testnet Gateway" navigation tab (`#/testnet`) in `frontend/src/App.tsx`.
+
+### R6. Strict Paper-Safe Confinement
+Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+- [ ] `scripts/run_phase_300_testnet_gateway.py` executes 4 deterministic simulation tracks (Multi-Sig Authorization, Filter Conformance, Order Lifecycle & Latency Attribution, and Full Longevity & Merkle DAG) with 0 failures and verified zero balance drift.
+- [ ] Comprehensive pytest suite covers multi-sig quorum verification, exchange filter validation, order lifecycle transitions, and double-entry reconciliation.
+- [ ] Vitest frontend test suite covers Testnet Gateway dashboard component with 0 failures.
+- [ ] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
