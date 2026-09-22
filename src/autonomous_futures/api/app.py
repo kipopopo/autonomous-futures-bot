@@ -37,6 +37,7 @@ from .canary import (
     CanaryHawkesResponse,
     CanaryLiveMarketResponse,
     CanaryPaperExecutionResponse,
+    CanaryPortfolioRebalancingResponse,
     CanaryRiskResponse,
     CanaryStrategyActivationResponse,
     CanaryStrategyMiningResponse,
@@ -51,6 +52,7 @@ from .canary import (
     load_verified_canary_hawkes,
     load_verified_canary_live_market,
     load_verified_canary_paper_execution,
+    load_verified_canary_portfolio_rebalancing,
     load_verified_canary_risk,
     load_verified_canary_strategy_activation,
     load_verified_canary_strategy_mining,
@@ -924,6 +926,25 @@ def create_app(
             raise HTTPException(
                 status_code=503,
                 detail="canary strategy mining integrity verification failed",
+            ) from exc
+
+    # Phase 299: Dynamic Multi-Asset Risk Orchestration & Portfolio Rebalancing Engine
+    @app.get(
+        "/api/v1/canary/portfolio-rebalancing",
+        response_model=CanaryPortfolioRebalancingResponse,
+    )
+    def canary_portfolio_rebalancing() -> CanaryPortfolioRebalancingResponse:
+        try:
+            return load_verified_canary_portfolio_rebalancing(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary portfolio rebalancing evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary portfolio rebalancing integrity verification failed",
             ) from exc
 
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push

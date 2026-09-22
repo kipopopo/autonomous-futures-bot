@@ -18,6 +18,7 @@ import {
   TrendingUp,
   Zap,
   Dna,
+  PieChart,
 } from 'lucide-react'
 
 import { AccountingPage } from '@/components/accounting-page'
@@ -32,6 +33,7 @@ import { RiskPage } from '@/components/risk-page'
 import { StrategyActivationPage } from '@/components/strategy-activation-page'
 import { StressPage } from '@/components/stress-page'
 import { StrategyMiningPage } from '@/components/strategy-mining-page'
+import { PortfolioRebalancingPage } from '@/components/portfolio-rebalancing-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
@@ -40,6 +42,7 @@ import {
   buildLiveMarketModel,
   buildMicrostructureModel,
   buildPaperExecutionModel,
+  buildPortfolioRebalancingModel,
   buildRiskModel,
   buildStrategyActivationModel,
   buildStrategyMiningModel,
@@ -75,6 +78,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   autonomousLifecycle: null,
   stressFaultInjection: null,
   strategyMining: null,
+  portfolioRebalancing: null,
   error: null,
 }
 
@@ -302,6 +306,10 @@ function App() {
     () => buildStrategyMiningModel(canaryData.strategyMining ?? null),
     [canaryData.strategyMining]
   )
+  const portfolioRebalancingModel = useMemo(
+    () => buildPortfolioRebalancingModel(canaryData.portfolioRebalancing ?? null),
+    [canaryData.portfolioRebalancing]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -328,7 +336,8 @@ function App() {
       nextCanary.strategyActivation?.verified ||
       nextCanary.autonomousLifecycle?.verified ||
       nextCanary.stressFaultInjection?.verified ||
-      nextCanary.strategyMining?.verified
+      nextCanary.strategyMining?.verified ||
+      nextCanary.portfolioRebalancing?.verified
     )
 
     if (hasData) {
@@ -366,7 +375,8 @@ function App() {
             nextCanary.strategyActivation?.verified ||
             nextCanary.autonomousLifecycle?.verified ||
             nextCanary.stressFaultInjection?.verified ||
-            nextCanary.strategyMining?.verified
+            nextCanary.strategyMining?.verified ||
+            nextCanary.portfolioRebalancing?.verified
           )
 
           if (hasData) {
@@ -399,7 +409,8 @@ function App() {
     canaryData.strategyActivation?.verified ||
     canaryData.autonomousLifecycle?.verified ||
     canaryData.stressFaultInjection?.verified ||
-    canaryData.strategyMining?.verified
+    canaryData.strategyMining?.verified ||
+    canaryData.portfolioRebalancing?.verified
   )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
@@ -417,6 +428,7 @@ function App() {
   const isLifecyclePage = page === 'lifecycle'
   const isStressPage = page === 'stress'
   const isMiningPage = page === 'mining'
+  const isPortfolioPage = page === 'portfolio'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -476,10 +488,14 @@ function App() {
             <Dna size={17} aria-hidden="true" />
             <span>Strategy Mining</span>
           </a>
+          <a className={`nav-item ${isPortfolioPage ? 'nav-item-active' : ''}`} href="#/portfolio" aria-current={isPortfolioPage ? 'page' : undefined}>
+            <PieChart size={17} aria-hidden="true" />
+            <span>Portfolio Rebalancing</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 298</span>
-          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Strategy Mining</span>
+          <span className="sidebar-label">PHASE 299</span>
+          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Risk Parity</span>
         </div>
       </aside>
 
@@ -488,7 +504,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isMiningPage
+              {isPortfolioPage
+                ? 'Portfolio risk orchestration plane'
+                : isMiningPage
                 ? 'Strategy mining plane'
                 : isStressPage
                 ? 'Stress resilience plane'
@@ -513,7 +531,9 @@ function App() {
                               : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isMiningPage
+              {isPortfolioPage
+                ? 'Canary Portfolio Rebalancing: Hawkes Risk-Parity & Cross-Asset Contagion'
+                : isMiningPage
                 ? 'Canary Strategy Mining: Auto-Evolution & OOS Promotion'
                 : isStressPage
                 ? 'Canary Stress Resilience: Fault Injection & Emergency Flattening'
@@ -538,7 +558,9 @@ function App() {
                               : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isMiningPage
+              {isPortfolioPage
+                ? 'Phase 299 Multi-Asset Risk Orchestration, Spillover Mitigation & Convex Optimization · MYT (GMT+8)'
+                : isMiningPage
                 ? 'Phase 298 Quantitative Hypothesis Formulation, OOS Promotion & Live Hot-Reload · MYT (GMT+8)'
                 : isStressPage
                 ? 'Phase 297 Extreme Market Distress, Sub-ms Circuit Breakers & Capital Preservation · MYT (GMT+8)'
@@ -729,6 +751,7 @@ function App() {
         {isLifecyclePage && state === 'ready' && <LifecyclePage model={autonomousLifecycleModel} />}
         {isStressPage && state === 'ready' && <StressPage model={stressModel} />}
         {isMiningPage && state === 'ready' && <StrategyMiningPage model={strategyMiningModel} />}
+        {isPortfolioPage && state === 'ready' && <PortfolioRebalancingPage model={portfolioRebalancingModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">

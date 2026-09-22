@@ -14,6 +14,7 @@ import type {
   LearnerTrainingEvidenceResponse,
 } from './dashboard'
 import {
+  getCanaryPortfolioRebalancing,
   getCanaryStrategyMining,
   type CanaryAccountingResponse,
   type CanaryAutonomousLifecycleResponse,
@@ -21,6 +22,7 @@ import {
   type CanaryHawkesResponse,
   type CanaryLiveMarketResponse,
   type CanaryPaperExecutionResponse,
+  type CanaryPortfolioRebalancingResponse,
   type CanaryRiskResponse,
   type CanaryStrategyActivationResponse,
   type CanaryStrategyMiningResponse,
@@ -28,7 +30,7 @@ import {
   type CanarySummaryResponse,
 } from './canary'
 
-export { getCanaryStrategyMining }
+export { getCanaryPortfolioRebalancing, getCanaryStrategyMining }
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
@@ -342,6 +344,18 @@ export async function fetchCanaryStrategyMining(): Promise<CanaryStrategyMiningR
   }
 }
 
+export async function fetchCanaryPortfolioRebalancing(): Promise<CanaryPortfolioRebalancingResponse | null> {
+  const path = '/api/v1/canary/portfolio-rebalancing'
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+    return (await response.json()) as CanaryPortfolioRebalancingResponse
+  } catch {
+    return null
+  }
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
@@ -353,6 +367,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let autonomousLifecycle: CanaryAutonomousLifecycleResponse | null = null
   let stressFaultInjection: CanaryStressFaultInjectionResponse | null = null
   let strategyMining: CanaryStrategyMiningResponse | null = null
+  let portfolioRebalancing: CanaryPortfolioRebalancingResponse | null = null
   let error: string | null = null
 
   try {
@@ -367,6 +382,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryAutonomousLifecycle(),
       fetchCanaryStressFaultInjection(),
       fetchCanaryStrategyMining(),
+      fetchCanaryPortfolioRebalancing(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
@@ -379,6 +395,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     if (results[7].status === 'fulfilled') autonomousLifecycle = results[7].value
     if (results[8].status === 'fulfilled') stressFaultInjection = results[8].value
     if (results[9].status === 'fulfilled') strategyMining = results[9].value
+    if (results[10].status === 'fulfilled') portfolioRebalancing = results[10].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -401,6 +418,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     autonomousLifecycle,
     stressFaultInjection,
     strategyMining,
+    portfolioRebalancing,
     error,
   }
 }

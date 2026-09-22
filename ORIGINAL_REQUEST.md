@@ -2668,4 +2668,61 @@ Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, 
 - [ ] Vitest frontend test suite covers Strategy Mining dashboard component with 0 failures.
 - [ ] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
 
+## 2026-09-22T04:50:49Z
+
+Implement Phase 299: Dynamic Multi-Asset Risk Orchestration, Capital Allocation & Portfolio Rebalancing Engine for Autonomous Futures Bot, establishing Hawkes-informed dynamic risk parity allocation, cross-asset spillover and contagion guards, micro-order rebalancing execution, continuous mathematical double-entry zero-drift balance governance, observational FastAPI endpoints, and DaisyUI 5.7.42 dashboard telemetry without live execution authority.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Dynamic Hawkes Risk-Parity Allocation
+Implement `DynamicRiskParityAllocator` in `src/autonomous_futures/feed/portfolio_rebalancing.py`:
+- Ingest real-time market data across candidate universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Compute rolling return volatilities (sigma_i) and multivariate Hawkes jump intensities (lambda_i) and spectral radius (rho).
+- Calculate optimal dynamic risk-parity asset weights (w_i*):
+  w_i propto 1 / (sigma_i * (1 + lambda_i))
+  subject to aggregate exposure cap (<= 60.00 USDT), per-asset margin ceilings (<= 25.00 USDT), and minimum cash reserve floor (>= 40.0%).
+
+### R2. Cross-Asset Spillover & Contagion Guards
+Implement `CrossAssetSpilloverGuard` in `src/autonomous_futures/feed/portfolio_rebalancing.py`:
+- Continuously monitor empirical Hawkes cross-excitation matrix (alpha_ij).
+- When a source asset j experiences severe hazard (rho_j >= 0.85, severe OFI toxicity, or flash crash drop), trigger instantaneous dynamic capital de-allocation or order dispatch freeze on highly-coupled recipient assets i to arrest systemic portfolio contagion.
+
+### R3. Micro-Order Portfolio Rebalancing Execution Engine
+Implement `PortfolioDriftDetector` and `MicroRebalancingEngine` in `src/autonomous_futures/feed/portfolio_rebalancing.py`:
+- Detect deviations between active portfolio asset weights (w_i) and optimal dynamic target weights (w_i*).
+- When allocation drift exceeds rebalance hysteresis threshold (e.g., > 2.5% allocation drift), synthesize passive child order intentions with strict micro-chunk slicing (<= 5.00 USDT cap, ROUND_DOWN precision, exchange filter compliance).
+- Execute simulated fills via `SimulatedPassiveMatchingEngine` without generating excessive turnover or fee drag.
+
+### R4. Continuous Mathematical Double-Entry Zero-Drift Ledger & Merkle DAG
+Maintain strict real-time double-entry reconciliation across all portfolio tracks:
+$$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ across all simulated rebalancing cycles, fills, fee deductions, and margin transfers.
+Persist structured research artifacts in `artifacts/research/phase299/` bound by a cryptographic SHA-256 Merkle DAG hash chain linking Phase 298 (`b2ea1dc7053aec1ecd6dd9845d776380093b925e056b891b64c8a454a62bf837`).
+
+### R5. Observational Backend API & DaisyUI 5.7.42 Dashboard
+- Expose read-only FastAPI endpoints:
+  - `GET /api/v1/canary/portfolio-rebalancing`
+  - Update `GET /api/v1/canary/summary`
+- Update React frontend dashboard:
+  - Create `frontend/src/components/portfolio-rebalancing-page.tsx` with DaisyUI 5.7.42 dark theme rendering:
+    - Dynamic Asset Allocation Donut/Bar Chart (Target vs Actual Weights across BTC, ETH, SOL)
+    - Cross-Asset Hawkes Spillover / Covariance Heatmap
+    - Portfolio Risk-Parity & Sharpe Optimization Metrics
+    - Micro-Rebalancing Execution Audit Log
+    - Double-Entry Solvency Meter (|drift| < 10^-15 USDT)
+  - Add "Portfolio Rebalancing" navigation tab (`#/portfolio`) in `frontend/src/App.tsx`.
+
+### R6. Strict Paper-Safe Confinement
+Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+- [ ] `scripts/run_phase_299_portfolio_rebalancing.py` executes 4 deterministic simulation tracks (Risk-Parity Allocation, Spillover Contagion Throttling, Micro-Rebalancing Execution, and Full Lifecycle & Merkle DAG) with 0 failures and verified zero balance drift.
+- [ ] Comprehensive pytest suite covers risk parity allocation, spillover guards, drift detection, micro-rebalancing slicing, and double-entry reconciliation.
+- [ ] Vitest frontend test suite covers Portfolio Rebalancing dashboard component with 0 failures.
+- [ ] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
+
+
 

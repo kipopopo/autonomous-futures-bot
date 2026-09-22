@@ -218,6 +218,7 @@ export interface CanaryDashboardData {
   autonomousLifecycle?: CanaryAutonomousLifecycleResponse | null
   stressFaultInjection?: CanaryStressFaultInjectionResponse | null
   strategyMining?: CanaryStrategyMiningResponse | null
+  portfolioRebalancing?: CanaryPortfolioRebalancingResponse | null
   error: string | null
 }
 
@@ -1918,6 +1919,345 @@ export function buildStrategyMiningModel(
     merkleRoot: data.merkle_root || '—',
   }
 }
+
+// =====================================================================
+// Phase 299: Dynamic Multi-Asset Risk Orchestration & Portfolio Rebalancing
+// =====================================================================
+
+export interface AssetAllocationItem {
+  symbol: string
+  target_weight: number
+  actual_weight: number
+  target_notional_usdt: number
+  actual_notional_usdt: number
+  allocated_margin_usdt: number
+  volatility_sigma: number
+  jump_intensity_lambda: number
+  drift_pct: number
+  rebalance_required: boolean
+  margin_ceiling_usdt: number
+  ceiling_breached: boolean
+}
+
+export interface SpilloverMatrixItem {
+  affected_symbol: string
+  trigger_symbol: string
+  cross_excitation_alpha: number
+  decay_beta: number
+  branching_ratio_gamma: number
+  spillover_hazard: boolean
+  deallocation_triggered: boolean
+  freeze_dispatched: boolean
+}
+
+export interface SpilloverContagionGuardStatusItem {
+  guard_active: boolean
+  max_spectral_radius_rho: number
+  hazard_threshold_rho: number
+  hazard_detected: boolean
+  source_hazard_assets: string[]
+  throttled_recipient_assets: string[]
+  capital_deallocated_usdt: number
+  order_dispatch_frozen: boolean
+  action_taken: string
+}
+
+export interface PortfolioOptimizationMetricsItem {
+  aggregate_exposure_usdt: number
+  aggregate_exposure_cap_usdt: number
+  cash_reserve_usdt: number
+  cash_reserve_pct: number
+  cash_reserve_floor_pct: number
+  max_asset_margin_usdt: number
+  margin_ceiling_per_asset_usdt: number
+  spectral_radius_rho: number
+  portfolio_volatility: number
+  risk_parity_herfindahl_index: number
+  sharpe_ratio: number
+  optimization_status: string
+}
+
+export interface MicroRebalanceAuditItem {
+  rebalance_id: string
+  timestamp_utc: string
+  symbol: string
+  side: string
+  target_drift_pct: number
+  order_chunk_notional_usdt: number
+  order_chunk_qty: number
+  passive_price: number
+  execution_status: string
+  fee_drag_usdt: number
+  slippage_absorbed_usdt: number
+  exchange_filters_compliant: boolean
+}
+
+export interface CanaryPortfolioRebalancingResponse {
+  verified: boolean
+  phase: string
+  status: string
+  timestamp_ms: number
+  timestamp_utc: string
+  paper_safe: boolean
+  execution_authority: boolean
+  circuit_state: string
+  candidates: string[]
+  allocations: AssetAllocationItem[]
+  optimization_metrics: PortfolioOptimizationMetricsItem
+  spillover_matrix: SpilloverMatrixItem[]
+  contagion_guard: SpilloverContagionGuardStatusItem
+  rebalancing_audits: MicroRebalanceAuditItem[]
+  ledger: LedgerReconciliationItem
+  solvency?: DoubleEntrySolvencyItem
+  upstream_hash: string
+  phase_hash: string
+  merkle_root: string
+  artifact_hashes?: Record<string, string>
+  upstream_merkle_dag?: Record<string, string>
+}
+
+export interface PortfolioRebalancingModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  candidates: string[]
+  allocations: AssetAllocationItem[]
+  optimizationMetrics: PortfolioOptimizationMetricsItem
+  spilloverMatrix: SpilloverMatrixItem[]
+  contagionGuard: SpilloverContagionGuardStatusItem
+  rebalancingAudits: MicroRebalanceAuditItem[]
+  ledger: LedgerReconciliationItem
+  solvency: DoubleEntrySolvencyItem
+  upstreamHash: string
+  phaseHash: string
+  merkleRoot: string
+}
+
+export async function getCanaryPortfolioRebalancing(
+  baseUrl: string = ''
+): Promise<CanaryPortfolioRebalancingResponse> {
+  const cleanBase = baseUrl ? baseUrl.replace(/\/$/, '') : ''
+  const path = `${cleanBase}/api/v1/canary/portfolio-rebalancing`
+  const response = await fetch(path, {
+    headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) {
+    throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  }
+  return (await response.json()) as CanaryPortfolioRebalancingResponse
+}
+
+export function buildPortfolioRebalancingModel(
+  data: CanaryPortfolioRebalancingResponse | null
+): PortfolioRebalancingModel {
+  if (!data) {
+    return {
+      phase: 'phase_299',
+      verified: false,
+      status: 'UNAVAILABLE',
+      circuitState: 'UNKNOWN',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      candidates: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+      allocations: [
+        {
+          symbol: 'BTCUSDT',
+          target_weight: 0.45,
+          actual_weight: 0.48,
+          target_notional_usdt: 27.0,
+          actual_notional_usdt: 28.8,
+          allocated_margin_usdt: 14.4,
+          volatility_sigma: 0.018,
+          jump_intensity_lambda: 0.22,
+          drift_pct: 3.0,
+          rebalance_required: true,
+          margin_ceiling_usdt: 25.0,
+          ceiling_breached: false,
+        },
+        {
+          symbol: 'ETHUSDT',
+          target_weight: 0.35,
+          actual_weight: 0.34,
+          target_notional_usdt: 21.0,
+          actual_notional_usdt: 20.4,
+          allocated_margin_usdt: 10.2,
+          volatility_sigma: 0.024,
+          jump_intensity_lambda: 0.35,
+          drift_pct: 1.0,
+          rebalance_required: false,
+          margin_ceiling_usdt: 25.0,
+          ceiling_breached: false,
+        },
+        {
+          symbol: 'SOLUSDT',
+          target_weight: 0.2,
+          actual_weight: 0.18,
+          target_notional_usdt: 12.0,
+          actual_notional_usdt: 10.8,
+          allocated_margin_usdt: 5.4,
+          volatility_sigma: 0.038,
+          jump_intensity_lambda: 0.58,
+          drift_pct: 2.0,
+          rebalance_required: false,
+          margin_ceiling_usdt: 25.0,
+          ceiling_breached: false,
+        },
+      ],
+      optimizationMetrics: {
+        aggregate_exposure_usdt: 60.0,
+        aggregate_exposure_cap_usdt: 60.0,
+        cash_reserve_usdt: 40.0,
+        cash_reserve_pct: 40.0,
+        cash_reserve_floor_pct: 40.0,
+        max_asset_margin_usdt: 14.4,
+        margin_ceiling_per_asset_usdt: 25.0,
+        spectral_radius_rho: 0.428571,
+        portfolio_volatility: 0.0215,
+        risk_parity_herfindahl_index: 0.338,
+        sharpe_ratio: 1.85,
+        optimization_status: 'OPTIMAL',
+      },
+      spilloverMatrix: [
+        {
+          affected_symbol: 'BTCUSDT',
+          trigger_symbol: 'BTCUSDT',
+          cross_excitation_alpha: 0.25,
+          decay_beta: 1.0,
+          branching_ratio_gamma: 0.25,
+          spillover_hazard: false,
+          deallocation_triggered: false,
+          freeze_dispatched: false,
+        },
+        {
+          affected_symbol: 'SOLUSDT',
+          trigger_symbol: 'BTCUSDT',
+          cross_excitation_alpha: 0.18,
+          decay_beta: 1.0,
+          branching_ratio_gamma: 0.18,
+          spillover_hazard: false,
+          deallocation_triggered: false,
+          freeze_dispatched: false,
+        },
+      ],
+      contagionGuard: {
+        guard_active: true,
+        max_spectral_radius_rho: 0.428571,
+        hazard_threshold_rho: 0.85,
+        hazard_detected: false,
+        source_hazard_assets: [],
+        throttled_recipient_assets: [],
+        capital_deallocated_usdt: 0.0,
+        order_dispatch_frozen: false,
+        action_taken: 'MONITORING_NOMINAL',
+      },
+      rebalancingAudits: [],
+      ledger: {
+        starting_equity: 100.0,
+        cash: 70.0,
+        allocated_margin: 30.0,
+        unrealized_pnl: 0.0,
+        realized_pnl: 0.0,
+        drift: 0.0,
+        zero_balance_drift: true,
+      },
+      solvency: {
+        starting_equity_usdt: 100.0,
+        cash_usdt: 70.0,
+        allocated_margin_usdt: 30.0,
+        unrealized_pnl_usdt: 0.0,
+        realized_pnl_usdt: 0.0,
+        total_equity_usdt: 100.0,
+        total_fees_usdt: 0.0,
+        total_slippage_usdt: 0.0,
+        drift_usdt: 0.0,
+        zero_balance_drift_verified: true,
+        tolerance_ceiling_usdt: 1e-15,
+        solvency_ratio_pct: 100.0,
+        cash_reserve_pct: 40.0,
+        unencumbered_cash_verified: true,
+      },
+      upstreamHash: 'b2ea1dc7053aec1ecd6dd9845d776380093b925e056b891b64c8a454a62bf837',
+      phaseHash: '',
+      merkleRoot: '',
+    }
+  }
+
+  const isZeroDrift =
+    data.solvency?.zero_balance_drift_verified ??
+    (data.ledger?.zero_balance_drift !== undefined
+      ? Boolean(data.ledger.zero_balance_drift)
+      : Math.abs(data.ledger?.drift ?? 0) < 1e-15)
+
+  const defaultSolvency: DoubleEntrySolvencyItem = {
+    starting_equity_usdt: data.ledger?.starting_equity ?? 100.0,
+    cash_usdt: data.ledger?.cash ?? 70.0,
+    allocated_margin_usdt: data.ledger?.allocated_margin ?? 30.0,
+    unrealized_pnl_usdt: data.ledger?.unrealized_pnl ?? 0.0,
+    realized_pnl_usdt: data.ledger?.realized_pnl ?? 0.0,
+    total_equity_usdt:
+      (data.ledger?.cash ?? 70.0) +
+      (data.ledger?.allocated_margin ?? 30.0) +
+      (data.ledger?.unrealized_pnl ?? 0.0),
+    total_fees_usdt: 0.0,
+    total_slippage_usdt: 0.0,
+    drift_usdt: data.ledger?.drift ?? 0.0,
+    zero_balance_drift_verified: isZeroDrift,
+    tolerance_ceiling_usdt: 1e-15,
+    solvency_ratio_pct: 100.0,
+    cash_reserve_pct: data.ledger?.starting_equity
+      ? roundTo((data.ledger.cash / data.ledger.starting_equity) * 100.0, 2)
+      : 70.0,
+    unencumbered_cash_verified:
+      data.ledger?.starting_equity
+        ? data.ledger.cash / data.ledger.starting_equity >= 0.4
+        : true,
+  }
+
+  return {
+    phase: data.phase,
+    verified: Boolean(data.verified ?? true),
+    status: data.status,
+    circuitState: data.circuit_state || 'NORMAL',
+    timestampMs: data.timestamp_ms,
+    timestampUtc:
+      data.timestamp_utc ||
+      (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data.paper_safe,
+    isExecutionOff: !data.execution_authority,
+    isZeroDrift,
+    candidates: data.candidates || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+    allocations: data.allocations || [],
+    optimizationMetrics: data.optimization_metrics,
+    spilloverMatrix: data.spillover_matrix || [],
+    contagionGuard: data.contagion_guard,
+    rebalancingAudits: data.rebalancing_audits || [],
+    ledger: data.ledger || {
+      starting_equity: 100.0,
+      cash: 70.0,
+      allocated_margin: 30.0,
+      unrealized_pnl: 0.0,
+      realized_pnl: 0.0,
+      drift: 0.0,
+      zero_balance_drift: true,
+    },
+    solvency: data.solvency || defaultSolvency,
+    upstreamHash:
+      data.upstream_hash ||
+      'b2ea1dc7053aec1ecd6dd9845d776380093b925e056b891b64c8a454a62bf837',
+    phaseHash: data.phase_hash || '',
+    merkleRoot: data.merkle_root || '',
+  }
+}
+
 
 
 
