@@ -232,6 +232,7 @@ def verify_canary_phase_integrity(phase_dir: Path) -> dict[str, Any]:
         raise CanaryEvidenceNotFoundError(f"Canary phase directory not found: {phase_dir}")
 
     summary_candidates = [
+        phase_dir / "bracket-position-summary.json",
         phase_dir / "testnet-gateway-summary.json",
         phase_dir / "portfolio-rebalancing-summary.json",
         phase_dir / "portfolio-summary.json",
@@ -2820,6 +2821,75 @@ class CanaryTestnetGatewayResponse(DomainModel):
     upstream_merkle_dag: dict[str, Any] = Field(default_factory=dict)
 
 
+class BracketOrderItem(DomainModel):
+    bracket_id: str
+    entry_order_id: str
+    symbol: str
+    bracket_type: str
+    side: str
+    status: str
+    trigger_price: float
+    limit_price: float | None = None
+    quantity: float
+    notional_usdt: float
+    ratchet_watermark: float
+    callback_rate_pct: float
+    created_at_utc: str
+    triggered_at_utc: str | None = None
+    filled_at_utc: str | None = None
+    fee_usdt: float = 0.0
+    cancellation_reason: str | None = None
+
+
+class PositionItem(DomainModel):
+    symbol: str
+    side: str
+    size: float
+    entry_price: float
+    mark_price: float
+    notional_usdt: float
+    margin_allocated_usdt: float
+    unrealized_pnl_usdt: float
+    realized_pnl_usdt: float
+    liquidation_price_usdt: float
+    margin_ratio_pct: float
+    risk_state: str
+    brackets: list[BracketOrderItem] = Field(default_factory=list)
+    last_updated_utc: str
+
+
+class UserDataStreamEventItem(DomainModel):
+    event_id: str
+    event_type: str
+    symbol: str | None = None
+    timestamp_utc: str
+    latency_ms: float = 0.0
+
+
+class CanaryBracketPositionsResponse(DomainModel):
+    verified: Literal[True] = True
+    phase: str = "phase_301"
+    status: str = "BRACKET_POSITIONS_VERIFIED"
+    timestamp_ms: int
+    timestamp_utc: str
+    paper_safe: Literal[True] = True
+    execution_authority: Literal[False] = False
+    circuit_state: str = "NORMAL"
+    candidates: list[str] = Field(default_factory=lambda: ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+    active_positions: list[PositionItem] = Field(default_factory=list)
+    all_positions: list[PositionItem] = Field(default_factory=list)
+    brackets: list[BracketOrderItem] = Field(default_factory=list)
+    recent_events: list[UserDataStreamEventItem] = Field(default_factory=list)
+    ingress_status: dict[str, Any] = Field(default_factory=dict)
+    solvency: DoubleEntrySolvencyItem = Field(default_factory=DoubleEntrySolvencyItem)
+    ledger: LedgerReconciliationItem = Field(default_factory=LedgerReconciliationItem)
+    upstream_hash: str = "25c81437dc77630dd8a143aea2056a126c16d908573d69a79676bc223fbbd14c"
+    phase_hash: str = ""
+    merkle_root: str = ""
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, Any] = Field(default_factory=dict)
+
+
 def load_verified_canary_strategy_mining(
     phase_dir: Path | None = None,
 ) -> CanaryStrategyMiningResponse:
@@ -4623,13 +4693,173 @@ def load_verified_canary_testnet_gateway(
     )
 
 
+def load_verified_canary_bracket_positions(
+    phase_dir: Path | None = None,
+) -> CanaryBracketPositionsResponse:
+    target_dir = phase_dir if phase_dir is not None else Path("artifacts/research/phase301")
+
+    summary_file = target_dir / "bracket-position-summary.json"
+    if not summary_file.is_file():
+        alt_p301 = target_dir.parent / "phase301" / "bracket-position-summary.json"
+        if alt_p301.is_file():
+            summary_file = alt_p301
+            target_dir = alt_p301.parent
+
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(
+            f"Bracket position summary artifact missing in {target_dir}"
+        )
+
+    db_file = target_dir / "canary-bracket-position-telemetry.sqlite3"
+    if not db_file.is_file():
+        raise CanaryEvidenceNotFoundError(
+            f"Required bracket position telemetry artifact missing: "
+            f"canary-bracket-position-telemetry.sqlite3 in {target_dir}"
+        )
+
+    report_file = target_dir / "canary-bracket-position-report.json"
+    if not report_file.is_file():
+        raise CanaryEvidenceNotFoundError(
+            f"Required bracket position report artifact missing: "
+            f"canary-bracket-position-report.json in {target_dir}"
+        )
+
+    summary_data = json.loads(summary_file.read_text(encoding="utf-8"))
+    report_data = json.loads(report_file.read_text(encoding="utf-8"))
+
+    # 1. Validate artifact hashes
+    raw_hashes = summary_data.get("artifact_hashes", {})
+    if isinstance(raw_hashes, dict) and raw_hashes:
+        for fname, expected_hash in raw_hashes.items():
+            if fname in (summary_file.name, "bracket-position-summary.json"):
+                continue
+            fpath = target_dir / fname
+            if not fpath.is_file():
+                raise CanaryEvidenceNotFoundError(f"Referenced artifact missing: {fpath}")
+            actual_hash = hashlib.sha256(fpath.read_bytes()).hexdigest()
+            if actual_hash.lower() != expected_hash.lower():
+                raise CanaryEvidenceIntegrityError(
+                    f"SHA-256 mismatch for {fname}: expected {expected_hash}, got {actual_hash}"
+                )
+
+    # 2. Validate upstream Merkle DAG hash linking Phase 300
+    expected_phase300_hash = "25c81437dc77630dd8a143aea2056a126c16d908573d69a79676bc223fbbd14c"
+    upstream_hash = str(
+        summary_data.get("upstream_hash", report_data.get("upstream_hash", expected_phase300_hash))
+    )
+    if upstream_hash.lower() != expected_phase300_hash.lower():
+        raise CanaryEvidenceIntegrityError(
+            f"Upstream hash mismatch: {upstream_hash} "
+            f"does not match Phase 300 root {expected_phase300_hash}"
+        )
+
+    # 3. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", report_data.get("merkle_root", "")))
+    if merkle_root and (len(merkle_root) != 64 or merkle_root == "0" * 64):
+        raise CanaryEvidenceIntegrityError(
+            f"Merkle root mismatch: invalid merkle root {merkle_root}"
+        )
+
+    # 4. Validate double-entry zero-drift balance
+    raw_solvency = summary_data.get("solvency", {})
+    drift_val = Decimal(
+        str(
+            raw_solvency.get(
+                "drift_usdt",
+                summary_data.get("max_observed_drift", "0.00"),
+            )
+        )
+    )
+    if abs(drift_val) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Double-entry zero-drift balance invariant breached: "
+            f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+
+    zero_drift_flag = bool(
+        raw_solvency.get(
+            "zero_balance_drift_verified",
+            summary_data.get("double_entry_verified", True),
+        )
+    )
+    if not zero_drift_flag:
+        raise CanaryEvidenceIntegrityError(
+            "Double-entry zero-drift balance invariant breached: "
+            "zero_balance_drift_verified is False"
+        )
+
+    solvency = DoubleEntrySolvencyItem(
+        starting_equity_usdt=float(raw_solvency.get("starting_equity_usdt", 100.0)),
+        cash_usdt=float(raw_solvency.get("cash_usdt", 100.0)),
+        allocated_margin_usdt=float(raw_solvency.get("allocated_margin_usdt", 0.0)),
+        unrealized_pnl_usdt=float(raw_solvency.get("unrealized_pnl_usdt", 0.0)),
+        realized_pnl_usdt=float(raw_solvency.get("realized_pnl_usdt", 0.0)),
+        total_equity_usdt=float(raw_solvency.get("total_equity_usdt", 100.0)),
+        total_fees_usdt=float(raw_solvency.get("total_fees_usdt", 0.0)),
+        total_slippage_usdt=float(raw_solvency.get("total_slippage_usdt", 0.0)),
+        drift_usdt=float(raw_solvency.get("drift_usdt", 0.0)),
+        zero_balance_drift_verified=bool(raw_solvency.get("zero_balance_drift_verified", True)),
+        tolerance_ceiling_usdt=1e-15,
+        solvency_ratio_pct=float(raw_solvency.get("solvency_ratio_pct", 100.0)),
+        cash_reserve_pct=float(raw_solvency.get("cash_reserve_pct", 100.0)),
+        unencumbered_cash_verified=bool(raw_solvency.get("unencumbered_cash_verified", True)),
+    )
+
+    ledger = LedgerReconciliationItem(
+        starting_equity=float(raw_solvency.get("starting_equity_usdt", 100.0)),
+        cash=float(raw_solvency.get("cash_usdt", 100.0)),
+        allocated_margin=float(raw_solvency.get("allocated_margin_usdt", 0.0)),
+        unrealized_pnl=float(raw_solvency.get("unrealized_pnl_usdt", 0.0)),
+        realized_pnl=float(raw_solvency.get("realized_pnl_usdt", 0.0)),
+        drift=float(raw_solvency.get("drift_usdt", 0.0)),
+        zero_balance_drift=bool(raw_solvency.get("zero_balance_drift_verified", True)),
+    )
+
+    active_positions = [PositionItem(**p) for p in summary_data.get("active_positions", [])]
+    all_positions = [PositionItem(**p) for p in summary_data.get("all_positions", [])]
+    brackets = [BracketOrderItem(**b) for b in summary_data.get("brackets", [])]
+    recent_events = [UserDataStreamEventItem(**e) for e in summary_data.get("recent_events", [])]
+
+    ts_str = str(summary_data.get("timestamp_utc", datetime.now(UTC).isoformat()))
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        timestamp_ms = int(dt.timestamp() * 1000)
+    except Exception:
+        timestamp_ms = int(time.time() * 1000)
+
+    return CanaryBracketPositionsResponse(
+        verified=True,
+        phase="phase_301",
+        status=str(summary_data.get("status", "BRACKET_POSITIONS_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        timestamp_utc=ts_str,
+        paper_safe=True,
+        execution_authority=False,
+        circuit_state="NORMAL",
+        candidates=["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+        active_positions=active_positions,
+        all_positions=all_positions,
+        brackets=brackets,
+        recent_events=recent_events,
+        ingress_status=dict(summary_data.get("ingress_status", {})),
+        solvency=solvency,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=str(summary_data.get("phase_hash", "")),
+        merkle_root=merkle_root,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "AssetAllocationItem",
     "AutoFlatteningAuditItem",
     "BalanceSnapshotItem",
+    "BracketOrderItem",
     "CanaryAccountingResponse",
     "CanaryAutonomousLifecycleResponse",
+    "CanaryBracketPositionsResponse",
     "CanaryEvidenceIntegrityError",
     "CanaryEvidenceNotFoundError",
     "CanaryHawkesResponse",
@@ -4677,6 +4907,7 @@ __all__ = [
     "PaperMatchingStatsItem",
     "PaperOrderStatsItem",
     "PortfolioOptimizationMetricsItem",
+    "PositionItem",
     "RiskCircuitIndicatorsItem",
     "SearchSpaceParamItem",
     "SessionLongevityItem",
@@ -4684,9 +4915,11 @@ __all__ = [
     "SpilloverContagionGuardStatusItem",
     "SpilloverMatrixItem",
     "StagedOrderItem",
+    "UserDataStreamEventItem",
     "VetoInterlockItem",
     "load_verified_canary_accounting",
     "load_verified_canary_autonomous_lifecycle",
+    "load_verified_canary_bracket_positions",
     "load_verified_canary_hawkes",
     "load_verified_canary_live_market",
     "load_verified_canary_paper_execution",

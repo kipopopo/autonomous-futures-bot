@@ -2782,7 +2782,73 @@ Persist structured research artifacts in `artifacts/research/phase300/` bound by
 Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
 
 ## Acceptance Criteria
-- [ ] `scripts/run_phase_300_testnet_gateway.py` executes 4 deterministic simulation tracks (Multi-Sig Authorization, Filter Conformance, Order Lifecycle & Latency Attribution, and Full Longevity & Merkle DAG) with 0 failures and verified zero balance drift.
-- [ ] Comprehensive pytest suite covers multi-sig quorum verification, exchange filter validation, order lifecycle transitions, and double-entry reconciliation.
-- [ ] Vitest frontend test suite covers Testnet Gateway dashboard component with 0 failures.
+- [x] `scripts/run_phase_300_testnet_gateway.py` executes 4 deterministic simulation tracks (Multi-Sig Authorization, Filter Conformance, Order Lifecycle & Latency Attribution, and Full Longevity & Merkle DAG) with 0 failures and verified zero balance drift.
+- [x] Comprehensive pytest suite covers multi-sig quorum verification, exchange filter validation, order lifecycle transitions, and double-entry reconciliation.
+- [x] Vitest frontend test suite covers Testnet Gateway dashboard component with 0 failures.
+- [x] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
+
+## 2026-09-22T17:33:00Z
+
+Implement Phase 301: Live User Data Stream Ingress, Dynamic Position & Bracket Order Management, and Real-Time Fill Reconciliation Engine for Autonomous Futures Bot, establishing simulated Binance USDⓈ-M listenKey user data streaming, dynamic bracket order architectures (Take-Profit & Trailing Stop-Loss with ratchet watermarks and OCO coordination), multi-asset position management with liquidation headroom guards, continuous mathematical double-entry zero-drift balance governance, observational FastAPI endpoints, and DaisyUI 5.7.42 dashboard telemetry without live execution authority.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Simulated User Data Stream & Account Event Ingress
+Implement `UserDataStreamIngressManager` in `src/autonomous_futures/feed/bracket_positions.py`:
+- Simulate Binance USDⓈ-M `listenKey` lifecycle: session generation (`POST /fapi/v1/listenKey`), 30-minute keepalive pings (`PUT /fapi/v1/listenKey`), and clean session closure (`DELETE /fapi/v1/listenKey`).
+- Ingest streaming WebSocket event payloads:
+  - `ACCOUNT_UPDATE`: Wallet balance changes, multi-asset position updates, unrealized PnL, margin allocations.
+  - `ORDER_TRADE_UPDATE`: Granular order transitions (`NEW`, `PARTIALLY_FILLED`, `FILLED`, `CANCELED`, `EXPIRED`), execution types, fill prices, cumulative filled quantities, fee deductions.
+  - `MARGIN_CALL`: Maintenance margin alerts when margin ratio exceeds safety threshold.
+- Enforce heartbeat freshness $\le 500\text{ ms}$, sequence gap detection, and reconnection backoff.
+
+### R2. Dynamic Bracket Architecture (Take-Profit & Trailing Stop-Loss Protection)
+Implement `DynamicBracketOrderManager` in `src/autonomous_futures/feed/bracket_positions.py`:
+- Automatically bind a dynamic bracket structure to every filled position:
+  - Primary entry order (`LIMIT` / maker fill).
+  - Take-Profit (TP): Passive limit order at target profit threshold (e.g. +1.50% from entry price), sized in compliance with exchange filters (`LOT_SIZE`, `PRICE_FILTER`, `MIN_NOTIONAL`).
+  - Dynamic Trailing Stop-Loss (TSL): Ratchet stop mechanism with dynamic high/low watermark tracking. When price moves favourably, the stop price ratchets up (for LONG) or down (for SHORT), permanently locking in gains.
+  - Siling micro-chunk cap $\le 5.00\text{ USDT}$ per bracket child order with strict `ROUND_DOWN` step-size quantization.
+  - One-Cancels-the-Other (OCO) coordination: If TP fills, TSL is immediately cancelled; if TSL triggers, TP is immediately cancelled.
+
+### R3. Multi-Asset Position Tracking & Dynamic Margin Headroom Governance
+Implement `MultiAssetPositionTracker` in `src/autonomous_futures/feed/bracket_positions.py`:
+- Maintain multi-asset positions across `BTCUSDT`, `ETHUSDT`, `SOLUSDT` with strict leverage ceiling ($\le 3\times$ isolated / cross margin model).
+- Calculate real-time mark-to-market unrealized PnL, entry price, liquidation price, and margin ratio:
+  $$\text{Margin Ratio} = \frac{\text{Maintenance Margin}}{\text{Margin Balance}} \times 100\%$$
+- Margin ratio safety thresholds:
+  - Normal: $< 50\%$
+  - Warning / Throttled: $50\% \le \text{Margin Ratio} < 70\%$
+  - Emergency Fail-Closed Auto-Deleverage / Flattening: $\ge 70\%$ (instantaneous market bracket flattening to protect equity).
+- Dynamic maintenance of $\ge 40\%$ unencumbered cash reserve at all times.
+
+### R4. Continuous Mathematical Double-Entry Zero-Drift Ledger & SHA-256 Merkle DAG
+Maintain strict real-time double-entry reconciliation across all staged and executed bracket allocations:
+$$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL} - \text{Total Fees}$$
+Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ across all position states, mark-to-market updates, bracket triggers, and fee deductions.
+Persist structured research artifacts in `artifacts/research/phase301/` bound by a cryptographic SHA-256 Merkle DAG hash chain linking Phase 300 root hash (`25c81437dc77630dd8a143aea2056a126c16d908573d69a79676bc223fbbd14c`).
+
+### R5. Observational Backend API & DaisyUI 5.7.42 Dashboard
+- Expose read-only FastAPI endpoints:
+  - `GET /api/v1/canary/bracket-positions`
+  - Update `GET /api/v1/canary/summary`
+- Update React frontend dashboard:
+  - Create `frontend/src/components/bracket-positions-page.tsx` with DaisyUI 5.7.42 dark theme rendering:
+    - Position Status KPI Cards (Active Positions, Total Margin Utilized, Liquidation Buffer, Ratchet Watermark Status)
+    - Multi-Asset Position Tracker Table (Symbol, Side, Size, Entry Price, Mark Price, Unrealized PnL, Liquidation Distance)
+    - Dynamic Bracket Architecture & Ratchet Visualizer (Entry, Active TP, Trailing Stop Ratchet Level)
+    - Live User Data Stream Event Log (`ACCOUNT_UPDATE`, `ORDER_TRADE_UPDATE`)
+    - Double-Entry Solvency Meter ($|\Delta| < 10^{-15}\text{ USDT}$) & Merkle DAG Linkage
+  - Add "Bracket Positions" navigation tab (`#/brackets`) in `frontend/src/App.tsx`.
+
+### R6. Strict Paper-Safe Confinement
+Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+- [ ] `scripts/run_phase_301_bracket_positions.py` executes 4 deterministic simulation tracks (User Data Stream Ingress, Dynamic Bracket & Ratchet, Position Management & Liquidation Guard, and Full Longevity & Merkle DAG) with 0 failures and verified zero balance drift.
+- [ ] Comprehensive pytest suite covers user data stream event parsing, bracket ratchet updates, OCO coordination, margin ratio calculation, fail-closed liquidation flattening, and double-entry reconciliation.
+- [ ] Vitest frontend test suite covers Bracket Positions dashboard component with 0 failures.
 - [ ] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.

@@ -19,6 +19,7 @@ import {
   Zap,
   Dna,
   PieChart,
+  Target,
 } from 'lucide-react'
 
 import { AccountingPage } from '@/components/accounting-page'
@@ -35,11 +36,13 @@ import { StressPage } from '@/components/stress-page'
 import { StrategyMiningPage } from '@/components/strategy-mining-page'
 import { PortfolioRebalancingPage } from '@/components/portfolio-rebalancing-page'
 import { TestnetGatewayPage } from '@/components/testnet-gateway-page'
+import { BracketPositionsPage } from '@/components/bracket-positions-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
   buildAccountingModel,
   buildAutonomousLifecycleModel,
+  buildBracketPositionsModel,
   buildLiveMarketModel,
   buildMicrostructureModel,
   buildPaperExecutionModel,
@@ -82,6 +85,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   strategyMining: null,
   portfolioRebalancing: null,
   testnetGateway: null,
+  bracketPositions: null,
   error: null,
 }
 
@@ -317,6 +321,10 @@ function App() {
     () => buildTestnetGatewayModel(canaryData.testnetGateway ?? null),
     [canaryData.testnetGateway]
   )
+  const bracketPositionsModel = useMemo(
+    () => buildBracketPositionsModel(canaryData.bracketPositions ?? null),
+    [canaryData.bracketPositions]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -345,7 +353,8 @@ function App() {
       nextCanary.stressFaultInjection?.verified ||
       nextCanary.strategyMining?.verified ||
       nextCanary.portfolioRebalancing?.verified ||
-      nextCanary.testnetGateway?.verified
+      nextCanary.testnetGateway?.verified ||
+      nextCanary.bracketPositions?.verified
     )
 
     if (hasData) {
@@ -385,7 +394,8 @@ function App() {
             nextCanary.stressFaultInjection?.verified ||
             nextCanary.strategyMining?.verified ||
             nextCanary.portfolioRebalancing?.verified ||
-            nextCanary.testnetGateway?.verified
+            nextCanary.testnetGateway?.verified ||
+            nextCanary.bracketPositions?.verified
           )
 
           if (hasData) {
@@ -420,7 +430,8 @@ function App() {
     canaryData.stressFaultInjection?.verified ||
     canaryData.strategyMining?.verified ||
     canaryData.portfolioRebalancing?.verified ||
-    canaryData.testnetGateway?.verified
+    canaryData.testnetGateway?.verified ||
+    canaryData.bracketPositions?.verified
   )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
@@ -440,6 +451,7 @@ function App() {
   const isMiningPage = page === 'mining'
   const isPortfolioPage = page === 'portfolio'
   const isTestnetPage = page === 'testnet'
+  const isBracketsPage = page === 'brackets'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -507,10 +519,14 @@ function App() {
             <ShieldCheck size={17} aria-hidden="true" />
             <span>Testnet Gateway</span>
           </a>
+          <a className={`nav-item ${isBracketsPage ? 'nav-item-active' : ''}`} href="#/brackets" aria-current={isBracketsPage ? 'page' : undefined}>
+            <Target size={17} aria-hidden="true" />
+            <span>Brackets &amp; Positions</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 300</span>
-          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Testnet Gateway</span>
+          <span className="sidebar-label">PHASE 301</span>
+          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Brackets &amp; Positions</span>
         </div>
       </aside>
 
@@ -519,7 +535,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isTestnetPage
+              {isBracketsPage
+                ? 'Bracket & position management plane'
+                : isTestnetPage
                 ? 'Testnet gateway plane'
                 : isPortfolioPage
                 ? 'Portfolio risk orchestration plane'
@@ -548,7 +566,9 @@ function App() {
                               : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isTestnetPage
+              {isBracketsPage
+                ? 'Canary Bracket Orders & Multi-Asset Positions: Trailing SL & Margin Accounting'
+                : isTestnetPage
                 ? 'Canary Testnet Gateway: Multi-Sig Authorization & Pre-Dispatch Filters'
                 : isPortfolioPage
                 ? 'Canary Portfolio Rebalancing: Hawkes Risk-Parity & Cross-Asset Contagion'
@@ -577,7 +597,9 @@ function App() {
                               : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isTestnetPage
+              {isBracketsPage
+                ? 'Phase 301 Live User Data Stream Ingress, Dynamic Position & Bracket Order Management · MYT (GMT+8)'
+                : isTestnetPage
                 ? 'Phase 300 Dual-Custody Staged Order Authorization Bridge, Latency Attribution & Zero-Drift Balance · MYT (GMT+8)'
                 : isPortfolioPage
                 ? 'Phase 299 Multi-Asset Risk Orchestration, Spillover Mitigation & Convex Optimization · MYT (GMT+8)'
@@ -774,6 +796,7 @@ function App() {
         {isMiningPage && state === 'ready' && <StrategyMiningPage model={strategyMiningModel} />}
         {isPortfolioPage && state === 'ready' && <PortfolioRebalancingPage model={portfolioRebalancingModel} />}
         {isTestnetPage && state === 'ready' && <TestnetGatewayPage model={testnetGatewayModel} />}
+        {isBracketsPage && state === 'ready' && <BracketPositionsPage model={bracketPositionsModel} />}
         {inventoryVisible && <ComponentInventory components={model.components} />}
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">
