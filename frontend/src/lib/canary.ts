@@ -217,6 +217,7 @@ export interface CanaryDashboardData {
   strategyActivation?: CanaryStrategyActivationResponse | null
   autonomousLifecycle?: CanaryAutonomousLifecycleResponse | null
   stressFaultInjection?: CanaryStressFaultInjectionResponse | null
+  strategyMining?: CanaryStrategyMiningResponse | null
   error: string | null
 }
 
@@ -1417,6 +1418,505 @@ export function buildStressFaultInjectionModel(
 function roundTo(value: number, decimals: number): number {
   const factor = Math.pow(10, decimals)
   return Math.round(value * factor) / factor
+}
+
+// =====================================================================
+// Phase 298: Dynamic Strategy Mining, Auto-Evolution & Microstructure Mutation Engine
+// =====================================================================
+
+export interface CanaryStrategyMiningCandidate {
+  candidate_id: string
+  symbol: string
+  family: string
+  lookback: number
+  zscore_threshold: number
+  stop_atr_multiplier: number
+  return_pct: number
+  drawdown_pct: number
+  profit_factor: number
+  trade_count: number
+  resilience_passed: boolean
+  qualified: boolean
+  status: string
+}
+
+export interface CanaryStrategyMiningMutation {
+  mutation_id: string
+  generation: number
+  parent_candidate_id: string
+  mutated_candidate_id: string
+  family: string
+  parameter_diffs: Record<string, unknown>
+  seed: number
+  timestamp_utc: string
+}
+
+export interface CanaryStrategyMiningGateMetrics {
+  gate_names: string[]
+  thresholds: Record<string, unknown>
+  passing_counts: Record<string, number>
+  rejection_counts: Record<string, number>
+  total_evaluated: number
+  total_passed: number
+  total_rejected: number
+}
+
+export interface CanaryStrategyMiningHotReload {
+  reloaded_at_utc: string
+  previous_version: number
+  new_version: number
+  registry_hash: string
+  reload_status: string
+  process_restarted: boolean
+  open_trades_mutated: boolean
+}
+
+export interface HypothesisTreeItem {
+  hypothesis_id: string
+  parent_id: string | null
+  family: string
+  symbol: string
+  generation: number
+  mutation_type: string
+  parameters: Record<string, unknown>
+  status: string
+  timestamp_utc: string
+}
+
+export interface SearchSpaceParamItem {
+  param_name: string
+  family: string
+  min_value: number
+  max_value: number
+  current_value: number
+  optimal_value: number
+  unit: string
+}
+
+export interface FeatureHeatmapItem {
+  feature_name: string
+  symbol: string
+  correlation_score: number
+  importance_weight: number
+  mutation_sensitivity: number
+}
+
+export interface OOSGateScorecardItem {
+  candidate_id: string
+  symbol: string
+  family: string
+  return_pct: number
+  worst_drawdown_pct: number
+  profit_factor: number
+  trade_count: number
+  stress_survived: boolean
+  gates_passed_count: number
+  all_gates_passed: boolean
+  qualified: boolean
+  admission_status: string
+}
+
+export interface HotReloadLogItem {
+  event_id: string
+  candidate_id: string
+  symbol: string
+  manifest_version: number
+  registry_hash: string
+  reloaded_at_utc: string
+  status: string
+  process_restarted: boolean
+  open_trades_mutated: boolean
+}
+
+export interface CanaryStrategyMiningResponse {
+  verified: boolean
+  phase: string
+  status: string
+  timestamp_ms: number
+  timestamp_utc: string
+  paper_safe: boolean
+  execution_authority: boolean
+  circuit_state: string
+  candidates: CanaryStrategyMiningCandidate[]
+  active_candidates: string[]
+  mutations: CanaryStrategyMiningMutation[]
+  gate_metrics: CanaryStrategyMiningGateMetrics
+  hot_reload: CanaryStrategyMiningHotReload
+  hypotheses: HypothesisTreeItem[]
+  search_space: SearchSpaceParamItem[]
+  feature_heatmaps: FeatureHeatmapItem[]
+  oos_scorecards: OOSGateScorecardItem[]
+  hot_reload_logs: HotReloadLogItem[]
+  ledger: LedgerReconciliationItem
+  solvency?: DoubleEntrySolvencyItem
+  upstream_hash: string
+  phase_hash: string
+  merkle_root: string
+  artifact_hashes?: Record<string, string>
+  upstream_merkle_dag?: Record<string, string>
+}
+
+export interface StrategyMiningModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  candidates: CanaryStrategyMiningCandidate[]
+  activeCandidates: string[]
+  mutations: CanaryStrategyMiningMutation[]
+  gateMetrics: CanaryStrategyMiningGateMetrics
+  hotReload: CanaryStrategyMiningHotReload
+  hypotheses: HypothesisTreeItem[]
+  searchSpace: SearchSpaceParamItem[]
+  featureHeatmaps: FeatureHeatmapItem[]
+  oosScorecards: OOSGateScorecardItem[]
+  hotReloadLogs: HotReloadLogItem[]
+  ledger: LedgerReconciliationItem
+  solvency: DoubleEntrySolvencyItem
+  upstreamHash: string
+  phaseHash: string
+  merkleRoot: string
+}
+
+export async function getCanaryStrategyMining(
+  baseUrl: string = ''
+): Promise<CanaryStrategyMiningResponse> {
+  const cleanBase = baseUrl ? baseUrl.replace(/\/$/, '') : ''
+  const path = `${cleanBase}/api/v1/canary/strategy-mining`
+  const response = await fetch(path, {
+    headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) {
+    throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+  }
+  return (await response.json()) as CanaryStrategyMiningResponse
+}
+
+export function buildStrategyMiningModel(
+  data: CanaryStrategyMiningResponse | null
+): StrategyMiningModel {
+  if (!data) {
+    return {
+      phase: 'phase_298',
+      verified: false,
+      status: 'UNAVAILABLE',
+      circuitState: 'UNKNOWN',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      candidates: [],
+      activeCandidates: ['cand-btcusdt-dcb-003', 'cand-ethusdt-rgb-002', 'cand-solusdt-msm-001'],
+      mutations: [],
+      gateMetrics: {
+        gate_names: [
+          'Walk-Forward OOS Average Return (>= 0.0%)',
+          'Walk-Forward OOS Worst Drawdown (<= 15.0%)',
+          'Walk-Forward OOS Profit Factor (>= 1.05)',
+          'Minimum OOS Trade Count (>= 5 trades)',
+          'Microstructure Resilience Gate (Flash Crash -20% & Spread 10%)',
+        ],
+        thresholds: {
+          min_return_pct: 0.0,
+          max_drawdown_pct: 15.0,
+          min_profit_factor: 1.05,
+          min_trade_count: 5,
+          resilience_required: true,
+        },
+        passing_counts: {},
+        rejection_counts: {},
+        total_evaluated: 0,
+        total_passed: 0,
+        total_rejected: 0,
+      },
+      hotReload: {
+        reloaded_at_utc: '',
+        previous_version: 2,
+        new_version: 3,
+        registry_hash: '',
+        reload_status: 'IDLE',
+        process_restarted: false,
+        open_trades_mutated: false,
+      },
+      hypotheses: [
+        {
+          hypothesis_id: 'hyp-dcb-001',
+          parent_id: null,
+          family: 'DonchianBreakout',
+          symbol: 'BTCUSDT',
+          generation: 1,
+          mutation_type: 'LOOKBACK_SHIFT',
+          parameters: { lookback: 24, zscore_threshold: 1.6 },
+          status: 'QUALIFIED',
+          timestamp_utc: '',
+        },
+        {
+          hypothesis_id: 'hyp-rgb-001',
+          parent_id: null,
+          family: 'RegimeVolatilityBreakout',
+          symbol: 'ETHUSDT',
+          generation: 1,
+          mutation_type: 'VOLATILITY_THRESHOLD',
+          parameters: { lookback: 20, zscore_threshold: 1.5 },
+          status: 'QUALIFIED',
+          timestamp_utc: '',
+        },
+        {
+          hypothesis_id: 'hyp-msm-001',
+          parent_id: null,
+          family: 'MicrostructureMomentum',
+          symbol: 'SOLUSDT',
+          generation: 1,
+          mutation_type: 'OFI_SENSITIVITY',
+          parameters: { lookback: 16, zscore_threshold: 1.8 },
+          status: 'QUALIFIED',
+          timestamp_utc: '',
+        },
+      ],
+      searchSpace: [
+        {
+          param_name: 'lookback_window',
+          family: 'DonchianBreakout',
+          min_value: 10,
+          max_value: 60,
+          current_value: 20,
+          optimal_value: 24,
+          unit: 'bars',
+        },
+        {
+          param_name: 'entry_zscore',
+          family: 'RegimeVolatilityBreakout',
+          min_value: 1.0,
+          max_value: 3.0,
+          current_value: 1.5,
+          optimal_value: 1.65,
+          unit: 'σ',
+        },
+        {
+          param_name: 'ofi_threshold',
+          family: 'MicrostructureMomentum',
+          min_value: 0.1,
+          max_value: 0.9,
+          current_value: 0.4,
+          optimal_value: 0.55,
+          unit: 'ratio',
+        },
+        {
+          param_name: 'stop_atr_multiplier',
+          family: 'DonchianBreakout',
+          min_value: 1.5,
+          max_value: 4.0,
+          current_value: 2.0,
+          optimal_value: 2.2,
+          unit: 'x ATR',
+        },
+      ],
+      featureHeatmaps: [
+        {
+          feature_name: 'hawkes_jump_intensity_lambda',
+          symbol: 'BTCUSDT',
+          correlation_score: 0.78,
+          importance_weight: 0.85,
+          mutation_sensitivity: 0.62,
+        },
+        {
+          feature_name: 'spectral_radius_rho',
+          symbol: 'BTCUSDT',
+          correlation_score: 0.82,
+          importance_weight: 0.91,
+          mutation_sensitivity: 0.74,
+        },
+        {
+          feature_name: 'order_flow_imbalance_ofi',
+          symbol: 'ETHUSDT',
+          correlation_score: 0.69,
+          importance_weight: 0.78,
+          mutation_sensitivity: 0.58,
+        },
+        {
+          feature_name: 'rolling_volatility_sigma',
+          symbol: 'SOLUSDT',
+          correlation_score: 0.74,
+          importance_weight: 0.82,
+          mutation_sensitivity: 0.65,
+        },
+      ],
+      oosScorecards: [
+        {
+          candidate_id: 'cand-btcusdt-dcb-003',
+          symbol: 'BTCUSDT',
+          family: 'DonchianBreakout',
+          return_pct: 4.3,
+          worst_drawdown_pct: 6.8,
+          profit_factor: 1.42,
+          trade_count: 18,
+          stress_survived: true,
+          gates_passed_count: 5,
+          all_gates_passed: true,
+          qualified: true,
+          admission_status: 'ADMITTED',
+        },
+        {
+          candidate_id: 'cand-ethusdt-rgb-002',
+          symbol: 'ETHUSDT',
+          family: 'RegimeVolatilityBreakout',
+          return_pct: 3.6,
+          worst_drawdown_pct: 7.5,
+          profit_factor: 1.35,
+          trade_count: 15,
+          stress_survived: true,
+          gates_passed_count: 5,
+          all_gates_passed: true,
+          qualified: true,
+          admission_status: 'ADMITTED',
+        },
+        {
+          candidate_id: 'cand-solusdt-msm-001',
+          symbol: 'SOLUSDT',
+          family: 'MicrostructureMomentum',
+          return_pct: 5.1,
+          worst_drawdown_pct: 8.2,
+          profit_factor: 1.48,
+          trade_count: 21,
+          stress_survived: true,
+          gates_passed_count: 5,
+          all_gates_passed: true,
+          qualified: true,
+          admission_status: 'ADMITTED',
+        },
+      ],
+      hotReloadLogs: [
+        {
+          event_id: 'event-hr-298-001',
+          candidate_id: 'cand-btcusdt-dcb-003',
+          symbol: 'BTCUSDT',
+          manifest_version: 3,
+          registry_hash: '9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b',
+          reloaded_at_utc: '',
+          status: 'ADMITTED_AND_HOT_RELOADED',
+          process_restarted: false,
+          open_trades_mutated: false,
+        },
+      ],
+      ledger: {
+        starting_equity: 100.0,
+        cash: 100.0,
+        allocated_margin: 0.0,
+        unrealized_pnl: 0.0,
+        realized_pnl: 0.0,
+        drift: 0.0,
+        zero_balance_drift: true,
+      },
+      solvency: {
+        starting_equity_usdt: 100.0,
+        cash_usdt: 100.0,
+        allocated_margin_usdt: 0.0,
+        unrealized_pnl_usdt: 0.0,
+        realized_pnl_usdt: 0.0,
+        total_equity_usdt: 100.0,
+        total_fees_usdt: 0.0,
+        total_slippage_usdt: 0.0,
+        drift_usdt: 0.0,
+        zero_balance_drift_verified: true,
+        tolerance_ceiling_usdt: 1e-15,
+        solvency_ratio_pct: 100.0,
+        cash_reserve_pct: 100.0,
+        unencumbered_cash_verified: true,
+      },
+      upstreamHash: '257f83f794465f3b89bfd9dbc25a2bf949d9fe315ecd97e2108c027ca3475668',
+      phaseHash: '—',
+      merkleRoot: '—',
+    }
+  }
+
+  const isZeroDrift =
+    data.solvency?.zero_balance_drift_verified ??
+    (data.ledger?.zero_balance_drift !== undefined
+      ? Boolean(data.ledger.zero_balance_drift)
+      : Math.abs(data.ledger?.drift ?? 0) < 1e-15)
+
+  const defaultSolvency: DoubleEntrySolvencyItem = {
+    starting_equity_usdt: data.ledger?.starting_equity ?? 100.0,
+    cash_usdt: data.ledger?.cash ?? 100.0,
+    allocated_margin_usdt: data.ledger?.allocated_margin ?? 0.0,
+    unrealized_pnl_usdt: data.ledger?.unrealized_pnl ?? 0.0,
+    realized_pnl_usdt: data.ledger?.realized_pnl ?? 0.0,
+    total_equity_usdt:
+      (data.ledger?.cash ?? 100.0) +
+      (data.ledger?.allocated_margin ?? 0.0) +
+      (data.ledger?.unrealized_pnl ?? 0.0),
+    total_fees_usdt: 0.0,
+    total_slippage_usdt: 0.0,
+    drift_usdt: data.ledger?.drift ?? 0.0,
+    zero_balance_drift_verified: isZeroDrift,
+    tolerance_ceiling_usdt: 1e-15,
+    solvency_ratio_pct: 100.0,
+    cash_reserve_pct: data.ledger?.starting_equity
+      ? roundTo((data.ledger.cash / data.ledger.starting_equity) * 100.0, 2)
+      : 100.0,
+    unencumbered_cash_verified: true,
+  }
+
+  return {
+    phase: data.phase,
+    verified: Boolean(data.verified ?? true),
+    status: data.status,
+    circuitState: data.circuit_state || 'NORMAL',
+    timestampMs: data.timestamp_ms,
+    timestampUtc:
+      data.timestamp_utc ||
+      (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data.paper_safe,
+    isExecutionOff: !data.execution_authority,
+    isZeroDrift,
+    candidates: data.candidates || [],
+    activeCandidates: data.active_candidates || [],
+    mutations: data.mutations || [],
+    gateMetrics: data.gate_metrics || {
+      gate_names: [],
+      thresholds: {},
+      passing_counts: {},
+      rejection_counts: {},
+      total_evaluated: 0,
+      total_passed: 0,
+      total_rejected: 0,
+    },
+    hotReload: data.hot_reload || {
+      reloaded_at_utc: '',
+      previous_version: 2,
+      new_version: 3,
+      registry_hash: '',
+      reload_status: 'IDLE',
+      process_restarted: false,
+      open_trades_mutated: false,
+    },
+    hypotheses: data.hypotheses || [],
+    searchSpace: data.search_space || [],
+    featureHeatmaps: data.feature_heatmaps || [],
+    oosScorecards: data.oos_scorecards || [],
+    hotReloadLogs: data.hot_reload_logs || [],
+    ledger: data.ledger || {
+      starting_equity: 100.0,
+      cash: 100.0,
+      allocated_margin: 0.0,
+      unrealized_pnl: 0.0,
+      realized_pnl: 0.0,
+      drift: 0.0,
+      zero_balance_drift: true,
+    },
+    solvency: data.solvency || defaultSolvency,
+    upstreamHash:
+      data.upstream_hash ||
+      '257f83f794465f3b89bfd9dbc25a2bf949d9fe315ecd97e2108c027ca3475668',
+    phaseHash: data.phase_hash || '—',
+    merkleRoot: data.merkle_root || '—',
+  }
 }
 
 

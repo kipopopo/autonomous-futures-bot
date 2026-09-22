@@ -2608,3 +2608,64 @@ Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, 
 - [ ] Vitest frontend test suite covers Stress Resilience dashboard component with 0 failures.
 - [ ] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
 
+## 2026-09-22T01:30:22Z
+
+Implement Phase 298: Dynamic Strategy Mining, Auto-Evolution & Microstructure Mutation Engine for Autonomous Futures Bot, establishing real-time quantitative hypothesis generation, parameter mutation, multi-tier walk-forward out-of-sample promotion gating, atomic candidate registry manifest updates with live daemon hot-reloading, and continuous mathematical double-entry zero-drift balance governance without live execution authority.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Dynamic Strategy Mining & Microstructure Mutation Engine
+Implement `DynamicStrategyMiner`, `MicrostructureMutationEngine`, and `ContinuousOOSGateEvaluator` in `src/autonomous_futures/feed/strategy_mining.py`:
+- Ingest real-time market features from Phases 292-297 (Hawkes jump intensity lambda, branching ratio, spectral radius rho, Order Flow Imbalance OFI, volume profile, Donchian channels, and rolling volatility).
+- Dynamically formulate and mutate quantitative strategy hypotheses with deterministic seeds across candidate families:
+  - `DonchianBreakout` (DCB)
+  - `RegimeVolatilityBreakout` (RGB)
+  - `MicrostructureMomentum` (MSM)
+- Apply systematic parameter mutations (lookback windows, entry/exit z-score thresholds, feature shifts, regime context timeframes, margin allocation multipliers, and stop-loss bounds) while preserving mutation genealogy and parameter lineage.
+
+### R2. Continuous Walk-Forward OOS Promotion Gates & Pruning
+Evaluate candidate strategy variants across walk-forward validation windows against 5 strict qualification gates:
+1. Walk-Forward OOS Average Return: >= 0.0%
+2. Walk-Forward OOS Worst Drawdown: <= 15.0%
+3. Walk-Forward OOS Profit Factor: >= 1.05
+4. Minimum OOS Trade Count: >= 5 trades across >= 1 validation window
+5. Microstructure Resilience Gate: Candidate must survive Phase 297 flash crash (-20%) and spread shock (10.0%) simulations without drawdown breach or loss ceiling violation.
+Prune unviable variants and retain top-performing candidates.
+
+### R3. Autonomous Candidate Promotion & Atomic Registry Hot-Reload
+For qualified candidates meeting all 5 OOS gates:
+- Automatically generate valid `CreatorCandidateArtifact`, qualification evidence, and update `artifacts/paper_live/candidate_registry.json` atomically with deterministic canonical SHA-256 hashes (`CandidateRegistryManifest` version increment).
+- Trigger seamless hot-reload in `LivePaperEngine` and `AutonomousLifecycleDaemon` via `CandidateRegistryHotReloader` without process termination or state corruption.
+
+### R4. Continuous Mathematical Double-Entry Zero-Drift Ledger & Merkle DAG
+Maintain strict real-time double-entry reconciliation across all candidate tracks:
+$$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ across all simulated mining cycles, fills, fee deductions, and promotions.
+Persist structured research artifacts in `artifacts/research/phase298/` bound by a cryptographic SHA-256 Merkle DAG hash chain linking Phase 297 (`257f83f794465f3b89bfd9dbc25a2bf949d9fe315ecd97e2108c027ca3475668`).
+
+### R5. Observational Backend API & DaisyUI 5.7.42 Dashboard
+- Expose read-only FastAPI endpoint:
+  - `GET /api/v1/canary/strategy-mining`
+  - Update `GET /api/v1/canary/summary`
+- Update React frontend dashboard:
+  - Create `frontend/src/components/strategy-mining-page.tsx` with DaisyUI 5.7.42 dark theme rendering:
+    - Strategy Hypothesis Tree & Mutation Lineage
+    - Live Parameter Search Space & Feature Heatmaps
+    - OOS Gate Scorecards & Auto-Admission Status
+    - Zero-Downtime Hot-Reload Activity Log
+    - Double-Entry Solvency Meter (|drift| < 10^-15 USDT)
+  - Add "Strategy Mining" navigation tab (`#/mining`) in `frontend/src/App.tsx`.
+
+### R6. Strict Paper-Safe Confinement
+Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+- [ ] `scripts/run_phase_298_strategy_mining.py` executes 4 deterministic simulation tracks (Hypothesis Generation & Mutation, Multi-Tier OOS Evaluation, Autonomous Candidate Promotion & Atomic Hot-Reload, and Full Lifecycle & Merkle DAG) with 0 failures and verified zero balance drift.
+- [ ] Comprehensive pytest suite covers strategy mining, parameter mutation, OOS gate evaluation, registry updates, and hot-reloading.
+- [ ] Vitest frontend test suite covers Strategy Mining dashboard component with 0 failures.
+- [ ] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
+
+

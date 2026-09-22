@@ -10,6 +10,7 @@ export type DashboardPage =
   | 'strategy-activation'
   | 'lifecycle'
   | 'stress'
+  | 'mining'
 
 export function pageFromHash(hash: string): DashboardPage {
   const normalized = hash.replace(/^#\/?/, '')
@@ -23,5 +24,6 @@ export function pageFromHash(hash: string): DashboardPage {
   if (normalized === 'strategy-activation' || normalized === 'activation') return 'strategy-activation'
   if (normalized === 'lifecycle' || normalized === 'mission-control') return 'lifecycle'
   if (normalized === 'stress' || normalized === 'stress-resilience' || normalized === 'resilience') return 'stress'
+  if (normalized === 'mining' || normalized === 'strategy-mining') return 'mining'
   return 'overview'
 }

@@ -39,6 +39,7 @@ from .canary import (
     CanaryPaperExecutionResponse,
     CanaryRiskResponse,
     CanaryStrategyActivationResponse,
+    CanaryStrategyMiningResponse,
     CanaryStressFaultInjectionResponse,
     CanarySummaryResponse,
     CandidatePromotionItem,
@@ -52,6 +53,7 @@ from .canary import (
     load_verified_canary_paper_execution,
     load_verified_canary_risk,
     load_verified_canary_strategy_activation,
+    load_verified_canary_strategy_mining,
     load_verified_canary_stress_fault_injection,
     load_verified_canary_summary,
 )
@@ -905,6 +907,25 @@ def create_app(
                 detail="canary stress fault injection integrity verification failed",
             ) from exc
 
+    # Phase 298: Dynamic Strategy Mining, Auto-Evolution & Microstructure Mutation Engine
+    @app.get(
+        "/api/v1/canary/strategy-mining",
+        response_model=CanaryStrategyMiningResponse,
+    )
+    def canary_strategy_mining() -> CanaryStrategyMiningResponse:
+        try:
+            return load_verified_canary_strategy_mining(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary strategy mining evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary strategy mining integrity verification failed",
+            ) from exc
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -937,6 +958,7 @@ __all__ = [
     "CanaryPaperExecutionResponse",
     "CanaryRiskResponse",
     "CanaryStrategyActivationResponse",
+    "CanaryStrategyMiningResponse",
     "CanaryStressFaultInjectionResponse",
     "CanarySummaryResponse",
     "CandidatePromotionItem",

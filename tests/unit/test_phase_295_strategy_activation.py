@@ -154,11 +154,19 @@ class TestManifestIngress:
     """Tests for Manifest v2 loader and cryptographic hash validation."""
 
     def test_load_verified_candidate_manifest_nominal(self) -> None:
-        """Nominal load of Candidate Registry Manifest v2 with 3 active candidates."""
+        """Nominal load of Candidate Registry Manifest v2/v3 with 3 active candidates."""
         manifest, bundles = load_verified_candidate_manifest_v2()
-        assert manifest.registry_version == 2
+        assert manifest.registry_version in (2, 3)
         assert len(bundles) == 3
-        for symbol, expected_cid in EXPECTED_ACTIVE_CANDIDATES.items():
+        if manifest.registry_version == 2:
+            expected_cids = EXPECTED_ACTIVE_CANDIDATES
+        else:
+            expected_cids = {
+                "BTCUSDT": "cand-btcusdt-dcb-003",
+                "ETHUSDT": "cand-ethusdt-rgb-002",
+                "SOLUSDT": "cand-solusdt-msm-001",
+            }
+        for symbol, expected_cid in expected_cids.items():
             assert symbol in bundles
             bundle = bundles[symbol]
             assert bundle.candidate_id == expected_cid

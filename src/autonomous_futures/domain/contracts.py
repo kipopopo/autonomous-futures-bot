@@ -142,8 +142,25 @@ ALLOWED_FEATURES = frozenset(
         "spread_proxy",
         "regime_trend",
         "failed_breakout_reentry",
+        "order_flow_imbalance",
+        "ofi_zscore",
+        "trade_momentum",
+        "hawkes_intensity",
+        "hawkes_spectral_radius",
+        "hawkes_branching_ratio",
     }
 )
+
+
+StrategyFamily = Literal[
+    "regime_gated_breakout",
+    "range_mean_reversion",
+    "donchian_channel_breakout",
+    "volatility_compression_breakout",
+    "volume_confirmed_momentum",
+    "microstructure_momentum",
+    "experimental",
+]
 
 
 class FeatureRef(DomainModel):
@@ -189,14 +206,7 @@ class CandidateSimulationRisk(DomainModel):
 class StrategySpec(DomainModel):
     dsl_version: Literal[1, 2]
     strategy_id: str = Field(min_length=1)
-    family: Literal[
-        "regime_gated_breakout",
-        "range_mean_reversion",
-        "donchian_channel_breakout",
-        "volatility_compression_breakout",
-        "volume_confirmed_momentum",
-        "experimental",
-    ]
+    family: StrategyFamily
     universe: StrategyUniverse
     features: tuple[FeatureRef, ...] = Field(min_length=1)
     entry: EntryExit

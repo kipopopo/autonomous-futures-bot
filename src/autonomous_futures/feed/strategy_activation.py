@@ -362,18 +362,27 @@ def load_verified_candidate_manifest_v2(
 
     bundles: dict[str, LoadedCandidateBundle] = {}
 
-    for sym, expected_cid in EXPECTED_ACTIVE_CANDIDATES.items():
-        if sym not in manifest.symbols:
-            raise CandidateRegistryError(
-                f"Mandatory universe symbol {sym} missing from candidate registry"
-            )
-        entry = manifest.symbols[sym]
-        if entry.candidate_id != expected_cid:
-            raise CandidateRegistryError(
-                f"Candidate ID mismatch for {sym}: expected {expected_cid}, "
-                f"got {entry.candidate_id}"
-            )
+    if manifest.registry_version < 3:
+        for sym, expected_cid in EXPECTED_ACTIVE_CANDIDATES.items():
+            if sym not in manifest.symbols:
+                raise CandidateRegistryError(
+                    f"Mandatory universe symbol {sym} missing from candidate registry"
+                )
+            entry = manifest.symbols[sym]
+            if entry.candidate_id != expected_cid:
+                raise CandidateRegistryError(
+                    f"Candidate ID mismatch for {sym}: expected {expected_cid}, "
+                    f"got {entry.candidate_id}"
+                )
+    else:
+        # Version 3+: dynamically verify active candidates present in manifest.symbols
+        for sym in EXPECTED_ACTIVE_CANDIDATES:
+            if sym not in manifest.symbols:
+                raise CandidateRegistryError(
+                    f"Mandatory universe symbol {sym} missing from candidate registry"
+                )
 
+    for sym, entry in manifest.symbols.items():
         # Load and verify candidate artifact
         cand_p = Path(entry.artifact_path)
         if not cand_p.is_absolute():
@@ -402,9 +411,10 @@ def load_verified_candidate_manifest_v2(
             )
 
         # Load and verify qualification artifact
-        qual_p = (
-            root / "artifacts" / "paper_live" / "qualifications" / f"qual-{entry.candidate_id}.json"
-        )
+        qual_filename = f"qual-{entry.candidate_id}.json"
+        qual_p = root / "artifacts" / "paper_live" / "qualifications" / qual_filename
+        if not qual_p.exists() and (reg_p.parent / "qualifications" / qual_filename).exists():
+            qual_p = reg_p.parent / "qualifications" / qual_filename
         if not qual_p.exists():
             raise CandidateRegistryError(f"Qualification artifact file missing: {qual_p}")
 
@@ -436,7 +446,11 @@ def load_verified_candidate_manifest_v2(
             manifest_entry=entry,
         )
 
-    logger.info("Verified manifest v2 and loaded %d candidates successfully", len(bundles))
+    logger.info(
+        "Verified manifest v%d and loaded %d candidates successfully",
+        manifest.registry_version,
+        len(bundles),
+    )
     return manifest, bundles
 
 

@@ -20,6 +20,10 @@ describe('pageFromHash', () => {
     expect(pageFromHash('#execution')).toBe('execution')
     expect(pageFromHash('#/strategy-activation')).toBe('strategy-activation')
     expect(pageFromHash('#strategy-activation')).toBe('strategy-activation')
+    expect(pageFromHash('#/mining')).toBe('mining')
+    expect(pageFromHash('#mining')).toBe('mining')
+    expect(pageFromHash('#/strategy-mining')).toBe('mining')
+    expect(pageFromHash('#strategy-mining')).toBe('mining')
   })
 
   it('falls back to Overview for unsupported or empty hashes', () => {
