@@ -31,6 +31,7 @@ import {
   type CanaryTestnetGatewayData,
   type CanaryBracketPositionsData,
   type CanaryExecutionGuardData,
+  type CanaryOrchestratorData,
 } from './canary'
 
 export { getCanaryPortfolioRebalancing, getCanaryStrategyMining }
@@ -395,6 +396,18 @@ export async function fetchCanaryExecutionGuard(): Promise<CanaryExecutionGuardD
   }
 }
 
+export async function fetchCanaryOrchestrator(): Promise<CanaryOrchestratorData | null> {
+  const path = '/api/v1/canary/orchestrator'
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+    return (await response.json()) as CanaryOrchestratorData
+  } catch {
+    return null
+  }
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
@@ -410,6 +423,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let testnetGateway: CanaryTestnetGatewayData | null = null
   let bracketPositions: CanaryBracketPositionsData | null = null
   let executionGuard: CanaryExecutionGuardData | null = null
+  let orchestrator: CanaryOrchestratorData | null = null
   let error: string | null = null
 
   try {
@@ -428,6 +442,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryTestnetGateway(),
       fetchCanaryBracketPositions(),
       fetchCanaryExecutionGuard(),
+      fetchCanaryOrchestrator(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
@@ -444,6 +459,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     if (results[11].status === 'fulfilled') testnetGateway = results[11].value
     if (results[12].status === 'fulfilled') bracketPositions = results[12].value
     if (results[13].status === 'fulfilled') executionGuard = results[13].value
+    if (results[14].status === 'fulfilled') orchestrator = results[14].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -470,6 +486,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     testnetGateway,
     bracketPositions,
     executionGuard,
+    orchestrator,
     error,
   }
 }

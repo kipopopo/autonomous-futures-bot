@@ -2922,3 +2922,68 @@ Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, 
 - [x] Comprehensive pytest suite covers VPIN toxicity calculation, Avellaneda-Stoikov quote shading, slippage decomposition, adverse selection circuit breakers, and double-entry reconciliation.
 - [x] Vitest frontend test suite covers Execution Guard dashboard component with 0 failures.
 - [x] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
+
+## 2026-09-23T10:45:00Z
+
+Implement Phase 303: Autonomous End-to-End Closed-Loop Paper Trading Orchestrator & Shadow Execution Engine for Autonomous Futures Bot, establishing a unified 8-stage closed-loop execution pipeline (Ingress -> Microstructure Toxicity -> Strategy Signals -> Pre-Trade Risk Gates -> Quote Reservation Shading -> Micro Child Order Slicing -> Dynamic OCO Brackets -> Post-Trade Slippage Attribution & Ledger Reconciliation), multi-asset shadow longevity simulation across candidate universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`), continuous mathematical double-entry zero-drift balance governance ($|\Delta| < 10^{-15}\text{ USDT}$), SHA-256 Merkle DAG hash chain linking Phase 302 root (`5919a67c92e3121b66005ef7e9a36a651cb71b19556c19d4feb9470bdf289d76`), observational FastAPI endpoints, and DaisyUI 5.7.42 executive mission control dashboard telemetry (`#/orchestrator`) without live execution authority.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Unified Autonomous Closed-Loop Orchestration Engine
+Implement `AutonomousExecutionOrchestrator` in `src/autonomous_futures/feed/orchestrator.py`:
+- Ingest real-time market depth (`@depth5@100ms`) and aggregate trades (`@aggTrade`) across candidate universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Orchestrate sequential 8-stage execution cycle:
+  1. Market Ingress & SLA Check: Verify gateway heartbeat age $\le 500\text{ ms}$.
+  2. Microstructure Toxicity & Hazard: Compute rolling VPIN, Kyle's lambda ($\lambda_{\text{Kyle}}$), Order Book Imbalance (OBI), and Hawkes spectral radius ($\rho$).
+  3. Strategy Alpha Signal: Filter and evaluate candidate signals (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+  4. Pre-Trade Risk & Capital Allocation: Enforce aggregate exposure ceiling $\le 60.00\text{ USDT}$, intra-phase loss limit $\le 7.00\text{ USDT}$, and maintain $\ge 40.0\%$ unencumbered cash reserve.
+  5. Quote Reservation & Adverse Selection Defense: Calculate Avellaneda-Stoikov reservation price with Hawkes hazard spread cushion ($r^*(s, q, t) = r(s, q, t) \pm \delta_{\text{cushion}}(\rho)$); trigger fail-closed maker quote pull if VPIN $\ge 0.70$ or $\rho \ge 0.85$.
+  6. Dynamic Micro-Order Slicing: Quantize child orders to $\le 5.00\text{ USDT}$ cap with `ROUND_DOWN` precision against Binance exchange filters (`LOT_SIZE`, `PRICE_FILTER`, `MIN_NOTIONAL`).
+  7. Dynamic Bracket Binding & Ratchet Watermark: Auto-bind Take-Profit limit and Trailing Stop-Loss with ratchet watermark and mutual OCO cancellation.
+  8. Post-Trade Slippage Attribution & Ledger Reconciliation: Decompose realized slippage into 4 orthogonal components (delay, temporary Almgren-Chriss, permanent, queue degradation) and reconcile double-entry ledger.
+
+### R2. Continuous Shadow Execution & Performance Longevity Simulator
+Implement `ShadowLongevitySimulator` in `src/autonomous_futures/feed/orchestrator.py`:
+- Multi-asset shadow track executing autonomous cycles with deterministic and randomized event profiles.
+- Compute rolling quantitative performance metrics:
+  - Realized Sharpe Ratio (annualized)
+  - Calmar Ratio & Maximum Drawdown (MDD $\le 5.0\%$)
+  - Profit Factor & Win Rate (%)
+  - Microstructure PnL Attribution: Alpha PnL vs Slippage Drag vs Fee Drag
+- Maintain circuit breakers:
+  - Emergency halt if MDD $> 5.0\%$ or aggregate exposure $> 60.00\text{ USDT}$.
+  - Stale heartbeat fail-closed pause if feed age $> 500\text{ ms}$.
+
+### R3. Centralized Double-Entry Solvency Ledger & Cryptographic Merkle DAG
+Maintain strict real-time double-entry reconciliation across all orchestrated child orders, bracket fills, slippage deductions, and fee allocations:
+$$\text{Assets} = \text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL}$$
+$$\text{Equity} = \text{Starting Equity} + \text{Realized PnL} + \text{Unrealized PnL} - \text{Total Fees} - \text{Total Slippage}$$
+Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ across all execution states and cycle updates.
+Persist structured research artifacts in `artifacts/research/phase303/` bound by a cryptographic SHA-256 Merkle DAG hash chain linking Phase 302 root hash (`5919a67c92e3121b66005ef7e9a36a651cb71b19556c19d4feb9470bdf289d76`).
+
+### R4. Observational Backend API & DaisyUI 5.7.42 Dashboard
+- Expose read-only FastAPI endpoints:
+  - `GET /api/v1/canary/orchestrator`
+  - Update `GET /api/v1/canary/summary`
+- Update React frontend dashboard:
+  - Create `frontend/src/components/orchestrator-page.tsx` with DaisyUI 5.7.42 dark theme rendering:
+    - Status Banner (`ORCHESTRATOR_ACTIVE`, `PAPER-SAFE`, `READ-ONLY`, `EXECUTION AUTHORITY: OFF`, Zero-Drift indicator).
+    - 4 Executive KPI Cards (Pipeline Operational State, Portfolio Sharpe & Performance, Risk Headroom & Reserves, Net Alpha vs Drag).
+    - Visual 8-Stage Pipeline Flow Diagram (Ingress -> Hazard -> Alpha -> Risk -> Shading -> Slicing -> Brackets -> Ledger).
+    - Multi-Asset Shadow Performance Matrix (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+    - Active Orchestrated Cycles & Decision Log table.
+    - Double-Entry Solvency Meter ($|\Delta| < 10^{-15}\text{ USDT}$) & Merkle DAG Linkage to Phase 302.
+  - Add "Orchestrator" navigation tab (`#/orchestrator`) in `frontend/src/App.tsx`.
+
+### R5. Strict Paper-Safe Confinement
+Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+- [x] `scripts/run_phase_303_orchestrator.py` executes 4 deterministic simulation tracks (Closed-Loop Ingress-to-Execution Pipeline, Multi-Regime Hazard & Adverse Selection Defense in Loop, Shadow Longevity & Rolling Performance, and Full Ecosystem Integration & Merkle DAG) with 0 failures and verified zero balance drift.
+- [x] Comprehensive pytest suite covers 8-stage closed-loop execution, shadow performance metric computation, circuit breakers, and double-entry reconciliation.
+- [x] Vitest frontend test suite covers Orchestrator dashboard component with 0 failures.
+- [x] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
+

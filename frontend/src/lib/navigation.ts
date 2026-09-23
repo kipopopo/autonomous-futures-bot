@@ -15,6 +15,7 @@ export type DashboardPage =
   | 'testnet'
   | 'brackets'
   | 'guard'
+  | 'orchestrator'
 
 export function pageFromHash(hash: string): DashboardPage {
   const normalized = hash.replace(/^#\/?/, '')
@@ -33,5 +34,6 @@ export function pageFromHash(hash: string): DashboardPage {
   if (normalized === 'testnet' || normalized === 'testnet-gateway' || normalized === 'gateway') return 'testnet'
   if (normalized === 'brackets' || normalized === 'bracket-positions' || normalized === 'positions') return 'brackets'
   if (normalized === 'guard' || normalized === 'execution-guard' || normalized === 'slippage') return 'guard'
+  if (normalized === 'orchestrator' || normalized === 'pipeline' || normalized === 'shadow') return 'orchestrator'
   return 'overview'
 }

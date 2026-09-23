@@ -38,6 +38,7 @@ from .canary import (
     CanaryExecutionGuardResponse,
     CanaryHawkesResponse,
     CanaryLiveMarketResponse,
+    CanaryOrchestratorResponse,
     CanaryPaperExecutionResponse,
     CanaryPortfolioRebalancingResponse,
     CanaryRiskResponse,
@@ -56,6 +57,7 @@ from .canary import (
     load_verified_canary_execution_guard,
     load_verified_canary_hawkes,
     load_verified_canary_live_market,
+    load_verified_canary_orchestrator,
     load_verified_canary_paper_execution,
     load_verified_canary_portfolio_rebalancing,
     load_verified_canary_risk,
@@ -1011,6 +1013,26 @@ def create_app(
                 detail="canary execution guard integrity verification failed",
             ) from exc
 
+    # Phase 303: Autonomous End-to-End Closed-Loop Paper Trading Orchestrator
+    # & Shadow Execution Engine
+    @app.get(
+        "/api/v1/canary/orchestrator",
+        response_model=CanaryOrchestratorResponse,
+    )
+    def canary_orchestrator() -> CanaryOrchestratorResponse:
+        try:
+            return load_verified_canary_orchestrator(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary orchestrator evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary orchestrator integrity verification failed",
+            ) from exc
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -1042,6 +1064,7 @@ __all__ = [
     "CanaryExecutionGuardResponse",
     "CanaryHawkesResponse",
     "CanaryLiveMarketResponse",
+    "CanaryOrchestratorResponse",
     "CanaryPaperExecutionResponse",
     "CanaryRiskResponse",
     "CanaryStrategyActivationResponse",

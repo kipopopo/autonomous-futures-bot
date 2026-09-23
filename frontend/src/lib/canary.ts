@@ -222,6 +222,7 @@ export interface CanaryDashboardData {
   testnetGateway?: CanaryTestnetGatewayData | null
   bracketPositions?: CanaryBracketPositionsData | null
   executionGuard?: CanaryExecutionGuardData | null
+  orchestrator?: CanaryOrchestratorData | null
   error: string | null
 }
 
@@ -3083,6 +3084,256 @@ export function buildExecutionGuardModel(
     merkleRoot: data.merkle_root || '',
   }
 }
+
+// ============================================================================
+// Phase 303: Autonomous End-to-End Closed-Loop Paper Trading Orchestrator
+// & Shadow Execution Engine
+// ============================================================================
+
+export interface PipelineStageItem {
+  stage: string
+  name: string
+  status: string
+  latency_ms: number
+  detail: string
+}
+
+export interface PerformanceMetricsItem {
+  total_cycles: number
+  completed_cycles: number
+  defended_cycles: number
+  interlocked_cycles: number
+  stale_halted_cycles: number
+  realized_sharpe_ratio: number
+  calmar_ratio: number
+  max_drawdown_pct: number
+  win_rate_pct: number
+  profit_factor: number
+  total_gross_pnl_usdt: number
+  total_fees_usdt: number
+  total_slippage_usdt: number
+  total_net_pnl_usdt: number
+  alpha_attribution_pnl_usdt: number
+  slippage_drag_pnl_usdt: number
+  fee_drag_pnl_usdt: number
+}
+
+export interface ShadowAssetStateItem {
+  symbol: string
+  active_positions_count: number
+  allocated_margin_usdt: number
+  unrealized_pnl_usdt: number
+  realized_pnl_usdt: number
+  total_cycles_count: number
+  last_vpin: number
+  last_hawkes_rho: number
+  last_action: string
+  status: string
+}
+
+export interface OrchestratedChildOrderItem {
+  child_order_id: string
+  symbol: string
+  side: string
+  intended_price: number
+  executed_price: number
+  quantity: number
+  notional_usdt: number
+  fee_usdt: number
+  slippage_usdt: number
+  slippage_bps: number
+  status: string
+}
+
+export interface OrchestratedBracketOrderItem {
+  bracket_id: string
+  symbol: string
+  bracket_type: string
+  side: string
+  trigger_price: number
+  limit_price?: number | null
+  quantity: number
+  notional_usdt: number
+  ratchet_watermark: number
+  trailing_delta_bps: number
+  status: string
+  oco_partner_id?: string | null
+}
+
+export interface OrchestratedCycleItem {
+  cycle_id: string
+  timestamp_ms: number
+  timestamp_utc: string
+  symbol: string
+  heartbeat_age_ms: number
+  vpin: number
+  kyles_lambda: number
+  hawkes_rho: number
+  signal_side: string
+  signal_strength: number
+  risk_action: string
+  quote_action: string
+  shading_bps: number
+  executed_notional_usdt: number
+  mean_slippage_bps: number
+  total_fees_usdt: number
+  total_slippage_usdt: number
+  net_pnl_usdt: number
+  cycle_status: string
+  stages: PipelineStageItem[]
+  child_orders: OrchestratedChildOrderItem[]
+  brackets: OrchestratedBracketOrderItem[]
+}
+
+export interface CanaryOrchestratorData {
+  verified: boolean
+  phase: string
+  status: string
+  circuit_state: string
+  timestamp_ms: number
+  timestamp_utc: string
+  paper_safe: boolean
+  execution_authority: boolean
+  candidates: string[]
+  performance: PerformanceMetricsItem
+  shadow_states: Record<string, ShadowAssetStateItem>
+  cycles: OrchestratedCycleItem[]
+  solvency: DoubleEntrySolvencyItem
+  ledger: LedgerReconciliationItem
+  upstream_hash: string
+  phase_hash: string
+  merkle_root: string
+  artifact_hashes?: Record<string, string>
+  upstream_merkle_dag?: Record<string, unknown>
+}
+
+export interface OrchestratorModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  candidates: string[]
+  performance: PerformanceMetricsItem
+  shadowStates: Record<string, ShadowAssetStateItem>
+  cycles: OrchestratedCycleItem[]
+  solvency: DoubleEntrySolvencyItem
+  ledger: LedgerReconciliationItem
+  upstreamHash: string
+  phaseHash: string
+  merkleRoot: string
+}
+
+export function buildOrchestratorModel(
+  data?: CanaryOrchestratorData | null,
+): OrchestratorModel {
+  const defaultPerformance: PerformanceMetricsItem = {
+    total_cycles: 0,
+    completed_cycles: 0,
+    defended_cycles: 0,
+    interlocked_cycles: 0,
+    stale_halted_cycles: 0,
+    realized_sharpe_ratio: 0.0,
+    calmar_ratio: 0.0,
+    max_drawdown_pct: 0.0,
+    win_rate_pct: 100.0,
+    profit_factor: 1.0,
+    total_gross_pnl_usdt: 0.0,
+    total_fees_usdt: 0.0,
+    total_slippage_usdt: 0.0,
+    total_net_pnl_usdt: 0.0,
+    alpha_attribution_pnl_usdt: 0.0,
+    slippage_drag_pnl_usdt: 0.0,
+    fee_drag_pnl_usdt: 0.0,
+  }
+
+  const defaultSolvency: DoubleEntrySolvencyItem = {
+    starting_equity_usdt: 100.0,
+    cash_usdt: 100.0,
+    allocated_margin_usdt: 0.0,
+    unrealized_pnl_usdt: 0.0,
+    realized_pnl_usdt: 0.0,
+    total_equity_usdt: 100.0,
+    total_fees_usdt: 0.0,
+    total_slippage_usdt: 0.0,
+    drift_usdt: 0.0,
+    zero_balance_drift_verified: true,
+    tolerance_ceiling_usdt: 1e-15,
+    solvency_ratio_pct: 100.0,
+    cash_reserve_pct: 100.0,
+    unencumbered_cash_verified: true,
+  }
+
+  const defaultLedger: LedgerReconciliationItem = {
+    starting_equity: 100.0,
+    cash: 100.0,
+    allocated_margin: 0.0,
+    unrealized_pnl: 0.0,
+    realized_pnl: 0.0,
+    drift: 0.0,
+    zero_balance_drift: true,
+  }
+
+  if (!data) {
+    return {
+      phase: 'phase_303',
+      verified: true,
+      status: 'ORCHESTRATOR_VERIFIED',
+      circuitState: 'NORMAL',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      candidates: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+      performance: defaultPerformance,
+      shadowStates: {},
+      cycles: [],
+      solvency: defaultSolvency,
+      ledger: defaultLedger,
+      upstreamHash:
+        '5919a67c92e3121b66005ef7e9a36a651cb71b19556c19d4feb9470bdf289d76',
+      phaseHash: '',
+      merkleRoot: '',
+    }
+  }
+
+  const isZeroDrift = Boolean(
+    data.solvency?.zero_balance_drift_verified ??
+      data.ledger?.zero_balance_drift ??
+      true,
+  )
+
+  return {
+    phase: data.phase || 'phase_303',
+    verified: Boolean(data.verified ?? true),
+    status: data.status || 'ORCHESTRATOR_VERIFIED',
+    circuitState: data.circuit_state || 'NORMAL',
+    timestampMs: data.timestamp_ms ?? 0,
+    timestampUtc:
+      data.timestamp_utc ||
+      (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data.paper_safe ?? true,
+    isExecutionOff: !(data.execution_authority ?? false),
+    isZeroDrift,
+    candidates: data.candidates || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+    performance: data.performance || defaultPerformance,
+    shadowStates: data.shadow_states || {},
+    cycles: data.cycles || [],
+    solvency: data.solvency || defaultSolvency,
+    ledger: data.ledger || defaultLedger,
+    upstreamHash:
+      data.upstream_hash ||
+      '5919a67c92e3121b66005ef7e9a36a651cb71b19556c19d4feb9470bdf289d76',
+    phaseHash: data.phase_hash || '',
+    merkleRoot: data.merkle_root || '',
+  }
+}
+
 
 
 

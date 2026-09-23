@@ -21,6 +21,7 @@ import {
   PieChart,
   Shield,
   Target,
+  Cpu,
 } from 'lucide-react'
 
 import { AccountingPage } from '@/components/accounting-page'
@@ -39,6 +40,7 @@ import { PortfolioRebalancingPage } from '@/components/portfolio-rebalancing-pag
 import { TestnetGatewayPage } from '@/components/testnet-gateway-page'
 import { BracketPositionsPage } from '@/components/bracket-positions-page'
 import { ExecutionGuardPage } from '@/components/execution-guard-page'
+import { OrchestratorPage } from '@/components/orchestrator-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
@@ -48,6 +50,7 @@ import {
   buildExecutionGuardModel,
   buildLiveMarketModel,
   buildMicrostructureModel,
+  buildOrchestratorModel,
   buildPaperExecutionModel,
   buildPortfolioRebalancingModel,
   buildRiskModel,
@@ -90,6 +93,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   testnetGateway: null,
   bracketPositions: null,
   executionGuard: null,
+  orchestrator: null,
   error: null,
 }
 
@@ -380,6 +384,10 @@ function App() {
     () => buildExecutionGuardModel(canaryData.executionGuard ?? null),
     [canaryData.executionGuard]
   )
+  const orchestratorModel = useMemo(
+    () => buildOrchestratorModel(canaryData.orchestrator ?? null),
+    [canaryData.orchestrator]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -410,7 +418,8 @@ function App() {
       nextCanary.portfolioRebalancing?.verified ||
       nextCanary.testnetGateway?.verified ||
       nextCanary.bracketPositions?.verified ||
-      nextCanary.executionGuard?.verified
+      nextCanary.executionGuard?.verified ||
+      nextCanary.orchestrator?.verified
     )
 
     if (hasData) {
@@ -451,7 +460,9 @@ function App() {
             nextCanary.strategyMining?.verified ||
             nextCanary.portfolioRebalancing?.verified ||
             nextCanary.testnetGateway?.verified ||
-            nextCanary.bracketPositions?.verified
+            nextCanary.bracketPositions?.verified ||
+            nextCanary.executionGuard?.verified ||
+            nextCanary.orchestrator?.verified
           )
 
           if (hasData) {
@@ -510,6 +521,7 @@ function App() {
   const isTestnetPage = page === 'testnet'
   const isBracketsPage = page === 'brackets'
   const isGuardPage = page === 'guard'
+  const isOrchestratorPage = page === 'orchestrator'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -585,10 +597,14 @@ function App() {
             <Shield size={17} aria-hidden="true" />
             <span>Execution Guard</span>
           </a>
+          <a className={`nav-item ${isOrchestratorPage ? 'nav-item-active' : ''}`} href="#/orchestrator" aria-current={isOrchestratorPage ? 'page' : undefined}>
+            <Cpu size={17} aria-hidden="true" />
+            <span>Orchestrator</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 302</span>
-          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Execution Guard</span>
+          <span className="sidebar-label">PHASE 303</span>
+          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Orchestrator</span>
         </div>
       </aside>
 
@@ -597,7 +613,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isGuardPage
+              {isOrchestratorPage
+                ? 'Autonomous paper trading orchestrator plane'
+                : isGuardPage
                 ? 'Microstructure adverse selection guard plane'
                 : isBracketsPage
                 ? 'Bracket & position management plane'
@@ -630,7 +648,9 @@ function App() {
                               : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isGuardPage
+              {isOrchestratorPage
+                ? 'Canary Orchestrator: Closed-Loop Execution & Shadow Longevity Engine'
+                : isGuardPage
                 ? 'Canary Adverse Selection Guard: Toxic Flow Defense & Slippage Attribution'
                 : isBracketsPage
                 ? 'Canary Bracket Orders & Multi-Asset Positions: Trailing SL & Margin Accounting'
@@ -663,7 +683,9 @@ function App() {
                               : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isGuardPage
+              {isOrchestratorPage
+                ? 'Phase 303 Autonomous End-to-End Closed-Loop Paper Trading Orchestrator & Shadow Execution Engine · MYT (GMT+8)'
+                : isGuardPage
                 ? 'Phase 302 Real-Time Toxic Flow Defense, Adverse Selection Guard & Dynamic Microstructure Slippage Attribution · MYT (GMT+8)'
                 : isBracketsPage
                 ? 'Phase 301 Live User Data Stream Ingress, Dynamic Position & Bracket Order Management · MYT (GMT+8)'
@@ -867,6 +889,7 @@ function App() {
           {isTestnetPage && state === 'ready' && <TestnetGatewayPage model={testnetGatewayModel} />}
           {isBracketsPage && state === 'ready' && <BracketPositionsPage model={bracketPositionsModel} />}
           {isGuardPage && state === 'ready' && <ExecutionGuardPage model={executionGuardModel} />}
+          {isOrchestratorPage && state === 'ready' && <OrchestratorPage model={orchestratorModel} />}
           {inventoryVisible && <ComponentInventory components={model.components} />}
         </ErrorBoundary>
 

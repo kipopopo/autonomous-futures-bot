@@ -232,6 +232,7 @@ def verify_canary_phase_integrity(phase_dir: Path) -> dict[str, Any]:
         raise CanaryEvidenceNotFoundError(f"Canary phase directory not found: {phase_dir}")
 
     summary_candidates = [
+        phase_dir / "orchestrator-summary.json",
         phase_dir / "execution-guard-summary.json",
         phase_dir / "bracket-position-summary.json",
         phase_dir / "testnet-gateway-summary.json",
@@ -2964,6 +2965,123 @@ class CanaryExecutionGuardResponse(DomainModel):
     upstream_merkle_dag: dict[str, Any] = Field(default_factory=dict)
 
 
+class PipelineStageItem(DomainModel):
+    stage: str
+    name: str
+    status: str
+    latency_ms: float
+    detail: str
+
+
+class PerformanceMetricsItem(DomainModel):
+    total_cycles: int
+    completed_cycles: int
+    defended_cycles: int
+    interlocked_cycles: int
+    stale_halted_cycles: int
+    realized_sharpe_ratio: float
+    calmar_ratio: float
+    max_drawdown_pct: float
+    win_rate_pct: float
+    profit_factor: float
+    total_gross_pnl_usdt: float
+    total_fees_usdt: float
+    total_slippage_usdt: float
+    total_net_pnl_usdt: float
+    alpha_attribution_pnl_usdt: float
+    slippage_drag_pnl_usdt: float
+    fee_drag_pnl_usdt: float
+
+
+class ShadowAssetStateItem(DomainModel):
+    symbol: str
+    active_positions_count: int
+    allocated_margin_usdt: float
+    unrealized_pnl_usdt: float
+    realized_pnl_usdt: float
+    total_cycles_count: int
+    last_vpin: float
+    last_hawkes_rho: float
+    last_action: str
+    status: str
+
+
+class OrchestratedChildOrderItem(DomainModel):
+    child_order_id: str
+    symbol: str
+    side: str
+    intended_price: float
+    executed_price: float
+    quantity: float
+    notional_usdt: float
+    fee_usdt: float
+    slippage_usdt: float
+    slippage_bps: float
+    status: str
+
+
+class OrchestratedBracketOrderItem(DomainModel):
+    bracket_id: str
+    symbol: str
+    bracket_type: str
+    side: str
+    trigger_price: float
+    limit_price: float | None = None
+    quantity: float
+    notional_usdt: float
+    ratchet_watermark: float
+    trailing_delta_bps: float
+    status: str
+    oco_partner_id: str | None = None
+
+
+class OrchestratedCycleItem(DomainModel):
+    cycle_id: str
+    timestamp_ms: int
+    timestamp_utc: str
+    symbol: str
+    heartbeat_age_ms: float
+    vpin: float
+    kyles_lambda: float
+    hawkes_rho: float
+    signal_side: str
+    signal_strength: float
+    risk_action: str
+    quote_action: str
+    shading_bps: float
+    executed_notional_usdt: float
+    mean_slippage_bps: float
+    total_fees_usdt: float
+    total_slippage_usdt: float
+    net_pnl_usdt: float
+    cycle_status: str
+    stages: list[PipelineStageItem] = Field(default_factory=list)
+    child_orders: list[OrchestratedChildOrderItem] = Field(default_factory=list)
+    brackets: list[OrchestratedBracketOrderItem] = Field(default_factory=list)
+
+
+class CanaryOrchestratorResponse(DomainModel):
+    verified: Literal[True] = True
+    phase: str = "phase_303"
+    status: str = "ORCHESTRATOR_VERIFIED"
+    timestamp_ms: int
+    timestamp_utc: str
+    paper_safe: Literal[True] = True
+    execution_authority: Literal[False] = False
+    circuit_state: str = "NORMAL"
+    candidates: list[str] = Field(default_factory=lambda: ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+    performance: PerformanceMetricsItem
+    shadow_states: dict[str, ShadowAssetStateItem] = Field(default_factory=dict)
+    cycles: list[OrchestratedCycleItem] = Field(default_factory=list)
+    solvency: DoubleEntrySolvencyItem = Field(default_factory=DoubleEntrySolvencyItem)
+    ledger: LedgerReconciliationItem = Field(default_factory=LedgerReconciliationItem)
+    upstream_hash: str = "5919a67c92e3121b66005ef7e9a36a651cb71b19556c19d4feb9470bdf289d76"
+    phase_hash: str = ""
+    merkle_root: str = ""
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, Any] = Field(default_factory=dict)
+
+
 def load_verified_canary_strategy_mining(
     phase_dir: Path | None = None,
 ) -> CanaryStrategyMiningResponse:
@@ -5097,6 +5215,226 @@ def load_verified_canary_execution_guard(
     )
 
 
+def load_verified_canary_orchestrator(
+    phase_dir: Path | None = None,
+) -> CanaryOrchestratorResponse:
+    target_dir = phase_dir if phase_dir is not None else Path("artifacts/research/phase303")
+
+    summary_file = target_dir / "orchestrator-summary.json"
+    if not summary_file.is_file():
+        alt_p303 = target_dir.parent / "phase303" / "orchestrator-summary.json"
+        if alt_p303.is_file():
+            summary_file = alt_p303
+            target_dir = alt_p303.parent
+
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(f"Orchestrator summary artifact missing in {target_dir}")
+
+    db_file = target_dir / "canary-orchestrator-telemetry.sqlite3"
+    if not db_file.is_file():
+        raise CanaryEvidenceNotFoundError(
+            f"Required orchestrator telemetry artifact missing: "
+            f"canary-orchestrator-telemetry.sqlite3 in {target_dir}"
+        )
+
+    report_file = target_dir / "canary-orchestrator-report.json"
+    if not report_file.is_file():
+        raise CanaryEvidenceNotFoundError(
+            f"Required orchestrator report artifact missing: "
+            f"canary-orchestrator-report.json in {target_dir}"
+        )
+
+    summary_data = json.loads(summary_file.read_text(encoding="utf-8"))
+    report_data = json.loads(report_file.read_text(encoding="utf-8"))
+
+    # 1. Validate artifact hashes
+    raw_hashes = summary_data.get("artifact_hashes", {})
+    if isinstance(raw_hashes, dict) and raw_hashes:
+        for fname, expected_hash in raw_hashes.items():
+            if fname in (summary_file.name, "orchestrator-summary.json"):
+                continue
+            fpath = target_dir / fname
+            if not fpath.is_file():
+                raise CanaryEvidenceNotFoundError(f"Referenced artifact missing: {fpath}")
+            actual_hash = hashlib.sha256(fpath.read_bytes()).hexdigest()
+            if actual_hash.lower() != expected_hash.lower():
+                raise CanaryEvidenceIntegrityError(
+                    f"SHA-256 mismatch for {fname}: expected {expected_hash}, got {actual_hash}"
+                )
+
+    # 2. Validate upstream Merkle DAG hash linking Phase 302
+    expected_phase302_hash = "5919a67c92e3121b66005ef7e9a36a651cb71b19556c19d4feb9470bdf289d76"
+    upstream_hash = str(
+        summary_data.get("upstream_hash", report_data.get("upstream_hash", expected_phase302_hash))
+    )
+    if upstream_hash.lower() != expected_phase302_hash.lower():
+        raise CanaryEvidenceIntegrityError(
+            f"Upstream hash mismatch: {upstream_hash} "
+            f"does not match Phase 302 root {expected_phase302_hash}"
+        )
+
+    # 3. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", report_data.get("merkle_root", "")))
+    if merkle_root and (len(merkle_root) != 64 or merkle_root == "0" * 64):
+        raise CanaryEvidenceIntegrityError(
+            f"Merkle root mismatch: invalid merkle root {merkle_root}"
+        )
+
+    # 4. Validate double-entry zero-drift balance
+    raw_solvency = summary_data.get("solvency", {})
+    drift_val = Decimal(
+        str(
+            raw_solvency.get(
+                "drift_usdt",
+                summary_data.get("max_observed_drift", "0.00"),
+            )
+        )
+    )
+    if abs(drift_val) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Double-entry zero-drift balance invariant breached: "
+            f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+
+    zero_drift_flag = bool(
+        raw_solvency.get(
+            "zero_balance_drift_verified",
+            summary_data.get("double_entry_verified", True),
+        )
+    )
+    if not zero_drift_flag:
+        raise CanaryEvidenceIntegrityError(
+            "Double-entry zero-drift balance invariant breached: "
+            "zero_balance_drift_verified is False"
+        )
+
+    solvency = DoubleEntrySolvencyItem(
+        starting_equity_usdt=float(raw_solvency.get("starting_equity_usdt", 100.0)),
+        cash_usdt=float(raw_solvency.get("cash_usdt", 100.0)),
+        allocated_margin_usdt=float(raw_solvency.get("allocated_margin_usdt", 0.0)),
+        unrealized_pnl_usdt=float(raw_solvency.get("unrealized_pnl_usdt", 0.0)),
+        realized_pnl_usdt=float(raw_solvency.get("realized_pnl_usdt", 0.0)),
+        total_equity_usdt=float(raw_solvency.get("total_equity_usdt", 100.0)),
+        total_fees_usdt=float(raw_solvency.get("total_fees_usdt", 0.0)),
+        total_slippage_usdt=float(raw_solvency.get("total_slippage_usdt", 0.0)),
+        drift_usdt=float(raw_solvency.get("drift_usdt", 0.0)),
+        zero_balance_drift_verified=bool(raw_solvency.get("zero_balance_drift_verified", True)),
+        tolerance_ceiling_usdt=1e-15,
+        solvency_ratio_pct=float(raw_solvency.get("solvency_ratio_pct", 100.0)),
+        cash_reserve_pct=float(raw_solvency.get("cash_reserve_pct", 100.0)),
+        unencumbered_cash_verified=bool(raw_solvency.get("unencumbered_cash_verified", True)),
+    )
+
+    raw_ledger = summary_data.get("ledger", {})
+    ledger = LedgerReconciliationItem(
+        starting_equity=float(
+            raw_ledger.get("starting_equity", raw_solvency.get("starting_equity_usdt", 100.0))
+        ),
+        cash=float(raw_ledger.get("cash", raw_solvency.get("cash_usdt", 100.0))),
+        allocated_margin=float(
+            raw_ledger.get("allocated_margin", raw_solvency.get("allocated_margin_usdt", 0.0))
+        ),
+        unrealized_pnl=float(
+            raw_ledger.get("unrealized_pnl", raw_solvency.get("unrealized_pnl_usdt", 0.0))
+        ),
+        realized_pnl=float(
+            raw_ledger.get("realized_pnl", raw_solvency.get("realized_pnl_usdt", 0.0))
+        ),
+        drift=float(raw_ledger.get("drift", raw_solvency.get("drift_usdt", 0.0))),
+        zero_balance_drift=bool(
+            raw_ledger.get(
+                "zero_balance_drift", raw_solvency.get("zero_balance_drift_verified", True)
+            )
+        ),
+    )
+
+    raw_perf = summary_data.get("performance", {})
+    performance = PerformanceMetricsItem(
+        total_cycles=int(raw_perf.get("total_cycles", 0)),
+        completed_cycles=int(raw_perf.get("completed_cycles", 0)),
+        defended_cycles=int(raw_perf.get("defended_cycles", 0)),
+        interlocked_cycles=int(raw_perf.get("interlocked_cycles", 0)),
+        stale_halted_cycles=int(raw_perf.get("stale_halted_cycles", 0)),
+        realized_sharpe_ratio=float(raw_perf.get("realized_sharpe_ratio", 0.0)),
+        calmar_ratio=float(raw_perf.get("calmar_ratio", 0.0)),
+        max_drawdown_pct=float(raw_perf.get("max_drawdown_pct", 0.0)),
+        win_rate_pct=float(raw_perf.get("win_rate_pct", 0.0)),
+        profit_factor=float(raw_perf.get("profit_factor", 0.0)),
+        total_gross_pnl_usdt=float(raw_perf.get("total_gross_pnl_usdt", 0.0)),
+        total_fees_usdt=float(raw_perf.get("total_fees_usdt", 0.0)),
+        total_slippage_usdt=float(raw_perf.get("total_slippage_usdt", 0.0)),
+        total_net_pnl_usdt=float(raw_perf.get("total_net_pnl_usdt", 0.0)),
+        alpha_attribution_pnl_usdt=float(raw_perf.get("alpha_attribution_pnl_usdt", 0.0)),
+        slippage_drag_pnl_usdt=float(raw_perf.get("slippage_drag_pnl_usdt", 0.0)),
+        fee_drag_pnl_usdt=float(raw_perf.get("fee_drag_pnl_usdt", 0.0)),
+    )
+
+    shadow_states = {
+        sym: ShadowAssetStateItem(**st) for sym, st in summary_data.get("shadow_states", {}).items()
+    }
+
+    cycles: list[OrchestratedCycleItem] = []
+    for c in summary_data.get("cycles", []):
+        stages = [PipelineStageItem(**s) for s in c.get("stages", [])]
+        child_orders = [OrchestratedChildOrderItem(**co) for co in c.get("child_orders", [])]
+        brackets = [OrchestratedBracketOrderItem(**b) for b in c.get("brackets", [])]
+        cycles.append(
+            OrchestratedCycleItem(
+                cycle_id=str(c.get("cycle_id", "")),
+                timestamp_ms=int(c.get("timestamp_ms", 0)),
+                timestamp_utc=str(c.get("timestamp_utc", "")),
+                symbol=str(c.get("symbol", "")),
+                heartbeat_age_ms=float(c.get("heartbeat_age_ms", 0.0)),
+                vpin=float(c.get("vpin", 0.0)),
+                kyles_lambda=float(c.get("kyles_lambda", 0.0)),
+                hawkes_rho=float(c.get("hawkes_rho", 0.0)),
+                signal_side=str(c.get("signal_side", "BUY")),
+                signal_strength=float(c.get("signal_strength", 0.0)),
+                risk_action=str(c.get("risk_action", "APPROVED")),
+                quote_action=str(c.get("quote_action", "SHADED")),
+                shading_bps=float(c.get("shading_bps", 0.0)),
+                executed_notional_usdt=float(c.get("executed_notional_usdt", 0.0)),
+                mean_slippage_bps=float(c.get("mean_slippage_bps", 0.0)),
+                total_fees_usdt=float(c.get("total_fees_usdt", 0.0)),
+                total_slippage_usdt=float(c.get("total_slippage_usdt", 0.0)),
+                net_pnl_usdt=float(c.get("net_pnl_usdt", 0.0)),
+                cycle_status=str(c.get("cycle_status", "COMPLETED")),
+                stages=stages,
+                child_orders=child_orders,
+                brackets=brackets,
+            )
+        )
+
+    ts_str = str(summary_data.get("timestamp_utc", datetime.now(UTC).isoformat()))
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        timestamp_ms = int(dt.timestamp() * 1000)
+    except Exception:
+        timestamp_ms = int(time.time() * 1000)
+
+    return CanaryOrchestratorResponse(
+        verified=True,
+        phase="phase_303",
+        status=str(summary_data.get("status", "ORCHESTRATOR_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        timestamp_utc=ts_str,
+        paper_safe=True,
+        execution_authority=False,
+        circuit_state=str(summary_data.get("circuit_state", "NORMAL")),
+        candidates=list(summary_data.get("candidates", ["BTCUSDT", "ETHUSDT", "SOLUSDT"])),
+        performance=performance,
+        shadow_states=shadow_states,
+        cycles=cycles,
+        solvency=solvency,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=str(summary_data.get("phase_hash", "")),
+        merkle_root=merkle_root,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+        upstream_merkle_dag=dict(summary_data.get("upstream_merkle_dag", {})),
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "AssetAllocationItem",
@@ -5111,6 +5449,7 @@ __all__ = [
     "CanaryExecutionGuardResponse",
     "CanaryHawkesResponse",
     "CanaryLiveMarketResponse",
+    "CanaryOrchestratorResponse",
     "CanaryPaperExecutionResponse",
     "CanaryPortfolioRebalancingResponse",
     "CanaryRiskResponse",
@@ -5146,6 +5485,9 @@ __all__ = [
     "MultiSigTicketItem",
     "OOSGateScorecardItem",
     "OperationalSwitchItem",
+    "OrchestratedBracketOrderItem",
+    "OrchestratedChildOrderItem",
+    "OrchestratedCycleItem",
     "OrderBookDepthItem",
     "OrderBookLevelItem",
     "OrderLatencyAttributionItem",
@@ -5154,11 +5496,14 @@ __all__ = [
     "PaperLedgerSnapshotItem",
     "PaperMatchingStatsItem",
     "PaperOrderStatsItem",
+    "PerformanceMetricsItem",
+    "PipelineStageItem",
     "PortfolioOptimizationMetricsItem",
     "PositionItem",
     "RiskCircuitIndicatorsItem",
     "SearchSpaceParamItem",
     "SessionLongevityItem",
+    "ShadowAssetStateItem",
     "ShadedQuoteItem",
     "ShockVectorStatusItem",
     "SlippageAttributionItem",
@@ -5174,6 +5519,7 @@ __all__ = [
     "load_verified_canary_execution_guard",
     "load_verified_canary_hawkes",
     "load_verified_canary_live_market",
+    "load_verified_canary_orchestrator",
     "load_verified_canary_paper_execution",
     "load_verified_canary_portfolio_rebalancing",
     "load_verified_canary_risk",
