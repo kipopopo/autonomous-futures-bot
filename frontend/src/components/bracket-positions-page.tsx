@@ -229,38 +229,38 @@ export function BracketPositionsPage({ model }: { model: BracketPositionsModel }
                           {pos.side}
                         </span>
                       </td>
-                      <td className="font-mono">{pos.size.toFixed(4)}</td>
-                      <td className="font-mono">{`$${pos.entry_price.toFixed(2)}`}</td>
-                      <td className="font-mono">{`$${pos.mark_price.toFixed(2)}`}</td>
-                      <td className="font-mono">{`$${pos.notional_usdt.toFixed(2)}`}</td>
-                      <td className="font-mono">{`$${pos.margin_allocated_usdt.toFixed(2)}`}</td>
+                      <td className="font-mono">{(pos.size ?? 0).toFixed(4)}</td>
+                      <td className="font-mono">{`$${(pos.entry_price ?? 0).toFixed(2)}`}</td>
+                      <td className="font-mono">{`$${(pos.mark_price ?? 0).toFixed(2)}`}</td>
+                      <td className="font-mono">{`$${(pos.notional_usdt ?? 0).toFixed(2)}`}</td>
+                      <td className="font-mono">{`$${(pos.margin_allocated_usdt ?? 0).toFixed(2)}`}</td>
                       <td
                         className={`font-mono font-semibold ${
                           isPnLPositive ? 'text-success' : 'text-error'
                         }`}
                       >
-                        {`${isPnLPositive ? '+' : ''}${pos.unrealized_pnl_usdt.toFixed(4)} USDT`}
+                        {`${isPnLPositive ? '+' : ''}${(pos.unrealized_pnl_usdt ?? 0).toFixed(4)} USDT`}
                       </td>
                       <td className="font-mono text-warning">
                         {pos.liquidation_price_usdt > 0
-                          ? `$${pos.liquidation_price_usdt.toFixed(2)}`
+                          ? `$${(pos.liquidation_price_usdt ?? 0).toFixed(2)}`
                           : '—'}
                       </td>
                       <td>
                         <div className="flex items-center gap-2">
                           <progress
                             className={`progress w-16 ${
-                              pos.margin_ratio_pct >= 70
+                              (pos.margin_ratio_pct ?? 0) >= 70
                                 ? 'progress-error'
-                                : pos.margin_ratio_pct >= 50
+                                : (pos.margin_ratio_pct ?? 0) >= 50
                                 ? 'progress-warning'
                                 : 'progress-primary'
                             }`}
-                            value={pos.margin_ratio_pct}
+                            value={pos.margin_ratio_pct ?? 0}
                             max="100"
                           />
                           <span className="font-mono text-xs font-semibold">
-                            {`${pos.margin_ratio_pct.toFixed(1)}%`}
+                            {`${(pos.margin_ratio_pct ?? 0).toFixed(1)}%`}
                           </span>
                         </div>
                       </td>
@@ -274,12 +274,12 @@ export function BracketPositionsPage({ model }: { model: BracketPositionsModel }
                               : 'badge-success'
                           }`}
                         >
-                          {pos.risk_state}
+                          {pos.risk_state || 'NORMAL'}
                         </span>
                       </td>
                       <td>
                         <span className="badge badge-neutral badge-sm font-mono">
-                          {pos.brackets_count}
+                          {pos.brackets_count ?? pos.brackets?.length ?? 0}
                         </span>
                       </td>
                     </tr>
@@ -343,8 +343,10 @@ export function BracketPositionsPage({ model }: { model: BracketPositionsModel }
                 ) : (
                   filteredBrackets.map((b) => {
                     const isSelected = b.bracket_id === selectedBracketId
-                    const isLong = b.side === 'LONG'
-                    const watermark = isLong ? b.high_watermark : b.low_watermark
+                    const isLong = b.side === 'LONG' || b.side === 'BUY'
+                    const watermark = isLong
+                      ? (b.high_watermark ?? b.ratchet_watermark ?? 0)
+                      : (b.low_watermark ?? b.ratchet_watermark ?? 0)
                     return (
                       <tr
                         key={b.bracket_id}
@@ -364,12 +366,12 @@ export function BracketPositionsPage({ model }: { model: BracketPositionsModel }
                             {b.side}
                           </span>
                         </td>
-                        <td className="font-mono">{`$${b.entry_price.toFixed(2)}`}</td>
-                        <td className="font-mono text-success">{`$${b.take_profit_price.toFixed(2)}`}</td>
+                        <td className="font-mono">{`$${(b.entry_price ?? 0).toFixed(2)}`}</td>
+                        <td className="font-mono text-success">{`$${(b.take_profit_price ?? 0).toFixed(2)}`}</td>
                         <td className="font-mono text-warning">
-                          {`$${b.stop_loss_trigger_price.toFixed(2)}`}
+                          {`$${(b.stop_loss_trigger_price ?? 0).toFixed(2)}`}
                         </td>
-                        <td className="font-mono text-xs">{`$${watermark.toFixed(2)}`}</td>
+                        <td className="font-mono text-xs">{`$${(watermark ?? 0).toFixed(2)}`}</td>
                         <td>
                           <span
                             className={`badge badge-xs font-mono ${
@@ -413,7 +415,7 @@ export function BracketPositionsPage({ model }: { model: BracketPositionsModel }
               <div className="flex items-center justify-between rounded-lg bg-base-200/50 p-3">
                 <span className="text-xs text-base-content/70">Parent Order</span>
                 <span className="font-mono text-xs font-semibold">
-                  {selectedBracket.parent_order_id}
+                  {selectedBracket.parent_order_id || selectedBracket.entry_order_id || '—'}
                 </span>
               </div>
 
@@ -421,13 +423,13 @@ export function BracketPositionsPage({ model }: { model: BracketPositionsModel }
                 <div className="rounded-lg bg-base-200/40 p-3">
                   <span className="text-xs text-base-content/60">Take-Profit Target</span>
                   <p className="mt-1 font-mono text-sm font-bold text-success">
-                    {`$${selectedBracket.take_profit_price.toFixed(2)}`}
+                    {`$${(selectedBracket.take_profit_price ?? 0).toFixed(2)}`}
                   </p>
                 </div>
                 <div className="rounded-lg bg-base-200/40 p-3">
                   <span className="text-xs text-base-content/60">Trailing Stop Trigger</span>
                   <p className="mt-1 font-mono text-sm font-bold text-warning">
-                    {`$${selectedBracket.stop_loss_trigger_price.toFixed(2)}`}
+                    {`$${(selectedBracket.stop_loss_trigger_price ?? 0).toFixed(2)}`}
                   </p>
                 </div>
               </div>
@@ -436,18 +438,21 @@ export function BracketPositionsPage({ model }: { model: BracketPositionsModel }
                 <div className="rounded-lg bg-base-200/40 p-3">
                   <span className="text-xs text-base-content/60">Trailing Delta</span>
                   <p className="mt-1 font-mono text-sm font-semibold">
-                    {`${selectedBracket.trailing_delta_bps.toFixed(0)} bps`}
+                    {`${(selectedBracket.trailing_delta_bps ?? 0).toFixed(0)} bps`}
                   </p>
                 </div>
                 <div className="rounded-lg bg-base-200/40 p-3">
                   <span className="text-xs text-base-content/60">
-                    {selectedBracket.side === 'LONG' ? 'High Watermark' : 'Low Watermark'}
+                    {selectedBracket.side === 'LONG' || selectedBracket.side === 'BUY'
+                      ? 'High Watermark'
+                      : 'Low Watermark'}
                   </span>
                   <p className="mt-1 font-mono text-sm font-semibold text-accent">
                     {`$${
-                      selectedBracket.side === 'LONG'
-                        ? selectedBracket.high_watermark.toFixed(2)
-                        : selectedBracket.low_watermark.toFixed(2)
+                      (selectedBracket.side === 'LONG' || selectedBracket.side === 'BUY'
+                        ? (selectedBracket.high_watermark ?? selectedBracket.ratchet_watermark ?? 0)
+                        : (selectedBracket.low_watermark ?? selectedBracket.ratchet_watermark ?? 0)
+                      ).toFixed(2)
                     }`}
                   </p>
                 </div>
@@ -526,7 +531,7 @@ export function BracketPositionsPage({ model }: { model: BracketPositionsModel }
                       {`${evt.latency_ms.toFixed(2)} ms`}
                     </span>
                     <span className="font-mono text-base-content/50">
-                      {`${evt.payload_hash.slice(0, 8)}...`}
+                      {evt.payload_hash ? `${evt.payload_hash.slice(0, 8)}...` : '—'}
                     </span>
                   </div>
                 </div>

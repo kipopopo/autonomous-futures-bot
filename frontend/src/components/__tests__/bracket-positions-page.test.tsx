@@ -254,4 +254,93 @@ describe('BracketPositionsPage component', () => {
     expect(html).toContain('PHASE 301')
     expect(html).toContain('Double-Entry Balance Governance')
   })
+
+  it('handles raw backend live payload safely without crashing', () => {
+    const rawBackendPayload = {
+      verified: true,
+      phase: 'phase_301',
+      status: 'BRACKET_POSITIONS_VERIFIED',
+      timestamp_ms: 1789544000000,
+      timestamp_utc: '2026-09-22T08:00:00.000Z',
+      paper_safe: true,
+      execution_authority: false,
+      circuit_state: 'NORMAL',
+      candidates: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+      all_positions: [
+        {
+          symbol: 'BTCUSDT',
+          side: 'FLAT',
+          size: 0.0,
+          entry_price: 50000.0,
+          mark_price: 50000.0,
+          notional_usdt: 0.0,
+          margin_allocated_usdt: 0.0,
+          unrealized_pnl_usdt: 0.0,
+          realized_pnl_usdt: 0.075,
+          liquidation_price_usdt: 33833.33,
+          margin_ratio_pct: 0.0,
+          risk_state: 'NORMAL',
+          brackets: [],
+          last_updated_utc: '2026-09-22T17:37:13.087273+00:00',
+        },
+      ],
+      brackets: [
+        {
+          bracket_id: 'brk-tp-c6b150c388',
+          entry_order_id: 'cl-t2-btc-entry',
+          symbol: 'BTCUSDT',
+          bracket_type: 'TAKE_PROFIT_LIMIT',
+          side: 'SELL',
+          status: 'FILLED',
+          trigger_price: 50750.0,
+          limit_price: 50750.0,
+          quantity: 0.0001,
+          notional_usdt: 5.0,
+          ratchet_watermark: 50000.0,
+          callback_rate_pct: 0.008,
+          created_at_utc: '2026-09-22T17:37:13.087247+00:00',
+          triggered_at_utc: '2026-09-22T17:37:13.087266+00:00',
+          filled_at_utc: '2026-09-22T17:37:13.087266+00:00',
+          fee_usdt: 0.001,
+          cancellation_reason: null,
+        },
+        {
+          bracket_id: 'brk-tsl-0072bd195c',
+          entry_order_id: 'cl-t2-btc-entry',
+          symbol: 'BTCUSDT',
+          bracket_type: 'TRAILING_STOP_MARKET',
+          side: 'SELL',
+          status: 'CANCELED',
+          trigger_price: 50096.0,
+          limit_price: null,
+          quantity: 0.0001,
+          notional_usdt: 5.0,
+          ratchet_watermark: 50500.0,
+          callback_rate_pct: 0.008,
+          created_at_utc: '2026-09-22T17:37:13.087247+00:00',
+          triggered_at_utc: null,
+          filled_at_utc: null,
+          fee_usdt: 0.0,
+          cancellation_reason: 'OCO mutual cancellation: triggered by brk-tp-c6b150c388',
+        },
+      ],
+      recent_events: [
+        {
+          event_id: 'evt-662af5e94f1c',
+          event_type: 'ACCOUNT_UPDATE',
+          symbol: null,
+          timestamp_utc: '2026-09-22T17:37:13.087184+00:00',
+          latency_ms: 0.012,
+        },
+      ],
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const model = buildBracketPositionsModel(rawBackendPayload as any)
+    const html = renderToString(<BracketPositionsPage model={model} />)
+    expect(html).toBeDefined()
+    expect(html).toContain('brk-tp-c6b150c388')
+    expect(html).toContain('brk-tsl-0072bd195c')
+    expect(html).toContain('cl-t2-btc-entry')
+  })
 })

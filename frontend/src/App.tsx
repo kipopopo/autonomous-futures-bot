@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Component, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity,
@@ -135,6 +135,53 @@ function statusFor(state: LoadState, model: OverviewModel, hasCanary: boolean): 
     return { label: 'VERIFIED', tone: 'verified', icon: CheckCircle2 }
   }
   return { label: 'NO VERIFIED DATA', tone: 'error', icon: AlertTriangle }
+}
+
+interface ErrorBoundaryProps {
+  children: ReactNode
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean
+  error: Error | null
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error, errorInfo: unknown) {
+    console.error('ErrorBoundary caught rendering error:', error, errorInfo)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section className="alert alert-error shadow-xl my-6">
+          <AlertTriangle className="h-6 w-6" />
+          <div>
+            <h3 className="font-bold text-base">Rendering Notice</h3>
+            <p className="text-xs opacity-90">
+              {this.state.error?.message || 'An unexpected rendering error occurred.'}
+            </p>
+          </div>
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => this.setState({ hasError: false, error: null })}
+          >
+            Retry
+          </button>
+        </section>
+      )
+    }
+    return this.props.children
+  }
 }
 
 function SafetyRail({
@@ -802,24 +849,26 @@ function App() {
           </section>
         )}
 
-        {isMarketPage && state === 'ready' && <LiveMarketPage model={liveMarketModel} />}
-        {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
-        {isLearnerPage && state === 'ready' && <LearnerPage model={learnerModel} />}
-        {isMicrostructurePage && state === 'ready' && (
-          <MicrostructurePage model={microstructureModel} telemetry={telemetry} />
-        )}
-        {isRiskPage && state === 'ready' && <RiskPage model={riskModel} />}
-        {isAccountingPage && state === 'ready' && <AccountingPage model={accountingModel} />}
-        {isExecutionPage && state === 'ready' && <ExecutionPage model={paperExecutionModel} />}
-        {isActivationPage && state === 'ready' && <StrategyActivationPage model={strategyActivationModel} />}
-        {isLifecyclePage && state === 'ready' && <LifecyclePage model={autonomousLifecycleModel} />}
-        {isStressPage && state === 'ready' && <StressPage model={stressModel} />}
-        {isMiningPage && state === 'ready' && <StrategyMiningPage model={strategyMiningModel} />}
-        {isPortfolioPage && state === 'ready' && <PortfolioRebalancingPage model={portfolioRebalancingModel} />}
-        {isTestnetPage && state === 'ready' && <TestnetGatewayPage model={testnetGatewayModel} />}
-        {isBracketsPage && state === 'ready' && <BracketPositionsPage model={bracketPositionsModel} />}
-        {isGuardPage && state === 'ready' && <ExecutionGuardPage model={executionGuardModel} />}
-        {inventoryVisible && <ComponentInventory components={model.components} />}
+        <ErrorBoundary key={page}>
+          {isMarketPage && state === 'ready' && <LiveMarketPage model={liveMarketModel} />}
+          {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
+          {isLearnerPage && state === 'ready' && <LearnerPage model={learnerModel} />}
+          {isMicrostructurePage && state === 'ready' && (
+            <MicrostructurePage model={microstructureModel} telemetry={telemetry} />
+          )}
+          {isRiskPage && state === 'ready' && <RiskPage model={riskModel} />}
+          {isAccountingPage && state === 'ready' && <AccountingPage model={accountingModel} />}
+          {isExecutionPage && state === 'ready' && <ExecutionPage model={paperExecutionModel} />}
+          {isActivationPage && state === 'ready' && <StrategyActivationPage model={strategyActivationModel} />}
+          {isLifecyclePage && state === 'ready' && <LifecyclePage model={autonomousLifecycleModel} />}
+          {isStressPage && state === 'ready' && <StressPage model={stressModel} />}
+          {isMiningPage && state === 'ready' && <StrategyMiningPage model={strategyMiningModel} />}
+          {isPortfolioPage && state === 'ready' && <PortfolioRebalancingPage model={portfolioRebalancingModel} />}
+          {isTestnetPage && state === 'ready' && <TestnetGatewayPage model={testnetGatewayModel} />}
+          {isBracketsPage && state === 'ready' && <BracketPositionsPage model={bracketPositionsModel} />}
+          {isGuardPage && state === 'ready' && <ExecutionGuardPage model={executionGuardModel} />}
+          {inventoryVisible && <ComponentInventory components={model.components} />}
+        </ErrorBoundary>
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">
           <span className="text-xs text-base-content/60">Read-only observational surface · PAPER-SAFE</span>

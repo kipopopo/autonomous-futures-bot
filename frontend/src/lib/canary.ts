@@ -2522,15 +2522,27 @@ export interface BracketOrderItem {
   symbol: string
   side: string
   parent_order_id: string
+  entry_order_id?: string
+  bracket_type?: string
   entry_price: number
   take_profit_price: number
   stop_loss_trigger_price: number
+  trigger_price?: number
+  limit_price?: number | null
+  quantity?: number
+  notional_usdt?: number
+  ratchet_watermark?: number
+  callback_rate_pct?: number
   trailing_delta_bps: number
   high_watermark: number
   low_watermark: number
   status: string
   oco_partner_id?: string | null
   created_at_utc: string
+  triggered_at_utc?: string | null
+  filled_at_utc?: string | null
+  fee_usdt?: number
+  cancellation_reason?: string | null
   last_updated_utc: string
 }
 
@@ -2547,6 +2559,7 @@ export interface PositionItem {
   liquidation_price_usdt: number
   margin_ratio_pct: number
   risk_state: string
+  brackets?: BracketOrderItem[]
   brackets_count: number
   last_updated_utc: string
 }
@@ -2554,9 +2567,10 @@ export interface PositionItem {
 export interface UserDataStreamEventItem {
   event_id: string
   event_type: string
-  event_time_ms: number
-  payload_hash: string
+  event_time_ms?: number
+  payload_hash?: string
   latency_ms: number
+  symbol?: string | null
   timestamp_utc: string
 }
 
@@ -2570,10 +2584,14 @@ export interface CanaryBracketPositionsData {
   paper_safe: boolean
   execution_authority: boolean
   candidates: string[]
-  brackets: BracketOrderItem[]
-  positions: PositionItem[]
-  stream_events: UserDataStreamEventItem[]
-  stream_metrics: Record<string, unknown>
+  brackets?: BracketOrderItem[]
+  positions?: PositionItem[]
+  all_positions?: PositionItem[]
+  active_positions?: PositionItem[]
+  recent_events?: UserDataStreamEventItem[]
+  stream_events?: UserDataStreamEventItem[]
+  ingress_status?: Record<string, unknown>
+  stream_metrics?: Record<string, unknown>
   ledger: LedgerReconciliationItem
   solvency: DoubleEntrySolvencyItem
   upstream_hash: string
@@ -2692,6 +2710,102 @@ export function buildBracketPositionsModel(
     unencumbered_cash_verified: true,
   }
 
+  const rawBrackets = (data.brackets || []) as unknown as Array<Record<string, unknown>>
+  const brackets: BracketOrderItem[] = rawBrackets.map((b) => {
+    const bracketId = String(b.bracket_id || '')
+    const symbol = String(b.symbol || 'BTCUSDT')
+    const side = String(b.side || 'BUY')
+    const status = String(b.status || 'ACTIVE')
+    const bracketType = String(b.bracket_type || '')
+    const parentOrderId = String(b.parent_order_id || b.entry_order_id || '')
+    const triggerPrice = Number(b.trigger_price ?? 0)
+    const limitPrice = b.limit_price != null ? Number(b.limit_price) : triggerPrice
+    const quantity = Number(b.quantity ?? 0)
+    const notionalUsdt = Number(b.notional_usdt ?? 0)
+    const callbackRatePct = Number(b.callback_rate_pct ?? 0.008)
+    const ratchetWatermark = Number(b.ratchet_watermark ?? triggerPrice)
+
+    const isTP = bracketType === 'TAKE_PROFIT_LIMIT' || b.take_profit_price !== undefined
+    const isTSL = bracketType === 'TRAILING_STOP_MARKET' || b.stop_loss_trigger_price !== undefined
+
+    const entryPrice = Number(b.entry_price ?? ratchetWatermark ?? triggerPrice ?? 0)
+    const takeProfitPrice = Number(b.take_profit_price ?? (isTP ? (limitPrice || triggerPrice) : triggerPrice))
+    const stopLossTriggerPrice = Number(b.stop_loss_trigger_price ?? (isTSL ? triggerPrice : triggerPrice))
+    const trailingDeltaBps = Number(b.trailing_delta_bps ?? Math.round(callbackRatePct * 10000))
+    const highWatermark = Number(b.high_watermark ?? ratchetWatermark)
+    const lowWatermark = Number(b.low_watermark ?? ratchetWatermark)
+
+    return {
+      bracket_id: bracketId,
+      symbol,
+      side,
+      parent_order_id: parentOrderId,
+      entry_order_id: parentOrderId,
+      bracket_type: bracketType || (isTP ? 'TAKE_PROFIT_LIMIT' : 'TRAILING_STOP_MARKET'),
+      entry_price: entryPrice,
+      take_profit_price: takeProfitPrice,
+      stop_loss_trigger_price: stopLossTriggerPrice,
+      trigger_price: triggerPrice,
+      limit_price: limitPrice,
+      quantity,
+      notional_usdt: notionalUsdt,
+      ratchet_watermark: ratchetWatermark,
+      callback_rate_pct: callbackRatePct,
+      trailing_delta_bps: trailingDeltaBps,
+      high_watermark: highWatermark,
+      low_watermark: lowWatermark,
+      status,
+      oco_partner_id: (b.oco_partner_id as string) || null,
+      created_at_utc: String(b.created_at_utc || ''),
+      triggered_at_utc: (b.triggered_at_utc as string) || null,
+      filled_at_utc: (b.filled_at_utc as string) || null,
+      fee_usdt: Number(b.fee_usdt ?? 0),
+      cancellation_reason: (b.cancellation_reason as string) || null,
+      last_updated_utc: String(b.last_updated_utc || b.filled_at_utc || b.triggered_at_utc || b.created_at_utc || ''),
+    }
+  })
+
+  const rawPositions = ((data.all_positions || data.positions || data.active_positions || []) as unknown as Array<Record<string, unknown>>)
+  const positions: PositionItem[] = rawPositions.map((pos) => {
+    const nestedBrackets = ((pos.brackets || []) as unknown as Array<Record<string, unknown>>)
+    return {
+      symbol: String(pos.symbol || ''),
+      side: String(pos.side || 'FLAT'),
+      size: Number(pos.size ?? 0),
+      entry_price: Number(pos.entry_price ?? 0),
+      mark_price: Number(pos.mark_price ?? 0),
+      notional_usdt: Number(pos.notional_usdt ?? 0),
+      margin_allocated_usdt: Number(pos.margin_allocated_usdt ?? 0),
+      unrealized_pnl_usdt: Number(pos.unrealized_pnl_usdt ?? 0),
+      realized_pnl_usdt: Number(pos.realized_pnl_usdt ?? 0),
+      liquidation_price_usdt: Number(pos.liquidation_price_usdt ?? 0),
+      margin_ratio_pct: Number(pos.margin_ratio_pct ?? 0),
+      risk_state: String(pos.risk_state || 'NORMAL'),
+      brackets_count: Number(pos.brackets_count ?? nestedBrackets.length),
+      last_updated_utc: String(pos.last_updated_utc || ''),
+    }
+  })
+
+  const rawEvents = ((data.recent_events || data.stream_events || []) as unknown as Array<Record<string, unknown>>)
+  const streamEvents: UserDataStreamEventItem[] = rawEvents.map((evt) => ({
+    event_id: String(evt.event_id || ''),
+    event_type: String(evt.event_type || ''),
+    event_time_ms: Number(evt.event_time_ms ?? 0),
+    payload_hash: String(evt.payload_hash || ''),
+    latency_ms: Number(evt.latency_ms ?? 0),
+    symbol: (evt.symbol as string) || null,
+    timestamp_utc: String(evt.timestamp_utc || ''),
+  }))
+
+  const ingressStatus = (data.ingress_status || {}) as Record<string, unknown>
+  const streamMetrics: BracketPositionsModel['streamMetrics'] = {
+    total_events: Number(ingressStatus.total_events ?? streamEvents.length),
+    mean_latency_ms: Number(ingressStatus.mean_latency_ms ?? 0.12),
+    max_latency_ms: Number(ingressStatus.max_latency_ms ?? 0.45),
+    heartbeat_valid: Boolean(ingressStatus.heartbeat_fresh ?? true),
+    ...data.stream_metrics,
+  }
+
   return {
     phase: data.phase,
     verified: Boolean(data.verified ?? true),
@@ -2705,15 +2819,10 @@ export function buildBracketPositionsModel(
     isExecutionOff: !data.execution_authority,
     isZeroDrift,
     candidates: data.candidates || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
-    brackets: data.brackets || [],
-    positions: data.positions || [],
-    streamEvents: data.stream_events || [],
-    streamMetrics: (data.stream_metrics as BracketPositionsModel['streamMetrics']) || {
-      total_events: (data.stream_events || []).length,
-      mean_latency_ms: 0.12,
-      max_latency_ms: 0.45,
-      heartbeat_valid: true,
-    },
+    brackets,
+    positions,
+    streamEvents,
+    streamMetrics,
     ledger: data.ledger || {
       starting_equity: 100.0,
       cash: 100.0,
