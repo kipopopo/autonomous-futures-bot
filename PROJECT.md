@@ -1,117 +1,141 @@
-# Project: Phase 298 — Dynamic Strategy Mining, Auto-Evolution & Microstructure Mutation Engine
+# Project: Phase 309 — Autonomous Live Production Launch & Micro-Capital Self-Driving Trading Engine
 
 ## Architecture
-Phase 298 establishes an autonomous real-time strategy mining, auto-evolution, and microstructure mutation pipeline for the Autonomous Futures Bot. It ingests live market features (Hawkes jump intensity $\lambda$, branching ratio, spectral radius $\rho$, Order Flow Imbalance OFI, volume profile, Donchian channels, rolling volatility), formulates deterministic quantitative hypotheses across candidate families (`DCB`, `RGB`, `MSM`), mutates parameters systematically while recording lineage, evaluates variants across multi-tier walk-forward out-of-sample (OOS) windows against 5 strict qualification gates, atomically promotes qualifying candidates to version 3 of the candidate registry manifest, hot-reloads them seamlessly into the running paper engine while guaranteeing open-trade immutability, governs balance solvency with mathematical zero-drift ($|\Delta| < 10^{-15}$ USDT), and exposes live telemetry via FastAPI and DaisyUI 5.7.42 dashboard.
+Phase 309 unifies all preceding canary engineering phases (Phases 292–308) into a live self-driving production trading engine operating under strict micro-capital confinement boundaries:
+1. **Micro-Capital Confinement & Real-Time Trading Loop**:
+   - Dynamic micro-order slicing ($\le 5.00$ USDT per slice) quantized by exchange step-size with Binance `MIN_NOTIONAL` compliance.
+   - Aggregate exposure ceiling ($\le 25.00$ USDT) across active candidate assets (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+   - Unencumbered cash reserve floor ($\ge 75.0\%$).
+   - Strict intra-day loss ceiling ($\le 3.00$ USDT) with fail-closed auto-flattening.
+2. **Multi-Horizon Alpha Ensemble & Hawkes Risk Interlocks**:
+   - Real-time signals across `BTCUSDT`, `ETHUSDT`, `SOLUSDT` combining Micro (1s–5s), Short (1m–5m), and Medium (15m–1h) horizons with regime-conditioned weights and conflict shading.
+   - Hawkes spectral radius cutoff ($\rho \ge 1.0$) with instantaneous cascade suppression (< 1 ms).
+   - Feed SLA gateway freshness ($\le 500$ ms).
+3. **Double-Entry Solvency Bookkeeping**:
+   - $\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} \equiv \text{Starting Equity} + \text{Realized PnL}$
+   - Invariant tolerance $|\text{drift}| < 10^{-15}$ USDT.
+4. **Multi-Sig Governance & Hardware/OS Kill-Switch Interlock**:
+   - 2-of-3 M-of-N cryptographic quorum verification (`CRO`, `SEC`, `DEV`) with monotonic nonce replay prevention.
+   - 3-tier emergency kill switch (Level 1: Soft Pause, Level 2: Lockout, Level 3: Hardware Panic with credential memory wipe).
+   - Signal trapping (`SIGINT`, `SIGTERM`) and token tripwire file (`emergency_kill.lock`).
+5. **Cryptographic Merkle DAG verification**:
+   - Upstream hash: `65c2e7d2b3dc5d0f63773ef531c700a0fa2f6e73bdc094c7fad1105fc675e31e` (Phase 308).
+   - Verification runner script: `scripts/run_phase_309_autonomous_launch.py` and `scripts/run_phase_309_production_launch.py`.
+   - Immutable research artifacts in `artifacts/research/phase309/`.
+6. **Observational Backend API & DaisyUI 5.7.42 Dashboard**:
+   - Read-only FastAPI endpoint `GET /api/v1/canary/production-launch`.
+   - Frontend dashboard component (`production-launch-page.tsx`) under route `#/production-launch` with status banner, KPI cards, allocation matrix, kill-switch panel, and double-entry solvency meter.
 
 ```
-Incoming Market Feeds (Phases 292-297)
-  [Depth5, AggTrades, Hawkes ρ/λ, OFI, Volatility]
-                  │
-                  ▼
-   [MicrostructureMutationEngine]
-  ├── Families: DCB, RGB, MSM (New)
-  ├── Systematic Parameter Perturbations
-  └── Auditable Mutation Genealogy & Lineage
-                  │
-                  ▼
-   [ContinuousOOSGateEvaluator]
-  ├── Gate 1: Walk-Forward OOS Return >= 0.0%
-  ├── Gate 2: Walk-Forward OOS Worst Drawdown <= 15.0%
-  ├── Gate 3: Walk-Forward OOS Profit Factor >= 1.05
-  ├── Gate 4: Min OOS Trade Count >= 5 in >= 1 Window
-  └── Gate 5: Microstructure Resilience (-20% Flash Crash & 10% Spread Shock)
-                  │
-         ┌────────┴────────┐
-     (Pass All 5)       (Fail Any)
-         ▼                 ▼
-   [Autonomous Promotion] [Pruning]
-  ├── CreatorCandidateArtifact & Evidence
-  ├── Atomic Manifest Update (v2 -> v3)
-  └── CandidateRegistryHotReloader
-       ├── LivePaperTradingEngine
-       └── AutonomousLifecycleDaemon
-            (Open Trade Immutability Guaranteed)
-                  │
-                  ▼
-   [Continuous Zero-Drift Ledger & Merkle DAG]
-  ├── |drift| < 10^-15 USDT
-  └── Chained to Phase 297 (257f83f794465f3b89bfd9dbc25a2bf949d9fe315ecd97e2108c027ca3475668)
-                  │
-                  ▼
-   [Observational API & DaisyUI Dashboard]
-  ├── GET /api/v1/canary/strategy-mining & summary
-  └── DaisyUI 5.7.42 Dashboard (#/mining)
+                    [Binance USDⓈ-M Live Feeds (BTC, ETH, SOL)]
+                                      │
+                                      ▼
+                        [SelfDrivingTradingEngine]
+                                      │
+         ┌────────────────────────────┼────────────────────────────┐
+         ▼                            ▼                            ▼
+ [Feed SLA Gate]            [Hawkes Cascade Gate]        [Multi-Horizon Ensemble]
+  (Age <= 500 ms)               (rho < 1.0)              (Micro / Short / Med)
+         │                            │                            │
+         └────────────────────────────┼────────────────────────────┘
+                                      ▼
+                        [Pre-Trade Risk Confinement]
+                       ├── Micro Slicing (<= 5.00 USDT)
+                       ├── Aggregate Cap (<= 25.00 USDT)
+                       ├── Cash Reserve (>= 75.0%)
+                       └── Loss Ceiling (<= 3.00 USDT Auto-Flatten)
+                                      │
+                                      ▼
+                      [Multi-Sig & Kill-Switch Interlock]
+                       ├── 2-of-3 Quorum (CRO, SEC, DEV)
+                       ├── 3-Tier Kill Switch (L1 / L2 / L3)
+                       └── File Tripwire (emergency_kill.lock)
+                                      │
+                                      ▼
+                      [Double-Entry Solvency Ledger]
+                       ├── Assets == Obligations
+                       └── |drift| < 10^-15 USDT
+                                      │
+                                      ▼
+                      [Cryptographic Merkle DAG Chain]
+                       ├── Upstream Hash: 65c2e7d2... (Phase 308)
+                       └── Phase 309 Artifacts & Merkle Root
 ```
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | Feature Ingestion & MSM Family | Ingest Hawkes $\lambda, \rho$, OFI, volume profile; support DCB, RGB, and MSM | M1 | ORIGINAL_REQUEST §R1 |
-| 2 | Systematic Parameter Mutation | Mutate lookbacks, z-scores, ATR stops, regime context, margin multipliers | M1 | ORIGINAL_REQUEST §R1 |
-| 3 | Mutation Genealogy Tracking | Record parent ID, mutation lineage, generation counter, and parameter diffs | M1 | ORIGINAL_REQUEST §R1 |
-| 4 | 5-Gate Walk-Forward OOS Evaluation | Gates: Return >= 0%, DD <= 15%, PF >= 1.05, Trades >= 5, Microstructure Resilience | M2 | ORIGINAL_REQUEST §R2 |
-| 5 | Microstructure Resilience Gate | Simulate survival under Phase 297 flash crash (-20%) and spread shock (10.0%) | M2 | ORIGINAL_REQUEST §R2 |
-| 6 | Unviable Candidate Pruning | Filter out sub-threshold hypotheses; retain top-performing candidates | M2 | ORIGINAL_REQUEST §R2 |
-| 7 | Autonomous Candidate Promotion | Generate `CreatorCandidateArtifact` and qualification artifact for top candidates | M3 | ORIGINAL_REQUEST §R3 |
-| 8 | Atomic Manifest v3 Update | Atomically advance `candidate_registry.json` from v2 to v3 with SHA-256 hash | M3 | ORIGINAL_REQUEST §R3 |
-| 9 | Zero-Downtime Hot-Reload | Stat-first polling hot-reload in `LivePaperEngine` and `AutonomousLifecycleDaemon` | M3 | ORIGINAL_REQUEST §R3 |
-| 10 | Open-Trade Immutability | Active trades retain original candidate exit rules; new trades adopt reloaded candidate | M3 | ORIGINAL_REQUEST §R3 |
-| 11 | Zero-Drift Balance Conservation | Double-entry ledger reconciliation strictly enforcing $|\Delta| < 10^{-15}$ USDT | M4 | ORIGINAL_REQUEST §R4 |
-| 12 | Merkle DAG Hash Lineage | Cryptographically link Phase 297 summary hash `257f83f7...` in `artifacts/research/phase298/` | M4 | ORIGINAL_REQUEST §R4 |
-| 13 | FastAPI Canary Mining Endpoint | Read-only `GET /api/v1/canary/strategy-mining` and updated `summary` endpoint | M4 | ORIGINAL_REQUEST §R5 |
-| 14 | DaisyUI Dashboard Mining View | `strategy-mining-page.tsx` rendering 5 required panels under route `#/mining` | M5 | ORIGINAL_REQUEST §R5 |
-| 15 | Paper-Safe Confinement | Enforce `EXECUTION AUTHORITY: OFF`, 0 exchange calls, 0 credentials loaded | M1-M6 | ORIGINAL_REQUEST §R6 |
-| 16 | Deterministic 4-Track Runner | `scripts/run_phase_298_strategy_mining.py` executing 4 deterministic tracks | M6 | Acceptance Criteria |
+| 1 | Micro-Order Sizing & Slicing | Quantize child orders <= 5.00 USDT with step size and MIN_NOTIONAL compliance | M1 | ORIGINAL_REQUEST §1 |
+| 2 | Aggregate Exposure Ceiling | Total active exposure strictly <= 25.00 USDT across BTC, ETH, SOL | M1 | ORIGINAL_REQUEST §1 |
+| 3 | Unencumbered Cash Reserve Floor | Maintain >= 75.0% liquid unencumbered cash buffer at all times | M1 | ORIGINAL_REQUEST §1 |
+| 4 | Intra-Day Loss Ceiling & Flattening | Accumulate intra-day loss; if >= 3.00 USDT, fail-closed emergency flatten | M1 | ORIGINAL_REQUEST §1 |
+| 5 | Multi-Horizon Alpha Ensemble | Micro (1s-5s), Short (1m-5m), Medium (15m-1h) signals across BTC, ETH, SOL | M1 | ORIGINAL_REQUEST §2 |
+| 6 | Hawkes Spectral Radius Cutoff | If rho >= 1.0, instantly suppress order dispatch (< 1 ms reaction time) | M1 | ORIGINAL_REQUEST §2 |
+| 7 | Feed SLA Heartbeat Gate | Heartbeat latency <= 500 ms gate before processing ticks | M1 | ORIGINAL_REQUEST §2 |
+| 8 | Double-Entry Solvency Ledger | Exact balance reconciliation with \|drift\| < 1e-15 USDT | M1 | ORIGINAL_REQUEST §3 |
+| 9 | Multi-Sig Governance (2-of-3) | HMAC-SHA256 quorum verification across CRO, SEC, DEV with anti-replay nonces | M1 | ORIGINAL_REQUEST §4 |
+| 10 | 3-Tier Emergency Kill-Switch | Soft Pause, Lockout, and Hardware Panic with credential memory wipe | M1 | ORIGINAL_REQUEST §4 |
+| 11 | OS Signal & Token Tripwire | Trapping SIGINT/SIGTERM and monitoring emergency_kill.lock file | M1 | ORIGINAL_REQUEST §4 |
+| 12 | Cryptographic Merkle DAG Chain | Upstream hash 65c2e7d2... link; generate artifacts in artifacts/research/phase309/ | M1 | ORIGINAL_REQUEST §5 |
+| 13 | Autonomous Launch Runner Script | scripts/run_phase_309_autonomous_launch.py with verification & simulation modes | M1 | ORIGINAL_REQUEST §7 |
+| 14 | Observational FastAPI API | GET /api/v1/canary/production-launch returning validated launch telemetry | M1 | ORIGINAL_REQUEST §7 |
+| 15 | DaisyUI Production Launch Dashboard | React component, navigation tab (#/production-launch), and Vitest test suite | M2 | ORIGINAL_REQUEST §7 |
+| 16 | Comprehensive Test Suite & Quality Gates | Targeted pytest, ruff check, ruff format --check, mypy src scripts, Vitest | M3 | ORIGINAL_REQUEST §7 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| 1 | Strategy Mining & Mutation Engine | `strategy_mining.py`, `contracts.py`, 5-gate evaluator, unit tests | none | DONE |
-| 2 | Candidate Promotion & Atomic Hot-Reload | `DynamicStrategyMiner`, manifest v3 update, daemon hot-reloader, open-trade immutability | M1 | DONE |
-| 3 | Zero-Drift Ledger, Merkle DAG & API | Double-entry balance reconciliation ($|\Delta| < 10^{-15}$ USDT), Merkle DAG link, `canary.py`, `app.py` | M2 | DONE |
-| 4 | DaisyUI Frontend Dashboard & Routing | `strategy-mining-page.tsx`, `App.tsx`, `navigation.ts`, `api.ts`, Vitest test suite | M3 | DONE |
-| 5 | 4-Track Verification Runner & Quality Gates | `scripts/run_phase_298_strategy_mining.py`, artifacts packaging, quality gates verification | M1-M4 | DONE |
+| 1 | Core Backend Engine, Runner & Quality Gate Fixes | Fix mypy type errors in kill_switch.py & self_driving.py, format code with ruff, provide scripts/run_phase_309_autonomous_launch.py | none | COMPLETED |
+| 2 | Frontend Mission Control Dashboard & Telemetry | Implement production-launch-page.tsx, canary.ts types, api.ts fetcher, navigation route, Vitest suite, and App.tsx tab | M1 | COMPLETED |
+| 3 | Comprehensive Testing & Verification Suite | Targeted pytest suite, runner verification, and Vitest suite execution | M2 | COMPLETED |
+| 4 | Static Quality Gates & Forensic Integrity Audit | ruff check, ruff format --check, mypy src scripts, targeted pytest, npm run test/build, and forensic auditor sign-off | M3 | COMPLETED |
 
 ## Interface Contracts
 
-### 1. `MicrostructureMutationEngine`
+### 1. `SelfDrivingTradingEngine`
 ```python
-class MicrostructureMutationEngine:
-    def __init__(self, seed: int = 42) -> None: ...
-    def mutate(self, parent: CreatorCandidateArtifact, generation: int) -> CreatorCandidateArtifact: ...
-    def create_msm_candidate(self, symbol: str, lookback: int, entry_z: float, stop_atr: float) -> CreatorCandidateArtifact: ...
+class SelfDrivingTradingEngine:
+    def __init__(self, config: MicroCapitalConfig, output_dir: Path) -> None: ...
+    def run_pre_flight_check(self) -> dict[str, Any]: ...
+    def process_microstructure_tick(self, tick: MarketTick) -> Optional[SelfDrivingOrder]: ...
+    def handle_kill_switch_trip(self, reason: str, level: KillSwitchLevel) -> None: ...
+    def export_artifacts(self) -> dict[str, Any]: ...
 ```
 
-### 2. `ContinuousOOSGateEvaluator`
+### 2. `MultiSigGovernanceEngine` & `HardwareOSKillSwitchEngine`
 ```python
-class ContinuousOOSGateEvaluator:
-    def evaluate(self, candidate: CreatorCandidateArtifact, windows: list[WalkForwardWindow]) -> OOSGateResult: ...
-    def evaluate_microstructure_resilience(self, candidate: CreatorCandidateArtifact) -> ResilienceGateResult: ...
+class MultiSigGovernanceEngine:
+    def submit_proposal(self, action: GovernanceActionType, target: str, params: dict[str, Any], caller: SignerIdentity) -> GovernanceProposal: ...
+    def vote_on_proposal(self, proposal_id: str, signer: SignerIdentity, vote: VoteType, signature_hex: str, nonce: int) -> GovernanceProposal: ...
+
+class HardwareOSKillSwitchEngine:
+    def trigger_soft_pause(self, reason: str) -> None: ...
+    def trigger_lockout(self, reason: str) -> None: ...
+    def trigger_hardware_panic(self, reason: str, source: str) -> None: ...
+    def check_file_tripwire(self) -> bool: ...
 ```
 
-### 3. `DynamicStrategyMiner`
-```python
-class DynamicStrategyMiner:
-    def __init__(self, registry_path: Path, research_dir: Path) -> None: ...
-    def run_mining_cycle(self, symbol: str, n_candidates: int = 5) -> MiningCycleSummary: ...
-    def promote_candidate(self, result: QualifiedCandidateResult) -> CandidateRegistryManifest: ...
-```
-
-### 4. API & Merkle DAG Contract
-- Endpoint: `GET /api/v1/canary/strategy-mining`
-- Response Model: `CanaryStrategyMiningResponse`
-- Merkle Parent: `phase297_summary_hash = "257f83f794465f3b89bfd9dbc25a2bf949d9fe315ecd97e2108c027ca3475668"`
-- Ledger Invariant: $|\text{Cash} + \text{Margin} + \text{Unrealized} - (\text{Equity} + \text{Realized})| < 10^{-15}\text{ USDT}$
+### 3. API & Merkle DAG Contract
+- Endpoint: `GET /api/v1/canary/production-launch`
+- Response Model: `CanaryProductionLaunchResponse`
+- Upstream Merkle Parent: `65c2e7d2b3dc5d0f63773ef531c700a0fa2f6e73bdc094c7fad1105fc675e31e`
+- Phase 309 Merkle Root: `5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844`
+- Solvency Ledger Invariant: $|\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} - (\text{Starting Equity} + \text{Realized PnL})| < 10^{-15}\text{ USDT}$
 
 ## Code Layout
-- `src/autonomous_futures/feed/strategy_mining.py`: Core mining, mutation engine, OOS evaluator, dynamic miner
-- `src/autonomous_futures/domain/contracts.py`: Extension for `microstructure_momentum` strategy family
-- `src/autonomous_futures/api/canary.py`: Response models and verified loader for strategy mining
-- `src/autonomous_futures/api/app.py`: Endpoint registration for `GET /api/v1/canary/strategy-mining`
-- `frontend/src/lib/navigation.ts`: Route `'mining'`, hash `#/mining`
-- `frontend/src/components/strategy-mining-page.tsx`: DaisyUI 5.7.42 dashboard component
-- `frontend/src/App.tsx`: Navigation sidebar link and component view mounting
-- `scripts/run_phase_298_strategy_mining.py`: Deterministic 4-track runner
-- `tests/unit/test_phase_298_strategy_mining.py`: Core backend unit tests
-- `tests/unit/test_phase_298_strategy_mining_api.py`: API endpoint unit tests
-- `frontend/src/components/__tests__/strategy-mining-page.test.tsx`: Vitest dashboard tests
+- `src/autonomous_futures/production/self_driving.py`: Core production self-driving engine & micro-capital confinement
+- `src/autonomous_futures/safety/kill_switch.py`: 2-of-3 multi-sig governance, 3-tier kill-switch & double-entry solvency ledger
+- `src/autonomous_futures/feed/alpha_ensemble.py`: Multi-horizon alpha ensemble and regime blending
+- `src/autonomous_futures/feed/hawkes_cascades.py`: Hawkes point process streaming and spectral radius calculation
+- `src/autonomous_futures/api/canary.py`: FastAPI models and verified loader for Phase 309
+- `src/autonomous_futures/api/app.py`: Endpoint registration for `GET /api/v1/canary/production-launch`
+- `scripts/run_phase_309_autonomous_launch.py`: Primary CLI verification and simulation runner script
+- `scripts/run_phase_309_production_launch.py`: Core production launch execution script
+- `tests/unit/test_phase_309_self_driving.py`: Unit tests for micro-capital confinement, Hawkes cutoff, and solvency
+- `tests/unit/test_phase_309_production_launch_api.py`: Unit tests for Phase 309 FastAPI endpoints
+- `frontend/src/lib/canary.ts`: TypeScript data models for Phase 309 production launch
+- `frontend/src/lib/api.ts`: API client functions for fetching production launch data
+- `frontend/src/lib/navigation.ts`: Navigation routes and view definitions
+- `frontend/src/components/production-launch-page.tsx`: DaisyUI 5.7.42 production launch view component
+- `frontend/src/components/__tests__/production-launch-page.test.tsx`: Vitest component tests
+- `frontend/src/App.tsx`: Navigation tab and component view registration

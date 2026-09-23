@@ -23,9 +23,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-PHASE_307_PARENT_MERKLE_ROOT = (
-    "4eb405de6cdc48e26fddaa4a2ed8bd91ef9e0843a4b71cfd0cb643a15e7ceb16"
-)
+PHASE_307_PARENT_MERKLE_ROOT = "4eb405de6cdc48e26fddaa4a2ed8bd91ef9e0843a4b71cfd0cb643a15e7ceb16"
 
 
 class KillSwitchState(enum.StrEnum):
@@ -546,9 +544,7 @@ class Phase308KillSwitchSimulator:
         # Signer Bob votes with valid nonce 1
         msg1_bob = f"{prop1.proposal_id}:{prop1.action_type.value}:{prop1.target}:1:{p1_params}"
         sig_bob = self.governance.compute_signature("signer-sec-bob", msg1_bob)
-        v2 = self.governance.cast_vote(
-            prop1.proposal_id, "signer-sec-bob", 1, sig_bob, now_ms=now
-        )
+        v2 = self.governance.cast_vote(prop1.proposal_id, "signer-sec-bob", 1, sig_bob, now_ms=now)
 
         assert v1 and v2
         assert self.governance.is_quorum_satisfied(prop1.proposal_id)
@@ -596,7 +592,7 @@ class Phase308KillSwitchSimulator:
         assert self.governance.is_quorum_satisfied(prop_reset.proposal_id)
         reset_ok = self.engine.reset_to_normal(prop_reset.proposal_id)
         assert reset_ok
-        assert self.engine.state == KillSwitchState.ARMED_NORMAL
+        assert self.engine.state.value == KillSwitchState.ARMED_NORMAL.value
 
         # 6. Scenario E: Level 3 Hardware Panic via OS Signal Interception
         self.engine.handle_os_signal(signal.SIGINT if hasattr(signal, "SIGINT") else 2)
@@ -861,4 +857,4 @@ def verify_phase_308_merkle_dag(
     expected_merkle_root = hashlib.sha256(
         f"{parent_merkle_root}:{expected_phase_hash}".encode()
     ).hexdigest()
-    return expected_merkle_root == summary.get("merkle_root")
+    return bool(expected_merkle_root == summary.get("merkle_root"))

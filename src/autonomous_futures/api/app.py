@@ -45,6 +45,7 @@ from .canary import (
     CanaryOrchestratorResponse,
     CanaryPaperExecutionResponse,
     CanaryPortfolioRebalancingResponse,
+    CanaryProductionLaunchResponse,
     CanaryRiskResponse,
     CanaryStrategyActivationResponse,
     CanaryStrategyMiningResponse,
@@ -69,6 +70,7 @@ from .canary import (
     load_verified_canary_orchestrator,
     load_verified_canary_paper_execution,
     load_verified_canary_portfolio_rebalancing,
+    load_verified_canary_production_launch,
     load_verified_canary_risk,
     load_verified_canary_strategy_activation,
     load_verified_canary_strategy_mining,
@@ -1139,6 +1141,25 @@ def create_app(
                 detail="canary kill switch integrity verification failed",
             ) from exc
 
+    # Phase 309: Autonomous Live Production Launch & Micro-Capital Self-Driving Trading Engine
+    @app.get(
+        "/api/v1/canary/production-launch",
+        response_model=CanaryProductionLaunchResponse,
+    )
+    def canary_production_launch() -> CanaryProductionLaunchResponse:
+        try:
+            return load_verified_canary_production_launch(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary production launch evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary production launch integrity verification failed",
+            ) from exc
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -1173,6 +1194,7 @@ __all__ = [
     "CanaryLiveMarketResponse",
     "CanaryOrchestratorResponse",
     "CanaryPaperExecutionResponse",
+    "CanaryProductionLaunchResponse",
     "CanaryRiskResponse",
     "CanaryStrategyActivationResponse",
     "CanaryStrategyMiningResponse",

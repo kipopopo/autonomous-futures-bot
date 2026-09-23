@@ -6848,6 +6848,285 @@ def load_verified_canary_kill_switch(
     )
 
 
+# ============================================================================
+# Phase 309: Autonomous Live Production Launch & Micro-Capital Self-Driving Trading Engine
+# ============================================================================
+
+
+class CandidateAllocationItem(DomainModel):
+    symbol: str = ""
+    current_price: float = 0.0
+    position_qty: float = 0.0
+    entry_price: float = 0.0
+    allocated_exposure_usdt: float = 0.0
+    unrealized_pnl_usdt: float = 0.0
+    realized_pnl_usdt: float = 0.0
+    total_fees_usdt: float = 0.0
+    trades_count: int = 0
+
+
+class SelfDrivingOrderItem(DomainModel):
+    order_id: str = ""
+    symbol: str = ""
+    side: str = "BUY"
+    order_type: str = "LIMIT"
+    price: float = 0.0
+    quantity: float = 0.0
+    notional_usdt: float = 0.0
+    status: str = "FILLED"
+    fill_price: float | None = None
+    fee_usdt: float = 0.0
+    realized_pnl_usdt: float = 0.0
+    timestamp_ms: int = 0
+
+
+class MicroCapitalConfinementItem(DomainModel):
+    max_micro_order_notional_usdt: float = 5.0
+    max_aggregate_exposure_usdt: float = 25.0
+    min_cash_reserve_pct: float = 75.0
+    intra_day_loss_ceiling_usdt: float = 3.0
+    intra_day_loss_observed_usdt: float = 0.0
+
+
+class CanaryProductionLaunchResponse(DomainModel):
+    verified: bool = True
+    phase: str = "phase_309"
+    status: str = "PRODUCTION_LAUNCH_VERIFIED"
+    timestamp_ms: int = 0
+    timestamp_utc: str = ""
+    paper_safe: bool = True
+    execution_authority: bool = False
+    circuit_state: str = "NORMAL"
+    engine_state: str = "MICRO_CAPITAL_ACTIVE"
+    total_orders: int = 0
+    total_trades: int = 0
+    interlock_blocks_count: int = 0
+    intra_day_loss_usdt: float = 0.0
+    aggregate_exposure_usdt: float = 0.0
+    candidates: list[str] = Field(default_factory=list)
+    candidate_allocations: list[CandidateAllocationItem] = Field(default_factory=list)
+    recent_orders: list[SelfDrivingOrderItem] = Field(default_factory=list)
+    confinement: MicroCapitalConfinementItem = Field(default_factory=MicroCapitalConfinementItem)
+    solvency: DoubleEntrySolvencyItem = Field(default_factory=DoubleEntrySolvencyItem)
+    ledger: LedgerReconciliationItem = Field(default_factory=LedgerReconciliationItem)
+    upstream_hash: str = ""
+    phase_hash: str = ""
+    merkle_root: str = ""
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, str] = Field(default_factory=dict)
+
+
+def load_verified_canary_production_launch(
+    output_dir: Path | str | None = None,
+) -> CanaryProductionLaunchResponse:
+    """Loads and cryptographically verifies Phase 309 Production Launch & Self-Driving telemetry."""
+    if output_dir is None:
+        target_dir = Path("artifacts/research/phase309")
+        if not target_dir.exists():
+            sibling = (
+                Path(__file__).resolve().parent.parent.parent.parent
+                / "artifacts"
+                / "research"
+                / "phase309"
+            )
+            if sibling.exists():
+                target_dir = sibling
+    else:
+        target_dir = Path(output_dir)
+
+    summary_file = target_dir / "production-summary.json"
+    if not summary_file.is_file():
+        alt_p309 = target_dir.parent / "phase309" / "production-summary.json"
+        if alt_p309.is_file():
+            summary_file = alt_p309
+            target_dir = alt_p309.parent
+
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(f"Phase 309 summary artifact missing in {target_dir}")
+
+    report_file = target_dir / "canary-production-report.json"
+    sqlite_file = target_dir / "canary-production-telemetry.sqlite3"
+    events_file = target_dir / "canary-production-events.jsonl"
+    execution_file = target_dir / "canary-production-execution.json"
+
+    for req_file in (summary_file, report_file, sqlite_file, events_file, execution_file):
+        if not req_file.exists():
+            raise CanaryEvidenceNotFoundError(f"Missing required Phase 309 artifact: {req_file}")
+
+    try:
+        raw_summary = json.loads(summary_file.read_text(encoding="utf-8"))
+        summary_data: dict[str, Any] = raw_summary if isinstance(raw_summary, dict) else {}
+    except Exception as exc:
+        raise CanaryEvidenceIntegrityError(f"Malformed JSON in {summary_file}") from exc
+
+    # 1. Validate file SHA-256 hashes
+    artifact_hashes = summary_data.get("artifact_hashes", {})
+    expected_sqlite_hash = str(artifact_hashes.get("sqlite3", ""))
+    expected_events_hash = str(artifact_hashes.get("events_jsonl", ""))
+    expected_report_hash = str(artifact_hashes.get("report_json", ""))
+    expected_exec_hash = str(artifact_hashes.get("execution_json", ""))
+
+    computed_sqlite_hash = hashlib.sha256(sqlite_file.read_bytes()).hexdigest()
+    computed_events_hash = hashlib.sha256(events_file.read_bytes()).hexdigest()
+    computed_report_hash = hashlib.sha256(report_file.read_bytes()).hexdigest()
+    computed_exec_hash = hashlib.sha256(execution_file.read_bytes()).hexdigest()
+
+    if (
+        computed_sqlite_hash != expected_sqlite_hash
+        or computed_events_hash != expected_events_hash
+        or computed_report_hash != expected_report_hash
+        or computed_exec_hash != expected_exec_hash
+    ):
+        raise CanaryEvidenceIntegrityError(
+            "Artifact SHA-256 hash mismatch in Phase 309 verification"
+        )
+
+    # 2. Validate upstream Phase 308 hash
+    upstream_hash = str(summary_data.get("upstream_hash", ""))
+    expected_phase308_hash = "65c2e7d2b3dc5d0f63773ef531c700a0fa2f6e73bdc094c7fad1105fc675e31e"
+    if upstream_hash != expected_phase308_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Upstream hash mismatch: {upstream_hash} != {expected_phase308_hash}"
+        )
+
+    # 3. Validate double-entry zero-drift balance
+    raw_solvency = summary_data.get("solvency", {})
+    drift_val = Decimal(str(raw_solvency.get("drift", "0.00")))
+    if abs(drift_val) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Double-entry zero-drift balance invariant breached: "
+            f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+
+    # 4. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", ""))
+    combined_payload = (
+        f"phase_309:{upstream_hash}:{computed_sqlite_hash}:"
+        f"{computed_events_hash}:{computed_report_hash}:{computed_exec_hash}:{drift_val}"
+    )
+    expected_phase_hash = hashlib.sha256(combined_payload.encode()).hexdigest()
+    expected_merkle_root = hashlib.sha256(
+        f"{upstream_hash}:{expected_phase_hash}".encode()
+    ).hexdigest()
+
+    if merkle_root != expected_merkle_root:
+        raise CanaryEvidenceIntegrityError(
+            f"Phase 309 Merkle root mismatch: "
+            f"computed {expected_merkle_root} != summary {merkle_root}"
+        )
+
+    solvency = DoubleEntrySolvencyItem(
+        starting_equity_usdt=float(raw_solvency.get("starting_equity", 100.0)),
+        cash_usdt=float(raw_solvency.get("cash", 100.0)),
+        allocated_margin_usdt=float(raw_solvency.get("allocated_margin", 0.0)),
+        unrealized_pnl_usdt=float(raw_solvency.get("unrealized_pnl", 0.0)),
+        realized_pnl_usdt=float(raw_solvency.get("realized_pnl", 0.0)),
+        total_equity_usdt=float(raw_solvency.get("total_equity", 100.0)),
+        total_fees_usdt=float(raw_solvency.get("total_fees", 0.0)),
+        total_slippage_usdt=float(raw_solvency.get("total_slippage", 0.0)),
+        drift_usdt=float(drift_val),
+        zero_balance_drift_verified=bool(raw_solvency.get("zero_balance_drift", True)),
+        tolerance_ceiling_usdt=1e-15,
+        solvency_ratio_pct=float(raw_solvency.get("solvency_ratio_pct", 100.0)),
+        cash_reserve_pct=float(raw_solvency.get("cash_reserve_pct", 100.0)),
+        unencumbered_cash_verified=bool(raw_solvency.get("unencumbered_cash_verified", True)),
+    )
+
+    ledger = LedgerReconciliationItem(
+        starting_equity=solvency.starting_equity_usdt,
+        cash=solvency.cash_usdt,
+        allocated_margin=solvency.allocated_margin_usdt,
+        unrealized_pnl=solvency.unrealized_pnl_usdt,
+        realized_pnl=solvency.realized_pnl_usdt,
+        drift=solvency.drift_usdt,
+        zero_balance_drift=solvency.zero_balance_drift_verified,
+    )
+
+    try:
+        report_data = json.loads(report_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise CanaryEvidenceIntegrityError(f"Malformed JSON in {report_file}") from exc
+
+    raw_candidates = report_data.get("candidates", [])
+    candidate_allocations = [
+        CandidateAllocationItem(
+            symbol=c.get("symbol", ""),
+            current_price=float(c.get("current_price", 0.0)),
+            position_qty=float(c.get("position_qty", 0.0)),
+            entry_price=float(c.get("entry_price", 0.0)),
+            allocated_exposure_usdt=float(c.get("allocated_exposure_usdt", 0.0)),
+            unrealized_pnl_usdt=float(c.get("unrealized_pnl_usdt", 0.0)),
+            realized_pnl_usdt=float(c.get("realized_pnl_usdt", 0.0)),
+            total_fees_usdt=float(c.get("total_fees_usdt", 0.0)),
+            trades_count=int(c.get("trades_count", 0)),
+        )
+        for c in raw_candidates
+    ]
+
+    raw_orders = report_data.get("orders", [])
+    recent_orders = [
+        SelfDrivingOrderItem(
+            order_id=o.get("order_id", ""),
+            symbol=o.get("symbol", ""),
+            side=o.get("side", "BUY"),
+            order_type=o.get("order_type", "LIMIT"),
+            price=float(o.get("price", 0.0)),
+            quantity=float(o.get("quantity", 0.0)),
+            notional_usdt=float(o.get("notional_usdt", 0.0)),
+            status=o.get("status", "FILLED"),
+            fill_price=float(o["fill_price"]) if o.get("fill_price") is not None else None,
+            fee_usdt=float(o.get("fee_usdt", 0.0)),
+            realized_pnl_usdt=float(o.get("realized_pnl_usdt", 0.0)),
+            timestamp_ms=int(o.get("timestamp_ms", 0)),
+        )
+        for o in raw_orders
+    ]
+
+    raw_conf = report_data.get("confinement", {})
+    confinement = MicroCapitalConfinementItem(
+        max_micro_order_notional_usdt=float(raw_conf.get("max_micro_order_notional_usdt", 5.0)),
+        max_aggregate_exposure_usdt=float(raw_conf.get("max_aggregate_exposure_usdt", 25.0)),
+        min_cash_reserve_pct=float(raw_conf.get("min_cash_reserve_pct", 75.0)),
+        intra_day_loss_ceiling_usdt=float(raw_conf.get("intra_day_loss_ceiling_usdt", 3.0)),
+        intra_day_loss_observed_usdt=float(raw_conf.get("intra_day_loss_observed_usdt", 0.0)),
+    )
+
+    ts_str = str(summary_data.get("timestamp_utc", datetime.now(UTC).isoformat()))
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        timestamp_ms = int(dt.timestamp() * 1000)
+    except Exception:
+        timestamp_ms = int(time.time() * 1000)
+
+    return CanaryProductionLaunchResponse(
+        verified=True,
+        phase="phase_309",
+        status=str(summary_data.get("status", "PRODUCTION_LAUNCH_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        timestamp_utc=ts_str,
+        paper_safe=True,
+        execution_authority=False,
+        circuit_state="NORMAL",
+        engine_state=str(summary_data.get("engine_state", "MICRO_CAPITAL_ACTIVE")),
+        total_orders=int(summary_data.get("total_orders", len(recent_orders))),
+        total_trades=int(summary_data.get("total_trades", len(recent_orders))),
+        interlock_blocks_count=int(summary_data.get("interlock_blocks_count", 0)),
+        intra_day_loss_usdt=float(summary_data.get("intra_day_loss_usdt", 0.0)),
+        aggregate_exposure_usdt=float(summary_data.get("aggregate_exposure_usdt", 0.0)),
+        candidates=list(summary_data.get("candidates", ["BTCUSDT", "ETHUSDT", "SOLUSDT"])),
+        candidate_allocations=candidate_allocations,
+        recent_orders=recent_orders,
+        confinement=confinement,
+        solvency=solvency,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=str(summary_data.get("phase_hash", "")),
+        merkle_root=merkle_root,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+        upstream_merkle_dag=dict(summary_data.get("upstream_merkle_dag", {})),
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "AssetAllocationItem",
@@ -6974,4 +7253,9 @@ __all__ = [
     "KillSwitchEventItem",
     "SignerIdentityItem",
     "load_verified_canary_kill_switch",
+    "CanaryProductionLaunchResponse",
+    "CandidateAllocationItem",
+    "MicroCapitalConfinementItem",
+    "SelfDrivingOrderItem",
+    "load_verified_canary_production_launch",
 ]
