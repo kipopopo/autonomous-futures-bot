@@ -1074,15 +1074,28 @@ class AutonomousLifecycleDaemon:
 
             self.matching_engine.cancel_all_orders()
             self.status = SessionStatus.HALTED
-            self.risk.circuit_state = CircuitState.HALTED
+            is_loss_reason = (
+                "loss_lockout" in reason.lower()
+                or self.risk.circuit_state == CircuitState.INTRA_PHASE_LOSS_LOCKOUT
+            )
+            if is_loss_reason:
+                self.risk.circuit_state = CircuitState.INTRA_PHASE_LOSS_LOCKOUT
+            else:
+                self.risk.circuit_state = CircuitState.HALTED
             self.ledger.create_snapshot()
             self.ledger.verify_zero_drift()
+            state_val = (
+                self.risk.circuit_state.value
+                if hasattr(self.risk.circuit_state, "value")
+                else self.risk.circuit_state
+            )
             logger.warning(
                 "Emergency auto-flattening completed for %d chunks across %d positions: %s "
-                "(circuit set to HALTED)",
+                "(circuit set to %s)",
                 len(fills),
                 len(open_positions),
                 reason,
+                state_val,
             )
             return fills
 
