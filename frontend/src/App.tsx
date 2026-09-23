@@ -23,6 +23,7 @@ import {
   Target,
   Cpu,
   Sliders,
+  Sparkles,
 } from 'lucide-react'
 
 import { AccountingPage } from '@/components/accounting-page'
@@ -44,10 +45,12 @@ import { ExecutionGuardPage } from '@/components/execution-guard-page'
 import { OrchestratorPage } from '@/components/orchestrator-page'
 import { CalibrationPage } from '@/components/calibration-page'
 import { EnsemblePage } from '@/components/ensemble-page'
+import { EvolutionPage } from '@/components/evolution-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
   buildAccountingModel,
+  buildAutoEvolutionModel,
   buildAutonomousLifecycleModel,
   buildBracketPositionsModel,
   buildCalibrationModel,
@@ -100,6 +103,8 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   executionGuard: null,
   orchestrator: null,
   calibration: null,
+  ensemble: null,
+  evolution: null,
   error: null,
 }
 
@@ -402,6 +407,10 @@ function App() {
     () => buildEnsembleModel(canaryData.ensemble ?? null),
     [canaryData.ensemble]
   )
+  const autoEvolutionModel = useMemo(
+    () => buildAutoEvolutionModel(canaryData.evolution ?? null),
+    [canaryData.evolution]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -435,7 +444,8 @@ function App() {
       nextCanary.executionGuard?.verified ||
       nextCanary.orchestrator?.verified ||
       nextCanary.calibration?.verified ||
-      nextCanary.ensemble?.verified
+      nextCanary.ensemble?.verified ||
+      nextCanary.evolution?.verified
     )
 
     if (hasData) {
@@ -480,7 +490,8 @@ function App() {
             nextCanary.executionGuard?.verified ||
             nextCanary.orchestrator?.verified ||
             nextCanary.calibration?.verified ||
-            nextCanary.ensemble?.verified
+            nextCanary.ensemble?.verified ||
+            nextCanary.evolution?.verified
           )
 
           if (hasData) {
@@ -520,7 +531,8 @@ function App() {
     canaryData.executionGuard?.verified ||
     canaryData.orchestrator?.verified ||
     canaryData.calibration?.verified ||
-    canaryData.ensemble?.verified
+    canaryData.ensemble?.verified ||
+    canaryData.evolution?.verified
   )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
@@ -545,6 +557,7 @@ function App() {
   const isOrchestratorPage = page === 'orchestrator'
   const isCalibrationPage = page === 'calibration'
   const isEnsemblePage = page === 'ensemble'
+  const isEvolutionPage = page === 'evolution'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -632,10 +645,14 @@ function App() {
             <Layers size={17} aria-hidden="true" />
             <span>Alpha Ensemble</span>
           </a>
+          <a className={`nav-item ${isEvolutionPage ? 'nav-item-active' : ''}`} href="#/evolution" aria-current={isEvolutionPage ? 'page' : undefined}>
+            <Sparkles size={17} aria-hidden="true" />
+            <span>Auto-Evolution</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 305</span>
-          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Ensemble</span>
+          <span className="sidebar-label">PHASE 306</span>
+          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Evolution</span>
         </div>
       </aside>
 
@@ -644,7 +661,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isEnsemblePage
+              {isEvolutionPage
+                ? 'Continuous self-learning & auto-evolution plane'
+                : isEnsemblePage
                 ? 'Autonomous multi-horizon alpha ensemble & meta-policy plane'
                 : isCalibrationPage
                 ? 'Autonomous self-calibrating parameter adaptation plane'
@@ -683,7 +702,11 @@ function App() {
                               : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isCalibrationPage
+              {isEvolutionPage
+                ? 'Canary Evolution: Strategy Autopsy, Continuous Self-Learning & Auto-Evolution Daemon'
+                : isEnsemblePage
+                ? 'Canary Ensemble: Autonomous Multi-Horizon Alpha Ensemble & Meta-Policy Blending Engine'
+                : isCalibrationPage
                 ? 'Canary Calibration: Self-Calibrating Parameter Adaptation & Online Regime Learning'
                 : isOrchestratorPage
                 ? 'Canary Orchestrator: Closed-Loop Execution & Shadow Longevity Engine'
@@ -720,7 +743,11 @@ function App() {
                               : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isCalibrationPage
+              {isEvolutionPage
+                ? 'Phase 306 Execution Friction Attribution, Dynamic Candidate Health Tiers & Bounded Parameter Mutation · MYT (GMT+8)'
+                : isEnsemblePage
+                ? 'Phase 305 Dynamic Weight Adaptation, Directional Conflict Shading & Multi-Asset Solvency · MYT (GMT+8)'
+                : isCalibrationPage
                 ? 'Phase 304 Online Regime Learning, Dynamic Avellaneda-Stoikov Calibration & Solvency Governance · MYT (GMT+8)'
                 : isOrchestratorPage
                 ? 'Phase 303 Autonomous End-to-End Closed-Loop Paper Trading Orchestrator & Shadow Execution Engine · MYT (GMT+8)'
@@ -931,6 +958,7 @@ function App() {
           {isOrchestratorPage && state === 'ready' && <OrchestratorPage model={orchestratorModel} />}
           {isCalibrationPage && state === 'ready' && <CalibrationPage model={calibrationModel} />}
           {isEnsemblePage && state === 'ready' && <EnsemblePage model={ensembleModel} />}
+          {isEvolutionPage && state === 'ready' && <EvolutionPage model={autoEvolutionModel} />}
           {inventoryVisible && <ComponentInventory components={model.components} />}
         </ErrorBoundary>
 

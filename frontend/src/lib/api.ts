@@ -34,6 +34,7 @@ import {
   type CanaryOrchestratorData,
   type CanaryCalibrationData,
   type CanaryEnsembleData,
+  type CanaryAutoEvolutionData,
 } from './canary'
 
 export { getCanaryPortfolioRebalancing, getCanaryStrategyMining }
@@ -434,6 +435,18 @@ export async function fetchCanaryEnsemble(): Promise<CanaryEnsembleData | null> 
   }
 }
 
+export async function fetchCanaryAutoEvolution(): Promise<CanaryAutoEvolutionData | null> {
+  const path = '/api/v1/canary/evolution'
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (response.status === 404 || response.status === 503) return null
+    if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+    return (await response.json()) as CanaryAutoEvolutionData
+  } catch {
+    return null
+  }
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
@@ -452,6 +465,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let orchestrator: CanaryOrchestratorData | null = null
   let calibration: CanaryCalibrationData | null = null
   let ensemble: CanaryEnsembleData | null = null
+  let evolution: CanaryAutoEvolutionData | null = null
   let error: string | null = null
 
   try {
@@ -473,6 +487,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryOrchestrator(),
       fetchCanaryCalibration(),
       fetchCanaryEnsemble(),
+      fetchCanaryAutoEvolution(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
@@ -492,6 +507,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     if (results[14].status === 'fulfilled') orchestrator = results[14].value
     if (results[15].status === 'fulfilled') calibration = results[15].value
     if (results[16].status === 'fulfilled') ensemble = results[16].value
+    if (results[17].status === 'fulfilled') evolution = results[17].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -521,6 +537,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     orchestrator,
     calibration,
     ensemble,
+    evolution,
     error,
   }
 }

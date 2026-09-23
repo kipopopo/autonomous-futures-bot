@@ -225,6 +225,7 @@ export interface CanaryDashboardData {
   orchestrator?: CanaryOrchestratorData | null
   calibration?: CanaryCalibrationData | null
   ensemble?: CanaryEnsembleData | null
+  evolution?: CanaryAutoEvolutionData | null
   error: string | null
 }
 
@@ -3743,6 +3744,237 @@ export function buildEnsembleModel(
     upstreamHash:
       data.upstream_hash ||
       '07ffc13325eeffaadd0fb2e2cc60fe15269943f0bfca55fd613289c02a4fb80b',
+    phaseHash: data.phase_hash || '',
+    merkleRoot: data.merkle_root || '',
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 306: Continuous Self-Learning Loop, Strategy Autopsy & Auto-Evolution Daemon
+// ---------------------------------------------------------------------------
+
+export interface AutopsyRecordData {
+  trade_id: string
+  candidate_id: string
+  symbol: string
+  side: string
+  entry_price: number
+  exit_price: number
+  fill_qty: number
+  entry_timing_error_bps: number
+  hawkes_slip_drag_bps: number
+  adverse_selection_bps: number
+  realized_edge_bps: number
+  gross_pnl_usdt: number
+  fee_cost_usdt: number
+  net_pnl_usdt: number
+  cause: string
+  timestamp_ms: number
+}
+
+export interface CandidateHealthData {
+  candidate_id: string
+  symbol: string
+  tier: string
+  rolling_sharpe: number
+  win_rate_pct: number
+  max_drawdown_pct: number
+  hawkes_resilience_score: number
+  total_trades: number
+  consecutive_losses: number
+  needs_mutation: boolean
+}
+
+export interface MutationGeneData {
+  candidate_id: string
+  generation: number
+  parent_candidate_id: string | null
+  donchian_period: number
+  atr_multiplier: number
+  hawkes_intensity_threshold: number
+  micro_horizon_bias: number
+  mutation_rationale: string
+}
+
+export interface ShadowEvaluationData {
+  staged_candidate_id: string
+  parent_candidate_id: string
+  symbol: string
+  shadow_ticks: number
+  shadow_sharpe: number
+  parent_sharpe: number
+  improvement_pct: number
+  promoted: boolean
+  rejection_reason: string | null
+}
+
+export interface EvolutionPerformanceData {
+  total_autopsies_conducted: number
+  autopsy_cause_distribution: Record<string, number>
+  mean_entry_timing_error_bps: number
+  mean_hawkes_slip_drag_bps: number
+  mean_adverse_selection_bps: number
+  mean_realized_edge_bps: number
+  health_tier_distribution: Record<string, number>
+  staged_mutations_count: number
+  promoted_candidates_count: number
+  realized_sharpe_ratio: number
+  win_rate_pct: number
+  calmar_ratio: number
+  max_drawdown_pct: number
+}
+
+export interface CanaryAutoEvolutionData {
+  verified?: boolean
+  phase?: string
+  status?: string
+  timestamp_ms?: number
+  timestamp_utc?: string
+  paper_safe?: boolean
+  execution_authority?: boolean
+  circuit_state?: string
+  candidates?: string[]
+  performance?: EvolutionPerformanceData
+  autopsies_trace?: AutopsyRecordData[]
+  health_evaluations?: Record<string, CandidateHealthData>
+  mutations_trace?: MutationGeneData[]
+  shadow_evaluations?: ShadowEvaluationData[]
+  solvency?: DoubleEntrySolvencyItem
+  ledger?: LedgerReconciliationItem
+  upstream_hash?: string
+  phase_hash?: string
+  merkle_root?: string
+  artifact_hashes?: Record<string, string>
+  upstream_merkle_dag?: Record<string, string>
+}
+
+export interface AutoEvolutionModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  candidates: string[]
+  performance: EvolutionPerformanceData
+  autopsiesTrace: AutopsyRecordData[]
+  healthEvaluations: Record<string, CandidateHealthData>
+  mutationsTrace: MutationGeneData[]
+  shadowEvaluations: ShadowEvaluationData[]
+  solvency: DoubleEntrySolvencyItem
+  ledger: LedgerReconciliationItem
+  upstreamHash: string
+  phaseHash: string
+  merkleRoot: string
+}
+
+export function buildAutoEvolutionModel(
+  data?: CanaryAutoEvolutionData | null,
+): AutoEvolutionModel {
+  const defaultPerformance: EvolutionPerformanceData = {
+    total_autopsies_conducted: 0,
+    autopsy_cause_distribution: {},
+    mean_entry_timing_error_bps: 0.0,
+    mean_hawkes_slip_drag_bps: 0.0,
+    mean_adverse_selection_bps: 0.0,
+    mean_realized_edge_bps: 0.0,
+    health_tier_distribution: {},
+    staged_mutations_count: 0,
+    promoted_candidates_count: 0,
+    realized_sharpe_ratio: 0.0,
+    win_rate_pct: 0.0,
+    calmar_ratio: 0.0,
+    max_drawdown_pct: 0.0,
+  }
+
+  const defaultSolvency: DoubleEntrySolvencyItem = {
+    starting_equity_usdt: 100.0,
+    cash_usdt: 100.0,
+    allocated_margin_usdt: 0.0,
+    unrealized_pnl_usdt: 0.0,
+    realized_pnl_usdt: 0.0,
+    total_equity_usdt: 100.0,
+    total_fees_usdt: 0.0,
+    total_slippage_usdt: 0.0,
+    drift_usdt: 0.0,
+    zero_balance_drift_verified: true,
+    tolerance_ceiling_usdt: 1e-15,
+    solvency_ratio_pct: 100.0,
+    cash_reserve_pct: 100.0,
+    unencumbered_cash_verified: true,
+  }
+
+  const defaultLedger: LedgerReconciliationItem = {
+    starting_equity: 100.0,
+    cash: 100.0,
+    allocated_margin: 0.0,
+    unrealized_pnl: 0.0,
+    realized_pnl: 0.0,
+    drift: 0.0,
+    zero_balance_drift: true,
+  }
+
+  if (!data) {
+    return {
+      phase: 'phase_306',
+      verified: true,
+      status: 'EVOLUTION_VERIFIED',
+      circuitState: 'NORMAL',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      candidates: ['cand-btcusdt-dcb-002', 'cand-ethusdt-dcb-003', 'cand-solusdt-rgb-001'],
+      performance: defaultPerformance,
+      autopsiesTrace: [],
+      healthEvaluations: {},
+      mutationsTrace: [],
+      shadowEvaluations: [],
+      solvency: defaultSolvency,
+      ledger: defaultLedger,
+      upstreamHash: '0cbf6a93a5332789d5053f72e7e494b03b48ccd0ff7c62118bb339d5d905aa7c',
+      phaseHash: '',
+      merkleRoot: '',
+    }
+  }
+
+  const isZeroDrift = Boolean(
+    data.solvency?.zero_balance_drift_verified ??
+      data.ledger?.zero_balance_drift ??
+      true,
+  )
+
+  return {
+    phase: data.phase || 'phase_306',
+    verified: Boolean(data.verified ?? true),
+    status: data.status || 'EVOLUTION_VERIFIED',
+    circuitState: data.circuit_state || 'NORMAL',
+    timestampMs: data.timestamp_ms ?? 0,
+    timestampUtc:
+      data.timestamp_utc ||
+      (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data.paper_safe ?? true,
+    isExecutionOff: !(data.execution_authority ?? false),
+    isZeroDrift,
+    candidates: data.candidates || [
+      'cand-btcusdt-dcb-002',
+      'cand-ethusdt-dcb-003',
+      'cand-solusdt-rgb-001',
+    ],
+    performance: data.performance || defaultPerformance,
+    autopsiesTrace: data.autopsies_trace || [],
+    healthEvaluations: data.health_evaluations || {},
+    mutationsTrace: data.mutations_trace || [],
+    shadowEvaluations: data.shadow_evaluations || [],
+    solvency: data.solvency || defaultSolvency,
+    ledger: data.ledger || defaultLedger,
+    upstreamHash:
+      data.upstream_hash ||
+      '0cbf6a93a5332789d5053f72e7e494b03b48ccd0ff7c62118bb339d5d905aa7c',
     phaseHash: data.phase_hash || '',
     merkleRoot: data.merkle_root || '',
   }

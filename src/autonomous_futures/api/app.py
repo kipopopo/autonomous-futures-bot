@@ -31,6 +31,7 @@ from .artifacts import (
 )
 from .canary import (
     CanaryAccountingResponse,
+    CanaryAutoEvolutionResponse,
     CanaryAutonomousLifecycleResponse,
     CanaryBracketPositionsResponse,
     CanaryCalibrationResponse,
@@ -54,6 +55,7 @@ from .canary import (
     LedgerReconciliationItem,
     VetoInterlockItem,
     load_verified_canary_accounting,
+    load_verified_canary_auto_evolution,
     load_verified_canary_autonomous_lifecycle,
     load_verified_canary_bracket_positions,
     load_verified_canary_calibration,
@@ -1074,6 +1076,25 @@ def create_app(
             raise HTTPException(
                 status_code=503,
                 detail="canary ensemble integrity verification failed",
+            ) from exc
+
+    # Phase 306: Continuous Self-Learning Loop, Strategy Autopsy & Auto-Evolution Daemon
+    @app.get(
+        "/api/v1/canary/evolution",
+        response_model=CanaryAutoEvolutionResponse,
+    )
+    def canary_evolution() -> CanaryAutoEvolutionResponse:
+        try:
+            return load_verified_canary_auto_evolution(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary evolution evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary evolution integrity verification failed",
             ) from exc
 
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push

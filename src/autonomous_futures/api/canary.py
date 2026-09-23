@@ -6006,15 +6006,281 @@ def load_verified_canary_ensemble(
     )
 
 
+class AutopsyRecordItem(DomainModel):
+    trade_id: str = ""
+    candidate_id: str = ""
+    symbol: str = ""
+    side: str = "BUY"
+    entry_price: float = 0.0
+    exit_price: float = 0.0
+    fill_qty: float = 0.0
+    entry_timing_error_bps: float = 0.0
+    hawkes_slip_drag_bps: float = 0.0
+    adverse_selection_bps: float = 0.0
+    realized_edge_bps: float = 0.0
+    gross_pnl_usdt: float = 0.0
+    fee_cost_usdt: float = 0.0
+    net_pnl_usdt: float = 0.0
+    cause: str = "ORGANIC_ALPHA"
+    timestamp_ms: int = 0
+
+
+class CandidateHealthItem(DomainModel):
+    candidate_id: str = ""
+    symbol: str = ""
+    tier: str = "HEALTHY"
+    rolling_sharpe: float = 0.0
+    win_rate_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+    hawkes_resilience_score: float = 0.0
+    total_trades: int = 0
+    consecutive_losses: int = 0
+    needs_mutation: bool = False
+
+
+class MutationGeneItem(DomainModel):
+    candidate_id: str = ""
+    generation: int = 1
+    parent_candidate_id: str | None = None
+    donchian_period: int = 20
+    atr_multiplier: float = 2.0
+    hawkes_intensity_threshold: float = 0.65
+    micro_horizon_bias: float = 0.35
+    mutation_rationale: str = ""
+
+
+class ShadowEvaluationItem(DomainModel):
+    staged_candidate_id: str = ""
+    parent_candidate_id: str = ""
+    symbol: str = ""
+    shadow_ticks: int = 0
+    shadow_sharpe: float = 0.0
+    parent_sharpe: float = 0.0
+    improvement_pct: float = 0.0
+    promoted: bool = False
+    rejection_reason: str | None = None
+
+
+class EvolutionPerformanceItem(DomainModel):
+    total_autopsies_conducted: int = 0
+    autopsy_cause_distribution: dict[str, int] = Field(default_factory=dict)
+    mean_entry_timing_error_bps: float = 0.0
+    mean_hawkes_slip_drag_bps: float = 0.0
+    mean_adverse_selection_bps: float = 0.0
+    mean_realized_edge_bps: float = 0.0
+    health_tier_distribution: dict[str, int] = Field(default_factory=dict)
+    staged_mutations_count: int = 0
+    promoted_candidates_count: int = 0
+    realized_sharpe_ratio: float = 0.0
+    win_rate_pct: float = 0.0
+    calmar_ratio: float = 0.0
+    max_drawdown_pct: float = 0.0
+
+
+class CanaryAutoEvolutionResponse(DomainModel):
+    verified: bool = True
+    phase: str = "phase_306"
+    status: str = "EVOLUTION_VERIFIED"
+    timestamp_ms: int = 0
+    timestamp_utc: str = ""
+    paper_safe: bool = True
+    execution_authority: bool = False
+    circuit_state: str = "NORMAL"
+    candidates: list[str] = Field(default_factory=list)
+    performance: EvolutionPerformanceItem = Field(default_factory=EvolutionPerformanceItem)
+    autopsies_trace: list[AutopsyRecordItem] = Field(default_factory=list)
+    health_evaluations: dict[str, CandidateHealthItem] = Field(default_factory=dict)
+    mutations_trace: list[MutationGeneItem] = Field(default_factory=list)
+    shadow_evaluations: list[ShadowEvaluationItem] = Field(default_factory=list)
+    solvency: DoubleEntrySolvencyItem = Field(default_factory=DoubleEntrySolvencyItem)
+    ledger: LedgerReconciliationItem = Field(default_factory=LedgerReconciliationItem)
+    upstream_hash: str = ""
+    phase_hash: str = ""
+    merkle_root: str = ""
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, str] = Field(default_factory=dict)
+
+
+def load_verified_canary_auto_evolution(
+    output_dir: Path | str | None = None,
+) -> CanaryAutoEvolutionResponse:
+    """Load and cryptographically verify Phase 306 continuous self-learning & evolution."""
+    target_dir = Path(output_dir) if output_dir else Path("artifacts/research/phase306")
+
+    summary_file = target_dir / "evolution-summary.json"
+    if not summary_file.is_file():
+        alt_p306 = target_dir.parent / "phase306" / "evolution-summary.json"
+        if alt_p306.is_file():
+            summary_file = alt_p306
+            target_dir = alt_p306.parent
+
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(f"Phase 306 summary artifact missing in {target_dir}")
+
+    report_file = target_dir / "canary-evolution-report.json"
+    sqlite_file = target_dir / "canary-evolution-telemetry.sqlite3"
+    events_file = target_dir / "canary-evolution-events.jsonl"
+
+    for req_file in (summary_file, report_file, sqlite_file, events_file):
+        if not req_file.exists():
+            raise CanaryEvidenceNotFoundError(f"Required Phase 306 evidence missing: {req_file}")
+
+    try:
+        with open(summary_file, encoding="utf-8") as f:
+            summary_data = json.load(f)
+        with open(report_file, encoding="utf-8") as f:
+            _ = json.load(f)
+    except Exception as exc:
+        raise CanaryEvidenceIntegrityError(f"Corrupted JSON in Phase 306: {exc}") from exc
+
+    # 1. Validate file hashes
+    artifact_hashes = summary_data.get("artifact_hashes", {})
+    expected_sqlite_hash = artifact_hashes.get("sqlite3", "")
+    expected_events_hash = artifact_hashes.get("events_jsonl", "")
+
+    computed_sqlite_hash = hashlib.sha256(sqlite_file.read_bytes()).hexdigest()
+    computed_events_hash = hashlib.sha256(events_file.read_bytes()).hexdigest()
+
+    if computed_sqlite_hash != expected_sqlite_hash or computed_events_hash != expected_events_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Artifact SHA-256 hash mismatch in Phase 306. "
+            f"sqlite: {computed_sqlite_hash} != {expected_sqlite_hash}, "
+            f"events: {computed_events_hash} != {expected_events_hash}"
+        )
+
+    # 2. Validate upstream Phase 305 hash
+    upstream_hash = str(summary_data.get("upstream_hash", ""))
+    expected_phase305_hash = "0cbf6a93a5332789d5053f72e7e494b03b48ccd0ff7c62118bb339d5d905aa7c"
+    if upstream_hash != expected_phase305_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Upstream hash mismatch: {upstream_hash} != {expected_phase305_hash}"
+        )
+
+    # 3. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", ""))
+    phase_payload_hash = str(summary_data.get("phase_hash", ""))
+    merkle_combined = (
+        f"{upstream_hash}:{computed_sqlite_hash}:{computed_events_hash}:{phase_payload_hash}"
+    )
+    expected_merkle_root = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
+
+    if merkle_root != expected_merkle_root:
+        raise CanaryEvidenceIntegrityError(
+            f"Phase 306 Merkle root mismatch: "
+            f"computed {expected_merkle_root} != summary {merkle_root}"
+        )
+
+    # 4. Validate double-entry zero-drift balance
+    raw_solvency = summary_data.get("solvency", {})
+    drift_val = Decimal(str(raw_solvency.get("drift_usdt", "0.00")))
+    if abs(drift_val) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Double-entry zero-drift balance invariant breached: "
+            f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+
+    solvency = DoubleEntrySolvencyItem(
+        starting_equity_usdt=float(raw_solvency.get("starting_equity_usdt", 100.0)),
+        cash_usdt=float(
+            raw_solvency.get("cash_balance_usdt", raw_solvency.get("cash_usdt", 100.0))
+        ),
+        allocated_margin_usdt=float(raw_solvency.get("allocated_margin_usdt", 0.0)),
+        unrealized_pnl_usdt=float(raw_solvency.get("unrealized_pnl_usdt", 0.0)),
+        realized_pnl_usdt=float(raw_solvency.get("realized_pnl_usdt", 0.0)),
+        total_equity_usdt=float(raw_solvency.get("total_equity_usdt", 100.0)),
+        total_fees_usdt=float(raw_solvency.get("total_fees_usdt", 0.0)),
+        total_slippage_usdt=float(raw_solvency.get("total_slippage_usdt", 0.0)),
+        drift_usdt=float(drift_val),
+        zero_balance_drift_verified=bool(
+            raw_solvency.get(
+                "zero_drift_valid", raw_solvency.get("zero_balance_drift_verified", True)
+            )
+        ),
+        tolerance_ceiling_usdt=1e-15,
+        solvency_ratio_pct=float(raw_solvency.get("solvency_ratio_pct", 100.0)),
+        cash_reserve_pct=float(raw_solvency.get("reserve_ratio", 1.0) * 100.0),
+        unencumbered_cash_verified=bool(raw_solvency.get("reserve_adequate", True)),
+    )
+
+    ledger = LedgerReconciliationItem(
+        starting_equity=solvency.starting_equity_usdt,
+        cash=solvency.cash_usdt,
+        allocated_margin=solvency.allocated_margin_usdt,
+        unrealized_pnl=solvency.unrealized_pnl_usdt,
+        realized_pnl=solvency.realized_pnl_usdt,
+        drift=solvency.drift_usdt,
+        zero_balance_drift=solvency.zero_balance_drift_verified,
+    )
+
+    raw_perf = summary_data.get("performance", {})
+    performance = EvolutionPerformanceItem(
+        total_autopsies_conducted=int(raw_perf.get("total_autopsies_conducted", 0)),
+        autopsy_cause_distribution=dict(raw_perf.get("autopsy_cause_distribution", {})),
+        mean_entry_timing_error_bps=float(raw_perf.get("mean_entry_timing_error_bps", 0.0)),
+        mean_hawkes_slip_drag_bps=float(raw_perf.get("mean_hawkes_slip_drag_bps", 0.0)),
+        mean_adverse_selection_bps=float(raw_perf.get("mean_adverse_selection_bps", 0.0)),
+        mean_realized_edge_bps=float(raw_perf.get("mean_realized_edge_bps", 0.0)),
+        health_tier_distribution=dict(raw_perf.get("health_tier_distribution", {})),
+        staged_mutations_count=int(raw_perf.get("staged_mutations_count", 0)),
+        promoted_candidates_count=int(raw_perf.get("promoted_candidates_count", 0)),
+        realized_sharpe_ratio=float(raw_perf.get("realized_sharpe_ratio", 0.0)),
+        win_rate_pct=float(raw_perf.get("win_rate_pct", 0.0)),
+        calmar_ratio=float(raw_perf.get("calmar_ratio", 0.0)),
+        max_drawdown_pct=float(raw_perf.get("max_drawdown_pct", 0.0)),
+    )
+
+    autopsies_trace = [AutopsyRecordItem(**a) for a in summary_data.get("autopsies_trace", [])]
+    health_evaluations = {
+        k: CandidateHealthItem(**v) for k, v in summary_data.get("health_evaluations", {}).items()
+    }
+    mutations_trace = [MutationGeneItem(**m) for m in summary_data.get("mutations_trace", [])]
+    shadow_evaluations = [
+        ShadowEvaluationItem(**s) for s in summary_data.get("shadow_evaluations", [])
+    ]
+
+    ts_str = str(summary_data.get("timestamp_utc", datetime.now(UTC).isoformat()))
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        timestamp_ms = int(dt.timestamp() * 1000)
+    except Exception:
+        timestamp_ms = int(time.time() * 1000)
+
+    return CanaryAutoEvolutionResponse(
+        verified=True,
+        phase="phase_306",
+        status=str(summary_data.get("status", "EVOLUTION_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        timestamp_utc=ts_str,
+        paper_safe=True,
+        execution_authority=False,
+        circuit_state=str(summary_data.get("circuit_state", "NORMAL")),
+        candidates=list(summary_data.get("candidates", ["BTCUSDT", "ETHUSDT", "SOLUSDT"])),
+        performance=performance,
+        autopsies_trace=autopsies_trace,
+        health_evaluations=health_evaluations,
+        mutations_trace=mutations_trace,
+        shadow_evaluations=shadow_evaluations,
+        solvency=solvency,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=str(summary_data.get("phase_hash", "")),
+        merkle_root=merkle_root,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+        upstream_merkle_dag=dict(summary_data.get("upstream_merkle_dag", {})),
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "AssetAllocationItem",
     "AutoFlatteningAuditItem",
+    "AutopsyRecordItem",
     "BalanceSnapshotItem",
     "BracketOrderItem",
     "CalibratedParameterItem",
     "CalibrationPerformanceItem",
     "CanaryAccountingResponse",
+    "CanaryAutoEvolutionResponse",
     "CanaryAutonomousLifecycleResponse",
     "CanaryBracketPositionsResponse",
     "CanaryCalibrationResponse",
@@ -6037,6 +6303,7 @@ __all__ = [
     "CanaryStressFaultInjectionResponse",
     "CanarySummaryResponse",
     "CanaryTestnetGatewayResponse",
+    "CandidateHealthItem",
     "CandidatePromotionItem",
     "CandidateSignalItem",
     "CircuitBreakerLatencyItem",
@@ -6046,6 +6313,7 @@ __all__ = [
     "EnsembleDecisionItem",
     "EnsemblePerformanceItem",
     "EnsembleWeightItem",
+    "EvolutionPerformanceItem",
     "ExchangeFilterComplianceItem",
     "ExecutionChildOrderItem",
     "FeatureHeatmapItem",
@@ -6062,6 +6330,7 @@ __all__ = [
     "MicroRebalanceAuditItem",
     "MultiSigSignerItem",
     "MultiSigTicketItem",
+    "MutationGeneItem",
     "OOSGateScorecardItem",
     "OperationalSwitchItem",
     "OrchestratedBracketOrderItem",
@@ -6086,6 +6355,7 @@ __all__ = [
     "ShadowAssetStateItem",
     "ShadowCalibrationItem",
     "ShadowEnsembleItem",
+    "ShadowEvaluationItem",
     "ShadedQuoteItem",
     "ShockVectorStatusItem",
     "SlippageAttributionItem",
@@ -6096,6 +6366,7 @@ __all__ = [
     "UserDataStreamEventItem",
     "VetoInterlockItem",
     "load_verified_canary_accounting",
+    "load_verified_canary_auto_evolution",
     "load_verified_canary_autonomous_lifecycle",
     "load_verified_canary_bracket_positions",
     "load_verified_canary_calibration",

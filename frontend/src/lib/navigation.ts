@@ -18,6 +18,7 @@ export type DashboardPage =
   | 'orchestrator'
   | 'calibration'
   | 'ensemble'
+  | 'evolution'
 
 export function pageFromHash(hash: string): DashboardPage {
   const normalized = hash.replace(/^#\/?/, '')
@@ -39,5 +40,6 @@ export function pageFromHash(hash: string): DashboardPage {
   if (normalized === 'orchestrator' || normalized === 'pipeline' || normalized === 'shadow') return 'orchestrator'
   if (normalized === 'calibration' || normalized === 'regime' || normalized === 'parameter-adaptation') return 'calibration'
   if (normalized === 'ensemble' || normalized === 'alpha-ensemble' || normalized === 'meta-policy') return 'ensemble'
+  if (normalized === 'evolution' || normalized === 'auto-evolution' || normalized === 'autopsy') return 'evolution'
   return 'overview'
 }
