@@ -6399,6 +6399,15 @@ def load_verified_canary_testnet_bridge(
         target_dir = Path(output_dir)
 
     summary_file = target_dir / "testnet-bridge-summary.json"
+    if not summary_file.is_file():
+        alt_p307 = target_dir.parent / "phase307" / "testnet-bridge-summary.json"
+        if alt_p307.is_file():
+            summary_file = alt_p307
+            target_dir = alt_p307.parent
+
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(f"Phase 307 summary artifact missing in {target_dir}")
+
     report_file = target_dir / "canary-testnet-bridge-report.json"
     sqlite_file = target_dir / "canary-testnet-bridge-telemetry.sqlite3"
     events_file = target_dir / "canary-testnet-bridge-events.jsonl"
