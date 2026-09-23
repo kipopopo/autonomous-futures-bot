@@ -1,0 +1,133 @@
+{
+  "phase": "phase_308",
+  "verified": true,
+  "status": "KILL_SWITCH_VERIFIED",
+  "timestamp_ms": 1790149992168,
+  "paper_safe": true,
+  "execution_authority": false,
+  "kill_switch_state": "LEVEL_3_HARDWARE_PANIC",
+  "memory_wiped": true,
+  "signers": [
+    {
+      "signer_id": "signer-cro-alice",
+      "public_key": "pub-alice-cro-308",
+      "role": "CHIEF_RISK_OFFICER",
+      "is_active": true,
+      "last_nonce": 2
+    },
+    {
+      "signer_id": "signer-sec-bob",
+      "public_key": "pub-bob-sec-308",
+      "role": "SECURITY_OFFICER",
+      "is_active": true,
+      "last_nonce": 1
+    },
+    {
+      "signer_id": "signer-dev-charlie",
+      "public_key": "pub-charlie-dev-308",
+      "role": "LEAD_DEV",
+      "is_active": true,
+      "last_nonce": 1
+    }
+  ],
+  "proposals": [
+    {
+      "proposal_id": "prop-change_risk_limit-1790149992168",
+      "action_type": "CHANGE_RISK_LIMIT",
+      "target": "max_exposure_cap",
+      "parameters": {
+        "new_cap_usdt": 50.0
+      },
+      "required_quorum": 2,
+      "votes_cast": 2,
+      "is_executed": true,
+      "execution_result": "SUCCESS"
+    },
+    {
+      "proposal_id": "prop-reset_lockout-1790149993168",
+      "action_type": "RESET_LOCKOUT",
+      "target": "kill_switch",
+      "parameters": {
+        "target_state": "ARMED_NORMAL"
+      },
+      "required_quorum": 2,
+      "votes_cast": 2,
+      "is_executed": true,
+      "execution_result": "SUCCESS"
+    }
+  ],
+  "events_trace": [
+    {
+      "event_id": "ks-evt-0001",
+      "tier": "LEVEL_1_SOFT",
+      "previous_state": "ARMED_NORMAL",
+      "new_state": "LEVEL_1_SOFT_PAUSE",
+      "reason": "Hawkes spectral radius rho >= 1.0000 (1.1420 supercritical)",
+      "trigger_source": "HAWKES_BREACH",
+      "positions_flattened_count": 0,
+      "orders_cancelled_count": 0,
+      "memory_wiped": false,
+      "timestamp_ms": 1790149992169
+    },
+    {
+      "event_id": "ks-evt-0002",
+      "tier": "LEVEL_2_LOCKOUT",
+      "previous_state": "LEVEL_1_SOFT_PAUSE",
+      "new_state": "LEVEL_2_LOCKOUT",
+      "reason": "Round-trip latency spike > 500 ms (tau_rtt = 582.4 ms)",
+      "trigger_source": "LATENCY_SPIKE",
+      "positions_flattened_count": 0,
+      "orders_cancelled_count": 3,
+      "memory_wiped": false,
+      "timestamp_ms": 1790149992169
+    },
+    {
+      "event_id": "ks-evt-0003",
+      "tier": "LEVEL_1_SOFT",
+      "previous_state": "LEVEL_2_LOCKOUT",
+      "new_state": "ARMED_NORMAL",
+      "reason": "Multi-sig quorum reset approved via prop-reset_lockout-1790149993168",
+      "trigger_source": "MULTI_SIG",
+      "positions_flattened_count": 0,
+      "orders_cancelled_count": 0,
+      "memory_wiped": false,
+      "timestamp_ms": 1790149992169
+    },
+    {
+      "event_id": "ks-evt-0004",
+      "tier": "LEVEL_3_PANIC",
+      "previous_state": "ARMED_NORMAL",
+      "new_state": "LEVEL_3_HARDWARE_PANIC",
+      "reason": "Trapped OS signal SIGINT",
+      "trigger_source": "OS_SIGNAL",
+      "positions_flattened_count": 2,
+      "orders_cancelled_count": 0,
+      "memory_wiped": true,
+      "timestamp_ms": 1790149992169
+    }
+  ],
+  "solvency": {
+    "starting_equity": 100.0,
+    "cash": 100.026,
+    "allocated_margin": 0.0,
+    "unrealized_pnl": 0.0,
+    "realized_pnl": 0.026,
+    "total_equity": 100.026,
+    "drift": 0.0,
+    "zero_balance_drift": true,
+    "cash_reserve_pct": 100.026,
+    "unencumbered_cash_verified": true
+  },
+  "ledger": {
+    "starting_equity": 100.0,
+    "cash": 100.026,
+    "allocated_margin": 0.0,
+    "unrealized_pnl": 0.0,
+    "realized_pnl": 0.026,
+    "total_equity": 100.026,
+    "drift": 0.0,
+    "zero_balance_drift": true,
+    "cash_reserve_pct": 100.026,
+    "unencumbered_cash_verified": true
+  }
+}

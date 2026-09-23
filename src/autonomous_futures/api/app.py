@@ -40,6 +40,7 @@ from .canary import (
     CanaryEvidenceNotFoundError,
     CanaryExecutionGuardResponse,
     CanaryHawkesResponse,
+    CanaryKillSwitchResponse,
     CanaryLiveMarketResponse,
     CanaryOrchestratorResponse,
     CanaryPaperExecutionResponse,
@@ -63,6 +64,7 @@ from .canary import (
     load_verified_canary_ensemble,
     load_verified_canary_execution_guard,
     load_verified_canary_hawkes,
+    load_verified_canary_kill_switch,
     load_verified_canary_live_market,
     load_verified_canary_orchestrator,
     load_verified_canary_paper_execution,
@@ -1116,6 +1118,25 @@ def create_app(
             raise HTTPException(
                 status_code=503,
                 detail="canary testnet bridge integrity verification failed",
+            ) from exc
+
+    # Phase 308: Capital Safety Governance, Multi-Signature & Hardware/OS Kill-Switch
+    @app.get(
+        "/api/v1/canary/kill-switch",
+        response_model=CanaryKillSwitchResponse,
+    )
+    def canary_kill_switch() -> CanaryKillSwitchResponse:
+        try:
+            return load_verified_canary_kill_switch(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary kill switch evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary kill switch integrity verification failed",
             ) from exc
 
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push

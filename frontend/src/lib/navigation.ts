@@ -20,6 +20,7 @@ export type DashboardPage =
   | 'ensemble'
   | 'evolution'
   | 'testnet-bridge'
+  | 'kill-switch'
 
 export function pageFromHash(hash: string): DashboardPage {
   const normalized = hash.replace(/^#\/?/, '')
@@ -43,5 +44,6 @@ export function pageFromHash(hash: string): DashboardPage {
   if (normalized === 'ensemble' || normalized === 'alpha-ensemble' || normalized === 'meta-policy') return 'ensemble'
   if (normalized === 'evolution' || normalized === 'auto-evolution' || normalized === 'autopsy') return 'evolution'
   if (normalized === 'testnet-bridge' || normalized === 'bridge') return 'testnet-bridge'
+  if (normalized === 'kill-switch' || normalized === 'safety' || normalized === 'governance') return 'kill-switch'
   return 'overview'
 }

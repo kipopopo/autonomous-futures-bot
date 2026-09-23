@@ -48,6 +48,7 @@ import { CalibrationPage } from '@/components/calibration-page'
 import { EnsemblePage } from '@/components/ensemble-page'
 import { EvolutionPage } from '@/components/evolution-page'
 import { TestnetBridgePage } from '@/components/testnet-bridge-page'
+import { KillSwitchPage } from '@/components/kill-switch-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
@@ -69,6 +70,7 @@ import {
   buildStressFaultInjectionModel,
   buildTestnetGatewayModel,
   buildTestnetBridgeModel,
+  buildKillSwitchModel,
   type CanaryDashboardData,
 } from '@/lib/canary'
 import { buildCreatorModel } from '@/lib/creator'
@@ -109,6 +111,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   ensemble: null,
   evolution: null,
   testnetBridge: null,
+  killSwitch: null,
   error: null,
 }
 
@@ -419,6 +422,10 @@ function App() {
     () => buildTestnetBridgeModel(canaryData.testnetBridge ?? null),
     [canaryData.testnetBridge]
   )
+  const killSwitchModel = useMemo(
+    () => buildKillSwitchModel(canaryData.killSwitch ?? null),
+    [canaryData.killSwitch]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -541,7 +548,9 @@ function App() {
     canaryData.orchestrator?.verified ||
     canaryData.calibration?.verified ||
     canaryData.ensemble?.verified ||
-    canaryData.evolution?.verified
+    canaryData.evolution?.verified ||
+    canaryData.testnetBridge?.verified ||
+    canaryData.killSwitch?.verified
   )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
@@ -568,6 +577,7 @@ function App() {
   const isEnsemblePage = page === 'ensemble'
   const isEvolutionPage = page === 'evolution'
   const isTestnetBridgePage = page === 'testnet-bridge'
+  const isKillSwitchPage = page === 'kill-switch'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -663,10 +673,14 @@ function App() {
             <Network size={17} aria-hidden="true" />
             <span>Testnet Bridge</span>
           </a>
+          <a className={`nav-item ${isKillSwitchPage ? 'nav-item-active' : ''}`} href="#/kill-switch" aria-current={isKillSwitchPage ? 'page' : undefined}>
+            <ShieldAlert size={17} aria-hidden="true" />
+            <span>Kill Switch</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 307</span>
-          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Testnet Bridge</span>
+          <span className="sidebar-label">PHASE 308</span>
+          <span className="badge badge-error badge-xs py-2 px-2 font-mono font-semibold">Kill-Switch</span>
         </div>
       </aside>
 
@@ -675,7 +689,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isTestnetBridgePage
+              {isKillSwitchPage
+                ? 'Capital safety governance & hardware kill-switch plane'
+                : isTestnetBridgePage
                 ? 'Testnet live API & order dispatch bridge plane'
                 : isEvolutionPage
                 ? 'Continuous self-learning & auto-evolution plane'
@@ -718,7 +734,9 @@ function App() {
                               : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isTestnetBridgePage
+              {isKillSwitchPage
+                ? 'Canary Kill-Switch: Capital Safety Governance, Multi-Signature & Hardware/OS Panic Engine'
+                : isTestnetBridgePage
                 ? 'Canary Testnet Bridge: Live API Integration, Order Dispatch & Solvency Ledger'
                 : isEvolutionPage
                 ? 'Canary Evolution: Strategy Autopsy, Continuous Self-Learning & Auto-Evolution Daemon'
@@ -761,7 +779,9 @@ function App() {
                               : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isTestnetBridgePage
+              {isKillSwitchPage
+                ? 'Phase 308 Multi-Sig Quorum (2-of-3), 3-Tier Containment & In-Memory Zeroization · MYT (GMT+8)'
+                : isTestnetBridgePage
                 ? 'Phase 307 Authenticated REST/WS Gateway, Exchange Filter Rules & Zero-Drift Balance · MYT (GMT+8)'
                 : isEvolutionPage
                 ? 'Phase 306 Execution Friction Attribution, Dynamic Candidate Health Tiers & Bounded Parameter Mutation · MYT (GMT+8)'
@@ -980,6 +1000,7 @@ function App() {
           {isEnsemblePage && state === 'ready' && <EnsemblePage model={ensembleModel} />}
           {isEvolutionPage && state === 'ready' && <EvolutionPage model={autoEvolutionModel} />}
           {isTestnetBridgePage && state === 'ready' && <TestnetBridgePage model={testnetBridgeModel} />}
+          {isKillSwitchPage && state === 'ready' && <KillSwitchPage model={killSwitchModel} />}
           {inventoryVisible && <ComponentInventory components={model.components} />}
         </ErrorBoundary>
 

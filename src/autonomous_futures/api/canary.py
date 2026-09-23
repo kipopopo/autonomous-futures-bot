@@ -6583,6 +6583,271 @@ def load_verified_canary_testnet_bridge(
     )
 
 
+# =====================================================================
+# Phase 308: Capital Safety Governance, Multi-Signature & Hardware/OS Kill-Switch Models
+# =====================================================================
+
+
+class SignerIdentityItem(DomainModel):
+    signer_id: str = ""
+    public_key: str = ""
+    role: str = ""
+    is_active: bool = True
+    last_nonce: int = 0
+
+
+class GovernanceProposalItem(DomainModel):
+    proposal_id: str = ""
+    action_type: str = ""
+    target: str = ""
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    required_quorum: int = 2
+    votes_cast: int = 0
+    is_executed: bool = False
+    execution_result: str | None = None
+
+
+class KillSwitchEventItem(DomainModel):
+    event_id: str = ""
+    tier: str = "LEVEL_1_SOFT"
+    previous_state: str = "ARMED_NORMAL"
+    new_state: str = "ARMED_NORMAL"
+    reason: str = ""
+    trigger_source: str = ""
+    positions_flattened_count: int = 0
+    orders_cancelled_count: int = 0
+    memory_wiped: bool = False
+    timestamp_ms: int = 0
+
+
+class CanaryKillSwitchResponse(DomainModel):
+    verified: bool = True
+    phase: str = "phase_308"
+    status: str = "KILL_SWITCH_VERIFIED"
+    timestamp_ms: int = 0
+    timestamp_utc: str = ""
+    paper_safe: bool = True
+    execution_authority: bool = False
+    circuit_state: str = "NORMAL"
+    kill_switch_state: str = "ARMED_NORMAL"
+    memory_wiped: bool = False
+    active_signers_count: int = 0
+    required_quorum: int = 2
+    proposals_evaluated: int = 0
+    proposals_executed: int = 0
+    total_kill_events: int = 0
+    emergency_flattened_positions: int = 0
+    cancelled_orders_count: int = 0
+    signers: list[SignerIdentityItem] = Field(default_factory=list)
+    proposals: list[GovernanceProposalItem] = Field(default_factory=list)
+    events_trace: list[KillSwitchEventItem] = Field(default_factory=list)
+    solvency: DoubleEntrySolvencyItem = Field(default_factory=DoubleEntrySolvencyItem)
+    ledger: LedgerReconciliationItem = Field(default_factory=LedgerReconciliationItem)
+    upstream_hash: str = ""
+    phase_hash: str = ""
+    merkle_root: str = ""
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, str] = Field(default_factory=dict)
+
+
+def load_verified_canary_kill_switch(
+    output_dir: Path | str | None = None,
+) -> CanaryKillSwitchResponse:
+    """Loads and cryptographically verifies Phase 308 Multi-Sig & Kill-Switch telemetry."""
+    if output_dir is None:
+        target_dir = Path("artifacts/research/phase308")
+        if not target_dir.exists():
+            sibling = (
+                Path(__file__).resolve().parent.parent.parent.parent
+                / "artifacts"
+                / "research"
+                / "phase308"
+            )
+            if sibling.exists():
+                target_dir = sibling
+    else:
+        target_dir = Path(output_dir)
+
+    summary_file = target_dir / "kill-switch-summary.json"
+    if not summary_file.is_file():
+        alt_p308 = target_dir.parent / "phase308" / "kill-switch-summary.json"
+        if alt_p308.is_file():
+            summary_file = alt_p308
+            target_dir = alt_p308.parent
+
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(f"Phase 308 summary artifact missing in {target_dir}")
+
+    report_file = target_dir / "canary-kill-switch-report.json"
+    sqlite_file = target_dir / "canary-kill-switch-telemetry.sqlite3"
+    events_file = target_dir / "canary-kill-switch-events.jsonl"
+
+    for req_file in (summary_file, report_file, sqlite_file, events_file):
+        if not req_file.exists():
+            raise CanaryEvidenceNotFoundError(f"Missing required Phase 308 artifact: {req_file}")
+
+    try:
+        raw_summary = json.loads(summary_file.read_text(encoding="utf-8"))
+        summary_data: dict[str, Any] = raw_summary if isinstance(raw_summary, dict) else {}
+    except Exception as exc:
+        raise CanaryEvidenceIntegrityError(f"Malformed JSON in {summary_file}") from exc
+
+    # 1. Validate file SHA-256 hashes
+    artifact_hashes = summary_data.get("artifact_hashes", {})
+    expected_sqlite_hash = str(artifact_hashes.get("sqlite3", ""))
+    expected_events_hash = str(artifact_hashes.get("events_jsonl", ""))
+
+    computed_sqlite_hash = hashlib.sha256(sqlite_file.read_bytes()).hexdigest()
+    computed_events_hash = hashlib.sha256(events_file.read_bytes()).hexdigest()
+
+    if computed_sqlite_hash != expected_sqlite_hash or computed_events_hash != expected_events_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Artifact SHA-256 hash mismatch in Phase 308: "
+            f"sqlite {computed_sqlite_hash} != {expected_sqlite_hash}, "
+            f"events {computed_events_hash} != {expected_events_hash}"
+        )
+
+    # 2. Validate upstream Phase 307 hash
+    upstream_hash = str(summary_data.get("upstream_hash", ""))
+    expected_phase307_hash = "4eb405de6cdc48e26fddaa4a2ed8bd91ef9e0843a4b71cfd0cb643a15e7ceb16"
+    if upstream_hash != expected_phase307_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Upstream hash mismatch: {upstream_hash} != {expected_phase307_hash}"
+        )
+
+    # 3. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", ""))
+    phase_payload_hash = str(summary_data.get("phase_hash", ""))
+    expected_merkle_root = hashlib.sha256(
+        f"{upstream_hash}:{phase_payload_hash}".encode()
+    ).hexdigest()
+
+    if merkle_root != expected_merkle_root:
+        raise CanaryEvidenceIntegrityError(
+            f"Phase 308 Merkle root mismatch: "
+            f"computed {expected_merkle_root} != summary {merkle_root}"
+        )
+
+    # 4. Validate double-entry zero-drift balance
+    raw_solvency = summary_data.get("solvency", {})
+    drift_val = Decimal(str(raw_solvency.get("drift", "0.00")))
+    if abs(drift_val) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Double-entry zero-drift balance invariant breached: "
+            f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+
+    solvency = DoubleEntrySolvencyItem(
+        starting_equity_usdt=float(raw_solvency.get("starting_equity", 100.0)),
+        cash_usdt=float(raw_solvency.get("cash", 100.0)),
+        allocated_margin_usdt=float(raw_solvency.get("allocated_margin", 0.0)),
+        unrealized_pnl_usdt=float(raw_solvency.get("unrealized_pnl", 0.0)),
+        realized_pnl_usdt=float(raw_solvency.get("realized_pnl", 0.0)),
+        total_equity_usdt=float(raw_solvency.get("total_equity", 100.0)),
+        total_fees_usdt=float(raw_solvency.get("total_fees", 0.0)),
+        total_slippage_usdt=float(raw_solvency.get("total_slippage", 0.0)),
+        drift_usdt=float(drift_val),
+        zero_balance_drift_verified=bool(raw_solvency.get("zero_balance_drift", True)),
+        tolerance_ceiling_usdt=1e-15,
+        solvency_ratio_pct=float(raw_solvency.get("solvency_ratio_pct", 100.0)),
+        cash_reserve_pct=float(raw_solvency.get("cash_reserve_pct", 100.0)),
+        unencumbered_cash_verified=bool(raw_solvency.get("unencumbered_cash_verified", True)),
+    )
+
+    ledger = LedgerReconciliationItem(
+        starting_equity=solvency.starting_equity_usdt,
+        cash=solvency.cash_usdt,
+        allocated_margin=solvency.allocated_margin_usdt,
+        unrealized_pnl=solvency.unrealized_pnl_usdt,
+        realized_pnl=solvency.realized_pnl_usdt,
+        drift=solvency.drift_usdt,
+        zero_balance_drift=solvency.zero_balance_drift_verified,
+    )
+
+    try:
+        report_data = json.loads(report_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise CanaryEvidenceIntegrityError(f"Malformed JSON in {report_file}") from exc
+
+    signers = [
+        SignerIdentityItem(
+            signer_id=s.get("signer_id", ""),
+            public_key=s.get("public_key", ""),
+            role=s.get("role", ""),
+            is_active=bool(s.get("is_active", True)),
+            last_nonce=int(s.get("last_nonce", 0)),
+        )
+        for s in report_data.get("signers", summary_data.get("signers", []))
+    ]
+
+    proposals = [
+        GovernanceProposalItem(
+            proposal_id=p.get("proposal_id", ""),
+            action_type=p.get("action_type", ""),
+            target=p.get("target", ""),
+            parameters=p.get("parameters", {}),
+            required_quorum=int(p.get("required_quorum", 2)),
+            votes_cast=int(p.get("votes_cast", 0)),
+            is_executed=bool(p.get("is_executed", False)),
+            execution_result=p.get("execution_result"),
+        )
+        for p in report_data.get("proposals", summary_data.get("proposals", []))
+    ]
+
+    events_trace = [
+        KillSwitchEventItem(
+            event_id=e.get("event_id", ""),
+            tier=e.get("tier", "LEVEL_1_SOFT"),
+            previous_state=e.get("previous_state", "ARMED_NORMAL"),
+            new_state=e.get("new_state", "ARMED_NORMAL"),
+            reason=e.get("reason", ""),
+            trigger_source=e.get("trigger_source", ""),
+            positions_flattened_count=int(e.get("positions_flattened_count", 0)),
+            orders_cancelled_count=int(e.get("orders_cancelled_count", 0)),
+            memory_wiped=bool(e.get("memory_wiped", False)),
+            timestamp_ms=int(e.get("timestamp_ms", 0)),
+        )
+        for e in report_data.get("events_trace", summary_data.get("events_trace", []))
+    ]
+
+    ts_str = str(summary_data.get("timestamp_utc", datetime.now(UTC).isoformat()))
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        timestamp_ms = int(dt.timestamp() * 1000)
+    except Exception:
+        timestamp_ms = int(time.time() * 1000)
+
+    return CanaryKillSwitchResponse(
+        verified=True,
+        phase="phase_308",
+        status=str(summary_data.get("status", "KILL_SWITCH_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        timestamp_utc=ts_str,
+        paper_safe=True,
+        execution_authority=False,
+        circuit_state=str(summary_data.get("circuit_state", "NORMAL")),
+        kill_switch_state=str(summary_data.get("kill_switch_state", "ARMED_NORMAL")),
+        memory_wiped=bool(summary_data.get("memory_wiped", False)),
+        active_signers_count=int(summary_data.get("active_signers_count", len(signers))),
+        required_quorum=int(summary_data.get("required_quorum", 2)),
+        proposals_evaluated=int(summary_data.get("proposals_evaluated", len(proposals))),
+        proposals_executed=int(summary_data.get("proposals_executed", 0)),
+        total_kill_events=int(summary_data.get("total_kill_events", len(events_trace))),
+        emergency_flattened_positions=int(summary_data.get("emergency_flattened_positions", 0)),
+        cancelled_orders_count=int(summary_data.get("cancelled_orders_count", 0)),
+        signers=signers,
+        proposals=proposals,
+        events_trace=events_trace,
+        solvency=solvency,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=str(summary_data.get("phase_hash", "")),
+        merkle_root=merkle_root,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+        upstream_merkle_dag=dict(summary_data.get("upstream_merkle_dag", {})),
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "AssetAllocationItem",
@@ -6704,4 +6969,9 @@ __all__ = [
     "ExchangeFilterInfoItem",
     "TestnetBridgePerformanceItem",
     "UserDataStreamEventRecordItem",
+    "CanaryKillSwitchResponse",
+    "GovernanceProposalItem",
+    "KillSwitchEventItem",
+    "SignerIdentityItem",
+    "load_verified_canary_kill_switch",
 ]
