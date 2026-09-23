@@ -307,19 +307,19 @@ def test_tier1_three_tier_kill_switch_containment(tmp_path: Path) -> None:
     # Level 1: Soft Pause
     e1 = ks.trigger_level_1_soft_pause("Test soft pause", "TEST_TRIGGER")
     assert e1.tier == KillSwitchTier.LEVEL_1_SOFT
-    assert ks.state == KillSwitchState.LEVEL_1_SOFT_PAUSE
+    assert str(ks.state) == str(KillSwitchState.LEVEL_1_SOFT_PAUSE)
     assert len(ks.open_orders) == 3
 
     # Level 2: Lockout
     e2 = ks.trigger_level_2_lockout("Test lockout", "TEST_TRIGGER")
     assert e2.tier == KillSwitchTier.LEVEL_2_LOCKOUT
-    assert ks.state == KillSwitchState.LEVEL_2_LOCKOUT
+    assert str(ks.state) == str(KillSwitchState.LEVEL_2_LOCKOUT)
     assert len(ks.open_orders) == 0
 
     # Level 3: Hardware Panic
     e3 = ks.trigger_level_3_hardware_panic("Test panic", "TEST_TRIGGER")
     assert e3.tier == KillSwitchTier.LEVEL_3_PANIC
-    assert ks.state == KillSwitchState.LEVEL_3_HARDWARE_PANIC
+    assert str(ks.state) == str(KillSwitchState.LEVEL_3_HARDWARE_PANIC)
     assert ks.is_memory_wiped
     assert len(ks.open_positions) == 0
 
@@ -348,12 +348,12 @@ def test_tier1_token_tripwire_monitoring(tmp_path: Path) -> None:
     )
 
     assert not ks.check_file_tripwire()
-    assert ks.state == KillSwitchState.ARMED_NORMAL
+    assert ks.state.value == KillSwitchState.ARMED_NORMAL.value
 
     # Write tripwire file
     token_file.write_text("HALT_ENGINE")
     assert ks.check_file_tripwire()
-    assert ks.state == KillSwitchState.LEVEL_3_HARDWARE_PANIC
+    assert ks.state.value == KillSwitchState.LEVEL_3_HARDWARE_PANIC.value
     assert ks.events[-1].trigger_source == "FILE_TOKEN"
 
 
@@ -467,13 +467,13 @@ def test_tier2_intra_day_loss_ceiling_exact_trip_boundary(tmp_path: Path) -> Non
     engine.intra_day_loss_usdt = Decimal("2.99")
     o1 = engine.process_microstructure_tick("BTCUSDT", Decimal("95000.0"), 0.3, 10.0, "LONG")
     assert o1 is not None
-    assert engine.state == SelfDrivingState.MICRO_CAPITAL_ACTIVE
+    assert engine.state.value == SelfDrivingState.MICRO_CAPITAL_ACTIVE.value
 
     # Loss reaches 3.00 USDT (>= 3.00 ceiling) -> trips emergency flattening
     engine.intra_day_loss_usdt = Decimal("3.00")
     o2 = engine.process_microstructure_tick("BTCUSDT", Decimal("95000.0"), 0.3, 10.0, "LONG")
     assert o2 is None
-    assert engine.state == SelfDrivingState.CIRCUIT_FLATTENED
+    assert engine.state.value == SelfDrivingState.CIRCUIT_FLATTENED.value
 
 
 def test_tier2_hawkes_spectral_radius_exact_cutoff_boundary(tmp_path: Path) -> None:
@@ -674,7 +674,7 @@ def test_tier3_multi_asset_concurrency_with_selective_hawkes_burst(tmp_path: Pat
         "ETHUSDT", Decimal("2740.0"), 1.35, 20.0, "SHORT"
     )
     assert o_eth_shock is None
-    assert engine.state == SelfDrivingState.HAWKES_THROTTLED
+    assert engine.state.value == SelfDrivingState.HAWKES_THROTTLED.value
 
     # Check that positions on BTC and SOL remain intact
     assert engine.candidates["BTCUSDT"].position_qty > 0
@@ -688,7 +688,7 @@ def test_tier3_multi_asset_concurrency_with_selective_hawkes_burst(tmp_path: Pat
     # Subcritical tick on BTC recovers engine to active
     o_btc_rec = engine.process_microstructure_tick("BTCUSDT", Decimal("95200.0"), 0.4, 20.0, "LONG")
     assert o_btc_rec is not None
-    assert engine.state == SelfDrivingState.MICRO_CAPITAL_ACTIVE
+    assert engine.state.value == SelfDrivingState.MICRO_CAPITAL_ACTIVE.value
 
 
 def test_tier3_kill_switch_tripwire_during_active_exposure(tmp_path: Path) -> None:
@@ -749,11 +749,11 @@ def test_tier3_multisig_lockout_reset_after_hardware_panic(tmp_path: Path) -> No
 
     # Trip Level 3 Panic
     ks.trigger_level_3_hardware_panic("Hardware panic test", "TEST_TRIGGER")
-    assert ks.state == KillSwitchState.LEVEL_3_HARDWARE_PANIC
+    assert ks.state.value == KillSwitchState.LEVEL_3_HARDWARE_PANIC.value
 
     # Pre-flight must fail
     assert not engine.run_pre_flight_check()
-    assert engine.state == SelfDrivingState.KILL_SWITCH_HALTED
+    assert engine.state.value == SelfDrivingState.KILL_SWITCH_HALTED.value
 
     # Multi-sig proposal to reset lockout
     prop = gov.create_proposal(
@@ -773,11 +773,11 @@ def test_tier3_multisig_lockout_reset_after_hardware_panic(tmp_path: Path) -> No
 
     assert gov.is_quorum_satisfied(prop.proposal_id)
     assert ks.reset_to_normal(prop.proposal_id)
-    assert ks.state == KillSwitchState.ARMED_NORMAL
+    assert ks.state.value == KillSwitchState.ARMED_NORMAL.value
 
     # Engine can now successfully pass pre-flight check!
     assert engine.run_pre_flight_check()
-    assert engine.state == SelfDrivingState.MICRO_CAPITAL_ACTIVE
+    assert engine.state.value == SelfDrivingState.MICRO_CAPITAL_ACTIVE.value
 
 
 def test_tier3_solvency_verification_during_emergency_market_flattening(tmp_path: Path) -> None:
@@ -821,16 +821,16 @@ def test_tier3_cascading_kill_switch_escalation_lifecycle(tmp_path: Path) -> Non
 
     # 1. Level 1 Soft Pause
     ks.trigger_level_1_soft_pause("Hawkes runaway warning", "HAWKES_BREACH")
-    assert ks.state == KillSwitchState.LEVEL_1_SOFT_PAUSE
+    assert str(ks.state) == str(KillSwitchState.LEVEL_1_SOFT_PAUSE)
 
     # 2. Escalate to Level 2 Lockout
     ks.trigger_level_2_lockout("Round-trip latency timeout > 500 ms", "LATENCY_SPIKE")
-    assert ks.state == KillSwitchState.LEVEL_2_LOCKOUT
+    assert str(ks.state) == str(KillSwitchState.LEVEL_2_LOCKOUT)
     assert len(ks.open_orders) == 0
 
     # 3. Escalate to Level 3 Panic
     ks.trigger_level_3_hardware_panic("Persistent data corruption", "CORRUPTION_DETECTED")
-    assert ks.state == KillSwitchState.LEVEL_3_HARDWARE_PANIC
+    assert str(ks.state) == str(KillSwitchState.LEVEL_3_HARDWARE_PANIC)
     assert ks.is_memory_wiped
     assert len(ks.open_positions) == 0
 
@@ -889,7 +889,7 @@ def test_tier4_w01_multi_tick_lifecycle_shifting_regimes(tmp_path: Path) -> None
         "ETHUSDT", Decimal("2740.0"), 1.25, 30.0, "SHORT", now_ms=now + 2000
     )
     assert t5 is None
-    assert getattr(engine, "state") == SelfDrivingState.HAWKES_THROTTLED
+    assert engine.state.value == SelfDrivingState.HAWKES_THROTTLED.value
 
     # Tick 6: Feed SLA latency breach on BTC
     t6 = engine.process_microstructure_tick(
@@ -903,7 +903,7 @@ def test_tier4_w01_multi_tick_lifecycle_shifting_regimes(tmp_path: Path) -> None
         "BTCUSDT", Decimal("95100.0"), 0.42, 25.0, "SHORT", now_ms=now + 3000
     )
     assert t7 is not None
-    assert getattr(engine, "state") == SelfDrivingState.MICRO_CAPITAL_ACTIVE
+    assert engine.state.value == SelfDrivingState.MICRO_CAPITAL_ACTIVE.value
 
     # Verify zero-drift after regime transitions
     snap = engine.ledger.get_snapshot()
