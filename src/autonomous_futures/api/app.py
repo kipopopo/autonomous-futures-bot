@@ -33,6 +33,7 @@ from .canary import (
     CanaryAccountingResponse,
     CanaryAutonomousLifecycleResponse,
     CanaryBracketPositionsResponse,
+    CanaryCalibrationResponse,
     CanaryEvidenceIntegrityError,
     CanaryEvidenceNotFoundError,
     CanaryExecutionGuardResponse,
@@ -54,6 +55,7 @@ from .canary import (
     load_verified_canary_accounting,
     load_verified_canary_autonomous_lifecycle,
     load_verified_canary_bracket_positions,
+    load_verified_canary_calibration,
     load_verified_canary_execution_guard,
     load_verified_canary_hawkes,
     load_verified_canary_live_market,
@@ -1033,6 +1035,26 @@ def create_app(
                 detail="canary orchestrator integrity verification failed",
             ) from exc
 
+    # Phase 304: Autonomous Self-Calibrating Parameter Adaptation
+    # & Online Regime Learning Engine
+    @app.get(
+        "/api/v1/canary/calibration",
+        response_model=CanaryCalibrationResponse,
+    )
+    def canary_calibration() -> CanaryCalibrationResponse:
+        try:
+            return load_verified_canary_calibration(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary calibration evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary calibration integrity verification failed",
+            ) from exc
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -1061,6 +1083,7 @@ __all__ = [
     "CanaryAccountingResponse",
     "CanaryAutonomousLifecycleResponse",
     "CanaryBracketPositionsResponse",
+    "CanaryCalibrationResponse",
     "CanaryExecutionGuardResponse",
     "CanaryHawkesResponse",
     "CanaryLiveMarketResponse",

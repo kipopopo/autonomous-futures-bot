@@ -223,6 +223,7 @@ export interface CanaryDashboardData {
   bracketPositions?: CanaryBracketPositionsData | null
   executionGuard?: CanaryExecutionGuardData | null
   orchestrator?: CanaryOrchestratorData | null
+  calibration?: CanaryCalibrationData | null
   error: string | null
 }
 
@@ -3329,6 +3330,207 @@ export function buildOrchestratorModel(
     upstreamHash:
       data.upstream_hash ||
       '5919a67c92e3121b66005ef7e9a36a651cb71b19556c19d4feb9470bdf289d76',
+    phaseHash: data.phase_hash || '',
+    merkleRoot: data.merkle_root || '',
+  }
+}
+
+// =====================================================================
+// Phase 304: Autonomous Self-Calibrating Parameter Adaptation & Online Regime Learning
+// =====================================================================
+
+export interface CalibratedParameterData {
+  risk_aversion_gamma: number
+  hawkes_decay_beta: number
+  reservation_cushion_bps: number
+  temporary_impact_eta: number
+  micro_chunk_usdt: number
+  tp_atr_multiplier: number
+  sl_atr_multiplier: number
+}
+
+export interface ParameterEvolutionData {
+  event: string
+  timestamp_ms: number
+  symbol: string
+  regime: string
+  confidence: number
+  probabilities: Record<string, number>
+  damped_params: CalibratedParameterData
+  raw_target: CalibratedParameterData
+  stability_index: number
+  is_clamped: boolean
+  solvency_drift: number
+}
+
+export interface ShadowCalibrationData {
+  symbol: string
+  active_regime: string
+  regime_confidence: number
+  stability_index: number
+  total_calibrations: number
+  calibrated_params: CalibratedParameterData
+  allocated_margin_usdt: number
+  unrealized_pnl_usdt: number
+  adaptation_latency_ms: number
+}
+
+export interface CalibrationPerformanceData {
+  total_calibrations: number
+  dominant_regime: string
+  average_stability_index: number
+  mean_adaptation_latency_ms: number
+  adaptation_sla_met: boolean
+  regime_distribution: Record<string, number>
+  defense_lockouts_triggered: number
+  parameter_clamp_events: number
+  realized_sharpe_ratio: number
+  calmar_ratio: number
+  max_drawdown_pct: number
+  win_rate_pct: number
+  profit_factor: number
+}
+
+export interface CanaryCalibrationData {
+  verified?: boolean
+  phase?: string
+  status?: string
+  timestamp_ms?: number
+  timestamp_utc?: string
+  paper_safe?: boolean
+  execution_authority?: boolean
+  circuit_state?: string
+  candidates?: string[]
+  performance?: CalibrationPerformanceData
+  shadow_states?: Record<string, ShadowCalibrationData>
+  evolution_trace?: ParameterEvolutionData[]
+  solvency?: DoubleEntrySolvencyItem
+  ledger?: LedgerReconciliationItem
+  upstream_hash?: string
+  phase_hash?: string
+  merkle_root?: string
+  artifact_hashes?: Record<string, string>
+  upstream_merkle_dag?: Record<string, string>
+}
+
+export interface CalibrationModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  candidates: string[]
+  performance: CalibrationPerformanceData
+  shadowStates: Record<string, ShadowCalibrationData>
+  evolutionTrace: ParameterEvolutionData[]
+  solvency: DoubleEntrySolvencyItem
+  ledger: LedgerReconciliationItem
+  upstreamHash: string
+  phaseHash: string
+  merkleRoot: string
+}
+
+export function buildCalibrationModel(
+  data?: CanaryCalibrationData | null,
+): CalibrationModel {
+  const defaultPerformance: CalibrationPerformanceData = {
+    total_calibrations: 0,
+    dominant_regime: 'CALM_BALANCED',
+    average_stability_index: 100.0,
+    mean_adaptation_latency_ms: 0.0,
+    adaptation_sla_met: true,
+    regime_distribution: {},
+    defense_lockouts_triggered: 0,
+    parameter_clamp_events: 0,
+    realized_sharpe_ratio: 0.0,
+    calmar_ratio: 0.0,
+    max_drawdown_pct: 0.0,
+    win_rate_pct: 0.0,
+    profit_factor: 0.0,
+  }
+
+  const defaultSolvency: DoubleEntrySolvencyItem = {
+    starting_equity_usdt: 100.0,
+    cash_usdt: 100.0,
+    allocated_margin_usdt: 0.0,
+    unrealized_pnl_usdt: 0.0,
+    realized_pnl_usdt: 0.0,
+    total_equity_usdt: 100.0,
+    total_fees_usdt: 0.0,
+    total_slippage_usdt: 0.0,
+    drift_usdt: 0.0,
+    zero_balance_drift_verified: true,
+    tolerance_ceiling_usdt: 1e-15,
+    solvency_ratio_pct: 100.0,
+    cash_reserve_pct: 100.0,
+    unencumbered_cash_verified: true,
+  }
+
+  const defaultLedger: LedgerReconciliationItem = {
+    starting_equity: 100.0,
+    cash: 100.0,
+    allocated_margin: 0.0,
+    unrealized_pnl: 0.0,
+    realized_pnl: 0.0,
+    drift: 0.0,
+    zero_balance_drift: true,
+  }
+
+  if (!data) {
+    return {
+      phase: 'phase_304',
+      verified: true,
+      status: 'CALIBRATION_VERIFIED',
+      circuitState: 'NORMAL',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      candidates: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+      performance: defaultPerformance,
+      shadowStates: {},
+      evolutionTrace: [],
+      solvency: defaultSolvency,
+      ledger: defaultLedger,
+      upstreamHash:
+        '8ec3824da1946a3fc6fb70f2302a3b139f046385e76bf6050bf00fc58ae31f70',
+      phaseHash: '',
+      merkleRoot: '',
+    }
+  }
+
+  const isZeroDrift = Boolean(
+    data.solvency?.zero_balance_drift_verified ??
+      data.ledger?.zero_balance_drift ??
+      true,
+  )
+
+  return {
+    phase: data.phase || 'phase_304',
+    verified: Boolean(data.verified ?? true),
+    status: data.status || 'CALIBRATION_VERIFIED',
+    circuitState: data.circuit_state || 'NORMAL',
+    timestampMs: data.timestamp_ms ?? 0,
+    timestampUtc:
+      data.timestamp_utc ||
+      (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data.paper_safe ?? true,
+    isExecutionOff: !(data.execution_authority ?? false),
+    isZeroDrift,
+    candidates: data.candidates || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+    performance: data.performance || defaultPerformance,
+    shadowStates: data.shadow_states || {},
+    evolutionTrace: data.evolution_trace || [],
+    solvency: data.solvency || defaultSolvency,
+    ledger: data.ledger || defaultLedger,
+    upstreamHash:
+      data.upstream_hash ||
+      '8ec3824da1946a3fc6fb70f2302a3b139f046385e76bf6050bf00fc58ae31f70',
     phaseHash: data.phase_hash || '',
     merkleRoot: data.merkle_root || '',
   }

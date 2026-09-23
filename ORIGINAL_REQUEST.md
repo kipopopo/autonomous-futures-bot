@@ -2987,3 +2987,82 @@ Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, 
 - [x] Vitest frontend test suite covers Orchestrator dashboard component with 0 failures.
 - [x] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
 
+## 2026-09-23T11:45:00Z
+
+Implement Phase 304: Autonomous Self-Calibrating Parameter Adaptation & Online Regime Learning Engine for Autonomous Futures Bot, establishing real-time market regime classification (HMM / Markov regime switching with volatility, order flow imbalance, and Hawkes jump intensity), online continuous hyperparameter calibration (Avellaneda-Stoikov inventory risk aversion $\gamma$, Hawkes jump decay $\beta$, reservation spread cushion, Almgren-Chriss market impact, and micro-slicing caps), exponential moving average parameter damping, multi-asset shadow calibration tracking across candidate universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`), continuous mathematical double-entry zero-drift balance governance ($|\Delta| < 10^{-15}\text{ USDT}$), SHA-256 Merkle DAG hash chain linking Phase 303 root (`8ec3824da1946a3fc6fb70f2302a3b139f046385e76bf6050bf00fc58ae31f70`), observational FastAPI endpoints, and DaisyUI 5.7.42 dashboard telemetry (`#/calibration`) without live execution authority.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Online Market Regime Detection & Classification Engine
+Implement `MarketRegimeDetector` in `src/autonomous_futures/feed/regime_calibration.py`:
+- Ingest real-time top-of-book depth (`@depth5@100ms`) and aggregate trades (`@aggTrade`) across candidate universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Compute rolling multi-feature microstructure vector:
+  - Parkinson / Realized Volatility ($\sigma_{\text{park}}$)
+  - Order Flow Imbalance (OFI) & VPIN Toxicity Score
+  - Hawkes Jump Spectral Radius ($\rho$) & Jump Intensity ($\lambda$)
+  - Microstructure Spread & Order Book Depth Skew
+- Classify market into 5 discrete regimes with confidence scoring ($[0.0, 1.0]$):
+  1. `CALM_BALANCED`: Low volatility, tight spread, balanced bid/ask depth.
+  2. `VOLATILITY_EXPANSION`: Rapid volatility surge, widening spreads, heightened variance.
+  3. `TRENDING_MOMENTUM`: Strong directional flow imbalance, low mean-reversion propensity.
+  4. `MEAN_REVERTING`: High micro-price oscillation, persistent mean-reverting order flow.
+  5. `TOXIC_TURBULENCE`: Critical toxic flow (VPIN $\ge 0.65$ or $\rho \ge 0.75$), order book evaporation.
+
+### R2. Self-Calibrating Hyperparameter Adaptation & Damping Engine
+Implement `SelfCalibratingParameterEngine` in `src/autonomous_futures/feed/regime_calibration.py`:
+- Dynamically calibrate key microstructure and risk parameters per regime:
+  - **Avellaneda-Stoikov Risk Aversion ($\gamma$)**: Dynamically scaled based on regime (e.g. $\gamma = 0.05$ in `CALM_BALANCED`, up to $\gamma = 0.60$ in `TOXIC_TURBULENCE` for aggressive inventory reduction).
+  - **Hawkes Jump Decay Rate ($\beta$)**: Adapted to memory duration of current volatility burst.
+  - **Dynamic Quote Reservation Cushion ($\delta_{\text{cushion}}$)**: Dynamically adjusted in $[1.0, 50.0]\text{ bps}$ to prevent adverse selection fills.
+  - **Almgren-Chriss Temporary Impact Parameter ($\eta$)**: Calibrated against live book depth liquidity.
+  - **Micro-Order Child Cap**: Scaled in $[1.00, 5.00]\text{ USDT}$ with strict `ROUND_DOWN` quantization.
+  - **Bracket TP / SL Distance Multipliers**: Dynamic ATR multiples adapted to regime volatility.
+- **Exponential Moving Average Damping**: Apply smoothing filter ($\alpha_{\text{smooth}} = 0.15$) on parameter transitions to prevent rapid flapping or oscillatory instability:
+  $$\theta_t = (1 - \alpha_{\text{smooth}}) \theta_{t-1} + \alpha_{\text{smooth}} \theta^*_t$$
+- **Strict Parameter Guardrails**: Enforce strict absolute boundaries on every calibrated variable.
+
+### R3. Multi-Asset Shadow Calibration Longevity & Convergence Tracking
+Implement `CalibrationLongevitySimulator` in `src/autonomous_futures/feed/regime_calibration.py`:
+- Multi-asset calibration track for `BTCUSDT`, `ETHUSDT`, and `SOLUSDT`.
+- Compute rolling calibration metrics:
+  - Parameter Stability Index (PSI $\in [0, 100]$)
+  - Regime Transition Frequency & Accuracy Score
+  - Adaptation Latency ($\le 250\text{ ms}$)
+  - Rolling Performance (Sharpe, Calmar, MDD $\le 5.0\%$, Win Rate)
+
+### R4. Centralized Double-Entry Solvency Ledger & Cryptographic Merkle DAG
+Maintain strict real-time double-entry reconciliation across all simulated calibration states, executed child orders, slippage deductions, and fee allocations:
+$$\text{Assets} = \text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL}$$
+$$\text{Equity} = \text{Starting Equity} + \text{Realized PnL} + \text{Unrealized PnL} - \text{Total Fees} - \text{Total Slippage}$$
+Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ across all execution states and calibration updates.
+Persist structured research artifacts in `artifacts/research/phase304/` bound by a cryptographic SHA-256 Merkle DAG hash chain linking Phase 303 root hash (`8ec3824da1946a3fc6fb70f2302a3b139f046385e76bf6050bf00fc58ae31f70`).
+
+### R5. Observational Backend API & DaisyUI 5.7.42 Dashboard
+- Expose read-only FastAPI endpoints:
+  - `GET /api/v1/canary/calibration`
+  - Update `GET /api/v1/canary/summary`
+- Update React frontend dashboard:
+  - Create `frontend/src/components/calibration-page.tsx` with DaisyUI 5.7.42 dark theme rendering:
+    - Status Banner (`CALIBRATION_ACTIVE`, `PAPER-SAFE`, `READ-ONLY`, `EXECUTION AUTHORITY: OFF`, Zero-Drift indicator).
+    - 4 Executive KPI Cards (Dominant Market Regime, Parameter Stability Index, Dynamic Shading Spread, Solvency & Cash Reserve).
+    - Regime State Transition Matrix & Probability Distribution Panel.
+    - Real-Time Calibrated Parameters Grid (Avellaneda-Stoikov $\gamma$, Hawkes $\beta$, Reservation Cushion bps, Micro Chunk USDT, TP/SL Multipliers).
+    - Parameter Evolution & Damping Trace Log.
+    - Candidate Universe Adaptation Matrix (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+    - Double-Entry Solvency Meter ($|\Delta| < 10^{-15}\text{ USDT}$) & Merkle DAG Linkage to Phase 303.
+  - Add "Calibration" navigation tab (`#/calibration`) in `frontend/src/App.tsx`.
+
+### R6. Strict Paper-Safe Confinement
+Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+- [x] `scripts/run_phase_304_regime_calibration.py` executes 4 deterministic simulation tracks (Online Market Regime Detection, Dynamic Parameter Calibration & Damping, Regime Transition Shock & Guardrails, and Full Ecosystem Integration & Merkle DAG) with 0 failures and verified zero balance drift.
+- [x] Comprehensive pytest suite covers regime classification, parameter damping, guardrail clamping, multi-asset calibration, and double-entry reconciliation.
+- [x] Vitest frontend test suite covers Calibration dashboard component with 0 failures.
+- [x] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
+
+
+

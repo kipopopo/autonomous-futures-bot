@@ -22,6 +22,7 @@ import {
   Shield,
   Target,
   Cpu,
+  Sliders,
 } from 'lucide-react'
 
 import { AccountingPage } from '@/components/accounting-page'
@@ -41,12 +42,14 @@ import { TestnetGatewayPage } from '@/components/testnet-gateway-page'
 import { BracketPositionsPage } from '@/components/bracket-positions-page'
 import { ExecutionGuardPage } from '@/components/execution-guard-page'
 import { OrchestratorPage } from '@/components/orchestrator-page'
+import { CalibrationPage } from '@/components/calibration-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
   buildAccountingModel,
   buildAutonomousLifecycleModel,
   buildBracketPositionsModel,
+  buildCalibrationModel,
   buildExecutionGuardModel,
   buildLiveMarketModel,
   buildMicrostructureModel,
@@ -94,6 +97,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   bracketPositions: null,
   executionGuard: null,
   orchestrator: null,
+  calibration: null,
   error: null,
 }
 
@@ -388,6 +392,10 @@ function App() {
     () => buildOrchestratorModel(canaryData.orchestrator ?? null),
     [canaryData.orchestrator]
   )
+  const calibrationModel = useMemo(
+    () => buildCalibrationModel(canaryData.calibration ?? null),
+    [canaryData.calibration]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -419,7 +427,8 @@ function App() {
       nextCanary.testnetGateway?.verified ||
       nextCanary.bracketPositions?.verified ||
       nextCanary.executionGuard?.verified ||
-      nextCanary.orchestrator?.verified
+      nextCanary.orchestrator?.verified ||
+      nextCanary.calibration?.verified
     )
 
     if (hasData) {
@@ -462,7 +471,8 @@ function App() {
             nextCanary.testnetGateway?.verified ||
             nextCanary.bracketPositions?.verified ||
             nextCanary.executionGuard?.verified ||
-            nextCanary.orchestrator?.verified
+            nextCanary.orchestrator?.verified ||
+            nextCanary.calibration?.verified
           )
 
           if (hasData) {
@@ -499,7 +509,9 @@ function App() {
     canaryData.portfolioRebalancing?.verified ||
     canaryData.testnetGateway?.verified ||
     canaryData.bracketPositions?.verified ||
-    canaryData.executionGuard?.verified
+    canaryData.executionGuard?.verified ||
+    canaryData.orchestrator?.verified ||
+    canaryData.calibration?.verified
   )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
@@ -522,6 +534,7 @@ function App() {
   const isBracketsPage = page === 'brackets'
   const isGuardPage = page === 'guard'
   const isOrchestratorPage = page === 'orchestrator'
+  const isCalibrationPage = page === 'calibration'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -601,10 +614,14 @@ function App() {
             <Cpu size={17} aria-hidden="true" />
             <span>Orchestrator</span>
           </a>
+          <a className={`nav-item ${isCalibrationPage ? 'nav-item-active' : ''}`} href="#/calibration" aria-current={isCalibrationPage ? 'page' : undefined}>
+            <Sliders size={17} aria-hidden="true" />
+            <span>Calibration</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 303</span>
-          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Orchestrator</span>
+          <span className="sidebar-label">PHASE 304</span>
+          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Adaptation</span>
         </div>
       </aside>
 
@@ -613,7 +630,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isOrchestratorPage
+              {isCalibrationPage
+                ? 'Autonomous self-calibrating parameter adaptation plane'
+                : isOrchestratorPage
                 ? 'Autonomous paper trading orchestrator plane'
                 : isGuardPage
                 ? 'Microstructure adverse selection guard plane'
@@ -648,7 +667,9 @@ function App() {
                               : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isOrchestratorPage
+              {isCalibrationPage
+                ? 'Canary Calibration: Self-Calibrating Parameter Adaptation & Online Regime Learning'
+                : isOrchestratorPage
                 ? 'Canary Orchestrator: Closed-Loop Execution & Shadow Longevity Engine'
                 : isGuardPage
                 ? 'Canary Adverse Selection Guard: Toxic Flow Defense & Slippage Attribution'
@@ -683,7 +704,9 @@ function App() {
                               : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isOrchestratorPage
+              {isCalibrationPage
+                ? 'Phase 304 Online Regime Learning, Dynamic Avellaneda-Stoikov Calibration & Solvency Governance · MYT (GMT+8)'
+                : isOrchestratorPage
                 ? 'Phase 303 Autonomous End-to-End Closed-Loop Paper Trading Orchestrator & Shadow Execution Engine · MYT (GMT+8)'
                 : isGuardPage
                 ? 'Phase 302 Real-Time Toxic Flow Defense, Adverse Selection Guard & Dynamic Microstructure Slippage Attribution · MYT (GMT+8)'
@@ -890,6 +913,7 @@ function App() {
           {isBracketsPage && state === 'ready' && <BracketPositionsPage model={bracketPositionsModel} />}
           {isGuardPage && state === 'ready' && <ExecutionGuardPage model={executionGuardModel} />}
           {isOrchestratorPage && state === 'ready' && <OrchestratorPage model={orchestratorModel} />}
+          {isCalibrationPage && state === 'ready' && <CalibrationPage model={calibrationModel} />}
           {inventoryVisible && <ComponentInventory components={model.components} />}
         </ErrorBoundary>
 

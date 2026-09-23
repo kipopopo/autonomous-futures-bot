@@ -5435,15 +5435,290 @@ def load_verified_canary_orchestrator(
     )
 
 
+# =====================================================================
+# Phase 304: Autonomous Self-Calibrating Parameter Adaptation & Online Regime Learning
+# =====================================================================
+
+
+class CalibratedParameterItem(DomainModel):
+    risk_aversion_gamma: float = 0.05
+    hawkes_decay_beta: float = 12.0
+    reservation_cushion_bps: float = 2.5
+    temporary_impact_eta: float = 0.00015
+    micro_chunk_usdt: float = 5.0
+    tp_atr_multiplier: float = 2.0
+    sl_atr_multiplier: float = 1.2
+
+
+class ParameterEvolutionItem(DomainModel):
+    event: str = "PARAMETER_CALIBRATED"
+    timestamp_ms: int = 0
+    symbol: str = "BTCUSDT"
+    regime: str = "CALM_BALANCED"
+    confidence: float = 0.0
+    probabilities: dict[str, float] = Field(default_factory=dict)
+    damped_params: CalibratedParameterItem = Field(default_factory=CalibratedParameterItem)
+    raw_target: CalibratedParameterItem = Field(default_factory=CalibratedParameterItem)
+    stability_index: float = 100.0
+    is_clamped: bool = False
+    solvency_drift: float = 0.0
+
+
+class ShadowCalibrationItem(DomainModel):
+    symbol: str = "BTCUSDT"
+    active_regime: str = "CALM_BALANCED"
+    regime_confidence: float = 0.0
+    stability_index: float = 100.0
+    total_calibrations: int = 0
+    calibrated_params: CalibratedParameterItem = Field(default_factory=CalibratedParameterItem)
+    allocated_margin_usdt: float = 0.0
+    unrealized_pnl_usdt: float = 0.0
+    adaptation_latency_ms: float = 0.0
+
+
+class CalibrationPerformanceItem(DomainModel):
+    total_calibrations: int = 0
+    dominant_regime: str = "CALM_BALANCED"
+    average_stability_index: float = 100.0
+    mean_adaptation_latency_ms: float = 0.0
+    adaptation_sla_met: bool = True
+    regime_distribution: dict[str, int] = Field(default_factory=dict)
+    defense_lockouts_triggered: int = 0
+    parameter_clamp_events: int = 0
+    realized_sharpe_ratio: float = 0.0
+    calmar_ratio: float = 0.0
+    max_drawdown_pct: float = 0.0
+    win_rate_pct: float = 0.0
+    profit_factor: float = 0.0
+
+
+class CanaryCalibrationResponse(DomainModel):
+    verified: bool = True
+    phase: str = "phase_304"
+    status: str = "CALIBRATION_VERIFIED"
+    timestamp_ms: int = 0
+    timestamp_utc: str = ""
+    paper_safe: bool = True
+    execution_authority: bool = False
+    circuit_state: str = "NORMAL"
+    candidates: list[str] = Field(default_factory=list)
+    performance: CalibrationPerformanceItem = Field(default_factory=CalibrationPerformanceItem)
+    shadow_states: dict[str, ShadowCalibrationItem] = Field(default_factory=dict)
+    evolution_trace: list[ParameterEvolutionItem] = Field(default_factory=list)
+    solvency: DoubleEntrySolvencyItem = Field(default_factory=DoubleEntrySolvencyItem)
+    ledger: LedgerReconciliationItem = Field(default_factory=LedgerReconciliationItem)
+    upstream_hash: str = ""
+    phase_hash: str = ""
+    merkle_root: str = ""
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, str] = Field(default_factory=dict)
+
+
+def load_verified_canary_calibration(
+    output_dir: Path | str | None = None,
+) -> CanaryCalibrationResponse:
+    """Load and cryptographically verify Phase 304 self-calibrating regime telemetry."""
+    target_dir = Path(output_dir) if output_dir else Path("artifacts/research/phase304")
+
+    summary_file = target_dir / "calibration-summary.json"
+    if not summary_file.is_file():
+        alt_p304 = target_dir.parent / "phase304" / "calibration-summary.json"
+        if alt_p304.is_file():
+            summary_file = alt_p304
+            target_dir = alt_p304.parent
+
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(f"Phase 304 summary artifact missing in {target_dir}")
+
+    report_file = target_dir / "canary-calibration-report.json"
+    sqlite_file = target_dir / "canary-calibration-telemetry.sqlite3"
+    events_file = target_dir / "canary-calibration-events.jsonl"
+
+    for req_file in (summary_file, report_file, sqlite_file, events_file):
+        if not req_file.exists():
+            raise CanaryEvidenceNotFoundError(f"Required Phase 304 evidence missing: {req_file}")
+
+    try:
+        with open(summary_file, encoding="utf-8") as f:
+            summary_data = json.load(f)
+        with open(report_file, encoding="utf-8") as f:
+            _ = json.load(f)
+    except Exception as exc:
+        raise CanaryEvidenceIntegrityError(f"Corrupted JSON in Phase 304: {exc}") from exc
+
+    # 1. Validate file hashes
+    artifact_hashes = summary_data.get("artifact_hashes", {})
+    expected_sqlite_hash = artifact_hashes.get("sqlite3", "")
+    expected_events_hash = artifact_hashes.get("events_jsonl", "")
+
+    computed_sqlite_hash = hashlib.sha256(sqlite_file.read_bytes()).hexdigest()
+    computed_events_hash = hashlib.sha256(events_file.read_bytes()).hexdigest()
+
+    if computed_sqlite_hash != expected_sqlite_hash or computed_events_hash != expected_events_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Artifact SHA-256 hash mismatch in Phase 304. "
+            f"sqlite: {computed_sqlite_hash} != {expected_sqlite_hash}, "
+            f"events: {computed_events_hash} != {expected_events_hash}"
+        )
+
+    # 2. Validate upstream Phase 303 hash
+    upstream_hash = str(summary_data.get("upstream_hash", ""))
+    expected_phase303_hash = "8ec3824da1946a3fc6fb70f2302a3b139f046385e76bf6050bf00fc58ae31f70"
+    if upstream_hash != expected_phase303_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Upstream hash mismatch: {upstream_hash} != {expected_phase303_hash}"
+        )
+
+    # 3. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", ""))
+    phase_payload_hash = str(summary_data.get("phase_hash", ""))
+    merkle_combined = (
+        f"{upstream_hash}:{computed_sqlite_hash}:{computed_events_hash}:{phase_payload_hash}"
+    )
+    expected_merkle_root = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
+
+    if merkle_root != expected_merkle_root:
+        raise CanaryEvidenceIntegrityError(
+            f"Phase 304 Merkle root mismatch: "
+            f"computed {expected_merkle_root} != summary {merkle_root}"
+        )
+
+    # 4. Validate double-entry zero-drift balance
+    raw_solvency = summary_data.get("solvency", {})
+    drift_val = Decimal(str(raw_solvency.get("drift_usdt", "0.00")))
+    if abs(drift_val) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Double-entry zero-drift balance invariant breached: "
+            f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+
+    if not raw_solvency.get("zero_balance_drift_verified", False):
+        raise CanaryEvidenceIntegrityError(
+            "Double-entry zero-drift balance invariant breached: "
+            "zero_balance_drift_verified is False"
+        )
+
+    solvency = DoubleEntrySolvencyItem(
+        starting_equity_usdt=float(raw_solvency.get("starting_equity_usdt", 100.0)),
+        cash_usdt=float(raw_solvency.get("cash_usdt", 100.0)),
+        allocated_margin_usdt=float(raw_solvency.get("allocated_margin_usdt", 0.0)),
+        unrealized_pnl_usdt=float(raw_solvency.get("unrealized_pnl_usdt", 0.0)),
+        realized_pnl_usdt=float(raw_solvency.get("realized_pnl_usdt", 0.0)),
+        total_equity_usdt=float(raw_solvency.get("total_equity_usdt", 100.0)),
+        total_fees_usdt=float(raw_solvency.get("total_fees_usdt", 0.0)),
+        total_slippage_usdt=float(raw_solvency.get("total_slippage_usdt", 0.0)),
+        drift_usdt=float(raw_solvency.get("drift_usdt", 0.0)),
+        zero_balance_drift_verified=bool(raw_solvency.get("zero_balance_drift_verified", True)),
+        tolerance_ceiling_usdt=1e-15,
+        solvency_ratio_pct=float(raw_solvency.get("solvency_ratio_pct", 100.0)),
+        cash_reserve_pct=float(raw_solvency.get("cash_reserve_pct", 100.0)),
+        unencumbered_cash_verified=bool(raw_solvency.get("unencumbered_cash_verified", True)),
+    )
+
+    ledger = LedgerReconciliationItem(
+        starting_equity=solvency.starting_equity_usdt,
+        cash=solvency.cash_usdt,
+        allocated_margin=solvency.allocated_margin_usdt,
+        unrealized_pnl=solvency.unrealized_pnl_usdt,
+        realized_pnl=solvency.realized_pnl_usdt,
+        drift=solvency.drift_usdt,
+        zero_balance_drift=solvency.zero_balance_drift_verified,
+    )
+
+    raw_perf = summary_data.get("performance", {})
+    performance = CalibrationPerformanceItem(
+        total_calibrations=int(raw_perf.get("total_calibrations", 0)),
+        dominant_regime=str(raw_perf.get("dominant_regime", "CALM_BALANCED")),
+        average_stability_index=float(raw_perf.get("average_stability_index", 100.0)),
+        mean_adaptation_latency_ms=float(raw_perf.get("mean_adaptation_latency_ms", 0.0)),
+        adaptation_sla_met=bool(raw_perf.get("adaptation_sla_met", True)),
+        regime_distribution=dict(raw_perf.get("regime_distribution", {})),
+        defense_lockouts_triggered=int(raw_perf.get("defense_lockouts_triggered", 0)),
+        parameter_clamp_events=int(raw_perf.get("parameter_clamp_events", 0)),
+        realized_sharpe_ratio=float(raw_perf.get("realized_sharpe_ratio", 0.0)),
+        calmar_ratio=float(raw_perf.get("calmar_ratio", 0.0)),
+        max_drawdown_pct=float(raw_perf.get("max_drawdown_pct", 0.0)),
+        win_rate_pct=float(raw_perf.get("win_rate_pct", 0.0)),
+        profit_factor=float(raw_perf.get("profit_factor", 0.0)),
+    )
+
+    shadow_states = {
+        sym: ShadowCalibrationItem(
+            symbol=st.get("symbol", sym),
+            active_regime=st.get("active_regime", "CALM_BALANCED"),
+            regime_confidence=float(st.get("regime_confidence", 0.0)),
+            stability_index=float(st.get("stability_index", 100.0)),
+            total_calibrations=int(st.get("total_calibrations", 0)),
+            calibrated_params=CalibratedParameterItem(**st.get("calibrated_params", {})),
+            allocated_margin_usdt=float(st.get("allocated_margin_usdt", 0.0)),
+            unrealized_pnl_usdt=float(st.get("unrealized_pnl_usdt", 0.0)),
+            adaptation_latency_ms=float(st.get("adaptation_latency_ms", 0.0)),
+        )
+        for sym, st in summary_data.get("shadow_states", {}).items()
+    }
+
+    evolution_trace: list[ParameterEvolutionItem] = []
+    for ev in summary_data.get("evolution_trace", []):
+        damped = CalibratedParameterItem(**ev.get("damped_params", {}))
+        raw = CalibratedParameterItem(**ev.get("raw_target", {}))
+        evolution_trace.append(
+            ParameterEvolutionItem(
+                event=str(ev.get("event", "PARAMETER_CALIBRATED")),
+                timestamp_ms=int(ev.get("timestamp_ms", 0)),
+                symbol=str(ev.get("symbol", "")),
+                regime=str(ev.get("regime", "CALM_BALANCED")),
+                confidence=float(ev.get("confidence", 0.0)),
+                probabilities=dict(ev.get("probabilities", {})),
+                damped_params=damped,
+                raw_target=raw,
+                stability_index=float(ev.get("stability_index", 100.0)),
+                is_clamped=bool(ev.get("is_clamped", False)),
+                solvency_drift=float(ev.get("solvency_drift", 0.0)),
+            )
+        )
+
+    ts_str = str(summary_data.get("timestamp_utc", datetime.now(UTC).isoformat()))
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        timestamp_ms = int(dt.timestamp() * 1000)
+    except Exception:
+        timestamp_ms = int(time.time() * 1000)
+
+    return CanaryCalibrationResponse(
+        verified=True,
+        phase="phase_304",
+        status=str(summary_data.get("status", "CALIBRATION_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        timestamp_utc=ts_str,
+        paper_safe=True,
+        execution_authority=False,
+        circuit_state=str(summary_data.get("circuit_state", "NORMAL")),
+        candidates=list(summary_data.get("candidates", ["BTCUSDT", "ETHUSDT", "SOLUSDT"])),
+        performance=performance,
+        shadow_states=shadow_states,
+        evolution_trace=evolution_trace,
+        solvency=solvency,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=str(summary_data.get("phase_hash", "")),
+        merkle_root=merkle_root,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+        upstream_merkle_dag=dict(summary_data.get("upstream_merkle_dag", {})),
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "AssetAllocationItem",
     "AutoFlatteningAuditItem",
     "BalanceSnapshotItem",
     "BracketOrderItem",
+    "CalibratedParameterItem",
+    "CalibrationPerformanceItem",
     "CanaryAccountingResponse",
     "CanaryAutonomousLifecycleResponse",
     "CanaryBracketPositionsResponse",
+    "CanaryCalibrationResponse",
     "CanaryEvidenceIntegrityError",
     "CanaryEvidenceNotFoundError",
     "CanaryExecutionGuardResponse",
@@ -5496,6 +5771,7 @@ __all__ = [
     "PaperLedgerSnapshotItem",
     "PaperMatchingStatsItem",
     "PaperOrderStatsItem",
+    "ParameterEvolutionItem",
     "PerformanceMetricsItem",
     "PipelineStageItem",
     "PortfolioOptimizationMetricsItem",
@@ -5504,6 +5780,7 @@ __all__ = [
     "SearchSpaceParamItem",
     "SessionLongevityItem",
     "ShadowAssetStateItem",
+    "ShadowCalibrationItem",
     "ShadedQuoteItem",
     "ShockVectorStatusItem",
     "SlippageAttributionItem",
@@ -5516,6 +5793,7 @@ __all__ = [
     "load_verified_canary_accounting",
     "load_verified_canary_autonomous_lifecycle",
     "load_verified_canary_bracket_positions",
+    "load_verified_canary_calibration",
     "load_verified_canary_execution_guard",
     "load_verified_canary_hawkes",
     "load_verified_canary_live_market",
