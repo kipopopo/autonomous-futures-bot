@@ -224,6 +224,7 @@ export interface CanaryDashboardData {
   executionGuard?: CanaryExecutionGuardData | null
   orchestrator?: CanaryOrchestratorData | null
   calibration?: CanaryCalibrationData | null
+  ensemble?: CanaryEnsembleData | null
   error: string | null
 }
 
@@ -3535,6 +3536,218 @@ export function buildCalibrationModel(
     merkleRoot: data.merkle_root || '',
   }
 }
+
+export interface HorizonSignalData {
+  horizon: string
+  symbol: string
+  timestamp_ms: number
+  direction: number
+  conviction: number
+  raw_score: number
+  features?: Record<string, number>
+}
+
+export interface EnsembleWeightData {
+  micro_weight: number
+  short_weight: number
+  medium_weight: number
+  weights_sum: number
+  regime: string
+  regime_confidence: number
+}
+
+export interface EnsembleDecisionData {
+  symbol: string
+  timestamp_ms: number
+  regime: string
+  weights: EnsembleWeightData
+  signals: Record<string, HorizonSignalData>
+  raw_blended_direction: number
+  raw_blended_conviction: number
+  conflict_detected: boolean
+  conflict_penalty: number
+  effective_direction: number
+  effective_conviction: number
+  target_action: string
+  target_micro_chunk_usdt: number
+  ensemble_state: string
+  notes: string
+}
+
+export interface ShadowEnsembleData {
+  symbol: string
+  active_regime: string
+  total_decisions: number
+  conflict_count: number
+  allocated_margin_usdt: number
+  unrealized_pnl_usdt: number
+  realized_pnl_usdt: number
+  last_decision: EnsembleDecisionData
+}
+
+export interface EnsemblePerformanceData {
+  total_decisions: number
+  conflict_count: number
+  conflict_ratio_pct: number
+  average_effective_conviction: number
+  mean_horizon_weights: {
+    micro?: number
+    short?: number
+    medium?: number
+  }
+  regime_distribution: Record<string, number>
+  defense_lockouts_triggered: number
+  realized_sharpe_ratio: number
+  calmar_ratio: number
+  max_drawdown_pct: number
+  win_rate_pct: number
+  profit_factor: number
+}
+
+export interface CanaryEnsembleData {
+  verified?: boolean
+  phase?: string
+  status?: string
+  timestamp_ms?: number
+  timestamp_utc?: string
+  paper_safe?: boolean
+  execution_authority?: boolean
+  circuit_state?: string
+  candidates?: string[]
+  performance?: EnsemblePerformanceData
+  shadow_states?: Record<string, ShadowEnsembleData>
+  decisions_trace?: EnsembleDecisionData[]
+  solvency?: DoubleEntrySolvencyItem
+  ledger?: LedgerReconciliationItem
+  upstream_hash?: string
+  phase_hash?: string
+  merkle_root?: string
+  artifact_hashes?: Record<string, string>
+  upstream_merkle_dag?: Record<string, string>
+}
+
+export interface EnsembleModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  candidates: string[]
+  performance: EnsemblePerformanceData
+  shadowStates: Record<string, ShadowEnsembleData>
+  decisionsTrace: EnsembleDecisionData[]
+  solvency: DoubleEntrySolvencyItem
+  ledger: LedgerReconciliationItem
+  upstreamHash: string
+  phaseHash: string
+  merkleRoot: string
+}
+
+export function buildEnsembleModel(
+  data?: CanaryEnsembleData | null,
+): EnsembleModel {
+  const defaultPerformance: EnsemblePerformanceData = {
+    total_decisions: 0,
+    conflict_count: 0,
+    conflict_ratio_pct: 0.0,
+    average_effective_conviction: 0.0,
+    mean_horizon_weights: { micro: 0.35, short: 0.35, medium: 0.3 },
+    regime_distribution: {},
+    defense_lockouts_triggered: 0,
+    realized_sharpe_ratio: 0.0,
+    calmar_ratio: 0.0,
+    max_drawdown_pct: 0.0,
+    win_rate_pct: 0.0,
+    profit_factor: 0.0,
+  }
+
+  const defaultSolvency: DoubleEntrySolvencyItem = {
+    starting_equity_usdt: 100.0,
+    cash_usdt: 100.0,
+    allocated_margin_usdt: 0.0,
+    unrealized_pnl_usdt: 0.0,
+    realized_pnl_usdt: 0.0,
+    total_equity_usdt: 100.0,
+    total_fees_usdt: 0.0,
+    total_slippage_usdt: 0.0,
+    drift_usdt: 0.0,
+    zero_balance_drift_verified: true,
+    tolerance_ceiling_usdt: 1e-15,
+    solvency_ratio_pct: 100.0,
+    cash_reserve_pct: 100.0,
+    unencumbered_cash_verified: true,
+  }
+
+  const defaultLedger: LedgerReconciliationItem = {
+    starting_equity: 100.0,
+    cash: 100.0,
+    allocated_margin: 0.0,
+    unrealized_pnl: 0.0,
+    realized_pnl: 0.0,
+    drift: 0.0,
+    zero_balance_drift: true,
+  }
+
+  if (!data) {
+    return {
+      phase: 'phase_305',
+      verified: true,
+      status: 'ENSEMBLE_VERIFIED',
+      circuitState: 'NORMAL',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      candidates: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+      performance: defaultPerformance,
+      shadowStates: {},
+      decisionsTrace: [],
+      solvency: defaultSolvency,
+      ledger: defaultLedger,
+      upstreamHash:
+        '07ffc13325eeffaadd0fb2e2cc60fe15269943f0bfca55fd613289c02a4fb80b',
+      phaseHash: '',
+      merkleRoot: '',
+    }
+  }
+
+  const isZeroDrift = Boolean(
+    data.solvency?.zero_balance_drift_verified ??
+      data.ledger?.zero_balance_drift ??
+      true,
+  )
+
+  return {
+    phase: data.phase || 'phase_305',
+    verified: Boolean(data.verified ?? true),
+    status: data.status || 'ENSEMBLE_VERIFIED',
+    circuitState: data.circuit_state || 'NORMAL',
+    timestampMs: data.timestamp_ms ?? 0,
+    timestampUtc:
+      data.timestamp_utc ||
+      (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data.paper_safe ?? true,
+    isExecutionOff: !(data.execution_authority ?? false),
+    isZeroDrift,
+    candidates: data.candidates || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+    performance: data.performance || defaultPerformance,
+    shadowStates: data.shadow_states || {},
+    decisionsTrace: data.decisions_trace || [],
+    solvency: data.solvency || defaultSolvency,
+    ledger: data.ledger || defaultLedger,
+    upstreamHash:
+      data.upstream_hash ||
+      '07ffc13325eeffaadd0fb2e2cc60fe15269943f0bfca55fd613289c02a4fb80b',
+    phaseHash: data.phase_hash || '',
+    merkleRoot: data.merkle_root || '',
+  }
+}
+
 
 
 

@@ -43,6 +43,7 @@ import { BracketPositionsPage } from '@/components/bracket-positions-page'
 import { ExecutionGuardPage } from '@/components/execution-guard-page'
 import { OrchestratorPage } from '@/components/orchestrator-page'
 import { CalibrationPage } from '@/components/calibration-page'
+import { EnsemblePage } from '@/components/ensemble-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
@@ -50,6 +51,7 @@ import {
   buildAutonomousLifecycleModel,
   buildBracketPositionsModel,
   buildCalibrationModel,
+  buildEnsembleModel,
   buildExecutionGuardModel,
   buildLiveMarketModel,
   buildMicrostructureModel,
@@ -396,6 +398,10 @@ function App() {
     () => buildCalibrationModel(canaryData.calibration ?? null),
     [canaryData.calibration]
   )
+  const ensembleModel = useMemo(
+    () => buildEnsembleModel(canaryData.ensemble ?? null),
+    [canaryData.ensemble]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -428,7 +434,8 @@ function App() {
       nextCanary.bracketPositions?.verified ||
       nextCanary.executionGuard?.verified ||
       nextCanary.orchestrator?.verified ||
-      nextCanary.calibration?.verified
+      nextCanary.calibration?.verified ||
+      nextCanary.ensemble?.verified
     )
 
     if (hasData) {
@@ -472,7 +479,8 @@ function App() {
             nextCanary.bracketPositions?.verified ||
             nextCanary.executionGuard?.verified ||
             nextCanary.orchestrator?.verified ||
-            nextCanary.calibration?.verified
+            nextCanary.calibration?.verified ||
+            nextCanary.ensemble?.verified
           )
 
           if (hasData) {
@@ -511,7 +519,8 @@ function App() {
     canaryData.bracketPositions?.verified ||
     canaryData.executionGuard?.verified ||
     canaryData.orchestrator?.verified ||
-    canaryData.calibration?.verified
+    canaryData.calibration?.verified ||
+    canaryData.ensemble?.verified
   )
   const status = statusFor(state, model, hasCanary)
   const symbolList = model.symbols.length > 0
@@ -535,6 +544,7 @@ function App() {
   const isGuardPage = page === 'guard'
   const isOrchestratorPage = page === 'orchestrator'
   const isCalibrationPage = page === 'calibration'
+  const isEnsemblePage = page === 'ensemble'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -618,10 +628,14 @@ function App() {
             <Sliders size={17} aria-hidden="true" />
             <span>Calibration</span>
           </a>
+          <a className={`nav-item ${isEnsemblePage ? 'nav-item-active' : ''}`} href="#/ensemble" aria-current={isEnsemblePage ? 'page' : undefined}>
+            <Layers size={17} aria-hidden="true" />
+            <span>Alpha Ensemble</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 304</span>
-          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Adaptation</span>
+          <span className="sidebar-label">PHASE 305</span>
+          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Ensemble</span>
         </div>
       </aside>
 
@@ -630,7 +644,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isCalibrationPage
+              {isEnsemblePage
+                ? 'Autonomous multi-horizon alpha ensemble & meta-policy plane'
+                : isCalibrationPage
                 ? 'Autonomous self-calibrating parameter adaptation plane'
                 : isOrchestratorPage
                 ? 'Autonomous paper trading orchestrator plane'
@@ -914,6 +930,7 @@ function App() {
           {isGuardPage && state === 'ready' && <ExecutionGuardPage model={executionGuardModel} />}
           {isOrchestratorPage && state === 'ready' && <OrchestratorPage model={orchestratorModel} />}
           {isCalibrationPage && state === 'ready' && <CalibrationPage model={calibrationModel} />}
+          {isEnsemblePage && state === 'ready' && <EnsemblePage model={ensembleModel} />}
           {inventoryVisible && <ComponentInventory components={model.components} />}
         </ErrorBoundary>
 

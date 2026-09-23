@@ -5707,6 +5707,305 @@ def load_verified_canary_calibration(
     )
 
 
+class HorizonSignalItem(DomainModel):
+    horizon: str = "MICRO_1S_5S"
+    symbol: str = ""
+    timestamp_ms: int = 0
+    direction: float = 0.0
+    conviction: float = 0.0
+    raw_score: float = 0.0
+    features: dict[str, float] = Field(default_factory=dict)
+
+
+class EnsembleWeightItem(DomainModel):
+    micro_weight: float = 0.35
+    short_weight: float = 0.35
+    medium_weight: float = 0.30
+    weights_sum: float = 1.0
+    regime: str = "CALM_BALANCED"
+    regime_confidence: float = 1.0
+
+
+class EnsembleDecisionItem(DomainModel):
+    symbol: str = ""
+    timestamp_ms: int = 0
+    regime: str = "CALM_BALANCED"
+    weights: EnsembleWeightItem = Field(default_factory=EnsembleWeightItem)
+    signals: dict[str, HorizonSignalItem] = Field(default_factory=dict)
+    raw_blended_direction: float = 0.0
+    raw_blended_conviction: float = 0.0
+    conflict_detected: bool = False
+    conflict_penalty: float = 1.0
+    effective_direction: float = 0.0
+    effective_conviction: float = 0.0
+    target_action: str = "HOLD"
+    target_micro_chunk_usdt: float = 0.0
+    ensemble_state: str = "ENSEMBLE_ACTIVE"
+    notes: str = ""
+
+
+class ShadowEnsembleItem(DomainModel):
+    symbol: str = ""
+    active_regime: str = "CALM_BALANCED"
+    total_decisions: int = 0
+    conflict_count: int = 0
+    allocated_margin_usdt: float = 0.0
+    unrealized_pnl_usdt: float = 0.0
+    realized_pnl_usdt: float = 0.0
+    last_decision: EnsembleDecisionItem = Field(default_factory=EnsembleDecisionItem)
+
+
+class EnsemblePerformanceItem(DomainModel):
+    total_decisions: int = 0
+    conflict_count: int = 0
+    conflict_ratio_pct: float = 0.0
+    average_effective_conviction: float = 0.0
+    mean_horizon_weights: dict[str, float] = Field(default_factory=dict)
+    regime_distribution: dict[str, int] = Field(default_factory=dict)
+    defense_lockouts_triggered: int = 0
+    realized_sharpe_ratio: float = 0.0
+    calmar_ratio: float = 0.0
+    max_drawdown_pct: float = 0.0
+    win_rate_pct: float = 0.0
+    profit_factor: float = 0.0
+
+
+class CanaryEnsembleResponse(DomainModel):
+    verified: bool = True
+    phase: str = "phase_305"
+    status: str = "ENSEMBLE_VERIFIED"
+    timestamp_ms: int = 0
+    timestamp_utc: str = ""
+    paper_safe: bool = True
+    execution_authority: bool = False
+    circuit_state: str = "NORMAL"
+    candidates: list[str] = Field(default_factory=list)
+    performance: EnsemblePerformanceItem = Field(default_factory=EnsemblePerformanceItem)
+    shadow_states: dict[str, ShadowEnsembleItem] = Field(default_factory=dict)
+    decisions_trace: list[EnsembleDecisionItem] = Field(default_factory=list)
+    solvency: DoubleEntrySolvencyItem = Field(default_factory=DoubleEntrySolvencyItem)
+    ledger: LedgerReconciliationItem = Field(default_factory=LedgerReconciliationItem)
+    upstream_hash: str = ""
+    phase_hash: str = ""
+    merkle_root: str = ""
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, str] = Field(default_factory=dict)
+
+
+def load_verified_canary_ensemble(
+    output_dir: Path | str | None = None,
+) -> CanaryEnsembleResponse:
+    """Load and cryptographically verify Phase 305 multi-horizon alpha ensemble telemetry."""
+    target_dir = Path(output_dir) if output_dir else Path("artifacts/research/phase305")
+
+    summary_file = target_dir / "ensemble-summary.json"
+    if not summary_file.is_file():
+        alt_p305 = target_dir.parent / "phase305" / "ensemble-summary.json"
+        if alt_p305.is_file():
+            summary_file = alt_p305
+            target_dir = alt_p305.parent
+
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(f"Phase 305 summary artifact missing in {target_dir}")
+
+    report_file = target_dir / "canary-ensemble-report.json"
+    sqlite_file = target_dir / "canary-ensemble-telemetry.sqlite3"
+    events_file = target_dir / "canary-ensemble-events.jsonl"
+
+    for req_file in (summary_file, report_file, sqlite_file, events_file):
+        if not req_file.exists():
+            raise CanaryEvidenceNotFoundError(f"Required Phase 305 evidence missing: {req_file}")
+
+    try:
+        with open(summary_file, encoding="utf-8") as f:
+            summary_data = json.load(f)
+        with open(report_file, encoding="utf-8") as f:
+            _ = json.load(f)
+    except Exception as exc:
+        raise CanaryEvidenceIntegrityError(f"Corrupted JSON in Phase 305: {exc}") from exc
+
+    # 1. Validate file hashes
+    artifact_hashes = summary_data.get("artifact_hashes", {})
+    expected_sqlite_hash = artifact_hashes.get("sqlite3", "")
+    expected_events_hash = artifact_hashes.get("events_jsonl", "")
+
+    computed_sqlite_hash = hashlib.sha256(sqlite_file.read_bytes()).hexdigest()
+    computed_events_hash = hashlib.sha256(events_file.read_bytes()).hexdigest()
+
+    if computed_sqlite_hash != expected_sqlite_hash or computed_events_hash != expected_events_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Artifact SHA-256 hash mismatch in Phase 305. "
+            f"sqlite: {computed_sqlite_hash} != {expected_sqlite_hash}, "
+            f"events: {computed_events_hash} != {expected_events_hash}"
+        )
+
+    # 2. Validate upstream Phase 304 hash
+    upstream_hash = str(summary_data.get("upstream_hash", ""))
+    expected_phase304_hash = "07ffc13325eeffaadd0fb2e2cc60fe15269943f0bfca55fd613289c02a4fb80b"
+    if upstream_hash != expected_phase304_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Upstream hash mismatch: {upstream_hash} != {expected_phase304_hash}"
+        )
+
+    # 3. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", ""))
+    phase_payload_hash = str(summary_data.get("phase_hash", ""))
+    merkle_combined = (
+        f"{upstream_hash}:{computed_sqlite_hash}:{computed_events_hash}:{phase_payload_hash}"
+    )
+    expected_merkle_root = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
+
+    if merkle_root != expected_merkle_root:
+        raise CanaryEvidenceIntegrityError(
+            f"Phase 305 Merkle root mismatch: "
+            f"computed {expected_merkle_root} != summary {merkle_root}"
+        )
+
+    # 4. Validate double-entry zero-drift balance
+    raw_solvency = summary_data.get("solvency", {})
+    drift_val = Decimal(str(raw_solvency.get("drift_usdt", "0.00")))
+    if abs(drift_val) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Double-entry zero-drift balance invariant breached: "
+            f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+
+    if not raw_solvency.get("zero_balance_drift_verified", False):
+        raise CanaryEvidenceIntegrityError(
+            "Double-entry zero-drift balance invariant breached: "
+            "zero_balance_drift_verified is False"
+        )
+
+    solvency = DoubleEntrySolvencyItem(
+        starting_equity_usdt=float(raw_solvency.get("starting_equity_usdt", 100.0)),
+        cash_usdt=float(raw_solvency.get("cash_usdt", 100.0)),
+        allocated_margin_usdt=float(raw_solvency.get("allocated_margin_usdt", 0.0)),
+        unrealized_pnl_usdt=float(raw_solvency.get("unrealized_pnl_usdt", 0.0)),
+        realized_pnl_usdt=float(raw_solvency.get("realized_pnl_usdt", 0.0)),
+        total_equity_usdt=float(raw_solvency.get("total_equity_usdt", 100.0)),
+        total_fees_usdt=float(raw_solvency.get("total_fees_usdt", 0.0)),
+        total_slippage_usdt=float(raw_solvency.get("total_slippage_usdt", 0.0)),
+        drift_usdt=float(raw_solvency.get("drift_usdt", 0.0)),
+        zero_balance_drift_verified=bool(raw_solvency.get("zero_balance_drift_verified", True)),
+        tolerance_ceiling_usdt=1e-15,
+        solvency_ratio_pct=float(raw_solvency.get("solvency_ratio_pct", 100.0)),
+        cash_reserve_pct=float(raw_solvency.get("cash_reserve_pct", 100.0)),
+        unencumbered_cash_verified=bool(raw_solvency.get("unencumbered_cash_verified", True)),
+    )
+
+    ledger = LedgerReconciliationItem(
+        starting_equity=solvency.starting_equity_usdt,
+        cash=solvency.cash_usdt,
+        allocated_margin=solvency.allocated_margin_usdt,
+        unrealized_pnl=solvency.unrealized_pnl_usdt,
+        realized_pnl=solvency.realized_pnl_usdt,
+        drift=solvency.drift_usdt,
+        zero_balance_drift=solvency.zero_balance_drift_verified,
+    )
+
+    raw_perf = summary_data.get("performance", {})
+    performance = EnsemblePerformanceItem(
+        total_decisions=int(raw_perf.get("total_decisions", 0)),
+        conflict_count=int(raw_perf.get("conflict_count", 0)),
+        conflict_ratio_pct=float(raw_perf.get("conflict_ratio_pct", 0.0)),
+        average_effective_conviction=float(raw_perf.get("average_effective_conviction", 0.0)),
+        mean_horizon_weights=dict(raw_perf.get("mean_horizon_weights", {})),
+        regime_distribution=dict(raw_perf.get("regime_distribution", {})),
+        defense_lockouts_triggered=int(raw_perf.get("defense_lockouts_triggered", 0)),
+        realized_sharpe_ratio=float(raw_perf.get("realized_sharpe_ratio", 0.0)),
+        calmar_ratio=float(raw_perf.get("calmar_ratio", 0.0)),
+        max_drawdown_pct=float(raw_perf.get("max_drawdown_pct", 0.0)),
+        win_rate_pct=float(raw_perf.get("win_rate_pct", 0.0)),
+        profit_factor=float(raw_perf.get("profit_factor", 0.0)),
+    )
+
+    shadow_states = {}
+    for sym, st in summary_data.get("shadow_states", {}).items():
+        raw_ld = st.get("last_decision", {})
+        ld_weights = EnsembleWeightItem(**raw_ld.get("weights", {}))
+        ld_signals = {k: HorizonSignalItem(**v) for k, v in raw_ld.get("signals", {}).items()}
+        last_dec = EnsembleDecisionItem(
+            symbol=raw_ld.get("symbol", sym),
+            timestamp_ms=int(raw_ld.get("timestamp_ms", 0)),
+            regime=raw_ld.get("regime", "CALM_BALANCED"),
+            weights=ld_weights,
+            signals=ld_signals,
+            raw_blended_direction=float(raw_ld.get("raw_blended_direction", 0.0)),
+            raw_blended_conviction=float(raw_ld.get("raw_blended_conviction", 0.0)),
+            conflict_detected=bool(raw_ld.get("conflict_detected", False)),
+            conflict_penalty=float(raw_ld.get("conflict_penalty", 1.0)),
+            effective_direction=float(raw_ld.get("effective_direction", 0.0)),
+            effective_conviction=float(raw_ld.get("effective_conviction", 0.0)),
+            target_action=str(raw_ld.get("target_action", "HOLD")),
+            target_micro_chunk_usdt=float(raw_ld.get("target_micro_chunk_usdt", 0.0)),
+            ensemble_state=str(raw_ld.get("ensemble_state", "ENSEMBLE_ACTIVE")),
+            notes=str(raw_ld.get("notes", "")),
+        )
+        shadow_states[sym] = ShadowEnsembleItem(
+            symbol=st.get("symbol", sym),
+            active_regime=st.get("active_regime", "CALM_BALANCED"),
+            total_decisions=int(st.get("total_decisions", 0)),
+            conflict_count=int(st.get("conflict_count", 0)),
+            allocated_margin_usdt=float(st.get("allocated_margin_usdt", 0.0)),
+            unrealized_pnl_usdt=float(st.get("unrealized_pnl_usdt", 0.0)),
+            realized_pnl_usdt=float(st.get("realized_pnl_usdt", 0.0)),
+            last_decision=last_dec,
+        )
+
+    decisions_trace = []
+    for d in summary_data.get("decisions_trace", []):
+        d_weights = EnsembleWeightItem(**d.get("weights", {}))
+        d_signals = {k: HorizonSignalItem(**v) for k, v in d.get("signals", {}).items()}
+        decisions_trace.append(
+            EnsembleDecisionItem(
+                symbol=d.get("symbol", ""),
+                timestamp_ms=int(d.get("timestamp_ms", 0)),
+                regime=d.get("regime", "CALM_BALANCED"),
+                weights=d_weights,
+                signals=d_signals,
+                raw_blended_direction=float(d.get("raw_blended_direction", 0.0)),
+                raw_blended_conviction=float(d.get("raw_blended_conviction", 0.0)),
+                conflict_detected=bool(d.get("conflict_detected", False)),
+                conflict_penalty=float(d.get("conflict_penalty", 1.0)),
+                effective_direction=float(d.get("effective_direction", 0.0)),
+                effective_conviction=float(d.get("effective_conviction", 0.0)),
+                target_action=str(d.get("target_action", "HOLD")),
+                target_micro_chunk_usdt=float(d.get("target_micro_chunk_usdt", 0.0)),
+                ensemble_state=str(d.get("ensemble_state", "ENSEMBLE_ACTIVE")),
+                notes=str(d.get("notes", "")),
+            )
+        )
+
+    ts_str = str(summary_data.get("timestamp_utc", datetime.now(UTC).isoformat()))
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        timestamp_ms = int(dt.timestamp() * 1000)
+    except Exception:
+        timestamp_ms = int(time.time() * 1000)
+
+    return CanaryEnsembleResponse(
+        verified=True,
+        phase="phase_305",
+        status=str(summary_data.get("status", "ENSEMBLE_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        timestamp_utc=ts_str,
+        paper_safe=True,
+        execution_authority=False,
+        circuit_state=str(summary_data.get("circuit_state", "NORMAL")),
+        candidates=list(summary_data.get("candidates", ["BTCUSDT", "ETHUSDT", "SOLUSDT"])),
+        performance=performance,
+        shadow_states=shadow_states,
+        decisions_trace=decisions_trace,
+        solvency=solvency,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=str(summary_data.get("phase_hash", "")),
+        merkle_root=merkle_root,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+        upstream_merkle_dag=dict(summary_data.get("upstream_merkle_dag", {})),
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "AssetAllocationItem",
@@ -5719,6 +6018,7 @@ __all__ = [
     "CanaryAutonomousLifecycleResponse",
     "CanaryBracketPositionsResponse",
     "CanaryCalibrationResponse",
+    "CanaryEnsembleResponse",
     "CanaryEvidenceIntegrityError",
     "CanaryEvidenceNotFoundError",
     "CanaryExecutionGuardResponse",
@@ -5743,12 +6043,16 @@ __all__ = [
     "ComponentHealthItem",
     "DaemonTrackItem",
     "DoubleEntrySolvencyItem",
+    "EnsembleDecisionItem",
+    "EnsemblePerformanceItem",
+    "EnsembleWeightItem",
     "ExchangeFilterComplianceItem",
     "ExecutionChildOrderItem",
     "FeatureHeatmapItem",
     "GatewayHealthItem",
     "HawkesSnapshotItem",
     "HeartbeatItem",
+    "HorizonSignalItem",
     "HotReloadLogItem",
     "HypothesisTreeItem",
     "InterlockEventItem",
@@ -5781,6 +6085,7 @@ __all__ = [
     "SessionLongevityItem",
     "ShadowAssetStateItem",
     "ShadowCalibrationItem",
+    "ShadowEnsembleItem",
     "ShadedQuoteItem",
     "ShockVectorStatusItem",
     "SlippageAttributionItem",
@@ -5794,6 +6099,7 @@ __all__ = [
     "load_verified_canary_autonomous_lifecycle",
     "load_verified_canary_bracket_positions",
     "load_verified_canary_calibration",
+    "load_verified_canary_ensemble",
     "load_verified_canary_execution_guard",
     "load_verified_canary_hawkes",
     "load_verified_canary_live_market",
