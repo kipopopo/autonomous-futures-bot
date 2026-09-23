@@ -35,6 +35,7 @@ from .canary import (
     CanaryBracketPositionsResponse,
     CanaryEvidenceIntegrityError,
     CanaryEvidenceNotFoundError,
+    CanaryExecutionGuardResponse,
     CanaryHawkesResponse,
     CanaryLiveMarketResponse,
     CanaryPaperExecutionResponse,
@@ -52,6 +53,7 @@ from .canary import (
     load_verified_canary_accounting,
     load_verified_canary_autonomous_lifecycle,
     load_verified_canary_bracket_positions,
+    load_verified_canary_execution_guard,
     load_verified_canary_hawkes,
     load_verified_canary_live_market,
     load_verified_canary_paper_execution,
@@ -989,6 +991,26 @@ def create_app(
                 detail="canary bracket positions integrity verification failed",
             ) from exc
 
+    # Phase 302: Real-Time Toxic Flow Defense, Adverse Selection Guard
+    # & Dynamic Microstructure Slippage Attribution
+    @app.get(
+        "/api/v1/canary/execution-guard",
+        response_model=CanaryExecutionGuardResponse,
+    )
+    def canary_execution_guard() -> CanaryExecutionGuardResponse:
+        try:
+            return load_verified_canary_execution_guard(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary execution guard evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary execution guard integrity verification failed",
+            ) from exc
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -1017,6 +1039,7 @@ __all__ = [
     "CanaryAccountingResponse",
     "CanaryAutonomousLifecycleResponse",
     "CanaryBracketPositionsResponse",
+    "CanaryExecutionGuardResponse",
     "CanaryHawkesResponse",
     "CanaryLiveMarketResponse",
     "CanaryPaperExecutionResponse",

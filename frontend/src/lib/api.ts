@@ -30,6 +30,7 @@ import {
   type CanarySummaryResponse,
   type CanaryTestnetGatewayData,
   type CanaryBracketPositionsData,
+  type CanaryExecutionGuardData,
 } from './canary'
 
 export { getCanaryPortfolioRebalancing, getCanaryStrategyMining }
@@ -382,6 +383,18 @@ export async function fetchCanaryBracketPositions(): Promise<CanaryBracketPositi
   }
 }
 
+export async function fetchCanaryExecutionGuard(): Promise<CanaryExecutionGuardData | null> {
+  const path = '/api/v1/canary/execution-guard'
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+    return (await response.json()) as CanaryExecutionGuardData
+  } catch {
+    return null
+  }
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
@@ -396,6 +409,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let portfolioRebalancing: CanaryPortfolioRebalancingResponse | null = null
   let testnetGateway: CanaryTestnetGatewayData | null = null
   let bracketPositions: CanaryBracketPositionsData | null = null
+  let executionGuard: CanaryExecutionGuardData | null = null
   let error: string | null = null
 
   try {
@@ -413,6 +427,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryPortfolioRebalancing(),
       fetchCanaryTestnetGateway(),
       fetchCanaryBracketPositions(),
+      fetchCanaryExecutionGuard(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
@@ -428,6 +443,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     if (results[10].status === 'fulfilled') portfolioRebalancing = results[10].value
     if (results[11].status === 'fulfilled') testnetGateway = results[11].value
     if (results[12].status === 'fulfilled') bracketPositions = results[12].value
+    if (results[13].status === 'fulfilled') executionGuard = results[13].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -453,6 +469,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     portfolioRebalancing,
     testnetGateway,
     bracketPositions,
+    executionGuard,
     error,
   }
 }

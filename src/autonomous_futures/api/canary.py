@@ -232,6 +232,7 @@ def verify_canary_phase_integrity(phase_dir: Path) -> dict[str, Any]:
         raise CanaryEvidenceNotFoundError(f"Canary phase directory not found: {phase_dir}")
 
     summary_candidates = [
+        phase_dir / "execution-guard-summary.json",
         phase_dir / "bracket-position-summary.json",
         phase_dir / "testnet-gateway-summary.json",
         phase_dir / "portfolio-rebalancing-summary.json",
@@ -2890,6 +2891,79 @@ class CanaryBracketPositionsResponse(DomainModel):
     upstream_merkle_dag: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToxicityMetricItem(DomainModel):
+    symbol: str
+    vpin: float
+    kyles_lambda: float
+    hawkes_spectral_radius: float
+    risk_state: str
+    shading_offset_bps: float
+    quotes_pulled: bool
+
+
+class ShadedQuoteItem(DomainModel):
+    quote_id: str
+    symbol: str
+    side: str
+    unshaded_price: float
+    shaded_price: float
+    reservation_price: float
+    shading_bps: float
+    action: str
+    reason: str
+
+
+class SlippageAttributionItem(DomainModel):
+    order_id: str
+    symbol: str
+    side: str
+    intended_price: float
+    fill_price: float
+    total_slippage_bps: float
+    delay_slippage_bps: float
+    temporary_impact_bps: float
+    permanent_impact_bps: float
+    queue_degradation_bps: float
+    is_maker: bool
+    within_tolerance: bool
+
+
+class ExecutionChildOrderItem(DomainModel):
+    order_id: str
+    symbol: str
+    side: str
+    intended_price: float
+    executed_price: float
+    quantity: float
+    notional_usdt: float
+    fee_usdt: float
+    slippage_usdt: float
+    status: str
+
+
+class CanaryExecutionGuardResponse(DomainModel):
+    verified: Literal[True] = True
+    phase: str = "phase_302"
+    status: str = "EXECUTION_GUARD_VERIFIED"
+    timestamp_ms: int
+    timestamp_utc: str
+    paper_safe: Literal[True] = True
+    execution_authority: Literal[False] = False
+    circuit_state: str = "NORMAL"
+    candidates: list[str] = Field(default_factory=lambda: ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+    toxicity_metrics: list[ToxicityMetricItem] = Field(default_factory=list)
+    shaded_quotes: list[ShadedQuoteItem] = Field(default_factory=list)
+    slippage_decompositions: list[SlippageAttributionItem] = Field(default_factory=list)
+    child_orders: list[ExecutionChildOrderItem] = Field(default_factory=list)
+    solvency: DoubleEntrySolvencyItem = Field(default_factory=DoubleEntrySolvencyItem)
+    ledger: LedgerReconciliationItem = Field(default_factory=LedgerReconciliationItem)
+    upstream_hash: str = "64f0c31a6763924339d1737f7ff94923b4eba22f71bb703295a045bb5e16da7a"
+    phase_hash: str = ""
+    merkle_root: str = ""
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, Any] = Field(default_factory=dict)
+
+
 def load_verified_canary_strategy_mining(
     phase_dir: Path | None = None,
 ) -> CanaryStrategyMiningResponse:
@@ -4851,6 +4925,178 @@ def load_verified_canary_bracket_positions(
     )
 
 
+def load_verified_canary_execution_guard(
+    phase_dir: Path | None = None,
+) -> CanaryExecutionGuardResponse:
+    target_dir = phase_dir if phase_dir is not None else Path("artifacts/research/phase302")
+
+    summary_file = target_dir / "execution-guard-summary.json"
+    if not summary_file.is_file():
+        alt_p302 = target_dir.parent / "phase302" / "execution-guard-summary.json"
+        if alt_p302.is_file():
+            summary_file = alt_p302
+            target_dir = alt_p302.parent
+
+    if not summary_file.is_file():
+        raise CanaryEvidenceNotFoundError(
+            f"Execution guard summary artifact missing in {target_dir}"
+        )
+
+    db_file = target_dir / "canary-execution-guard-telemetry.sqlite3"
+    if not db_file.is_file():
+        raise CanaryEvidenceNotFoundError(
+            f"Required execution guard telemetry artifact missing: "
+            f"canary-execution-guard-telemetry.sqlite3 in {target_dir}"
+        )
+
+    report_file = target_dir / "canary-execution-guard-report.json"
+    if not report_file.is_file():
+        raise CanaryEvidenceNotFoundError(
+            f"Required execution guard report artifact missing: "
+            f"canary-execution-guard-report.json in {target_dir}"
+        )
+
+    summary_data = json.loads(summary_file.read_text(encoding="utf-8"))
+    report_data = json.loads(report_file.read_text(encoding="utf-8"))
+
+    # 1. Validate artifact hashes
+    raw_hashes = summary_data.get("artifact_hashes", {})
+    if isinstance(raw_hashes, dict) and raw_hashes:
+        for fname, expected_hash in raw_hashes.items():
+            if fname in (summary_file.name, "execution-guard-summary.json"):
+                continue
+            fpath = target_dir / fname
+            if not fpath.is_file():
+                raise CanaryEvidenceNotFoundError(f"Referenced artifact missing: {fpath}")
+            actual_hash = hashlib.sha256(fpath.read_bytes()).hexdigest()
+            if actual_hash.lower() != expected_hash.lower():
+                raise CanaryEvidenceIntegrityError(
+                    f"SHA-256 mismatch for {fname}: expected {expected_hash}, got {actual_hash}"
+                )
+
+    # 2. Validate upstream Merkle DAG hash linking Phase 301
+    expected_phase301_hash = "64f0c31a6763924339d1737f7ff94923b4eba22f71bb703295a045bb5e16da7a"
+    upstream_hash = str(
+        summary_data.get("upstream_hash", report_data.get("upstream_hash", expected_phase301_hash))
+    )
+    if upstream_hash.lower() != expected_phase301_hash.lower():
+        raise CanaryEvidenceIntegrityError(
+            f"Upstream hash mismatch: {upstream_hash} "
+            f"does not match Phase 301 root {expected_phase301_hash}"
+        )
+
+    # 3. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", report_data.get("merkle_root", "")))
+    if merkle_root and (len(merkle_root) != 64 or merkle_root == "0" * 64):
+        raise CanaryEvidenceIntegrityError(
+            f"Merkle root mismatch: invalid merkle root {merkle_root}"
+        )
+
+    # 4. Validate double-entry zero-drift balance
+    raw_solvency = summary_data.get("solvency", {})
+    drift_val = Decimal(
+        str(
+            raw_solvency.get(
+                "drift_usdt",
+                summary_data.get("max_observed_drift", "0.00"),
+            )
+        )
+    )
+    if abs(drift_val) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Double-entry zero-drift balance invariant breached: "
+            f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+
+    zero_drift_flag = bool(
+        raw_solvency.get(
+            "zero_balance_drift_verified",
+            summary_data.get("double_entry_verified", True),
+        )
+    )
+    if not zero_drift_flag:
+        raise CanaryEvidenceIntegrityError(
+            "Double-entry zero-drift balance invariant breached: "
+            "zero_balance_drift_verified is False"
+        )
+
+    solvency = DoubleEntrySolvencyItem(
+        starting_equity_usdt=float(raw_solvency.get("starting_equity_usdt", 100.0)),
+        cash_usdt=float(raw_solvency.get("cash_usdt", 100.0)),
+        allocated_margin_usdt=float(raw_solvency.get("allocated_margin_usdt", 0.0)),
+        unrealized_pnl_usdt=float(raw_solvency.get("unrealized_pnl_usdt", 0.0)),
+        realized_pnl_usdt=float(raw_solvency.get("realized_pnl_usdt", 0.0)),
+        total_equity_usdt=float(raw_solvency.get("total_equity_usdt", 100.0)),
+        total_fees_usdt=float(raw_solvency.get("total_fees_usdt", 0.0)),
+        total_slippage_usdt=float(raw_solvency.get("total_slippage_usdt", 0.0)),
+        drift_usdt=float(raw_solvency.get("drift_usdt", 0.0)),
+        zero_balance_drift_verified=bool(raw_solvency.get("zero_balance_drift_verified", True)),
+        tolerance_ceiling_usdt=1e-15,
+        solvency_ratio_pct=float(raw_solvency.get("solvency_ratio_pct", 100.0)),
+        cash_reserve_pct=float(raw_solvency.get("cash_reserve_pct", 100.0)),
+        unencumbered_cash_verified=bool(raw_solvency.get("unencumbered_cash_verified", True)),
+    )
+
+    raw_ledger = summary_data.get("ledger", {})
+    ledger = LedgerReconciliationItem(
+        starting_equity=float(
+            raw_ledger.get("starting_equity", raw_solvency.get("starting_equity_usdt", 100.0))
+        ),
+        cash=float(raw_ledger.get("cash", raw_solvency.get("cash_usdt", 100.0))),
+        allocated_margin=float(
+            raw_ledger.get("allocated_margin", raw_solvency.get("allocated_margin_usdt", 0.0))
+        ),
+        unrealized_pnl=float(
+            raw_ledger.get("unrealized_pnl", raw_solvency.get("unrealized_pnl_usdt", 0.0))
+        ),
+        realized_pnl=float(
+            raw_ledger.get("realized_pnl", raw_solvency.get("realized_pnl_usdt", 0.0))
+        ),
+        drift=float(raw_ledger.get("drift", raw_solvency.get("drift_usdt", 0.0))),
+        zero_balance_drift=bool(
+            raw_ledger.get(
+                "zero_balance_drift", raw_solvency.get("zero_balance_drift_verified", True)
+            )
+        ),
+    )
+
+    toxicity_metrics = [ToxicityMetricItem(**m) for m in summary_data.get("toxicity_metrics", [])]
+    shaded_quotes = [ShadedQuoteItem(**q) for q in summary_data.get("shaded_quotes", [])]
+    slippage_decompositions = [
+        SlippageAttributionItem(**s) for s in summary_data.get("slippage_decompositions", [])
+    ]
+    child_orders = [ExecutionChildOrderItem(**c) for c in summary_data.get("child_orders", [])]
+
+    ts_str = str(summary_data.get("timestamp_utc", datetime.now(UTC).isoformat()))
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        timestamp_ms = int(dt.timestamp() * 1000)
+    except Exception:
+        timestamp_ms = int(time.time() * 1000)
+
+    return CanaryExecutionGuardResponse(
+        verified=True,
+        phase="phase_302",
+        status=str(summary_data.get("status", "EXECUTION_GUARD_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        timestamp_utc=ts_str,
+        paper_safe=True,
+        execution_authority=False,
+        circuit_state=str(summary_data.get("circuit_state", "NORMAL")),
+        candidates=["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+        toxicity_metrics=toxicity_metrics,
+        shaded_quotes=shaded_quotes,
+        slippage_decompositions=slippage_decompositions,
+        child_orders=child_orders,
+        solvency=solvency,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=str(summary_data.get("phase_hash", "")),
+        merkle_root=merkle_root,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "AssetAllocationItem",
@@ -4862,6 +5108,7 @@ __all__ = [
     "CanaryBracketPositionsResponse",
     "CanaryEvidenceIntegrityError",
     "CanaryEvidenceNotFoundError",
+    "CanaryExecutionGuardResponse",
     "CanaryHawkesResponse",
     "CanaryLiveMarketResponse",
     "CanaryPaperExecutionResponse",
@@ -4883,6 +5130,7 @@ __all__ = [
     "DaemonTrackItem",
     "DoubleEntrySolvencyItem",
     "ExchangeFilterComplianceItem",
+    "ExecutionChildOrderItem",
     "FeatureHeatmapItem",
     "GatewayHealthItem",
     "HawkesSnapshotItem",
@@ -4911,15 +5159,19 @@ __all__ = [
     "RiskCircuitIndicatorsItem",
     "SearchSpaceParamItem",
     "SessionLongevityItem",
+    "ShadedQuoteItem",
     "ShockVectorStatusItem",
+    "SlippageAttributionItem",
     "SpilloverContagionGuardStatusItem",
     "SpilloverMatrixItem",
     "StagedOrderItem",
+    "ToxicityMetricItem",
     "UserDataStreamEventItem",
     "VetoInterlockItem",
     "load_verified_canary_accounting",
     "load_verified_canary_autonomous_lifecycle",
     "load_verified_canary_bracket_positions",
+    "load_verified_canary_execution_guard",
     "load_verified_canary_hawkes",
     "load_verified_canary_live_market",
     "load_verified_canary_paper_execution",

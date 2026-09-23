@@ -2848,7 +2848,77 @@ Persist structured research artifacts in `artifacts/research/phase301/` bound by
 Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
 
 ## Acceptance Criteria
-- [ ] `scripts/run_phase_301_bracket_positions.py` executes 4 deterministic simulation tracks (User Data Stream Ingress, Dynamic Bracket & Ratchet, Position Management & Liquidation Guard, and Full Longevity & Merkle DAG) with 0 failures and verified zero balance drift.
-- [ ] Comprehensive pytest suite covers user data stream event parsing, bracket ratchet updates, OCO coordination, margin ratio calculation, fail-closed liquidation flattening, and double-entry reconciliation.
-- [ ] Vitest frontend test suite covers Bracket Positions dashboard component with 0 failures.
-- [ ] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
+- [x] `scripts/run_phase_301_bracket_positions.py` executes 4 deterministic simulation tracks (User Data Stream Ingress, Dynamic Bracket & Ratchet, Position Management & Liquidation Guard, and Full Longevity & Merkle DAG) with 0 failures and verified zero balance drift.
+- [x] Comprehensive pytest suite covers user data stream event parsing, bracket ratchet updates, OCO coordination, margin ratio calculation, fail-closed liquidation flattening, and double-entry reconciliation.
+- [x] Vitest frontend test suite covers Bracket Positions dashboard component with 0 failures.
+- [x] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
+
+## 2026-09-23T09:15:00Z
+
+Implement Phase 302: Real-Time Toxic Flow Defense, Adverse Selection Guard & Dynamic Microstructure Slippage Attribution Engine for Autonomous Futures Bot, establishing real-time order flow toxicity calculation (VPIN / Kyle's lambda), dynamic passive quote reservation price shading (Avellaneda-Stoikov inventory control with Hawkes cascade feedback), causal Almgren-Chriss market impact and execution slippage decomposition, continuous mathematical double-entry zero-drift balance governance, observational FastAPI endpoints, and DaisyUI 5.7.42 dashboard telemetry without live execution authority.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Real-Time Order Flow Toxicity & Adverse Selection Guard
+Implement `MicrostructureAdverseSelectionGuard` in `src/autonomous_futures/feed/execution_guard.py`:
+- Ingest real-time top-of-book depth (`@depth5@100ms`) and aggregate trades (`@aggTrade`) across candidate universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Compute rolling Order Flow Toxicity:
+  - Volume-Synchronized Probability of Toxicity (VPIN) across fixed volume bars.
+  - Order Book Imbalance (OBI) and Kyle's lambda ($\lambda_{\text{Kyle}} = \frac{\Delta P}{\text{Signed Volume}}$).
+- Dynamic Quote Shading (Avellaneda-Stoikov Reservation Price):
+  $$r(s, q, t) = s - q \gamma \sigma^2 (T - t)$$
+  adjusted by Hawkes self/cross-excitation jump hazard:
+  $$r^*(s, q, t) = r(s, q, t) \pm \delta_{\text{cushion}}(\rho)$$
+  where $\rho$ is the Hawkes spectral radius.
+- Fail-Closed Passive Queue Defense: If VPIN $\ge 0.70$ or $\rho \ge 0.85$, immediately pull maker child orders or shade bid/ask limit prices away from the toxic side to prevent adverse selection execution.
+
+### R2. Causal Slippage & Multi-Component Market Impact Decomposition
+Implement `CausalSlippageAttributionEngine` in `src/autonomous_futures/feed/execution_guard.py`:
+- Track every simulated child order execution from decision timestamp $t_{\text{intent}}$ to fill timestamp $t_{\text{fill}}$.
+- Decompose slippage $\Delta P = P_{\text{fill}} - P_{\text{intent}}$ into orthogonal causal components:
+  1. Latency / Delay Slippage: $\Delta P_{\text{delay}} = P(t_{\text{dispatch}}) - P(t_{\text{intent}})$
+  2. Temporary Market Impact (Almgren-Chriss square-root law): $I_{\text{temp}} = \eta \cdot \text{sgn}(Q) \cdot \left(\frac{Q}{V}\right)^\alpha$
+  3. Permanent Market Impact / Information Leakage: $I_{\text{perm}} = \gamma \cdot Q$
+  4. Passive Queue Priority Degradation: Slippage incurred from book queue depletion prior to fill.
+- Micro Child Order Bounds: Strict enforcement of $\le 5.00\text{ USDT}$ child order cap with `ROUND_DOWN` quantization; max allowed slippage ceiling $\le 5.0\text{ bps}$ for maker fills and $\le 15.0\text{ bps}$ for taker bracket emergency triggers.
+
+### R3. Multi-Asset Execution Risk Coordinator & Circuit Breakers
+Implement `ExecutionMicrostructureCoordinator` in `src/autonomous_futures/feed/execution_guard.py`:
+- Coordinate active execution across `BTCUSDT`, `ETHUSDT`, and `SOLUSDT`.
+- Maintain dynamic circuit breaker interlocks:
+  - Toxic Flow Circuit Breaker: Halt new child order dispatch when toxicity VPIN $\ge 0.70$.
+  - Slippage Anomaly Interlock: Abort and cancel active bracket if realized slippage exceeds $20.0\text{ bps}$.
+  - Preserve $\ge 40\%$ unencumbered cash reserve at all times.
+  - Verify gateway heartbeat age $\le 500\text{ ms}$ before any execution simulation.
+
+### R4. Continuous Mathematical Double-Entry Zero-Drift Ledger & SHA-256 Merkle DAG
+Maintain strict real-time double-entry reconciliation across all executed child orders, slippage deductions, and fee allocations:
+$$\text{Assets} = \text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL}$$
+$$\text{Equity} = \text{Starting Equity} + \text{Realized PnL} + \text{Unrealized PnL} - \text{Total Fees} - \text{Total Slippage}$$
+Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ across all fill states, slippage attributions, and margin updates.
+Persist structured research artifacts in `artifacts/research/phase302/` bound by a cryptographic SHA-256 Merkle DAG hash chain linking Phase 301 root hash (`64f0c31a6763924339d1737f7ff94923b4eba22f71bb703295a045bb5e16da7a`).
+
+### R5. Observational Backend API & DaisyUI 5.7.42 Dashboard
+- Expose read-only FastAPI endpoints:
+  - `GET /api/v1/canary/execution-guard`
+  - Update `GET /api/v1/canary/summary`
+- Update React frontend dashboard:
+  - Create `frontend/src/components/execution-guard-page.tsx` with DaisyUI 5.7.42 dark theme rendering:
+    - Microstructure Toxic Flow KPI Cards (VPIN Toxicity Score, Reservation Price Cushion, Mean Causal Slippage bps, Cash Reserve)
+    - Real-Time Toxicity & Imbalance Matrix (VPIN, Order Book Imbalance OBI, Kyle's Lambda, Adverse Selection Risk Level)
+    - Causal Slippage Attribution Waterfall Decomposition (Delay Slippage, Temporary Impact, Permanent Impact, Queue Degradation)
+    - Order Execution & Shading Log (Child Order ID, Symbol, Intent Price, Fill Price, Shading Delta, Slippage bps, Status)
+    - Double-Entry Solvency Meter ($|\Delta| < 10^{-15}\text{ USDT}$) & Merkle DAG Linkage to Phase 301
+  - Add "Execution Guard" navigation tab (`#/guard`) in `frontend/src/App.tsx`.
+
+### R6. Strict Paper-Safe Confinement
+Strictly enforce `EXECUTION AUTHORITY: OFF` across all contracts and processes, ensuring zero live trading credentials or API keys are required, and zero live orders are ever transmitted to external exchange endpoints.
+
+## Acceptance Criteria
+- [x] `scripts/run_phase_302_execution_guard.py` executes 4 deterministic simulation tracks (Toxicity & Adverse Selection Guard, Causal Slippage Decomposition, Execution Risk Coordination, and Full Longevity & Merkle DAG) with 0 failures and verified zero balance drift.
+- [x] Comprehensive pytest suite covers VPIN toxicity calculation, Avellaneda-Stoikov quote shading, slippage decomposition, adverse selection circuit breakers, and double-entry reconciliation.
+- [x] Vitest frontend test suite covers Execution Guard dashboard component with 0 failures.
+- [x] Static quality gates (`ruff check`, `ruff format --check`, `mypy src`) pass with 0 errors.
