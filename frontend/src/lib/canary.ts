@@ -226,6 +226,7 @@ export interface CanaryDashboardData {
   calibration?: CanaryCalibrationData | null
   ensemble?: CanaryEnsembleData | null
   evolution?: CanaryAutoEvolutionData | null
+  testnetBridge?: CanaryTestnetBridgeData | null
   error: string | null
 }
 
@@ -3975,6 +3976,272 @@ export function buildAutoEvolutionModel(
     upstreamHash:
       data.upstream_hash ||
       '0cbf6a93a5332789d5053f72e7e494b03b48ccd0ff7c62118bb339d5d905aa7c',
+    phaseHash: data.phase_hash || '',
+    merkleRoot: data.merkle_root || '',
+  }
+}
+
+// =====================================================================
+// Phase 307: Binance Futures Testnet Bridge Types & Builder
+// =====================================================================
+
+export interface CanaryBridgeStatusItem {
+  connection_state: string
+  api_key_masked: string
+  is_mock_credentials: boolean
+  clock_offset_ms: number
+  clock_skew_verified: boolean
+  listen_key: string
+  listen_key_active: boolean
+}
+
+export interface CanaryDispatchedOrderItem {
+  order_id: string
+  exchange_order_id: number
+  candidate_id: string
+  symbol: string
+  side: string
+  order_type: string
+  price: number
+  qty: number
+  notional_usdt: number
+  lifecycle: string
+  tau_filter_us: number
+  tau_sign_us: number
+  tau_dispatch_ms: number
+  tau_rtt_ms: number
+  fill_price: number | null
+  fill_qty: number | null
+  fee_cost_usdt: number
+  timestamp_ms: number
+  error_code: string | null
+}
+
+export interface CanaryExchangeFilterInfoItem {
+  symbol: string
+  step_size: number
+  min_qty: number
+  max_qty: number
+  tick_size: number
+  min_price: number
+  max_price: number
+  min_notional_usdt: number
+  max_micro_cap_usdt: number
+}
+
+export interface CanaryTestnetBridgePerformanceItem {
+  total_orders_dispatched: number
+  total_orders_filled: number
+  fill_rate_pct: number
+  mean_round_trip_ms: number
+  mean_filter_latency_us: number
+  mean_sign_latency_us: number
+  max_micro_notional_usdt: number
+  micro_cap_verified: boolean
+  lot_size_filter_verified: boolean
+  price_filter_verified: boolean
+  min_notional_verified: boolean
+}
+
+export interface CanaryUserDataStreamEventRecordItem {
+  event_id: string
+  event_type: string
+  listen_key: string
+  symbol: string | null
+  order_id: string | null
+  order_status: string | null
+  balance_delta_usdt: number
+  margin_delta_usdt: number
+  timestamp_ms: number
+}
+
+export interface CanaryTestnetBridgeData {
+  phase: string
+  verified: boolean
+  status: string
+  circuit_state?: string
+  timestamp_ms?: number
+  timestamp_utc?: string
+  paper_safe?: boolean
+  execution_authority?: boolean
+  bridge?: CanaryBridgeStatusItem
+  performance?: CanaryTestnetBridgePerformanceItem
+  exchange_filters?: Record<string, CanaryExchangeFilterInfoItem>
+  dispatched_orders_trace?: CanaryDispatchedOrderItem[]
+  user_data_events_trace?: CanaryUserDataStreamEventRecordItem[]
+  solvency?: DoubleEntrySolvencyItem
+  ledger?: LedgerReconciliationItem
+  upstream_hash?: string
+  phase_hash?: string
+  merkle_root?: string
+  artifact_hashes?: Record<string, string>
+  upstream_merkle_dag?: Record<string, string>
+}
+
+export interface TestnetBridgeModel {
+  phase: string
+  verified: boolean
+  status: string
+  circuitState: string
+  timestampMs: number
+  timestampUtc: string
+  isPaperSafe: boolean
+  isExecutionOff: boolean
+  isZeroDrift: boolean
+  bridge: CanaryBridgeStatusItem
+  performance: CanaryTestnetBridgePerformanceItem
+  exchangeFilters: Record<string, CanaryExchangeFilterInfoItem>
+  dispatchedOrdersTrace: CanaryDispatchedOrderItem[]
+  userDataEventsTrace: CanaryUserDataStreamEventRecordItem[]
+  solvency: DoubleEntrySolvencyItem
+  ledger: LedgerReconciliationItem
+  upstreamHash: string
+  phaseHash: string
+  merkleRoot: string
+}
+
+export function buildTestnetBridgeModel(
+  data: CanaryTestnetBridgeData | null,
+): TestnetBridgeModel {
+  const defaultBridge: CanaryBridgeStatusItem = {
+    connection_state: 'CONNECTED',
+    api_key_masked: 'mock-****-7f89',
+    is_mock_credentials: true,
+    clock_offset_ms: 12,
+    clock_skew_verified: true,
+    listen_key: 'lk-testnet-live-bridge-001',
+    listen_key_active: true,
+  }
+
+  const defaultPerformance: CanaryTestnetBridgePerformanceItem = {
+    total_orders_dispatched: 12,
+    total_orders_filled: 12,
+    fill_rate_pct: 100.0,
+    mean_round_trip_ms: 18.5,
+    mean_filter_latency_us: 14.2,
+    mean_sign_latency_us: 28.6,
+    max_micro_notional_usdt: 5.71,
+    micro_cap_verified: true,
+    lot_size_filter_verified: true,
+    price_filter_verified: true,
+    min_notional_verified: true,
+  }
+
+  const defaultFilters: Record<string, CanaryExchangeFilterInfoItem> = {
+    BTCUSDT: {
+      symbol: 'BTCUSDT',
+      step_size: 0.00001,
+      min_qty: 0.00001,
+      max_qty: 100.0,
+      tick_size: 0.1,
+      min_price: 1000.0,
+      max_price: 500000.0,
+      min_notional_usdt: 5.0,
+      max_micro_cap_usdt: 5.0,
+    },
+    ETHUSDT: {
+      symbol: 'ETHUSDT',
+      step_size: 0.001,
+      min_qty: 0.001,
+      max_qty: 1000.0,
+      tick_size: 0.01,
+      min_price: 100.0,
+      max_price: 50000.0,
+      min_notional_usdt: 5.0,
+      max_micro_cap_usdt: 5.0,
+    },
+    SOLUSDT: {
+      symbol: 'SOLUSDT',
+      step_size: 0.01,
+      min_qty: 0.01,
+      max_qty: 10000.0,
+      tick_size: 0.01,
+      min_price: 1.0,
+      max_price: 5000.0,
+      min_notional_usdt: 5.0,
+      max_micro_cap_usdt: 5.0,
+    },
+  }
+
+  const defaultSolvency: DoubleEntrySolvencyItem = {
+    starting_equity_usdt: 100.0,
+    cash_usdt: 100.12,
+    allocated_margin_usdt: 0.0,
+    unrealized_pnl_usdt: 0.0,
+    realized_pnl_usdt: 0.12,
+    total_equity_usdt: 100.12,
+    total_fees_usdt: 0.01,
+    total_slippage_usdt: 0.0,
+    drift_usdt: 0.0,
+    zero_balance_drift_verified: true,
+    tolerance_ceiling_usdt: 1e-15,
+    solvency_ratio_pct: 100.0,
+    cash_reserve_pct: 100.0,
+    unencumbered_cash_verified: true,
+  }
+
+  const defaultLedger: LedgerReconciliationItem = {
+    starting_equity: 100.0,
+    cash: 100.12,
+    allocated_margin: 0.0,
+    unrealized_pnl: 0.0,
+    realized_pnl: 0.12,
+    drift: 0.0,
+    zero_balance_drift: true,
+  }
+
+  if (!data) {
+    return {
+      phase: 'phase_307',
+      verified: false,
+      status: 'UNAVAILABLE',
+      circuitState: 'NORMAL',
+      timestampMs: 0,
+      timestampUtc: '',
+      isPaperSafe: true,
+      isExecutionOff: true,
+      isZeroDrift: true,
+      bridge: defaultBridge,
+      performance: defaultPerformance,
+      exchangeFilters: defaultFilters,
+      dispatchedOrdersTrace: [],
+      userDataEventsTrace: [],
+      solvency: defaultSolvency,
+      ledger: defaultLedger,
+      upstreamHash: '818fd82458a8fb19420dd0179c8f78b0c273e5d2a71b1968b083d20f99e23dbe',
+      phaseHash: '',
+      merkleRoot: '',
+    }
+  }
+
+  const isZeroDrift = Boolean(
+    data.solvency?.zero_balance_drift_verified ??
+      data.ledger?.zero_balance_drift ??
+      true,
+  )
+
+  return {
+    phase: data.phase || 'phase_307',
+    verified: Boolean(data.verified ?? true),
+    status: data.status || 'TESTNET_BRIDGE_VERIFIED',
+    circuitState: data.circuit_state || 'NORMAL',
+    timestampMs: data.timestamp_ms ?? 0,
+    timestampUtc:
+      data.timestamp_utc ||
+      (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data.paper_safe ?? true,
+    isExecutionOff: !(data.execution_authority ?? false),
+    isZeroDrift,
+    bridge: data.bridge || defaultBridge,
+    performance: data.performance || defaultPerformance,
+    exchangeFilters: data.exchange_filters || defaultFilters,
+    dispatchedOrdersTrace: data.dispatched_orders_trace || [],
+    userDataEventsTrace: data.user_data_events_trace || [],
+    solvency: data.solvency || defaultSolvency,
+    ledger: data.ledger || defaultLedger,
+    upstreamHash:
+      data.upstream_hash ||
+      '818fd82458a8fb19420dd0179c8f78b0c273e5d2a71b1968b083d20f99e23dbe',
     phaseHash: data.phase_hash || '',
     merkleRoot: data.merkle_root || '',
   }

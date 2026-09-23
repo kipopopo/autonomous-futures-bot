@@ -24,6 +24,7 @@ import {
   Cpu,
   Sliders,
   Sparkles,
+  Network,
 } from 'lucide-react'
 
 import { AccountingPage } from '@/components/accounting-page'
@@ -46,6 +47,7 @@ import { OrchestratorPage } from '@/components/orchestrator-page'
 import { CalibrationPage } from '@/components/calibration-page'
 import { EnsemblePage } from '@/components/ensemble-page'
 import { EvolutionPage } from '@/components/evolution-page'
+import { TestnetBridgePage } from '@/components/testnet-bridge-page'
 import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
@@ -66,6 +68,7 @@ import {
   buildStrategyMiningModel,
   buildStressFaultInjectionModel,
   buildTestnetGatewayModel,
+  buildTestnetBridgeModel,
   type CanaryDashboardData,
 } from '@/lib/canary'
 import { buildCreatorModel } from '@/lib/creator'
@@ -105,6 +108,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   calibration: null,
   ensemble: null,
   evolution: null,
+  testnetBridge: null,
   error: null,
 }
 
@@ -411,6 +415,10 @@ function App() {
     () => buildAutoEvolutionModel(canaryData.evolution ?? null),
     [canaryData.evolution]
   )
+  const testnetBridgeModel = useMemo(
+    () => buildTestnetBridgeModel(canaryData.testnetBridge ?? null),
+    [canaryData.testnetBridge]
+  )
 
   const loadData = useCallback(async () => {
     setState('loading')
@@ -445,7 +453,8 @@ function App() {
       nextCanary.orchestrator?.verified ||
       nextCanary.calibration?.verified ||
       nextCanary.ensemble?.verified ||
-      nextCanary.evolution?.verified
+      nextCanary.evolution?.verified ||
+      nextCanary.testnetBridge?.verified
     )
 
     if (hasData) {
@@ -558,6 +567,7 @@ function App() {
   const isCalibrationPage = page === 'calibration'
   const isEnsemblePage = page === 'ensemble'
   const isEvolutionPage = page === 'evolution'
+  const isTestnetBridgePage = page === 'testnet-bridge'
   const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
@@ -649,10 +659,14 @@ function App() {
             <Sparkles size={17} aria-hidden="true" />
             <span>Auto-Evolution</span>
           </a>
+          <a className={`nav-item ${isTestnetBridgePage ? 'nav-item-active' : ''}`} href="#/testnet-bridge" aria-current={isTestnetBridgePage ? 'page' : undefined}>
+            <Network size={17} aria-hidden="true" />
+            <span>Testnet Bridge</span>
+          </a>
         </nav>
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 306</span>
-          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Evolution</span>
+          <span className="sidebar-label">PHASE 307</span>
+          <span className="badge badge-primary badge-xs py-2 px-2 font-mono font-semibold">Testnet Bridge</span>
         </div>
       </aside>
 
@@ -661,7 +675,9 @@ function App() {
           <div>
             <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
               Autonomous Futures /{' '}
-              {isEvolutionPage
+              {isTestnetBridgePage
+                ? 'Testnet live API & order dispatch bridge plane'
+                : isEvolutionPage
                 ? 'Continuous self-learning & auto-evolution plane'
                 : isEnsemblePage
                 ? 'Autonomous multi-horizon alpha ensemble & meta-policy plane'
@@ -702,7 +718,9 @@ function App() {
                               : 'Data plane'}
             </p>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isEvolutionPage
+              {isTestnetBridgePage
+                ? 'Canary Testnet Bridge: Live API Integration, Order Dispatch & Solvency Ledger'
+                : isEvolutionPage
                 ? 'Canary Evolution: Strategy Autopsy, Continuous Self-Learning & Auto-Evolution Daemon'
                 : isEnsemblePage
                 ? 'Canary Ensemble: Autonomous Multi-Horizon Alpha Ensemble & Meta-Policy Blending Engine'
@@ -743,7 +761,9 @@ function App() {
                               : 'Overview'}
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
-              {isEvolutionPage
+              {isTestnetBridgePage
+                ? 'Phase 307 Authenticated REST/WS Gateway, Exchange Filter Rules & Zero-Drift Balance · MYT (GMT+8)'
+                : isEvolutionPage
                 ? 'Phase 306 Execution Friction Attribution, Dynamic Candidate Health Tiers & Bounded Parameter Mutation · MYT (GMT+8)'
                 : isEnsemblePage
                 ? 'Phase 305 Dynamic Weight Adaptation, Directional Conflict Shading & Multi-Asset Solvency · MYT (GMT+8)'
@@ -959,6 +979,7 @@ function App() {
           {isCalibrationPage && state === 'ready' && <CalibrationPage model={calibrationModel} />}
           {isEnsemblePage && state === 'ready' && <EnsemblePage model={ensembleModel} />}
           {isEvolutionPage && state === 'ready' && <EvolutionPage model={autoEvolutionModel} />}
+          {isTestnetBridgePage && state === 'ready' && <TestnetBridgePage model={testnetBridgeModel} />}
           {inventoryVisible && <ComponentInventory components={model.components} />}
         </ErrorBoundary>
 

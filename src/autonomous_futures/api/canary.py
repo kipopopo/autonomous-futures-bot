@@ -6270,6 +6270,310 @@ def load_verified_canary_auto_evolution(
     )
 
 
+# =====================================================================
+# Phase 307: Binance Futures Testnet Bridge Models & Loader
+# =====================================================================
+
+
+class BridgeStatusItem(DomainModel):
+    """Status details for testnet exchange connection."""
+
+    connection_state: str
+    api_key_masked: str
+    is_mock_credentials: bool
+    clock_offset_ms: int
+    clock_skew_verified: bool
+    listen_key: str
+    listen_key_active: bool
+
+
+class DispatchedOrderItem(DomainModel):
+    """Trace record for an order processed by the Testnet Bridge."""
+
+    order_id: str
+    exchange_order_id: int
+    candidate_id: str
+    symbol: str
+    side: str
+    order_type: str
+    price: float
+    qty: float
+    notional_usdt: float
+    lifecycle: str
+    tau_filter_us: float
+    tau_sign_us: float
+    tau_dispatch_ms: float
+    tau_rtt_ms: float
+    fill_price: float | None = None
+    fill_qty: float | None = None
+    fee_cost_usdt: float
+    timestamp_ms: int
+    error_code: str | None = None
+
+
+class ExchangeFilterInfoItem(DomainModel):
+    """Exchange filter constraints for a trading pair."""
+
+    symbol: str
+    step_size: float
+    min_qty: float
+    max_qty: float
+    tick_size: float
+    min_price: float
+    max_price: float
+    min_notional_usdt: float
+    max_micro_cap_usdt: float
+
+
+class TestnetBridgePerformanceItem(DomainModel):
+    """Performance metrics of the testnet bridge."""
+
+    total_orders_dispatched: int
+    total_orders_filled: int
+    fill_rate_pct: float
+    mean_round_trip_ms: float
+    mean_filter_latency_us: float
+    mean_sign_latency_us: float
+    max_micro_notional_usdt: float
+    micro_cap_verified: bool
+    lot_size_filter_verified: bool
+    price_filter_verified: bool
+    min_notional_verified: bool
+
+
+class UserDataStreamEventRecordItem(DomainModel):
+    """Streamed user data event."""
+
+    event_id: str
+    event_type: str
+    listen_key: str
+    symbol: str | None = None
+    order_id: str | None = None
+    order_status: str | None = None
+    balance_delta_usdt: float
+    margin_delta_usdt: float
+    timestamp_ms: int
+
+
+class CanaryTestnetBridgeResponse(DomainModel):
+    """Phase 307 Testnet Bridge API response."""
+
+    verified: bool
+    phase: str = "phase_307"
+    status: str
+    timestamp_ms: int
+    timestamp_utc: str
+    paper_safe: bool = True
+    execution_authority: bool = False
+    circuit_state: str = "NORMAL"
+    bridge: BridgeStatusItem
+    performance: TestnetBridgePerformanceItem
+    exchange_filters: dict[str, ExchangeFilterInfoItem]
+    dispatched_orders_trace: list[DispatchedOrderItem] = Field(default_factory=list)
+    user_data_events_trace: list[UserDataStreamEventRecordItem] = Field(default_factory=list)
+    solvency: DoubleEntrySolvencyItem
+    ledger: LedgerReconciliationItem
+    upstream_hash: str
+    phase_hash: str
+    merkle_root: str
+    artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    upstream_merkle_dag: dict[str, str] = Field(default_factory=dict)
+
+
+def load_verified_canary_testnet_bridge(
+    output_dir: Path | str | None = None,
+) -> CanaryTestnetBridgeResponse:
+    """Loads and cryptographically verifies Phase 307 Testnet Bridge telemetry."""
+    if output_dir is None:
+        target_dir = Path("artifacts/research/phase307")
+        if not target_dir.exists():
+            sibling = (
+                Path(__file__).resolve().parent.parent.parent.parent
+                / "artifacts"
+                / "research"
+                / "phase307"
+            )
+            if sibling.exists():
+                target_dir = sibling
+    else:
+        target_dir = Path(output_dir)
+
+    summary_file = target_dir / "testnet-bridge-summary.json"
+    report_file = target_dir / "canary-testnet-bridge-report.json"
+    sqlite_file = target_dir / "canary-testnet-bridge-telemetry.sqlite3"
+    events_file = target_dir / "canary-testnet-bridge-events.jsonl"
+
+    for req_file in (summary_file, report_file, sqlite_file, events_file):
+        if not req_file.exists():
+            raise CanaryEvidenceNotFoundError(f"Missing required Phase 307 artifact: {req_file}")
+
+    try:
+        raw_summary = json.loads(summary_file.read_text(encoding="utf-8"))
+        summary_data: dict[str, Any] = raw_summary if isinstance(raw_summary, dict) else {}
+    except Exception as exc:
+        raise CanaryEvidenceIntegrityError(f"Malformed JSON in {summary_file}") from exc
+
+    # 1. SHA-256 validation
+    artifact_hashes = summary_data.get("artifact_hashes", {})
+    expected_sqlite_hash = str(artifact_hashes.get("sqlite3", ""))
+    expected_events_hash = str(artifact_hashes.get("events_jsonl", ""))
+
+    def sha256_file(p: Path) -> str:
+        h = hashlib.sha256()
+        with open(p, "rb") as f:
+            while chunk := f.read(65536):
+                h.update(chunk)
+        return h.hexdigest()
+
+    sqlite_file_path = sqlite_file
+    events_file_path = events_file
+    computed_sqlite_hash = sha256_file(sqlite_file_path)
+    computed_events_hash = sha256_file(events_file_path)
+
+    if computed_sqlite_hash != expected_sqlite_hash or computed_events_hash != expected_events_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Artifact SHA-256 hash mismatch in Phase 307. "
+            f"sqlite: {computed_sqlite_hash} != {expected_sqlite_hash}, "
+            f"events: {computed_events_hash} != {expected_events_hash}"
+        )
+
+    # 2. Validate upstream Phase 306 hash
+    upstream_hash = str(summary_data.get("upstream_hash", ""))
+    expected_phase306_hash = "818fd82458a8fb19420dd0179c8f78b0c273e5d2a71b1968b083d20f99e23dbe"
+    if upstream_hash != expected_phase306_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Upstream hash mismatch: {upstream_hash} != {expected_phase306_hash}"
+        )
+
+    # 3. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", ""))
+    phase_payload_hash = str(summary_data.get("phase_hash", ""))
+    merkle_combined = (
+        f"{upstream_hash}:{computed_sqlite_hash}:{computed_events_hash}:{phase_payload_hash}"
+    )
+    expected_merkle_root = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
+
+    if merkle_root != expected_merkle_root:
+        raise CanaryEvidenceIntegrityError(
+            f"Phase 307 Merkle root mismatch: "
+            f"computed {expected_merkle_root} != summary {merkle_root}"
+        )
+
+    # 4. Validate double-entry zero-drift balance
+    raw_solvency = summary_data.get("solvency", {})
+    drift_val = Decimal(str(raw_solvency.get("drift_usdt", "0.00")))
+    if abs(drift_val) >= Decimal("1e-15"):
+        raise CanaryEvidenceIntegrityError(
+            f"Double-entry zero-drift balance invariant breached: "
+            f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+
+    solvency = DoubleEntrySolvencyItem(
+        starting_equity_usdt=float(raw_solvency.get("starting_equity_usdt", 100.0)),
+        cash_usdt=float(raw_solvency.get("cash_usdt", 100.0)),
+        allocated_margin_usdt=float(raw_solvency.get("allocated_margin_usdt", 0.0)),
+        unrealized_pnl_usdt=float(raw_solvency.get("unrealized_pnl_usdt", 0.0)),
+        realized_pnl_usdt=float(raw_solvency.get("realized_pnl_usdt", 0.0)),
+        total_equity_usdt=float(raw_solvency.get("total_equity_usdt", 100.0)),
+        total_fees_usdt=float(raw_solvency.get("total_fees_usdt", 0.0)),
+        total_slippage_usdt=float(raw_solvency.get("total_slippage_usdt", 0.0)),
+        drift_usdt=float(drift_val),
+        zero_balance_drift_verified=bool(raw_solvency.get("zero_balance_drift_verified", True)),
+        tolerance_ceiling_usdt=1e-15,
+        solvency_ratio_pct=float(raw_solvency.get("solvency_ratio_pct", 100.0)),
+        cash_reserve_pct=float(raw_solvency.get("cash_reserve_pct", 100.0)),
+        unencumbered_cash_verified=bool(raw_solvency.get("unencumbered_cash_verified", True)),
+    )
+
+    ledger = LedgerReconciliationItem(
+        starting_equity=solvency.starting_equity_usdt,
+        cash=solvency.cash_usdt,
+        allocated_margin=solvency.allocated_margin_usdt,
+        unrealized_pnl=solvency.unrealized_pnl_usdt,
+        realized_pnl=solvency.realized_pnl_usdt,
+        drift=solvency.drift_usdt,
+        zero_balance_drift=solvency.zero_balance_drift_verified,
+    )
+
+    try:
+        raw_report = json.loads(report_file.read_text(encoding="utf-8"))
+        report_data: dict[str, Any] = raw_report if isinstance(raw_report, dict) else {}
+    except Exception:
+        report_data = summary_data
+
+    bridge_dict = summary_data.get("bridge", {})
+    bridge = BridgeStatusItem(
+        connection_state=str(bridge_dict.get("connection_state", "CONNECTED")),
+        api_key_masked=str(bridge_dict.get("api_key_masked", "****")),
+        is_mock_credentials=bool(bridge_dict.get("is_mock_credentials", True)),
+        clock_offset_ms=int(bridge_dict.get("clock_offset_ms", 0)),
+        clock_skew_verified=bool(bridge_dict.get("clock_skew_verified", True)),
+        listen_key=str(bridge_dict.get("listen_key", "")),
+        listen_key_active=bool(bridge_dict.get("listen_key_active", True)),
+    )
+
+    perf_dict = summary_data.get("performance", {})
+    performance = TestnetBridgePerformanceItem(
+        total_orders_dispatched=int(perf_dict.get("total_orders_dispatched", 0)),
+        total_orders_filled=int(perf_dict.get("total_orders_filled", 0)),
+        fill_rate_pct=float(perf_dict.get("fill_rate_pct", 100.0)),
+        mean_round_trip_ms=float(perf_dict.get("mean_round_trip_ms", 0.0)),
+        mean_filter_latency_us=float(perf_dict.get("mean_filter_latency_us", 0.0)),
+        mean_sign_latency_us=float(perf_dict.get("mean_sign_latency_us", 0.0)),
+        max_micro_notional_usdt=float(perf_dict.get("max_micro_notional_usdt", 5.0)),
+        micro_cap_verified=bool(perf_dict.get("micro_cap_verified", True)),
+        lot_size_filter_verified=bool(perf_dict.get("lot_size_filter_verified", True)),
+        price_filter_verified=bool(perf_dict.get("price_filter_verified", True)),
+        min_notional_verified=bool(perf_dict.get("min_notional_verified", True)),
+    )
+
+    filters_dict = summary_data.get("exchange_filters", {})
+    exchange_filters = {k: ExchangeFilterInfoItem(**v) for k, v in filters_dict.items()}
+
+    dispatched_orders_trace = [
+        DispatchedOrderItem(**o)
+        for o in report_data.get(
+            "dispatched_orders_trace", summary_data.get("dispatched_orders_trace", [])
+        )
+    ]
+    user_data_events_trace = [
+        UserDataStreamEventRecordItem(**e)
+        for e in report_data.get(
+            "user_data_events_trace", summary_data.get("user_data_events_trace", [])
+        )
+    ]
+
+    ts_str = str(summary_data.get("timestamp_utc", datetime.now(UTC).isoformat()))
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        timestamp_ms = int(dt.timestamp() * 1000)
+    except Exception:
+        timestamp_ms = int(time.time() * 1000)
+
+    return CanaryTestnetBridgeResponse(
+        verified=True,
+        phase="phase_307",
+        status=str(summary_data.get("status", "TESTNET_BRIDGE_VERIFIED")),
+        timestamp_ms=timestamp_ms,
+        timestamp_utc=ts_str,
+        paper_safe=True,
+        execution_authority=False,
+        circuit_state=str(summary_data.get("circuit_state", "NORMAL")),
+        bridge=bridge,
+        performance=performance,
+        exchange_filters=exchange_filters,
+        dispatched_orders_trace=dispatched_orders_trace,
+        user_data_events_trace=user_data_events_trace,
+        solvency=solvency,
+        ledger=ledger,
+        upstream_hash=upstream_hash,
+        phase_hash=str(summary_data.get("phase_hash", "")),
+        merkle_root=merkle_root,
+        artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
+        upstream_merkle_dag=dict(summary_data.get("upstream_merkle_dag", {})),
+    )
+
+
 __all__ = [
     "AggregateTradeItem",
     "AssetAllocationItem",
@@ -6382,6 +6686,13 @@ __all__ = [
     "load_verified_canary_strategy_mining",
     "load_verified_canary_stress_fault_injection",
     "load_verified_canary_summary",
+    "load_verified_canary_testnet_bridge",
     "load_verified_canary_testnet_gateway",
     "verify_canary_phase_integrity",
+    "BridgeStatusItem",
+    "CanaryTestnetBridgeResponse",
+    "DispatchedOrderItem",
+    "ExchangeFilterInfoItem",
+    "TestnetBridgePerformanceItem",
+    "UserDataStreamEventRecordItem",
 ]

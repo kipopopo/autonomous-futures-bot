@@ -49,6 +49,7 @@ from .canary import (
     CanaryStrategyMiningResponse,
     CanaryStressFaultInjectionResponse,
     CanarySummaryResponse,
+    CanaryTestnetBridgeResponse,
     CanaryTestnetGatewayResponse,
     CandidatePromotionItem,
     CandidateSignalItem,
@@ -71,6 +72,7 @@ from .canary import (
     load_verified_canary_strategy_mining,
     load_verified_canary_stress_fault_injection,
     load_verified_canary_summary,
+    load_verified_canary_testnet_bridge,
     load_verified_canary_testnet_gateway,
 )
 from .catalog import (
@@ -1095,6 +1097,25 @@ def create_app(
             raise HTTPException(
                 status_code=503,
                 detail="canary evolution integrity verification failed",
+            ) from exc
+
+    # Phase 307: Binance Futures Testnet Live API Integration & Order Dispatch Bridge
+    @app.get(
+        "/api/v1/canary/testnet-bridge",
+        response_model=CanaryTestnetBridgeResponse,
+    )
+    def canary_testnet_bridge() -> CanaryTestnetBridgeResponse:
+        try:
+            return load_verified_canary_testnet_bridge(configured_canary_phase_dir)
+        except CanaryEvidenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="canary testnet bridge evidence unavailable",
+            ) from exc
+        except CanaryEvidenceIntegrityError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="canary testnet bridge integrity verification failed",
             ) from exc
 
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
