@@ -19,6 +19,15 @@ import type { ProductionLaunchModel } from '@/lib/canary'
 export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }) {
   const [activeTab, setActiveTab] = useState<'allocations' | 'orders' | 'confinement'>('allocations')
 
+  if (!model.verified || model.status === 'UNAVAILABLE') {
+    return (
+      <main className="space-y-4 p-6" role="status">
+        <h1 className="text-2xl font-bold">PHASE 309 · UNAVAILABLE</h1>
+        <p>No verified simulation artifact is available.</p>
+      </main>
+    )
+  }
+
   const allocations = model.candidateAllocations || []
   const orders = model.recentOrders || []
   const confinement = model.confinement

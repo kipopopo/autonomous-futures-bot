@@ -155,8 +155,10 @@ describe('ProductionLaunchPage component', () => {
 
     expect(html).toContain('PHASE 309')
     expect(html).toContain('UNAVAILABLE')
-    expect(html).toContain('PAPER-SAFE:')
-    expect(html).toContain('TRUE')
-    expect(html).toContain('EXECUTION AUTHORITY: OFF')
+    expect(model.candidateAllocations).toHaveLength(0)
+    expect(model.recentOrders).toHaveLength(0)
+    expect(model.candidates).toHaveLength(0)
+    expect(html).toContain('No verified simulation artifact is available')
+    expect(html).not.toContain('BTCUSDT')
   })
 })

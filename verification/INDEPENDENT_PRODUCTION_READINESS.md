@@ -22,6 +22,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 | Phase 306 real feedback learning | Empty/below-minimum history now PROBATIONARY without fabricated positive metrics; simulator remains disconnected from real feedback/runtime | PARTIAL FIX; INTEGRATION BLOCKED |
 | Runtime readiness API | `api/app.py:1144-1161` loads artifacts; no live account/runtime readiness assertion | Artifact integrity only |
 | Phase 309 public status label | Endpoint/UI now call this a simulation artifact and state it does not prove exchange/live readiness | OFFLINE FIX VERIFIED |
+| Frontend missing-artifact state | Null canary payload now renders UNAVAILABLE without demo orders, positions or Merkle claims | OFFLINE FIX VERIFIED |
 | Solvency artifact completeness | Loader now rejects absent fields and recomputes equity/drift from serialized Decimal inputs | OFFLINE FIX VERIFIED; semantic source provenance remains unproven |
 | Live certification | No fresh authorized account/protection/reconciliation/first-live evidence established | BLOCKED |
 
@@ -57,6 +58,7 @@ Scheduler Result=success, ExecMainStatus=0, active since 2026-09-21 15:27:56 UTC
 - Phase 309 artifact loader now requires all serialized solvency/equity fields; absent drift can no longer default to zero and appear integrity-valid. RED confirmed the fixture (including a recomputed matching Merkle root) was previously accepted. Phase 309 API suite: **13 passed**, one existing warning; Ruff, format and targeted mypy passed.
 - Loader now independently derives total equity and double-entry drift from the serialized cash, margin, unrealized P&L, starting equity, and realized P&L using `Decimal`, rejecting mismatches even if the declared drift is zero and hashes match. Regression was RED before the check; API suite now **13 passed** (combined Phase 306–309 suite **77 passed**). Final static checks rerun below before release.
 - Phase 309 read API and dashboard no longer surface simulator evidence as `PRODUCTION_LAUNCH_VERIFIED`; response/UI now use `SIMULATION_ARTIFACT_VERIFIED` and explicitly say deterministic fills do not prove exchange connectivity, live execution, or production readiness. Backend endpoint suite **13 passed**, frontend component tests **2 passed**, TypeScript/Vite production build passed (large bundle warning persists).
+- Frontend null-artifact handling now returns empty allocations/orders/candidates, false verification flags and blank hashes; the page stops at an accessible `UNAVAILABLE` state rather than rendering fabricated dashboard values. The new regression failed before the fix; frontend component suite **2 passed** and TypeScript/Vite build passed (large bundle warning persists).
 
 Fresh scheduler process readback: entrypoint `scripts/run_autonomous_scheduler.py`, **provider=demo**. Health readback: updated_at `2026-09-28T03:05:29.986157+00:00`, status IDLE, last_run_at `2026-09-22T16:33:08.933450+00:00`, total_cycles_executed=7, consecutive_failures=0, admitted_candidates_count=0. This is not provider-backed learning or qualified live trading evidence.
 
