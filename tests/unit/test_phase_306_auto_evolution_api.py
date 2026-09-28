@@ -322,6 +322,18 @@ def test_load_rejects_phase_payload_change_even_when_merkle_uses_declared_hash(
         load_verified_canary_auto_evolution(artifacts_dir)
 
 
+def test_load_rejects_execution_authority_claim_with_valid_hashes(tmp_path: Path) -> None:
+    artifacts_dir = _build_synthetic_phase306_artifacts(tmp_path)
+    summary_path = artifacts_dir / "evolution-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["execution_authority"] = True
+    _rehash_phase306_summary(summary)
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(CanaryEvidenceIntegrityError, match="Phase 306 artifact is not paper-safe"):
+        load_verified_canary_auto_evolution(artifacts_dir)
+
+
 def test_load_rejects_trace_change_with_unchanged_phase_hash(tmp_path: Path) -> None:
     artifacts_dir = _build_synthetic_phase306_artifacts(tmp_path)
     summary_path = artifacts_dir / "evolution-summary.json"

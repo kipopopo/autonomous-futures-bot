@@ -6176,6 +6176,13 @@ def load_verified_canary_auto_evolution(
         raise CanaryEvidenceIntegrityError(
             f"Phase 306 payload hash mismatch: {computed_phase_hash} != {phase_payload_hash}"
         )
+    if (
+        summary_data.get("phase") != "phase_306"
+        or summary_data.get("verified") is not True
+        or summary_data.get("paper_safe") is not True
+        or summary_data.get("execution_authority") is not False
+    ):
+        raise CanaryEvidenceIntegrityError("Phase 306 artifact is not paper-safe")
 
     # Cross-check displayed autopsy rows against both hashed source artifacts.
     autopsy_fields = (
