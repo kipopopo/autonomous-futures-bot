@@ -38,6 +38,12 @@ def test_private_account_request_is_signed_without_returning_secret() -> None:
     assert "timestamp=1591702613943" in request.signed_query
     assert "recvWindow=5000" in request.signed_query
     assert "fake-secret" not in request.model_dump_json()
+    serialized = request.model_dump_json()
+    rendered = repr(request)
+    assert "fake-api-key" not in serialized
+    assert request.signed_query not in serialized
+    assert "fake-api-key" not in rendered
+    assert request.signed_query not in rendered
     assert request.signed_query.endswith(tuple("0123456789abcdef"))
 
 

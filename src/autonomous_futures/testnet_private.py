@@ -15,8 +15,8 @@ from .testnet import TESTNET_REST_BASE_URL, sign_testnet_query
 class TestnetPrivateRequest(DomainModel):
     method: Literal["GET"]
     url: str
-    headers: dict[str, str]
-    signed_query: str
+    headers: dict[str, str] = Field(repr=False, exclude=True)
+    signed_query: str = Field(repr=False, exclude=True)
 
 
 class TestnetAccountAsset(DomainModel):

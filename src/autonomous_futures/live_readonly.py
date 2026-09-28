@@ -20,8 +20,8 @@ from .testnet_private import TestnetAccountSnapshot, parse_testnet_account_snaps
 class LiveAccountRequest(DomainModel):
     method: Literal["GET"]
     url: str
-    headers: dict[str, str]
-    signed_query: str
+    headers: dict[str, str] = Field(repr=False, exclude=True)
+    signed_query: str = Field(repr=False, exclude=True)
     read_only: Literal[True] = True
     order_capability: Literal[False] = False
 
@@ -99,6 +99,16 @@ def reconcile_live_account(
     snapshot: TestnetAccountSnapshot,
     expected_positions: tuple[LivePositionExpectation, ...],
 ) -> LiveAccountReconciliation:
+    expected_keys = [(p.symbol, p.position_side) for p in expected_positions]
+    remote_keys = [(p.symbol, p.position_side) for p in snapshot.positions]
+    duplicate_reasons: list[str] = []
+    if len(expected_keys) != len(set(expected_keys)):
+        duplicate_reasons.append("duplicate_expected_position_keys")
+    if len(remote_keys) != len(set(remote_keys)):
+        duplicate_reasons.append("duplicate_exchange_position_keys")
+    if duplicate_reasons:
+        return LiveAccountReconciliation(status="drift", reason_codes=tuple(duplicate_reasons))
+
     expected = {
         (position.symbol, position.position_side): position.position_amt
         for position in expected_positions

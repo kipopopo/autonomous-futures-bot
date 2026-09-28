@@ -38,6 +38,12 @@ def test_live_account_request_is_production_read_only() -> None:
     assert request.headers == {"Accept": "application/json", "X-MBX-APIKEY": "fake-live-key"}
     assert "signature=" in request.signed_query
     assert request.order_capability is False
+    serialized = request.model_dump_json()
+    rendered = repr(request)
+    assert "fake-live-key" not in serialized
+    assert request.signed_query not in serialized
+    assert "fake-live-key" not in rendered
+    assert request.signed_query not in rendered
 
     with pytest.raises(ValueError, match="production endpoint"):
         build_live_account_request(
@@ -62,6 +68,27 @@ def test_live_account_snapshot_reconciles_flat_account() -> None:
     assert len(snapshot.assets) == 1
     assert decision.status == "reconciled"
     assert decision.reason_codes == ("live_account_reconciled",)
+
+
+def test_live_account_snapshot_rejects_duplicate_position_keys() -> None:
+    from autonomous_futures.live_readonly import (
+        LivePositionExpectation,
+        parse_live_account_snapshot,
+        reconcile_live_account,
+    )
+
+    body = _body("0.001")
+    body["positions"] = [
+        {"symbol": "BTCUSDT", "positionAmt": "0.001", "positionSide": "BOTH"},
+        {"symbol": "BTCUSDT", "positionAmt": "0.001", "positionSide": "BOTH"},
+    ]
+    decision = reconcile_live_account(
+        parse_live_account_snapshot(body),
+        (LivePositionExpectation(symbol="BTCUSDT", position_amt=Decimal("0.001")),),
+    )
+
+    assert decision.status == "drift"
+    assert decision.reason_codes == ("duplicate_exchange_position_keys",)
 
 
 def test_live_account_snapshot_detects_nonzero_position() -> None:
