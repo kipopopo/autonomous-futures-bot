@@ -3821,10 +3821,6 @@ export interface EvolutionPerformanceData {
   health_tier_distribution: Record<string, number>
   staged_mutations_count: number
   promoted_candidates_count: number
-  realized_sharpe_ratio: number
-  win_rate_pct: number
-  calmar_ratio: number
-  max_drawdown_pct: number
 }
 
 export interface CanaryAutoEvolutionData {
@@ -3887,10 +3883,6 @@ export function buildAutoEvolutionModel(
     health_tier_distribution: {},
     staged_mutations_count: 0,
     promoted_candidates_count: 0,
-    realized_sharpe_ratio: 0.0,
-    win_rate_pct: 0.0,
-    calmar_ratio: 0.0,
-    max_drawdown_pct: 0.0,
   }
 
   const defaultSolvency: DoubleEntrySolvencyItem = {

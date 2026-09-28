@@ -146,10 +146,6 @@ def _build_synthetic_phase306_artifacts(
         "health_tier_distribution": {"ELITE": 1, "HEALTHY": 0, "DEGRADED": 0, "PROBATIONARY": 0},
         "staged_mutations_count": 0,
         "promoted_candidates_count": 0,
-        "realized_sharpe_ratio": 3.85,
-        "win_rate_pct": 100.0,
-        "calmar_ratio": 12.0,
-        "max_drawdown_pct": 0.0,
     }
 
     phase_payload = {
@@ -256,6 +252,8 @@ def test_load_verified_canary_auto_evolution_success(tmp_path: Path) -> None:
     assert res.verified is True
     assert res.phase == "phase_306"
     assert res.status == "EVOLUTION_VERIFIED"
+    assert "realized_sharpe_ratio" not in res.performance.model_dump()
+    assert "win_rate_pct" not in res.performance.model_dump()
     assert res.upstream_hash == UPSTREAM_PHASE305_ROOT
     assert len(res.autopsies_trace) == 1
     assert res.solvency.zero_balance_drift_verified is True

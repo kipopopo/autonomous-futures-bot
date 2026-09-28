@@ -1223,10 +1223,6 @@ class AutoEvolutionSimulator:
             },
             "staged_mutations_count": len(self.mutated_candidates),
             "promoted_candidates_count": sum(1 for s in self.shadow_evaluations if s.promoted),
-            "realized_sharpe_ratio": 3.85,
-            "win_rate_pct": 81.25,
-            "calmar_ratio": 12.4,
-            "max_drawdown_pct": 0.85,
         }
 
         # Build payload hash and Merkle root

@@ -35,11 +35,7 @@ describe('EvolutionPage component', () => {
         PROBATIONARY: 0,
       },
       staged_mutations_count: 1,
-      promoted_candidates_count: 1,
-      realized_sharpe_ratio: 3.85,
-      win_rate_pct: 81.25,
-      calmar_ratio: 12.4,
-      max_drawdown_pct: 0.85,
+      promoted_candidates_count: 0,
     },
     autopsies_trace: [
       {

@@ -6071,10 +6071,6 @@ class EvolutionPerformanceItem(DomainModel):
     health_tier_distribution: dict[str, int] = Field(default_factory=dict)
     staged_mutations_count: int = 0
     promoted_candidates_count: int = 0
-    realized_sharpe_ratio: float = 0.0
-    win_rate_pct: float = 0.0
-    calmar_ratio: float = 0.0
-    max_drawdown_pct: float = 0.0
 
 
 class CanaryAutoEvolutionResponse(DomainModel):
@@ -6223,10 +6219,6 @@ def load_verified_canary_auto_evolution(
         health_tier_distribution=dict(raw_perf.get("health_tier_distribution", {})),
         staged_mutations_count=int(raw_perf.get("staged_mutations_count", 0)),
         promoted_candidates_count=int(raw_perf.get("promoted_candidates_count", 0)),
-        realized_sharpe_ratio=float(raw_perf.get("realized_sharpe_ratio", 0.0)),
-        win_rate_pct=float(raw_perf.get("win_rate_pct", 0.0)),
-        calmar_ratio=float(raw_perf.get("calmar_ratio", 0.0)),
-        max_drawdown_pct=float(raw_perf.get("max_drawdown_pct", 0.0)),
     )
 
     autopsies_trace = [AutopsyRecordItem(**a) for a in summary_data.get("autopsies_trace", [])]
