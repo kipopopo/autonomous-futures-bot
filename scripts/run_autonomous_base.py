@@ -588,15 +588,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.write(json.dumps(preflight_report, indent=2) + "\n")
         return 0
 
-    # Ensure output directory exists
-    artifact_root.mkdir(parents=True, exist_ok=True)
-
     # Assemble offline deterministic runners
     parquet_path = args.parquet_path
     if parquet_path is None and not args.use_synthetic_windows:
         default_parquet = Path(f"research/immutable-data/5m/canonical/{config.symbol}-5m.parquet")
         if default_parquet.is_file():
             parquet_path = default_parquet
+
+    if not args.use_synthetic_windows and parquet_path is None:
+        sys.stderr.write(
+            "ERROR: canonical cached parquet is required; pass --parquet-path or explicitly "
+            "select --use-synthetic-windows for synthetic-only testing.\n"
+        )
+        return 1
+    if not args.use_synthetic_windows and parquet_path is not None and not parquet_path.is_file():
+        sys.stderr.write("ERROR: canonical cached parquet file is unavailable.\n")
+        return 1
 
     windows: tuple[CachedEvaluationWindow, ...]
     if parquet_path is not None and parquet_path.is_file() and not args.use_synthetic_windows:
@@ -618,6 +625,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             dataset_registry_hash=config.dataset_registry_hash,
             bars_count=bars_count,
         )
+
+    artifact_root.mkdir(parents=True, exist_ok=True)
 
     qualification_policy = WalkForwardQualificationPolicy(
         policy_id=args.policy_id,

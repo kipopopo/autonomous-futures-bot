@@ -496,6 +496,28 @@ def test_restart_with_conflicting_seed_feedback_rejects(tmp_path: Path) -> None:
         base.run(initial_feedback=seed_fb2, now=NOW + timedelta(minutes=1))
 
 
+def test_cli_runner_fails_closed_when_cached_parquet_is_missing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    artifact_root = tmp_path / "missing-data-run"
+    exit_code = cli_main(
+        [
+            "--base-run-id",
+            "base-missing-parquet-001",
+            "--max-cycles",
+            "1",
+            "--parquet-path",
+            str(tmp_path / "missing.parquet"),
+            "--artifact-root",
+            str(artifact_root),
+        ]
+    )
+
+    assert exit_code != 0
+    assert not artifact_root.exists()
+    assert "canonical cached parquet" in capsys.readouterr().err.lower()
+
+
 def test_cli_runner_executes_offline_cycle_end_to_end(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -506,6 +528,7 @@ def test_cli_runner_executes_offline_cycle_end_to_end(
             "BTCUSDT",
             "--max-cycles",
             "1",
+            "--use-synthetic-windows",
             "--artifact-root",
             str(tmp_path / "artifacts"),
         ]

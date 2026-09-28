@@ -32,6 +32,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 | Testnet public exchange-info adapter | Injected transport and typed response; one user-approved anonymous smoke returned 741 symbols, 679 PERPETUAL | PUBLIC READ-ONLY VERIFIED; no account/order authority |
 | Testnet account reconciliation contract | Offline parser/reconciler rejects duplicate expected or exchange position keys as drift | OFFLINE CONTRACT VERIFIED; no private account request authorized or performed |
 | Signed read-only request handling | API-key headers and replayable signed queries excluded from request repr/serialization; testnet and production read-only transports reject redirects | OFFLINE SAFETY FIX VERIFIED; no account request performed |
+| Autonomous research base data gate | Missing canonical Parquet no longer silently falls back to synthetic windows; synthetic fixtures require explicit flag and missing data stops before artifact creation | OFFLINE FIX VERIFIED |
 | Live certification | No fresh authorized account/protection/reconciliation/first-live evidence established | BLOCKED |
 
 ## Independently inspected findings
@@ -41,6 +42,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 3. `src/autonomous_futures/feed/testnet_bridge.py:354-370` explicitly permits `max_micro_cap_usdt + price * step`. If min-notional and hard cap cannot both be satisfied, the correct outcome is rejection—not cap relaxation.
 4. `src/autonomous_futures/feed/auto_evolution.py:308-319` classifies empty input as HEALTHY with fabricated positive metrics. This cannot be interpreted as observed strategy performance.
 5. Phase 309 verifier defaults missing drift to zero (`run_phase_309_production_launch.py:95-98`, `run_phase_309_autonomous_launch.py:67-70`). Hash consistency is not semantic evidence completeness.
+6. `scripts/run_autonomous_base.py` previously substituted generated synthetic windows when cached Parquet was missing, then returned a completed cycle with cached-only labels. The missing-file regression reproduced that behavior before the fail-closed gate.
 
 ## Secondary audit leads requiring integration review
 
@@ -78,6 +80,7 @@ Scheduler Result=success, ExecMainStatus=0, active since 2026-09-21 15:27:56 UTC
 - Testnet public transport disables automatic redirects so the approved one-GET scope cannot silently follow to another host. Offline adapter/security regressions plus Stage A suite: **12 passed**; Ruff, format, mypy and diff checks passed. Separately approved anonymous `GET /fapi/v1/exchangeInfo` returned HTTP-successful typed metadata: 741 symbols, 679 PERPETUAL (sample BTCUSDT, ETHUSDT, BCHUSDT, XRPUSDT, EOSUSDT). No private account endpoint, credentials, order, or retry was used.
 - Offline account reconciliation now rejects duplicate `(symbol, positionSide)` keys in either expected or exchange rows instead of silently collapsing them through a dict; RED regression reproduced false `reconciled` before fix. Private contract tests: **6 passed**; Ruff/format/mypy passed. No credential or network use.
 - Testnet and production read-only request models no longer expose API-key headers or replayable signed queries through repr/model serialization. Both account reconcilers reject duplicate expected/exchange position keys, and the production read-only transport now blocks automatic redirects; regressions were RED before fixes. Combined private/live read-only contract tests: **11 passed**; Ruff/format/mypy passed. No credential or network use.
+- Autonomous base now returns nonzero when canonical cached Parquet is missing and does not create the artifact root. Synthetic-window execution remains available only with explicit `--use-synthetic-windows`; the synthetic end-to-end fixture now opts in. RED reproduced a completed cycle from a missing path; research-loop suite **16 passed**, Ruff/format/mypy passed.
 
 Fresh scheduler process readback: entrypoint `scripts/run_autonomous_scheduler.py`, **provider=demo**. Health readback: updated_at `2026-09-28T03:05:29.986157+00:00`, status IDLE, last_run_at `2026-09-22T16:33:08.933450+00:00`, total_cycles_executed=7, consecutive_failures=0, admitted_candidates_count=0. This is not provider-backed learning or qualified live trading evidence.
 
