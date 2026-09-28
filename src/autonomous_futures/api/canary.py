@@ -6177,6 +6177,74 @@ def load_verified_canary_auto_evolution(
             f"Phase 306 payload hash mismatch: {computed_phase_hash} != {phase_payload_hash}"
         )
 
+    # Cross-check displayed autopsy rows against both hashed source artifacts.
+    autopsy_fields = (
+        "trade_id",
+        "candidate_id",
+        "symbol",
+        "side",
+        "entry_price",
+        "exit_price",
+        "fill_qty",
+        "entry_timing_error_bps",
+        "hawkes_slip_drag_bps",
+        "adverse_selection_bps",
+        "realized_edge_bps",
+        "gross_pnl_usdt",
+        "fee_cost_usdt",
+        "net_pnl_usdt",
+        "cause",
+        "timestamp_ms",
+    )
+    precisions = {
+        "entry_price": 4,
+        "exit_price": 4,
+        "fill_qty": 4,
+        "entry_timing_error_bps": 2,
+        "hawkes_slip_drag_bps": 2,
+        "adverse_selection_bps": 2,
+        "realized_edge_bps": 2,
+        "gross_pnl_usdt": 4,
+        "fee_cost_usdt": 4,
+        "net_pnl_usdt": 4,
+    }
+    try:
+        with sqlite3.connect(sqlite_file) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT " + ", ".join(autopsy_fields) + " FROM autopsies ORDER BY trade_id"
+                )
+            ]
+        db_autopsies = [
+            {
+                field: round(float(row[field]), precisions[field])
+                if field in precisions
+                else row[field]
+                for field in autopsy_fields
+            }
+            for row in rows
+        ]
+        summary_autopsies = sorted(
+            summary_data.get("autopsies_trace", []), key=lambda row: row["trade_id"]
+        )
+        event_autopsies = sorted(
+            (
+                event["data"]
+                for event in (
+                    json.loads(line)
+                    for line in events_file.read_text(encoding="utf-8").splitlines()
+                )
+                if event.get("event") == "TRADE_AUTOPSY"
+            ),
+            key=lambda row: row["trade_id"],
+        )
+    except (KeyError, TypeError, ValueError, sqlite3.Error) as exc:
+        raise CanaryEvidenceIntegrityError(f"Invalid Phase 306 autopsy evidence: {exc}") from exc
+    if db_autopsies != summary_autopsies or event_autopsies != summary_autopsies:
+        raise CanaryEvidenceIntegrityError("Phase 306 autopsy trace disagrees with SQLite/events")
+
     # 4. Validate Merkle root
     merkle_root = str(summary_data.get("merkle_root", ""))
     merkle_combined = (

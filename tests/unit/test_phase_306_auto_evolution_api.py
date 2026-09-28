@@ -333,6 +333,45 @@ def test_load_rejects_trace_change_with_unchanged_phase_hash(tmp_path: Path) -> 
         load_verified_canary_auto_evolution(artifacts_dir)
 
 
+def test_load_rejects_sqlite_autopsy_mismatch_with_recomputed_hashes(tmp_path: Path) -> None:
+    artifacts_dir = _build_synthetic_phase306_artifacts(tmp_path)
+    db_path = artifacts_dir / "canary-evolution-telemetry.sqlite3"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE autopsies SET net_pnl_usdt = 0.5 WHERE trade_id = ?", ("tr-btc-001",))
+
+    summary_path = artifacts_dir / "evolution-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["artifact_hashes"]["sqlite3"] = hashlib.sha256(db_path.read_bytes()).hexdigest()
+    _rehash_phase306_summary(summary)
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(
+        CanaryEvidenceIntegrityError, match="Phase 306 autopsy trace disagrees with SQLite"
+    ):
+        load_verified_canary_auto_evolution(artifacts_dir)
+
+
+def test_load_rejects_event_autopsy_mismatch_with_recomputed_hashes(tmp_path: Path) -> None:
+    artifacts_dir = _build_synthetic_phase306_artifacts(tmp_path)
+    events_path = artifacts_dir / "canary-evolution-events.jsonl"
+    event = json.loads(events_path.read_text(encoding="utf-8"))
+    event["data"]["net_pnl_usdt"] = 0.5
+    events_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+    summary_path = artifacts_dir / "evolution-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["artifact_hashes"]["events_jsonl"] = hashlib.sha256(
+        events_path.read_bytes()
+    ).hexdigest()
+    _rehash_phase306_summary(summary)
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(
+        CanaryEvidenceIntegrityError, match="Phase 306 autopsy trace disagrees with SQLite"
+    ):
+        load_verified_canary_auto_evolution(artifacts_dir)
+
+
 def test_load_rejects_missing_solvency_field_with_recomputed_hashes(tmp_path: Path) -> None:
     """Missing solvency fields are invalid even when the attacker recomputes hashes."""
     artifacts_dir = _build_synthetic_phase306_artifacts(tmp_path)
