@@ -15,7 +15,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 | Frontend | 27 test files / 163 tests passed; tsc + Vite build passed; large-chunk warning remains | VERIFIED |
 | Full local backend regression | Baseline run stopped intentionally after source changed; no full-local pass claimed. Final exact-SHA cloud regression required | PENDING |
 | Deployed web service | loaded/active/running, PID 463952, NRestarts=0; production artifact GET returned 200 | VERIFIED process/HTTP only |
-| Paper/scheduler/Telegram processes | loaded/active/running; paper PID 529971 NRestarts=3, scheduler PID 9694 NRestarts=42, Telegram PID 11720 NRestarts=0 | VERIFIED process only |
+| Paper/scheduler/Telegram processes | loaded/active/running; paper PID 529971 NRestarts=3, scheduler PID 9694 NRestarts=42, Telegram PID 11720 NRestarts=0 | VERIFIED process only; scheduler restart burst diagnosed as lock collision |
 | Current account, ledger and strategy health | Not established by service state or HTTP response | UNVERIFIED |
 | Phase 309 exchange execution | `self_driving.py:301-302` directly calls `_simulate_fill`; runner supplies hardcoded ticks | BLOCKED: simulation, not live execution |
 | Hard child notional cap | Both Phase 307/309 now reject incompatible minimum/cap orders; Phase 309 explicitly rounds down; historical artifacts preserved | OFFLINE FIX VERIFIED |
@@ -63,6 +63,8 @@ Scheduler Result=success, ExecMainStatus=0, active since 2026-09-21 15:27:56 UTC
 - Phase 306 offline runner no longer fabricates successful shadow ticks/Sharpe to promote mutations; shadow ticks are zero and each candidate remains unpromoted pending independent observations. Regression failed before the fix; Phase 306 suite **8 passed**, Ruff/format/mypy passed. The summary still contains hardcoded realized Sharpe/win-rate/Calmar/drawdown; these remain explicitly untrusted and not qualified evidence.
 
 Fresh scheduler process readback: entrypoint `scripts/run_autonomous_scheduler.py`, **provider=demo**. Health readback: updated_at `2026-09-28T03:05:29.986157+00:00`, status IDLE, last_run_at `2026-09-22T16:33:08.933450+00:00`, total_cycles_executed=7, consecutive_failures=0, admitted_candidates_count=0. This is not provider-backed learning or qualified live trading evidence.
+
+Read-only scheduler restart diagnosis: journal shows exit `4/NOPERMISSION`; filtering its logged JSON returned `lock_acquisition_failed` with active PID `826` for the repeated restart burst (restart counter observed through 42). Current process PID `9694` is alive and its lockfile PID also equals `9694`; prior PID `826` is no longer present. This supports a historical competing-instance lock collision, not an ongoing failure at observation time. No lock was removed and no service was restarted; prevention of duplicate unit/process launches remains an operational follow-up.
 
 ## Remaining implementation gaps (not approval-only blockers)
 
