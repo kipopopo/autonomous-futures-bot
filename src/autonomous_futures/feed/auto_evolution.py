@@ -1115,19 +1115,17 @@ class AutoEvolutionSimulator:
 
         # Track 4: Shadow Staging Evaluation & Promotion Check
         for mutated in self.mutated_candidates:
-            # Simulate shadow evaluation against parent
+            # No independent shadow observations exist in this offline runner.
             parent_id = mutated.parent_candidate_id or ""
             parent_health = self.health_evaluations.get(parent_id)
             parent_sharpe = parent_health.rolling_sharpe if parent_health else 0.5
-            # Mutated parameters resist Hawkes cluster drag, yielding superior shadow Sharpe
-            shadow_sharpe = max(parent_sharpe + 1.25, 2.10)
 
             shadow_eval = self.sandbox.evaluate_shadow_promotion(
                 staged_candidate_id=mutated.candidate_id,
                 parent_candidate_id=parent_id,
                 symbol=mutated.candidate_id.split("-")[1].upper(),
-                shadow_ticks=20,
-                shadow_sharpe=shadow_sharpe,
+                shadow_ticks=0,
+                shadow_sharpe=parent_sharpe,
                 parent_sharpe=parent_sharpe,
             )
             self.shadow_evaluations.append(shadow_eval)

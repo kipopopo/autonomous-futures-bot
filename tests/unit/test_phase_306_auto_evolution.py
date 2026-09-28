@@ -304,6 +304,9 @@ def test_phase_306_simulation_and_merkle_dag_verification() -> None:
         assert summary["status"] == "EVOLUTION_VERIFIED"
         assert summary["upstream_hash"] == UPSTREAM_PHASE305_ROOT_HASH
         assert summary["solvency"]["zero_drift_valid"]
+        assert summary["performance"]["promoted_candidates_count"] == 0
+        assert all(not evaluation["promoted"] for evaluation in summary["shadow_evaluations"])
+        assert all(evaluation["shadow_ticks"] == 0 for evaluation in summary["shadow_evaluations"])
 
         is_valid = verify_phase_306_merkle_dag(
             output_dir=out_dir,
