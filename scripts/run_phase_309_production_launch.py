@@ -133,7 +133,7 @@ def run_phase_309_simulation(output_dir: Path) -> dict[str, Any]:
     # Tick 1: BTCUSDT nominal tick, ensemble LONG
     ord_btc = engine.process_microstructure_tick(
         symbol="BTCUSDT",
-        price=Decimal("95000.00"),
+        price=Decimal("100000.00"),
         hawkes_rho=0.45,
         heartbeat_latency_ms=25.0,
         ensemble_signal="LONG",
@@ -142,12 +142,12 @@ def run_phase_309_simulation(output_dir: Path) -> dict[str, Any]:
     )
     assert ord_btc is not None
     assert ord_btc.status.value == "FILLED"
-    assert ord_btc.notional_usdt <= Decimal("5.75")
+    assert ord_btc.notional_usdt <= Decimal("5.00")
 
     # Tick 2: ETHUSDT nominal tick, ensemble SHORT
     ord_eth = engine.process_microstructure_tick(
         symbol="ETHUSDT",
-        price=Decimal("2750.00"),
+        price=Decimal("2500.00"),
         hawkes_rho=0.52,
         heartbeat_latency_ms=30.0,
         ensemble_signal="SHORT",
@@ -160,7 +160,7 @@ def run_phase_309_simulation(output_dir: Path) -> dict[str, Any]:
     # Tick 3: SOLUSDT nominal tick, ensemble LONG
     ord_sol = engine.process_microstructure_tick(
         symbol="SOLUSDT",
-        price=Decimal("185.00"),
+        price=Decimal("250.00"),
         hawkes_rho=0.61,
         heartbeat_latency_ms=28.0,
         ensemble_signal="LONG",
@@ -194,10 +194,10 @@ def run_phase_309_simulation(output_dir: Path) -> dict[str, Any]:
     )
     assert ord_latency_blocked is None, "Stale heartbeat must block new orders"
 
-    # Tick 6: Partial profit taking on BTCUSDT (Sell to close portion)
+    # Tick 6: Synthetic same-price BTCUSDT close (not profitability evidence)
     ord_btc_close = engine.process_microstructure_tick(
         symbol="BTCUSDT",
-        price=Decimal("95500.00"),
+        price=Decimal("100000.00"),
         hawkes_rho=0.48,
         heartbeat_latency_ms=32.0,
         ensemble_signal="SHORT",

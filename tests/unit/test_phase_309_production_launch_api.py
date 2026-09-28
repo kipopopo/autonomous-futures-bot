@@ -49,9 +49,9 @@ def _build_synthetic_phase309_artifacts(
         "event_id": "prod-evt-0001",
         "symbol": "BTCUSDT",
         "side": "BUY",
-        "quantity": 0.00006,
-        "price": 95000.0,
-        "notional_usdt": 5.70,
+        "quantity": 0.00005,
+        "price": 100000.0,
+        "notional_usdt": 5.00,
         "timestamp_ms": 1790200000000,
     }
     with open(events_path, "w", encoding="utf-8") as f:
@@ -111,25 +111,25 @@ def _build_synthetic_phase309_artifacts(
         "symbol": "BTCUSDT",
         "side": "BUY",
         "order_type": "LIMIT",
-        "price": 95000.0,
-        "quantity": 0.00006,
-        "notional_usdt": 5.70,
+        "price": 100000.0,
+        "quantity": 0.00005,
+        "notional_usdt": 5.00,
         "status": "FILLED",
-        "fill_price": 95000.0,
-        "fee_usdt": 0.002,
+        "fill_price": 100000.0,
+        "fee_usdt": 0.001,
         "realized_pnl_usdt": 0.0,
         "timestamp_ms": 1790200000000,
     }
 
     candidate_dict = {
         "symbol": "BTCUSDT",
-        "current_price": 95000.0,
+        "current_price": 100000.0,
         "position_qty": 0.0,
         "entry_price": 0.0,
         "allocated_exposure_usdt": 0.0,
         "unrealized_pnl_usdt": 0.0,
         "realized_pnl_usdt": 0.0,
-        "total_fees_usdt": 0.002,
+        "total_fees_usdt": 0.001,
         "trades_count": 1,
     }
 

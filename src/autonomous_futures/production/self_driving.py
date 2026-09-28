@@ -15,7 +15,7 @@ import json
 import logging
 import sqlite3
 import time
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -246,15 +246,28 @@ class SelfDrivingTradingEngine:
         qty = self._round_step_size(symbol, raw_qty)
         actual_notional = qty * price
 
-        if actual_notional < Decimal("5.00"):
-            # Step up by one lot size unit to meet exchange min notional 5.00 USDT
-            step = (
-                Decimal("0.00001")
-                if symbol == "BTCUSDT"
-                else (Decimal("0.001") if symbol == "ETHUSDT" else Decimal("0.01"))
+        # A lot-size step cannot be increased: doing so can exceed the hard cap.
+        # Reject prices whose rounded-down quantity cannot satisfy min notional.
+        min_notional = Decimal("5.00")
+        if qty <= Decimal("0") or actual_notional < min_notional:
+            self.interlock_blocks_count += 1
+            self._record_event(
+                "MIN_NOTIONAL_INCOMPATIBLE_BLOCK",
+                f"Rounded quantity {qty} at {price} yields {actual_notional} USDT, "
+                f"below minimum notional {min_notional} USDT",
+                symbol=symbol,
             )
-            qty += step
-            actual_notional = qty * price
+            return None
+
+        if actual_notional > self.config.max_micro_order_notional_usdt:
+            self.interlock_blocks_count += 1
+            self._record_event(
+                "MICRO_ORDER_HARD_CAP_BLOCK",
+                f"Order notional {actual_notional} USDT exceeds hard cap "
+                f"{self.config.max_micro_order_notional_usdt} USDT",
+                symbol=symbol,
+            )
+            return None
 
         # 7. Aggregate exposure check: <= 25.00 USDT
         current_aggregate = sum(c.allocated_exposure_usdt for c in self.candidates.values())
@@ -403,12 +416,12 @@ class SelfDrivingTradingEngine:
     def _round_step_size(self, symbol: str, qty: Decimal) -> Decimal:
         """Applies exchange lot size precision rules."""
         if symbol == "BTCUSDT":
-            return qty.quantize(Decimal("0.00001"))
+            return qty.quantize(Decimal("0.00001"), rounding=ROUND_DOWN)
         if symbol == "ETHUSDT":
-            return qty.quantize(Decimal("0.001"))
+            return qty.quantize(Decimal("0.001"), rounding=ROUND_DOWN)
         if symbol == "SOLUSDT":
-            return qty.quantize(Decimal("0.01"))
-        return qty.quantize(Decimal("0.001"))
+            return qty.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        return qty.quantize(Decimal("0.001"), rounding=ROUND_DOWN)
 
     def _record_event(self, event_type: str, message: str, **kwargs: Any) -> None:
         """Appends an event to the audit trail."""

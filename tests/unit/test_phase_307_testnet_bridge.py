@@ -81,13 +81,13 @@ def test_exchange_filter_validator_clamping_and_rejections() -> None:
     q_price, q_qty, notional, is_valid, err = validator.validate_and_clamp_order(
         symbol="BTCUSDT",
         side=OrderSide.BUY,
-        target_price=Decimal("95000.00"),
+        target_price=Decimal("100000.00"),
         requested_notional=Decimal("5.00"),
     )
     assert is_valid
     assert err is None
     assert notional >= Decimal("5.00")
-    assert notional <= Decimal("6.00")
+    assert notional <= Decimal("5.00")
     # Must adhere to BTC stepSize 0.00001
     assert q_qty % Decimal("0.00001") == Decimal("0")
 
@@ -116,11 +116,27 @@ def test_exchange_filter_validator_clamping_and_rejections() -> None:
     _, _, notional_clamped, is_valid_clamp, _ = validator.validate_and_clamp_order(
         symbol="SOLUSDT",
         side=OrderSide.BUY,
-        target_price=Decimal("185.00"),
+        target_price=Decimal("250.00"),
         requested_notional=Decimal("20.00"),
     )
     assert is_valid_clamp
-    assert notional_clamped <= Decimal("6.00")
+    assert notional_clamped <= Decimal("5.00")
+
+
+def test_exchange_filter_validator_rejects_min_notional_step_above_cap() -> None:
+    """Reject a minimum-notional step-up that exceeds the hard micro cap."""
+    validator = ExchangeFilterValidator()
+
+    _, _, actual_notional, is_valid, error = validator.validate_and_clamp_order(
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        target_price=Decimal("95100.00"),
+        requested_notional=Decimal("5.00"),
+    )
+
+    assert not is_valid
+    assert actual_notional < Decimal("5.00")
+    assert "below minNotional" in str(error)
 
 
 def test_user_data_stream_manager() -> None:
@@ -155,12 +171,12 @@ def test_testnet_order_dispatch_bridge_and_lifecycle() -> None:
         candidate_id="cand-btcusdt-dcb-002",
         symbol="BTCUSDT",
         side=OrderSide.BUY,
-        price=Decimal("95100.0"),
+        price=Decimal("100000.0"),
         target_notional=Decimal("5.00"),
         timestamp_ms=local_time,
     )
     assert order.lifecycle == OrderDispatchLifecycle.FILLED.value
-    assert order.notional_usdt <= 6.00
+    assert order.notional_usdt <= 5.00
     assert order.tau_rtt_ms > 0.0
     assert order.fill_price is not None
 
@@ -169,6 +185,30 @@ def test_testnet_order_dispatch_bridge_and_lifecycle() -> None:
     evt = bridge.stream_manager.events[0]
     assert evt.event_type == UserDataEventType.ORDER_TRADE_UPDATE.value
     assert evt.order_id == order.order_id
+
+
+def test_dispatch_rejects_when_margin_allocation_fails_without_mutation() -> None:
+    """Failed margin allocation must not produce a fill or mutate ledger state."""
+    ledger = CentralizedSolvencyLedger(starting_equity=Decimal("1.00"))
+    bridge = TestnetOrderDispatchBridge(ledger=ledger)
+
+    order = bridge.stage_and_dispatch_order(
+        candidate_id="cand-btcusdt-dcb-002",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        price=Decimal("100000.0"),
+        target_notional=Decimal("5.00"),
+        timestamp_ms=1790233200010,
+    )
+
+    assert order.lifecycle == OrderDispatchLifecycle.REJECTED.value
+    assert order.fill_price is None
+    assert order.fill_qty is None
+    assert "Insufficient ledger cash" in str(order.error_code)
+    assert ledger.cash == Decimal("1.00")
+    assert ledger.allocated_margin == Decimal("0.00")
+    assert ledger.realized_pnl == Decimal("0.00")
+    assert bridge.stream_manager.events == []
 
 
 def test_centralized_solvency_ledger_zero_drift() -> None:

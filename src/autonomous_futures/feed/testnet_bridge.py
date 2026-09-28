@@ -361,10 +361,9 @@ class ExchangeFilterValidator:
             incremented_notional = (quantized_price * incremented_qty).quantize(
                 Decimal("0.00000001"), rounding=ROUND_DOWN
             )
-            max_allowed_micro_step = spec.max_micro_cap_usdt + (quantized_price * step)
             if (
                 incremented_notional >= spec.min_notional_usdt
-                and incremented_notional <= max_allowed_micro_step
+                and incremented_notional <= spec.max_micro_cap_usdt
             ):
                 quantized_qty = incremented_qty
                 actual_notional = incremented_notional
@@ -626,7 +625,30 @@ class TestnetOrderDispatchBridge:
 
         # 3. Solvency allocation
         margin_required = actual_notional
-        self.ledger.allocate_order_margin(margin_required)
+        if not self.ledger.allocate_order_margin(margin_required):
+            record = DispatchedOrderRecord(
+                order_id=order_id,
+                exchange_order_id=exchange_order_id,
+                candidate_id=candidate_id,
+                symbol=symbol,
+                side=side.value,
+                order_type=OrderType.LIMIT.value,
+                price=float(q_price),
+                qty=float(q_qty),
+                notional_usdt=float(actual_notional),
+                lifecycle=OrderDispatchLifecycle.REJECTED.value,
+                tau_filter_us=round(tau_filter_us, 2),
+                tau_sign_us=round(tau_sign_us, 2),
+                tau_dispatch_ms=0.0,
+                tau_rtt_ms=round((tau_filter_us + tau_sign_us) / 1000.0, 3),
+                fill_price=None,
+                fill_qty=None,
+                fee_cost_usdt=0.0,
+                timestamp_ms=now_ms,
+                error_code="Insufficient ledger cash for order margin",
+            )
+            self.dispatched_orders.append(record)
+            return record
 
         # 4. Simulated Dispatch & Matching (Paper-Safe Wire Protocol)
         # Simulated testnet latency: ~12-25 ms
@@ -1102,7 +1124,7 @@ class TestnetBridgeSimulator:
                     max(Decimal(str(o.notional_usdt)) for o in self.bridge.dispatched_orders)
                 ),
                 "micro_cap_verified": all(
-                    Decimal(str(o.notional_usdt)) <= Decimal("6.00")
+                    Decimal(str(o.notional_usdt)) <= MICRO_CHILD_ORDER_CAP_USDT
                     for o in self.bridge.dispatched_orders
                 ),
                 "lot_size_filter_verified": True,

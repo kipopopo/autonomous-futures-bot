@@ -59,11 +59,20 @@ def test_kill_switch_fail_closed_prevents_pre_flight(tmp_path: Path) -> None:
     assert engine.state == SelfDrivingState.KILL_SWITCH_HALTED
 
 
-def test_micro_capital_sizing_and_zero_drift(tmp_path: Path) -> None:
+def test_round_step_size_rounds_down_without_exceeding_cap(tmp_path: Path) -> None:
+    engine, _gov = build_default_self_driving_engine(output_dir=tmp_path)
+
+    rounded_qty = engine._round_step_size("BTCUSDT", Decimal("0.000056"))
+
+    assert rounded_qty == Decimal("0.00005")
+
+
+def test_nonrepresentable_price_is_rejected_instead_of_breaking_hard_cap(
+    tmp_path: Path,
+) -> None:
     engine, _gov = build_default_self_driving_engine(output_dir=tmp_path)
     engine.run_pre_flight_check()
 
-    # Process buy order for BTCUSDT
     order = engine.process_microstructure_tick(
         symbol="BTCUSDT",
         price=Decimal("95000.00"),
@@ -72,10 +81,29 @@ def test_micro_capital_sizing_and_zero_drift(tmp_path: Path) -> None:
         ensemble_signal="LONG",
         signal_confidence=0.85,
     )
+
+    assert order is None
+    assert engine.interlock_blocks_count == 1
+    assert engine.events_log[-1]["event_type"] == "MIN_NOTIONAL_INCOMPATIBLE_BLOCK"
+
+
+def test_micro_capital_sizing_and_zero_drift(tmp_path: Path) -> None:
+    engine, _gov = build_default_self_driving_engine(output_dir=tmp_path)
+    engine.run_pre_flight_check()
+
+    # Process buy order for BTCUSDT
+    order = engine.process_microstructure_tick(
+        symbol="BTCUSDT",
+        price=Decimal("100000.00"),
+        hawkes_rho=0.40,
+        heartbeat_latency_ms=20.0,
+        ensemble_signal="LONG",
+        signal_confidence=0.85,
+    )
     assert order is not None
     assert order.status == OrderStatus.FILLED
     assert order.side == OrderSide.BUY
-    assert order.notional_usdt <= Decimal("5.75")
+    assert order.notional_usdt <= Decimal("5.00")
 
     # Invariant check
     snap = engine.ledger.get_snapshot()
@@ -131,24 +159,25 @@ def test_aggregate_exposure_and_loss_ceiling_containment(tmp_path: Path) -> None
     engine.run_pre_flight_check()
 
     # Fill 1 (~5 USDT)
-    o1 = engine.process_microstructure_tick("BTCUSDT", Decimal("95000.0"), 0.3, 10.0, "LONG", 0.9)
+    o1 = engine.process_microstructure_tick("BTCUSDT", Decimal("100000.0"), 0.3, 10.0, "LONG", 0.9)
     assert o1 is not None
 
     # Fill 2 (~5 USDT, reaching ~10 USDT cap)
-    o2 = engine.process_microstructure_tick("ETHUSDT", Decimal("2750.0"), 0.3, 10.0, "LONG", 0.9)
+    o2 = engine.process_microstructure_tick("ETHUSDT", Decimal("2500.0"), 0.3, 10.0, "LONG", 0.9)
     assert o2 is not None
 
-    # Order 3 should be blocked by aggregate exposure cap (10.00 USDT)
-    o3 = engine.process_microstructure_tick("SOLUSDT", Decimal("180.0"), 0.3, 10.0, "LONG", 0.9)
+    # Each order is valid alone; the third exceeds the configured aggregate cap.
+    o3 = engine.process_microstructure_tick("SOLUSDT", Decimal("250.0"), 0.3, 10.0, "LONG", 0.9)
     assert o3 is None
+    assert engine.events_log[-1]["event_type"] == "AGGREGATE_EXPOSURE_CAP_BLOCK"
 
 
 def test_phase_309_artifacts_and_merkle_dag(tmp_path: Path) -> None:
     engine, _gov = build_default_self_driving_engine(output_dir=tmp_path)
     engine.run_pre_flight_check()
 
-    engine.process_microstructure_tick("BTCUSDT", Decimal("95000.0"), 0.4, 25.0, "LONG", 0.85)
-    engine.process_microstructure_tick("ETHUSDT", Decimal("2750.0"), 0.5, 25.0, "SHORT", 0.85)
+    engine.process_microstructure_tick("BTCUSDT", Decimal("100000.0"), 0.4, 25.0, "LONG", 0.85)
+    engine.process_microstructure_tick("ETHUSDT", Decimal("2500.0"), 0.5, 25.0, "SHORT", 0.85)
 
     summary = engine.export_artifacts()
 
