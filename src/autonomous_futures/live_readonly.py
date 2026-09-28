@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from decimal import Decimal
+from http.client import HTTPMessage
 from typing import Literal
 
 from pydantic import Field
@@ -24,6 +25,19 @@ class LiveAccountRequest(DomainModel):
     signed_query: str = Field(repr=False, exclude=True)
     read_only: Literal[True] = True
     order_capability: Literal[False] = False
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        request: urllib.request.Request,
+        response: object,
+        code: int,
+        message: str,
+        headers: HTTPMessage,
+        new_url: str,
+    ) -> None:
+        return None
 
 
 class LivePositionExpectation(DomainModel):
@@ -80,7 +94,9 @@ def fetch_live_account(request: LiveAccountRequest) -> Mapping[str, object]:
     url = f"{request.url}?{request.signed_query}"
     http_request = urllib.request.Request(url, method="GET", headers=request.headers)
     try:
-        with urllib.request.urlopen(http_request, timeout=10) as response:
+        with urllib.request.build_opener(_NoRedirectHandler()).open(
+            http_request, timeout=10
+        ) as response:
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"live account GET rejected with HTTP {exc.code}") from exc

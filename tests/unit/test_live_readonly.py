@@ -54,6 +54,48 @@ def test_live_account_request_is_production_read_only() -> None:
         )
 
 
+def test_live_account_transport_rejects_redirect_without_following(monkeypatch) -> None:
+    import io
+    import urllib.error
+    import urllib.request
+
+    from autonomous_futures.live_readonly import build_live_account_request, fetch_live_account
+
+    request = build_live_account_request(
+        api_key="fake-live-key", secret="fake-live-secret", timestamp_ms=1
+    )
+    requests: list[object] = []
+
+    def fake_build_opener(*handlers):
+        assert any(
+            isinstance(handler, urllib.request.HTTPRedirectHandler)
+            and handler.redirect_request(None, None, 302, "Found", {}, "https://evil.invalid")
+            is None
+            for handler in handlers
+        )
+
+        class Opener:
+            def open(self, http_request, timeout):
+                requests.append(http_request)
+                raise urllib.error.HTTPError(
+                    http_request.full_url,
+                    302,
+                    "redirect blocked",
+                    {"Location": "https://evil.invalid/fapi/v3/account"},
+                    io.BytesIO(b'{"msg":"redirect blocked"}'),
+                )
+
+        return Opener()
+
+    monkeypatch.setattr(
+        "autonomous_futures.live_readonly.urllib.request.build_opener", fake_build_opener
+    )
+
+    with pytest.raises(RuntimeError, match="HTTP 302"):
+        fetch_live_account(request)
+    assert len(requests) == 1
+
+
 def test_live_account_snapshot_reconciles_flat_account() -> None:
     from autonomous_futures.live_readonly import (
         LivePositionExpectation,
