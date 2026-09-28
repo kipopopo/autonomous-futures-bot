@@ -30,6 +30,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 | Phase 306 summary hash binding | API recomputes phase hash from performance, solvency, safety flags, candidate IDs and all traces; autopsy trace cross-checks SQLite and JSONL | OFFLINE FIX VERIFIED |
 | Phase 306 safety flags | Loader rejects any non-paper-safe flag combination, including execution authority enabled, even with recomputed hashes | OFFLINE FIX VERIFIED |
 | Testnet public exchange-info adapter | Injected transport and typed response; one user-approved anonymous smoke returned 741 symbols, 679 PERPETUAL | PUBLIC READ-ONLY VERIFIED; no account/order authority |
+| Testnet account reconciliation contract | Offline parser/reconciler rejects duplicate expected or exchange position keys as drift | OFFLINE CONTRACT VERIFIED; no private account request authorized or performed |
 | Live certification | No fresh authorized account/protection/reconciliation/first-live evidence established | BLOCKED |
 
 ## Independently inspected findings
@@ -74,6 +75,7 @@ Scheduler Result=success, ExecMainStatus=0, active since 2026-09-21 15:27:56 UTC
 - Phase 306 API now cross-checks every serialized autopsy record against both the SQLite table and JSONL events, rejecting mismatches even after source-artifact and Merkle hashes are recomputed. SQLite and JSONL tamper regressions pass; combined Phase 306 suite **22 passed**, Ruff/format/mypy passed.
 - Phase 306 API now requires exact `phase_306`, `verified=true`, `paper_safe=true`, and `execution_authority=false`; a fully rehashed authority-enabled artifact is rejected. Combined Phase 306 suite **23 passed**, Ruff/format/mypy passed.
 - Testnet public transport disables automatic redirects so the approved one-GET scope cannot silently follow to another host. Offline adapter/security regressions plus Stage A suite: **12 passed**; Ruff, format, mypy and diff checks passed. Separately approved anonymous `GET /fapi/v1/exchangeInfo` returned HTTP-successful typed metadata: 741 symbols, 679 PERPETUAL (sample BTCUSDT, ETHUSDT, BCHUSDT, XRPUSDT, EOSUSDT). No private account endpoint, credentials, order, or retry was used.
+- Offline account reconciliation now rejects duplicate `(symbol, positionSide)` keys in either expected or exchange rows instead of silently collapsing them through a dict; RED regression reproduced false `reconciled` before fix. Private contract tests: **6 passed**; Ruff/format/mypy passed. No credential or network use.
 
 Fresh scheduler process readback: entrypoint `scripts/run_autonomous_scheduler.py`, **provider=demo**. Health readback: updated_at `2026-09-28T03:05:29.986157+00:00`, status IDLE, last_run_at `2026-09-22T16:33:08.933450+00:00`, total_cycles_executed=7, consecutive_failures=0, admitted_candidates_count=0. This is not provider-backed learning or qualified live trading evidence.
 

@@ -160,6 +160,19 @@ def reconcile_testnet_account(
     snapshot: TestnetAccountSnapshot,
     expected_positions: tuple[TestnetPositionExpectation, ...],
 ) -> TestnetAccountReconciliation:
+    expected_keys = [(position.symbol, position.position_side) for position in expected_positions]
+    remote_keys = [(position.symbol, position.position_side) for position in snapshot.positions]
+    duplicate_reasons: list[str] = []
+    if len(expected_keys) != len(set(expected_keys)):
+        duplicate_reasons.append("duplicate_expected_position_keys")
+    if len(remote_keys) != len(set(remote_keys)):
+        duplicate_reasons.append("duplicate_exchange_position_keys")
+    if duplicate_reasons:
+        return TestnetAccountReconciliation(
+            status="drift",
+            reason_codes=tuple(duplicate_reasons),
+        )
+
     expected = {
         (position.symbol, position.position_side): position.position_amt
         for position in expected_positions

@@ -105,6 +105,39 @@ def test_account_reconciliation_blocks_drift_and_unexpected_positions() -> None:
     assert result.reason_codes == ("testnet_account_position_drift",)
 
 
+def test_account_reconciliation_rejects_duplicate_exchange_position_keys() -> None:
+    from autonomous_futures.testnet_private import (
+        TestnetPositionExpectation,
+        parse_testnet_account_snapshot,
+        reconcile_testnet_account,
+    )
+
+    body = _account_body()
+    body["positions"] = [
+        {
+            "symbol": "BTCUSDT",
+            "positionAmt": "0.1",
+            "positionSide": "BOTH",
+        },
+        {
+            "symbol": "BTCUSDT",
+            "positionAmt": "0.1",
+            "positionSide": "BOTH",
+        },
+    ]
+    result = reconcile_testnet_account(
+        parse_testnet_account_snapshot(body),
+        (
+            TestnetPositionExpectation(
+                symbol="BTCUSDT", position_side="BOTH", position_amt=Decimal("0.1")
+            ),
+        ),
+    )
+
+    assert result.status == "drift"
+    assert result.reason_codes == ("duplicate_exchange_position_keys",)
+
+
 def test_account_parser_accepts_position_rows_without_optional_price_fields() -> None:
     from autonomous_futures.testnet_private import parse_testnet_account_snapshot
 
