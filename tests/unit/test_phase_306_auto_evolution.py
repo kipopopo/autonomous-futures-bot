@@ -301,7 +301,7 @@ def test_phase_306_simulation_and_merkle_dag_verification() -> None:
             parent_merkle_root=UPSTREAM_PHASE305_ROOT_HASH,
         )
         assert summary["phase"] == "phase_306"
-        assert summary["status"] == "EVOLUTION_VERIFIED"
+        assert summary["status"] == "SIMULATION_ARTIFACT_VERIFIED"
         assert summary["upstream_hash"] == UPSTREAM_PHASE305_ROOT_HASH
         assert summary["solvency"]["zero_drift_valid"]
         assert summary["performance"]["promoted_candidates_count"] == 0

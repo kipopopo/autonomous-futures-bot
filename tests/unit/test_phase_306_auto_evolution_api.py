@@ -251,7 +251,7 @@ def test_load_verified_canary_auto_evolution_success(tmp_path: Path) -> None:
     assert isinstance(res, CanaryAutoEvolutionResponse)
     assert res.verified is True
     assert res.phase == "phase_306"
-    assert res.status == "EVOLUTION_VERIFIED"
+    assert res.status == "SIMULATION_ARTIFACT_VERIFIED"
     assert "realized_sharpe_ratio" not in res.performance.model_dump()
     assert "win_rate_pct" not in res.performance.model_dump()
     assert res.upstream_hash == UPSTREAM_PHASE305_ROOT
@@ -317,7 +317,7 @@ def test_api_canary_evolution_endpoint_success(tmp_path: Path) -> None:
     data = resp.json()
     assert data["verified"] is True
     assert data["phase"] == "phase_306"
-    assert data["status"] == "EVOLUTION_VERIFIED"
+    assert data["status"] == "SIMULATION_ARTIFACT_VERIFIED"
     assert len(data["autopsies_trace"]) == 1
 
 

@@ -1255,7 +1255,7 @@ class AutoEvolutionSimulator:
 
         summary_payload = {
             "phase": "phase_306",
-            "status": "EVOLUTION_VERIFIED",
+            "status": "SIMULATION_ARTIFACT_VERIFIED",
             "verified": True,
             "paper_safe": True,
             "execution_authority": False,

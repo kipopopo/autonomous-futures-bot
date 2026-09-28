@@ -6076,7 +6076,7 @@ class EvolutionPerformanceItem(DomainModel):
 class CanaryAutoEvolutionResponse(DomainModel):
     verified: bool = True
     phase: str = "phase_306"
-    status: str = "EVOLUTION_VERIFIED"
+    status: str = "SIMULATION_ARTIFACT_VERIFIED"
     timestamp_ms: int = 0
     timestamp_utc: str = ""
     paper_safe: bool = True
@@ -6240,7 +6240,7 @@ def load_verified_canary_auto_evolution(
     return CanaryAutoEvolutionResponse(
         verified=True,
         phase="phase_306",
-        status=str(summary_data.get("status", "EVOLUTION_VERIFIED")),
+        status="SIMULATION_ARTIFACT_VERIFIED",
         timestamp_ms=timestamp_ms,
         timestamp_utc=ts_str,
         paper_safe=True,

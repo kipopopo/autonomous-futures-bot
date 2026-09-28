@@ -11,7 +11,7 @@ describe('EvolutionPage component', () => {
   const verifiedFixture: CanaryAutoEvolutionData = {
     phase: 'phase_306',
     verified: true,
-    status: 'EVOLUTION_VERIFIED',
+    status: 'SIMULATION_ARTIFACT_VERIFIED',
     circuit_state: 'NORMAL',
     timestamp_ms: 1790146800000,
     timestamp_utc: '2026-09-23T07:00:00.000000+00:00',

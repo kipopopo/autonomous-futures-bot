@@ -3916,7 +3916,7 @@ export function buildAutoEvolutionModel(
     return {
       phase: 'phase_306',
       verified: true,
-      status: 'EVOLUTION_VERIFIED',
+      status: 'SIMULATION_ARTIFACT_VERIFIED',
       circuitState: 'NORMAL',
       timestampMs: 0,
       timestampUtc: '',
@@ -3946,7 +3946,7 @@ export function buildAutoEvolutionModel(
   return {
     phase: data.phase || 'phase_306',
     verified: Boolean(data.verified ?? true),
-    status: data.status || 'EVOLUTION_VERIFIED',
+    status: data.status || 'SIMULATION_ARTIFACT_VERIFIED',
     circuitState: data.circuit_state || 'NORMAL',
     timestampMs: data.timestamp_ms ?? 0,
     timestampUtc:

@@ -91,9 +91,8 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             </span>
           </div>
           <p className="mt-2 text-sm text-base-content/70">
-            Automated trade execution autopsy decomposition, multi-factor friction attribution,
-            rolling candidate health classification, and genetic/Bayesian parameter evolution
-            under strict double-entry zero-drift balance governance.
+            Hash-verified simulation artifact only. It does not establish real feedback learning,
+            qualified strategy performance, or production readiness.
           </p>
         </div>
 
