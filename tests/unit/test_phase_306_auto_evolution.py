@@ -141,6 +141,48 @@ def test_candidate_health_tier_classification() -> None:
     assert deg_eval.needs_mutation
 
 
+def test_empty_history_is_unavailable_not_fabricated_healthy_metrics() -> None:
+    daemon = ContinuousSelfLearningDaemon(min_sample_size=5)
+
+    evaluation = daemon.evaluate_candidate("cand-empty", "BTCUSDT", [])
+
+    assert evaluation.tier == CandidateHealthTier.PROBATIONARY
+    assert evaluation.total_trades == 0
+    assert evaluation.rolling_sharpe == 0.0
+    assert evaluation.win_rate_pct == 0.0
+    assert evaluation.max_drawdown_pct == 0.0
+    assert evaluation.hawkes_resilience_score == 0.0
+    assert not evaluation.needs_mutation
+
+
+def test_history_below_minimum_sample_is_probationary() -> None:
+    daemon = ContinuousSelfLearningDaemon(min_sample_size=5)
+    record = TradeAutopsyRecord(
+        trade_id="one-trade",
+        candidate_id="cand-small-sample",
+        symbol="BTCUSDT",
+        side="BUY",
+        entry_price=100.0,
+        exit_price=101.0,
+        fill_qty=1.0,
+        entry_timing_error_bps=0.0,
+        hawkes_slip_drag_bps=0.0,
+        adverse_selection_bps=0.0,
+        realized_edge_bps=100.0,
+        gross_pnl_usdt=1.0,
+        fee_cost_usdt=0.0,
+        net_pnl_usdt=1.0,
+        cause=AutopsyAttributionCause.ORGANIC_ALPHA,
+        timestamp_ms=1000,
+    )
+
+    evaluation = daemon.evaluate_candidate("cand-small-sample", "BTCUSDT", [record])
+
+    assert evaluation.tier == CandidateHealthTier.PROBATIONARY
+    assert evaluation.total_trades == 1
+    assert not evaluation.needs_mutation
+
+
 def test_genetic_mutation_engine_bounds_clamping() -> None:
     """Test genetic mutation adjusts parameters and strictly clamps to safe bounds."""
     mutator = GeneticMutationEngine()

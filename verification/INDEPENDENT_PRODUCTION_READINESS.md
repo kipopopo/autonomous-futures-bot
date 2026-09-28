@@ -19,7 +19,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 | Current account, ledger and strategy health | Not established by service state or HTTP response | UNVERIFIED |
 | Phase 309 exchange execution | `self_driving.py:301-302` directly calls `_simulate_fill`; runner supplies hardcoded ticks | BLOCKED: simulation, not live execution |
 | Hard child notional cap | Both Phase 307/309 now reject incompatible minimum/cap orders; Phase 309 explicitly rounds down; historical artifacts preserved | OFFLINE FIX VERIFIED |
-| Phase 306 real feedback learning | `auto_evolution.py:308-319` returns HEALTHY with positive metrics for empty history; simulator is not runtime learning proof | BLOCKED |
+| Phase 306 real feedback learning | Empty/below-minimum history now PROBATIONARY without fabricated positive metrics; simulator remains disconnected from real feedback/runtime | PARTIAL FIX; INTEGRATION BLOCKED |
 | Runtime readiness API | `api/app.py:1144-1161` loads artifacts; no live account/runtime readiness assertion | Artifact integrity only |
 | Live certification | No fresh authorized account/protection/reconciliation/first-live evidence established | BLOCKED |
 
@@ -49,12 +49,15 @@ Scheduler Result=success, ExecMainStatus=0, active since 2026-09-21 15:27:56 UTC
 - Valid simulation fixtures now use representable prices; these are synthetic test inputs, NOT market evidence. Same-price close scenarios do not prove profitability. Existing hashed artifacts were not regenerated.
 - Parent reran combined Phase 307/309 canonical suite: **78 passed in 2.36s**, one existing Starlette/httpx deprecation warning. Ruff, format (615 files), mypy (273 source files), uv lock and diff checks passed.
 - Parent corrected an aggregate-exposure test to assert the actual aggregate rejection event instead of passing on an earlier minimum-notional rejection.
+- Phase 306 health evaluation now uses `min_sample_size`; empty history reports zero observed counts/metrics and PROBATIONARY, while any non-empty sample below the configured threshold is also PROBATIONARY and cannot trigger mutation. Parent observed the two new regressions fail before implementation; focused Phase 306 tests: **17 passed in 1.76s**, one existing warning; Ruff, format, targeted mypy passed.
+- Phase 309 runner and test edits were performed in parallel with a background full-suite run. That run was stopped after reaching 49%; it is not final-tree evidence and no full local pass is claimed.
+- A later frozen-tree full locked pytest run completed: **4,803 passed, 1 failed in 972.06s**. The sole failure was `tests/unit/test_phase_297_stress_fault_injection.py::TestOnlineStressEvaluationEngine::test_sub_millisecond_latency_compliance`, one observed call at 1,378.40 us vs 1,000 us threshold. The same exact targeted test passed 5/5 consecutive reruns. This remains a measured latency gate miss with a timing-sensitive test; do not report full pytest as green, do not relax the threshold, and do not infer CI/local equality.
 
 Fresh scheduler process readback: entrypoint `scripts/run_autonomous_scheduler.py`, **provider=demo**. Health readback: updated_at `2026-09-28T03:05:29.986157+00:00`, status IDLE, last_run_at `2026-09-22T16:33:08.933450+00:00`, total_cycles_executed=7, consecutive_failures=0, admitted_candidates_count=0. This is not provider-backed learning or qualified live trading evidence.
 
 ## Remaining implementation gaps (not approval-only blockers)
 
-Real execution transport and reconciliation are absent from the audited Phase 307/309 paths. Phase 306 feedback/training/adoption integration is absent; fabricated empty-history health and simulator metrics remain unsuitable for production. Artifact loaders/verifiers still need strict missing-evidence rejection and honest simulation provenance. These require further bounded implementation and regressions; the cap fixes alone do not complete the product. Current VPS source remains the baseline; these repairs are not deployed.
+Real execution transport and reconciliation are absent from the audited Phase 307/309 paths. Phase 306 feedback/training/adoption integration is absent; historical simulator metrics remain unsuitable for production. Artifact loaders/verifiers still need strict missing-evidence rejection and honest simulation provenance. These require further bounded implementation and regressions; the safety fixes alone do not complete the product. Current VPS source remains the baseline; these repairs are not deployed.
 
 ## Release boundary
 

@@ -296,6 +296,8 @@ class ContinuousSelfLearningDaemon:
     """Evaluates candidate performance history and classifies health tiers."""
 
     def __init__(self, min_sample_size: int = 5) -> None:
+        if min_sample_size < 1:
+            raise ValueError("min_sample_size must be at least 1")
         self.min_sample_size = min_sample_size
 
     def evaluate_candidate(
@@ -309,11 +311,11 @@ class ContinuousSelfLearningDaemon:
             return CandidateHealthEvaluation(
                 candidate_id=candidate_id,
                 symbol=symbol,
-                tier=CandidateHealthTier.HEALTHY,
-                rolling_sharpe=1.50,
-                win_rate_pct=60.0,
-                max_drawdown_pct=2.0,
-                hawkes_resilience_score=85.0,
+                tier=CandidateHealthTier.PROBATIONARY,
+                rolling_sharpe=0.0,
+                win_rate_pct=0.0,
+                max_drawdown_pct=0.0,
+                hawkes_resilience_score=0.0,
                 total_trades=0,
                 consecutive_losses=0,
                 needs_mutation=False,
@@ -362,8 +364,11 @@ class ContinuousSelfLearningDaemon:
         else:
             hawkes_resilience = 90.0
 
-        # Health tier classification
-        if sharpe >= 2.0 and win_rate >= 55.0 and dd_pct <= 5.0:
+        # Insufficient history is not evidence of health or degradation.
+        if len(autopsies) < self.min_sample_size:
+            tier = CandidateHealthTier.PROBATIONARY
+            needs_mutation = False
+        elif sharpe >= 2.0 and win_rate >= 55.0 and dd_pct <= 5.0:
             tier = CandidateHealthTier.ELITE
             needs_mutation = False
         elif sharpe >= 1.0 and dd_pct <= 8.0 and consecutive_losses < 3:
