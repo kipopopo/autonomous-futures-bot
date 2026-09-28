@@ -308,6 +308,34 @@ def test_load_rejects_phase_payload_change_even_when_merkle_uses_declared_hash(
         load_verified_canary_auto_evolution(artifacts_dir)
 
 
+def test_load_rejects_missing_solvency_field_with_recomputed_hashes(tmp_path: Path) -> None:
+    """Missing solvency fields are invalid even when the attacker recomputes hashes."""
+    artifacts_dir = _build_synthetic_phase306_artifacts(tmp_path)
+    summary_path = artifacts_dir / "evolution-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["solvency"].pop("drift_usdt")
+    phase_payload = {
+        "phase": summary["phase"],
+        "upstream_hash": summary["upstream_hash"],
+        "perf": summary["performance"],
+        "solvency": summary["solvency"],
+    }
+    summary["phase_hash"] = hashlib.sha256(
+        json.dumps(phase_payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    hashes = summary["artifact_hashes"]
+    merkle_combined = ":".join(
+        (summary["upstream_hash"], hashes["sqlite3"], hashes["events_jsonl"], summary["phase_hash"])
+    )
+    summary["merkle_root"] = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(
+        CanaryEvidenceIntegrityError, match="Missing required Phase 306 solvency field"
+    ):
+        load_verified_canary_auto_evolution(artifacts_dir)
+
+
 def test_load_verified_canary_auto_evolution_drift_breach(tmp_path: Path) -> None:
     """Test solvency balance drift breaching 1e-15 USDT raises CanaryEvidenceIntegrityError."""
     artifacts_dir = _build_synthetic_phase306_artifacts(

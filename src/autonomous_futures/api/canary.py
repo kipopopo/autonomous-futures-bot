@@ -6181,13 +6181,45 @@ def load_verified_canary_auto_evolution(
             f"computed {expected_merkle_root} != summary {merkle_root}"
         )
 
-    # 5. Validate double-entry zero-drift balance
+    # 5. Validate complete double-entry zero-drift evidence.
     raw_solvency = summary_data.get("solvency", {})
-    drift_val = Decimal(str(raw_solvency.get("drift_usdt", "0.00")))
+    required_solvency_fields = {
+        "starting_equity_usdt",
+        "cash_balance_usdt",
+        "allocated_margin_usdt",
+        "unrealized_pnl_usdt",
+        "realized_pnl_usdt",
+        "total_equity_usdt",
+        "reserve_ratio",
+        "reserve_adequate",
+        "drift_usdt",
+        "zero_drift_valid",
+        "exposure_within_limit",
+    }
+    missing_solvency_fields = required_solvency_fields - raw_solvency.keys()
+    if missing_solvency_fields:
+        raise CanaryEvidenceIntegrityError(
+            "Missing required Phase 306 solvency field(s): "
+            + ", ".join(sorted(missing_solvency_fields))
+        )
+
+    starting_equity = Decimal(str(raw_solvency["starting_equity_usdt"]))
+    cash_balance = Decimal(str(raw_solvency["cash_balance_usdt"]))
+    allocated_margin = Decimal(str(raw_solvency["allocated_margin_usdt"]))
+    unrealized_pnl = Decimal(str(raw_solvency["unrealized_pnl_usdt"]))
+    realized_pnl = Decimal(str(raw_solvency["realized_pnl_usdt"]))
+    total_equity = Decimal(str(raw_solvency["total_equity_usdt"]))
+    drift_val = Decimal(str(raw_solvency["drift_usdt"]))
     if abs(drift_val) >= Decimal("1e-15"):
         raise CanaryEvidenceIntegrityError(
             f"Double-entry zero-drift balance invariant breached: "
             f"drift {drift_val} exceeds tolerance 1e-15 USDT"
+        )
+    computed_drift = abs(cash_balance + allocated_margin - starting_equity - realized_pnl)
+    computed_equity = starting_equity + realized_pnl + unrealized_pnl
+    if computed_equity != total_equity or computed_drift != drift_val:
+        raise CanaryEvidenceIntegrityError(
+            "Phase 306 solvency components disagree with declared values"
         )
 
     solvency = DoubleEntrySolvencyItem(
