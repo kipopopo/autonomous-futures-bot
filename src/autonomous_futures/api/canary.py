@@ -7009,11 +7009,23 @@ def load_verified_canary_production_launch(
     if not isinstance(raw_solvency, dict) or required_solvency_fields.difference(raw_solvency):
         raise CanaryEvidenceIntegrityError("Missing required solvency field in Phase 309 summary")
     drift_val = Decimal(str(raw_solvency.get("drift", "0.00")))
+    cash = Decimal(str(raw_solvency["cash"]))
+    allocated_margin = Decimal(str(raw_solvency["allocated_margin"]))
+    unrealized_pnl = Decimal(str(raw_solvency["unrealized_pnl"]))
+    total_equity = Decimal(str(raw_solvency["total_equity"]))
+    starting_equity = Decimal(str(raw_solvency["starting_equity"]))
+    realized_pnl = Decimal(str(raw_solvency["realized_pnl"]))
+    computed_equity = cash + allocated_margin + unrealized_pnl
+    computed_drift = computed_equity - (starting_equity + realized_pnl)
     if abs(drift_val) >= Decimal("1e-15"):
         raise CanaryEvidenceIntegrityError(
             f"Double-entry zero-drift balance invariant breached: "
             f"drift {drift_val} exceeds tolerance 1e-15 USDT"
         )
+    if abs(total_equity - computed_equity) > Decimal("1e-12") or abs(
+        drift_val - computed_drift
+    ) > Decimal("1e-12"):
+        raise CanaryEvidenceIntegrityError("Solvency components disagree with drift")
 
     # 4. Validate Merkle root
     merkle_root = str(summary_data.get("merkle_root", ""))

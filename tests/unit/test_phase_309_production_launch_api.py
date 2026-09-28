@@ -255,6 +255,21 @@ def test_load_rejects_missing_solvency_drift_instead_of_defaulting_to_zero(
         load_verified_canary_production_launch(tmp_path)
 
 
+def test_load_rejects_solvency_components_inconsistent_with_declared_drift(
+    tmp_path: Path,
+) -> None:
+    _build_synthetic_phase309_artifacts(tmp_path)
+    summary_path = tmp_path / "production-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["solvency"]["cash"] = 99.0
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(
+        CanaryEvidenceIntegrityError, match="Solvency components disagree with drift"
+    ):
+        load_verified_canary_production_launch(tmp_path)
+
+
 def test_load_verified_canary_production_launch_tamper_hash(tmp_path: Path) -> None:
     _build_synthetic_phase309_artifacts(tmp_path, tamper_file="sqlite")
     with pytest.raises(CanaryEvidenceIntegrityError, match="Artifact SHA-256 hash mismatch"):
