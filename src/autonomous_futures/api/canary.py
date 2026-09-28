@@ -6991,6 +6991,23 @@ def load_verified_canary_production_launch(
 
     # 3. Validate double-entry zero-drift balance
     raw_solvency = summary_data.get("solvency", {})
+    required_solvency_fields = {
+        "starting_equity",
+        "cash",
+        "allocated_margin",
+        "unrealized_pnl",
+        "realized_pnl",
+        "total_equity",
+        "total_fees",
+        "total_slippage",
+        "drift",
+        "zero_balance_drift",
+        "solvency_ratio_pct",
+        "cash_reserve_pct",
+        "unencumbered_cash_verified",
+    }
+    if not isinstance(raw_solvency, dict) or required_solvency_fields.difference(raw_solvency):
+        raise CanaryEvidenceIntegrityError("Missing required solvency field in Phase 309 summary")
     drift_val = Decimal(str(raw_solvency.get("drift", "0.00")))
     if abs(drift_val) >= Decimal("1e-15"):
         raise CanaryEvidenceIntegrityError(

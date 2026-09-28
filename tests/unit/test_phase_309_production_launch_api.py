@@ -232,6 +232,29 @@ def test_load_verified_canary_production_launch_missing_evidence(tmp_path: Path)
         load_verified_canary_production_launch(tmp_path)
 
 
+def test_load_rejects_missing_solvency_drift_instead_of_defaulting_to_zero(
+    tmp_path: Path,
+) -> None:
+    _build_synthetic_phase309_artifacts(tmp_path)
+    summary_path = tmp_path / "production-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    del summary["solvency"]["drift"]
+    artifact_hashes = summary["artifact_hashes"]
+    payload = (
+        f"phase_309:{summary['upstream_hash']}:{artifact_hashes['sqlite3']}:"
+        f"{artifact_hashes['events_jsonl']}:{artifact_hashes['report_json']}:"
+        f"{artifact_hashes['execution_json']}:0.00"
+    )
+    phase_hash = hashlib.sha256(payload.encode()).hexdigest()
+    summary["merkle_root"] = hashlib.sha256(
+        f"{summary['upstream_hash']}:{phase_hash}".encode()
+    ).hexdigest()
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(CanaryEvidenceIntegrityError, match="Missing required solvency field"):
+        load_verified_canary_production_launch(tmp_path)
+
+
 def test_load_verified_canary_production_launch_tamper_hash(tmp_path: Path) -> None:
     _build_synthetic_phase309_artifacts(tmp_path, tamper_file="sqlite")
     with pytest.raises(CanaryEvidenceIntegrityError, match="Artifact SHA-256 hash mismatch"):
