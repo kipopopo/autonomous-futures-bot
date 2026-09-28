@@ -25,6 +25,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 | Phase 309 public status label | Endpoint/UI now call this a simulation artifact and state it does not prove exchange/live readiness | OFFLINE FIX VERIFIED |
 | Phase 306 public status label | API forces SIMULATION_ARTIFACT_VERIFIED even for historical artifacts claiming EVOLUTION_VERIFIED | OFFLINE FIX VERIFIED |
 | Frontend missing-artifact state | Null canary payload now renders UNAVAILABLE without demo orders, positions or Merkle claims | OFFLINE FIX VERIFIED |
+| Phase 306 frontend missing-artifact state | Null payload now renders UNAVAILABLE with no candidate IDs, verified badge or paper-safe claim | OFFLINE FIX VERIFIED |
 | Solvency artifact completeness | Loader now rejects absent fields and recomputes equity/drift from serialized Decimal inputs | OFFLINE FIX VERIFIED; semantic source provenance remains unproven |
 | Live certification | No fresh authorized account/protection/reconciliation/first-live evidence established | BLOCKED |
 
@@ -63,6 +64,7 @@ Scheduler Result=success, ExecMainStatus=0, active since 2026-09-21 15:27:56 UTC
 - Frontend null-artifact handling now returns empty allocations/orders/candidates, false verification flags and blank hashes; the page stops at an accessible `UNAVAILABLE` state rather than rendering fabricated dashboard values. The new regression failed before the fix; frontend component suite **2 passed** and TypeScript/Vite build passed (large bundle warning persists).
 - Phase 306 offline runner no longer fabricates successful shadow ticks/Sharpe to promote mutations; shadow ticks are zero and each candidate remains unpromoted pending independent observations. Hardcoded Sharpe/win-rate/Calmar/drawdown fields were removed from the generated artifact, API response model and frontend type instead of being replaced with misleading zeroes. Backend Phase 306 unit/API tests **17 passed**, frontend component tests **5 passed**, Ruff/format/mypy and TS/Vite build passed (bundle warning remains).
 - Phase 306 artifacts/UI are now labeled `SIMULATION_ARTIFACT_VERIFIED`; the API overrides legacy `EVOLUTION_VERIFIED` artifact labels instead of trusting them. UI copy states hash integrity does not establish real learning, qualified performance or production readiness.
+- Phase 306 frontend null-data model now returns `UNAVAILABLE`, `verified=false`, no candidate IDs or upstream hash, and the page renders only an accessible unavailable state. Regression failed before change; frontend tests **5 passed**, TypeScript/Vite build passed (large bundle warning remains).
 
 Fresh scheduler process readback: entrypoint `scripts/run_autonomous_scheduler.py`, **provider=demo**. Health readback: updated_at `2026-09-28T03:05:29.986157+00:00`, status IDLE, last_run_at `2026-09-22T16:33:08.933450+00:00`, total_cycles_executed=7, consecutive_failures=0, admitted_candidates_count=0. This is not provider-backed learning or qualified live trading evidence.
 

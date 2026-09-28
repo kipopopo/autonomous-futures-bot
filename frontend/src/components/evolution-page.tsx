@@ -17,6 +17,15 @@ import type { AutoEvolutionModel } from '@/lib/canary'
 export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ALL')
 
+  if (!model.verified || model.status === 'UNAVAILABLE') {
+    return (
+      <main className="space-y-4 p-6" role="status">
+        <h1 className="text-2xl font-bold">PHASE 306 · UNAVAILABLE</h1>
+        <p>No verified Phase 306 artifact is available.</p>
+      </main>
+    )
+  }
+
   const perf = model.performance
   const solvency = model.solvency
   const ledger = model.ledger
