@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Audit of the Antigravity handoff, authorized by the user to inspect execution, learning, runners, canonical tests/CI, read-only deployment and repair proven offline defects. No provider requests, exchange orders, restart/resume, activation or deployment is authorized by this audit.
+Audit of the Antigravity handoff, authorized by the user to inspect execution, learning, runners, canonical tests/CI, read-only deployment and repair proven offline defects. One separately approved anonymous public testnet `GET /fapi/v1/exchangeInfo` was performed; no provider request, private account request, exchange order, restart/resume, activation or deployment occurred.
 
 Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/main and deployed VPS HEAD independently read back equal. Remote untracked release/data/evidence files exist and were preserved. Source identity does not prove the imported code of an already-running process.
 
@@ -29,6 +29,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 | Solvency artifact completeness | Loader requires all Phase 306 solvency fields and recomputes equity/drift from serialized Decimal inputs | OFFLINE FIX VERIFIED; semantic source provenance remains unproven |
 | Phase 306 summary hash binding | API recomputes phase hash from performance, solvency, safety flags, candidate IDs and all traces; autopsy trace cross-checks SQLite and JSONL | OFFLINE FIX VERIFIED |
 | Phase 306 safety flags | Loader rejects any non-paper-safe flag combination, including execution authority enabled, even with recomputed hashes | OFFLINE FIX VERIFIED |
+| Testnet public exchange-info adapter | Injected transport and typed response; one user-approved anonymous smoke returned 741 symbols, 679 PERPETUAL | PUBLIC READ-ONLY VERIFIED; no account/order authority |
 | Live certification | No fresh authorized account/protection/reconciliation/first-live evidence established | BLOCKED |
 
 ## Independently inspected findings
@@ -72,6 +73,7 @@ Scheduler Result=success, ExecMainStatus=0, active since 2026-09-21 15:27:56 UTC
 - Phase 306 phase hash now commits safety flags, candidate IDs, autopsy/health/mutation/shadow traces as well as performance and solvency; the API recomputes the same commitment. A changed autopsy P&L with unchanged phase hash is rejected. Combined Phase 306 unit/API suite **20 passed**, Ruff/format/mypy passed.
 - Phase 306 API now cross-checks every serialized autopsy record against both the SQLite table and JSONL events, rejecting mismatches even after source-artifact and Merkle hashes are recomputed. SQLite and JSONL tamper regressions pass; combined Phase 306 suite **22 passed**, Ruff/format/mypy passed.
 - Phase 306 API now requires exact `phase_306`, `verified=true`, `paper_safe=true`, and `execution_authority=false`; a fully rehashed authority-enabled artifact is rejected. Combined Phase 306 suite **23 passed**, Ruff/format/mypy passed.
+- Testnet public transport disables automatic redirects so the approved one-GET scope cannot silently follow to another host. Offline adapter/security regressions plus Stage A suite: **12 passed**; Ruff, format, mypy and diff checks passed. Separately approved anonymous `GET /fapi/v1/exchangeInfo` returned HTTP-successful typed metadata: 741 symbols, 679 PERPETUAL (sample BTCUSDT, ETHUSDT, BCHUSDT, XRPUSDT, EOSUSDT). No private account endpoint, credentials, order, or retry was used.
 
 Fresh scheduler process readback: entrypoint `scripts/run_autonomous_scheduler.py`, **provider=demo**. Health readback: updated_at `2026-09-28T03:05:29.986157+00:00`, status IDLE, last_run_at `2026-09-22T16:33:08.933450+00:00`, total_cycles_executed=7, consecutive_failures=0, admitted_candidates_count=0. This is not provider-backed learning or qualified live trading evidence.
 

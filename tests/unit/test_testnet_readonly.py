@@ -115,8 +115,50 @@ def test_read_only_testnet_client_rejects_production_base_url_and_malformed_body
         client.get_exchange_info()
 
 
+def test_public_testnet_transport_does_not_follow_redirects(monkeypatch) -> None:
+    import io
+    import urllib.error
+    import urllib.request
+
+    from autonomous_futures.testnet_readonly import public_testnet_transport
+
+    captured: list[object] = []
+
+    def capture_opener(*handlers):
+        assert any(
+            isinstance(handler, urllib.request.HTTPRedirectHandler)
+            and handler.redirect_request(None, None, 302, "Found", {}, "https://fapi.binance.com")
+            is None
+            for handler in handlers
+        )
+
+        class Opener:
+            def open(self, request, timeout):
+                captured.append(request)
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    302,
+                    "redirect blocked",
+                    {"Location": "https://fapi.binance.com/fapi/v1/exchangeInfo"},
+                    io.BytesIO(b'{"msg":"redirect blocked"}'),
+                )
+
+        return Opener()
+
+    monkeypatch.setattr(
+        "autonomous_futures.testnet_readonly.urllib.request.build_opener", capture_opener
+    )
+
+    response = public_testnet_transport(
+        "GET", "https://demo-fapi.binance.com/fapi/v1/exchangeInfo", {}
+    )
+    assert response.status_code == 302
+    assert len(captured) == 1
+
+
 def test_public_testnet_transport_uses_stdlib_get_without_credentials(monkeypatch) -> None:
     import json
+    import urllib.request
 
     from autonomous_futures.testnet_readonly import public_testnet_transport
 
@@ -134,12 +176,20 @@ def test_public_testnet_transport_uses_stdlib_get_without_credentials(monkeypatc
 
     captured: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout):
-        captured["request"] = request
-        captured["timeout"] = timeout
-        return Response()
+    def fake_build_opener(*handlers):
+        assert any(isinstance(handler, urllib.request.HTTPRedirectHandler) for handler in handlers)
 
-    monkeypatch.setattr("autonomous_futures.testnet_readonly.urllib.request.urlopen", fake_urlopen)
+        class Opener:
+            def open(self, request, timeout):
+                captured["request"] = request
+                captured["timeout"] = timeout
+                return Response()
+
+        return Opener()
+
+    monkeypatch.setattr(
+        "autonomous_futures.testnet_readonly.urllib.request.build_opener", fake_build_opener
+    )
 
     response = public_testnet_transport(
         "GET",

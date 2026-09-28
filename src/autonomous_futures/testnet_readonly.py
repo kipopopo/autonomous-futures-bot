@@ -6,6 +6,7 @@ import json
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
+from http.client import HTTPMessage
 from urllib.parse import urlencode
 
 from pydantic import Field
@@ -40,6 +41,19 @@ class TestnetReadOnlyError(ValueError):
 TestnetTransport = Callable[[str, str, dict[str, str]], TestnetResponse]
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        request: urllib.request.Request,
+        response: object,
+        code: int,
+        message: str,
+        headers: HTTPMessage,
+        new_url: str,
+    ) -> None:
+        return None
+
+
 def public_testnet_transport(
     method: str,
     url: str,
@@ -57,7 +71,9 @@ def public_testnet_transport(
         headers={"Accept": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.build_opener(_NoRedirectHandler()).open(
+            request, timeout=10
+        ) as response:
             return TestnetResponse(
                 status_code=response.status,
                 body=json.loads(response.read().decode("utf-8")),
