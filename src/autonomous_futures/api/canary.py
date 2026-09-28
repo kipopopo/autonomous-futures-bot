@@ -6152,12 +6152,21 @@ def load_verified_canary_auto_evolution(
             f"Upstream hash mismatch: {upstream_hash} != {expected_phase305_hash}"
         )
 
-    # 3. Bind phase hash to the summary's actual performance and solvency data.
+    # 3. Bind phase hash to every summary field displayed or used as safety evidence.
     phase_payload = {
         "phase": str(summary_data.get("phase", "")),
         "upstream_hash": upstream_hash,
         "perf": summary_data.get("performance", {}),
         "solvency": summary_data.get("solvency", {}),
+        "verified": summary_data.get("verified"),
+        "paper_safe": summary_data.get("paper_safe"),
+        "execution_authority": summary_data.get("execution_authority"),
+        "circuit_state": summary_data.get("circuit_state"),
+        "candidates": summary_data.get("candidates"),
+        "autopsies_trace": summary_data.get("autopsies_trace"),
+        "health_evaluations": summary_data.get("health_evaluations"),
+        "mutations_trace": summary_data.get("mutations_trace"),
+        "shadow_evaluations": summary_data.get("shadow_evaluations"),
     }
     computed_phase_hash = hashlib.sha256(
         json.dumps(phase_payload, sort_keys=True).encode("utf-8")

@@ -21,6 +21,32 @@ from autonomous_futures.api.canary import (
 UPSTREAM_PHASE305_ROOT = "0cbf6a93a5332789d5053f72e7e494b03b48ccd0ff7c62118bb339d5d905aa7c"
 
 
+def _rehash_phase306_summary(summary: dict) -> None:
+    payload = {
+        "phase": summary["phase"],
+        "upstream_hash": summary["upstream_hash"],
+        "perf": summary["performance"],
+        "solvency": summary["solvency"],
+        "verified": summary["verified"],
+        "paper_safe": summary["paper_safe"],
+        "execution_authority": summary["execution_authority"],
+        "circuit_state": summary["circuit_state"],
+        "candidates": summary["candidates"],
+        "autopsies_trace": summary["autopsies_trace"],
+        "health_evaluations": summary["health_evaluations"],
+        "mutations_trace": summary["mutations_trace"],
+        "shadow_evaluations": summary["shadow_evaluations"],
+    }
+    summary["phase_hash"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    hashes = summary["artifact_hashes"]
+    merkle_combined = ":".join(
+        (summary["upstream_hash"], hashes["sqlite3"], hashes["events_jsonl"], summary["phase_hash"])
+    )
+    summary["merkle_root"] = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
+
+
 def _build_synthetic_phase306_artifacts(
     target_dir: Path,
     *,
@@ -148,22 +174,6 @@ def _build_synthetic_phase306_artifacts(
         "promoted_candidates_count": 0,
     }
 
-    phase_payload = {
-        "phase": "phase_306",
-        "upstream_hash": upstream_hash,
-        "perf": perf_dict,
-        "solvency": solvency_dict,
-    }
-    phase_hash = hashlib.sha256(
-        json.dumps(phase_payload, sort_keys=True).encode("utf-8")
-    ).hexdigest()
-
-    merkle_combined = f"{upstream_hash}:{sqlite_hash}:{events_hash}:{phase_hash}"
-    merkle_root = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
-
-    if tamper_file == "merkle_root":
-        merkle_root = "badroot" * 8
-
     summary_payload = {
         "phase": "phase_306",
         "status": "EVOLUTION_VERIFIED",
@@ -174,8 +184,8 @@ def _build_synthetic_phase306_artifacts(
         "timestamp_ms": 1790146800000,
         "upstream_merkle_dag": {"phase_305": upstream_hash},
         "upstream_hash": upstream_hash,
-        "phase_hash": phase_hash,
-        "merkle_root": merkle_root,
+        "phase_hash": "",
+        "merkle_root": "",
         "artifact_hashes": {
             "sqlite3": sqlite_hash,
             "events_jsonl": events_hash,
@@ -221,6 +231,10 @@ def _build_synthetic_phase306_artifacts(
         "mutations_trace": [],
         "shadow_evaluations": [],
     }
+    _rehash_phase306_summary(summary_payload)
+    if tamper_file == "merkle_root":
+        summary_payload["merkle_root"] = "badroot" * 8
+    merkle_root = summary_payload["merkle_root"]
 
     summary_path = target_dir / "evolution-summary.json"
     summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
@@ -308,26 +322,24 @@ def test_load_rejects_phase_payload_change_even_when_merkle_uses_declared_hash(
         load_verified_canary_auto_evolution(artifacts_dir)
 
 
+def test_load_rejects_trace_change_with_unchanged_phase_hash(tmp_path: Path) -> None:
+    artifacts_dir = _build_synthetic_phase306_artifacts(tmp_path)
+    summary_path = artifacts_dir / "evolution-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["autopsies_trace"][0]["net_pnl_usdt"] = 999.0
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(CanaryEvidenceIntegrityError, match="Phase 306 payload hash mismatch"):
+        load_verified_canary_auto_evolution(artifacts_dir)
+
+
 def test_load_rejects_missing_solvency_field_with_recomputed_hashes(tmp_path: Path) -> None:
     """Missing solvency fields are invalid even when the attacker recomputes hashes."""
     artifacts_dir = _build_synthetic_phase306_artifacts(tmp_path)
     summary_path = artifacts_dir / "evolution-summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     summary["solvency"].pop("drift_usdt")
-    phase_payload = {
-        "phase": summary["phase"],
-        "upstream_hash": summary["upstream_hash"],
-        "perf": summary["performance"],
-        "solvency": summary["solvency"],
-    }
-    summary["phase_hash"] = hashlib.sha256(
-        json.dumps(phase_payload, sort_keys=True).encode("utf-8")
-    ).hexdigest()
-    hashes = summary["artifact_hashes"]
-    merkle_combined = ":".join(
-        (summary["upstream_hash"], hashes["sqlite3"], hashes["events_jsonl"], summary["phase_hash"])
-    )
-    summary["merkle_root"] = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
+    _rehash_phase306_summary(summary)
     summary_path.write_text(json.dumps(summary), encoding="utf-8")
 
     with pytest.raises(

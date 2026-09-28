@@ -1225,20 +1225,6 @@ class AutoEvolutionSimulator:
             "promoted_candidates_count": sum(1 for s in self.shadow_evaluations if s.promoted),
         }
 
-        # Build payload hash and Merkle root
-        phase_payload = {
-            "phase": "phase_306",
-            "upstream_hash": UPSTREAM_PHASE305_ROOT_HASH,
-            "perf": perf_summary,
-            "solvency": solvency_summary,
-        }
-        phase_hash = hashlib.sha256(
-            json.dumps(phase_payload, sort_keys=True).encode("utf-8")
-        ).hexdigest()
-
-        merkle_combined = f"{UPSTREAM_PHASE305_ROOT_HASH}:{sqlite_hash}:{events_hash}:{phase_hash}"
-        merkle_root = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
-
         upstream_merkle_dag = {
             "phase_300": "25c81437dc77630dd8a143aea2056a126c16d908573d69a79676bc223fbbd14c",
             "phase_301": "64f0c31a6763924339d1737f7ff94923b4eba22f71bb703295a045bb5e16da7a",
@@ -1252,6 +1238,27 @@ class AutoEvolutionSimulator:
         health_evals_dict = {k: v.to_dict() for k, v in self.health_evaluations.items()}
         mutations_trace = [m.to_dict() for m in self.mutated_candidates]
         shadow_evals_trace = [s.to_dict() for s in self.shadow_evaluations]
+        candidate_ids = ["cand-btcusdt-dcb-002", "cand-ethusdt-dcb-003", "cand-solusdt-rgb-001"]
+        phase_payload = {
+            "phase": "phase_306",
+            "upstream_hash": UPSTREAM_PHASE305_ROOT_HASH,
+            "perf": perf_summary,
+            "solvency": solvency_summary,
+            "verified": True,
+            "paper_safe": True,
+            "execution_authority": False,
+            "circuit_state": "NORMAL",
+            "candidates": candidate_ids,
+            "autopsies_trace": autopsies_trace,
+            "health_evaluations": health_evals_dict,
+            "mutations_trace": mutations_trace,
+            "shadow_evaluations": shadow_evals_trace,
+        }
+        phase_hash = hashlib.sha256(
+            json.dumps(phase_payload, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        merkle_combined = f"{UPSTREAM_PHASE305_ROOT_HASH}:{sqlite_hash}:{events_hash}:{phase_hash}"
+        merkle_root = hashlib.sha256(merkle_combined.encode("utf-8")).hexdigest()
 
         summary_payload = {
             "phase": "phase_306",
@@ -1272,7 +1279,7 @@ class AutoEvolutionSimulator:
             "circuit_state": "NORMAL",
             "performance": perf_summary,
             "solvency": solvency_summary,
-            "candidates": ["cand-btcusdt-dcb-002", "cand-ethusdt-dcb-003", "cand-solusdt-rgb-001"],
+            "candidates": candidate_ids,
             "autopsies_trace": autopsies_trace,
             "health_evaluations": health_evals_dict,
             "mutations_trace": mutations_trace,

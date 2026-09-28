@@ -27,7 +27,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 | Frontend missing-artifact state | Null canary payload now renders UNAVAILABLE without demo orders, positions or Merkle claims | OFFLINE FIX VERIFIED |
 | Phase 306 frontend missing-artifact state | Null payload now renders UNAVAILABLE with no candidate IDs, verified badge or paper-safe claim | OFFLINE FIX VERIFIED |
 | Solvency artifact completeness | Loader requires all Phase 306 solvency fields and recomputes equity/drift from serialized Decimal inputs | OFFLINE FIX VERIFIED; semantic source provenance remains unproven |
-| Phase 306 summary hash binding | API recomputes phase hash from actual performance/solvency payload before checking Merkle root | OFFLINE FIX VERIFIED |
+| Phase 306 summary hash binding | API recomputes phase hash from performance, solvency, safety flags, candidate IDs and all traces before checking Merkle root | OFFLINE FIX VERIFIED |
 | Live certification | No fresh authorized account/protection/reconciliation/first-live evidence established | BLOCKED |
 
 ## Independently inspected findings
@@ -68,6 +68,7 @@ Scheduler Result=success, ExecMainStatus=0, active since 2026-09-21 15:27:56 UTC
 - Phase 306 frontend null-data model now returns `UNAVAILABLE`, `verified=false`, no candidate IDs or upstream hash, and the page renders only an accessible unavailable state. Regression failed before change; frontend tests **5 passed**, TypeScript/Vite build passed (large bundle warning remains).
 - Phase 306 API now recomputes `phase_hash` from the actual phase/upstream/performance/solvency fields before checking the Merkle root; a regression mutating performance while retaining the old declared hash failed before the fix. Phase 306 API suite **10 passed**.
 - Phase 306 loader now rejects missing solvency fields even when the phase hash and Merkle root are recomputed to match the incomplete payload; Decimal checks also reconcile declared equity and drift to their components. The regression failed before the fix; combined Phase 306 suite **19 passed**, Ruff/format/mypy passed.
+- Phase 306 phase hash now commits safety flags, candidate IDs, autopsy/health/mutation/shadow traces as well as performance and solvency; the API recomputes the same commitment. A changed autopsy P&L with unchanged phase hash is rejected. Combined Phase 306 unit/API suite **20 passed**, Ruff/format/mypy passed.
 
 Fresh scheduler process readback: entrypoint `scripts/run_autonomous_scheduler.py`, **provider=demo**. Health readback: updated_at `2026-09-28T03:05:29.986157+00:00`, status IDLE, last_run_at `2026-09-22T16:33:08.933450+00:00`, total_cycles_executed=7, consecutive_failures=0, admitted_candidates_count=0. This is not provider-backed learning or qualified live trading evidence.
 
