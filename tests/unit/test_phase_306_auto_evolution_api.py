@@ -294,6 +294,20 @@ def test_load_verified_canary_auto_evolution_merkle_mismatch(tmp_path: Path) -> 
         load_verified_canary_auto_evolution(artifacts_dir)
 
 
+def test_load_rejects_phase_payload_change_even_when_merkle_uses_declared_hash(
+    tmp_path: Path,
+) -> None:
+    """Phase hash must bind performance/solvency bytes, not just be self-referenced."""
+    artifacts_dir = _build_synthetic_phase306_artifacts(tmp_path)
+    summary_path = artifacts_dir / "evolution-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["performance"]["mean_realized_edge_bps"] = 999.0
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(CanaryEvidenceIntegrityError, match="Phase 306 payload hash mismatch"):
+        load_verified_canary_auto_evolution(artifacts_dir)
+
+
 def test_load_verified_canary_auto_evolution_drift_breach(tmp_path: Path) -> None:
     """Test solvency balance drift breaching 1e-15 USDT raises CanaryEvidenceIntegrityError."""
     artifacts_dir = _build_synthetic_phase306_artifacts(

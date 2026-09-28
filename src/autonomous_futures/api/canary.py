@@ -6152,9 +6152,24 @@ def load_verified_canary_auto_evolution(
             f"Upstream hash mismatch: {upstream_hash} != {expected_phase305_hash}"
         )
 
-    # 3. Validate Merkle root
-    merkle_root = str(summary_data.get("merkle_root", ""))
+    # 3. Bind phase hash to the summary's actual performance and solvency data.
+    phase_payload = {
+        "phase": str(summary_data.get("phase", "")),
+        "upstream_hash": upstream_hash,
+        "perf": summary_data.get("performance", {}),
+        "solvency": summary_data.get("solvency", {}),
+    }
+    computed_phase_hash = hashlib.sha256(
+        json.dumps(phase_payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
     phase_payload_hash = str(summary_data.get("phase_hash", ""))
+    if computed_phase_hash != phase_payload_hash:
+        raise CanaryEvidenceIntegrityError(
+            f"Phase 306 payload hash mismatch: {computed_phase_hash} != {phase_payload_hash}"
+        )
+
+    # 4. Validate Merkle root
+    merkle_root = str(summary_data.get("merkle_root", ""))
     merkle_combined = (
         f"{upstream_hash}:{computed_sqlite_hash}:{computed_events_hash}:{phase_payload_hash}"
     )
@@ -6166,7 +6181,7 @@ def load_verified_canary_auto_evolution(
             f"computed {expected_merkle_root} != summary {merkle_root}"
         )
 
-    # 4. Validate double-entry zero-drift balance
+    # 5. Validate double-entry zero-drift balance
     raw_solvency = summary_data.get("solvency", {})
     drift_val = Decimal(str(raw_solvency.get("drift_usdt", "0.00")))
     if abs(drift_val) >= Decimal("1e-15"):
