@@ -42,7 +42,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-base-content">
-              Autonomous Live Production Launch &amp; Micro-Capital Self-Driving Trading Engine
+              Phase 309 Simulation Artifact — Micro-Capital Self-Driving Engine
             </h1>
             <span className="badge badge-primary font-mono text-xs font-semibold">
               PHASE 309
@@ -53,7 +53,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
             </span>
           </div>
           <p className="mt-2 text-sm text-base-content/70">
-            Autonomous self-driving execution lifecycle across BTCUSDT, ETHUSDT, and SOLUSDT with strict micro-capital sizing ($5.00 chunk, $25.00 aggregate exposure), Hawkes runaway containment, double-entry zero-drift balance invariant, and fail-closed capital safety.
+            Deterministic simulated fills only. This hash-verified artifact does not prove exchange connectivity, live execution, or production readiness.
           </p>
         </div>
 

@@ -11,7 +11,7 @@ describe('ProductionLaunchPage component', () => {
   const verifiedFixture: CanaryProductionLaunchData = {
     phase: 'phase_309',
     verified: true,
-    status: 'PRODUCTION_LAUNCH_VERIFIED',
+    status: 'SIMULATION_ARTIFACT_VERIFIED',
     circuit_state: 'NORMAL',
     engine_state: 'MICRO_CAPITAL_ACTIVE',
     timestamp_ms: 1790200000000,
@@ -118,7 +118,7 @@ describe('ProductionLaunchPage component', () => {
 
     // Header & phase badges
     expect(html).toContain('PHASE 309')
-    expect(html).toContain('PRODUCTION_LAUNCH_VERIFIED')
+    expect(html).toContain('SIMULATION_ARTIFACT_VERIFIED')
     expect(html).toContain('PAPER-SAFE:')
     expect(html).toContain('TRUE')
     expect(html).toContain('EXECUTION AUTHORITY: OFF')

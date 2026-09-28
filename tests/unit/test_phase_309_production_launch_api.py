@@ -199,7 +199,7 @@ def test_load_verified_canary_production_launch_real_artifacts() -> None:
     res = load_verified_canary_production_launch(phase309_dir)
     assert res.verified
     assert res.phase == "phase_309"
-    assert res.status == "PRODUCTION_LAUNCH_VERIFIED"
+    assert res.status == "SIMULATION_ARTIFACT_VERIFIED"
     assert res.paper_safe
     assert not res.execution_authority
     assert res.engine_state == "MICRO_CAPITAL_ACTIVE"
@@ -217,7 +217,7 @@ def test_load_verified_canary_production_launch_success(tmp_path: Path) -> None:
 
     assert res.verified
     assert res.phase == "phase_309"
-    assert res.status == "PRODUCTION_LAUNCH_VERIFIED"
+    assert res.status == "SIMULATION_ARTIFACT_VERIFIED"
     assert res.paper_safe
     assert not res.execution_authority
     assert res.engine_state == "MICRO_CAPITAL_ACTIVE"
@@ -309,7 +309,7 @@ def test_api_canary_production_launch_endpoint_real_artifacts() -> None:
     data = response.json()
     assert data["verified"]
     assert data["phase"] == "phase_309"
-    assert data["status"] == "PRODUCTION_LAUNCH_VERIFIED"
+    assert data["status"] == "SIMULATION_ARTIFACT_VERIFIED"
     assert data["engine_state"] == "MICRO_CAPITAL_ACTIVE"
     assert data["solvency"]["zero_balance_drift_verified"]
     assert data["merkle_root"] == "5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844"
@@ -325,7 +325,7 @@ def test_api_canary_production_launch_endpoint_synthetic_success(tmp_path: Path)
     data = response.json()
     assert data["verified"]
     assert data["phase"] == "phase_309"
-    assert data["status"] == "PRODUCTION_LAUNCH_VERIFIED"
+    assert data["status"] == "SIMULATION_ARTIFACT_VERIFIED"
     assert data["engine_state"] == "MICRO_CAPITAL_ACTIVE"
 
 

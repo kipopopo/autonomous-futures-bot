@@ -6891,7 +6891,7 @@ class MicroCapitalConfinementItem(DomainModel):
 class CanaryProductionLaunchResponse(DomainModel):
     verified: bool = True
     phase: str = "phase_309"
-    status: str = "PRODUCTION_LAUNCH_VERIFIED"
+    status: str = "SIMULATION_ARTIFACT_VERIFIED"
     timestamp_ms: int = 0
     timestamp_utc: str = ""
     paper_safe: bool = True
@@ -7130,7 +7130,7 @@ def load_verified_canary_production_launch(
     return CanaryProductionLaunchResponse(
         verified=True,
         phase="phase_309",
-        status=str(summary_data.get("status", "PRODUCTION_LAUNCH_VERIFIED")),
+        status="SIMULATION_ARTIFACT_VERIFIED",
         timestamp_ms=timestamp_ms,
         timestamp_utc=ts_str,
         paper_safe=True,

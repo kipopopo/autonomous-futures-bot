@@ -4758,7 +4758,7 @@ export function buildProductionLaunchModel(
   return {
     phase: data.phase || 'phase_309',
     verified: Boolean(data.verified ?? true),
-    status: data.status || 'PRODUCTION_LAUNCH_VERIFIED',
+    status: data.status || 'SIMULATION_ARTIFACT_VERIFIED',
     circuitState: data.circuit_state || 'NORMAL',
     engineState: data.engine_state || 'MICRO_CAPITAL_ACTIVE',
     timestampMs: data.timestamp_ms ?? 0,
