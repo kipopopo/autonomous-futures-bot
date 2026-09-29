@@ -83,4 +83,28 @@ local ruff/format/mypy/lock: passed
 remote source/static verification: unchanged from Phase56 and passed at the deployed source commit
 ```
 
-The next boundary may create one new, deterministic testing-only candidate bound to this exact 365-day bundle. It must not reuse a rejected candidate ID, source result, or qualification evidence from the 90-day scope.
+Phase 59 exercised this boundary and rejected its one testing-only candidate on source results. That rejection is scoped to that candidate/thesis and 365-day bundle; do not retune or requalify it as part of this data-integrity addendum.
+
+## Addendum — exact-source mark-price recovery (2026-09-29)
+
+The previously stored mark-price Parquet was `float64`. After specific user approval, a fresh unsigned public `GET /fapi/v1/markPriceKlines` collection was made for XRPUSDT 5m over the same half-open 365-day range. No credentials, authenticated endpoints, other market-data endpoints, account calls, or orders were used.
+
+```text
+requested range: 2025-08-21T10:15:00Z → 2026-08-21T10:15:00Z
+requests: 71 successful / 71 total; 0 failures
+rows: 105,120
+ordered persisted-page-set SHA-256: d280e82670f506d5c03f885a6d1b6616ffc18c3ffafb1bee6b09c531d827c9be
+mark manifest: bb8dd63df4736dea283f634cea9a2bdb89775e7807a1452c71040ef57aeabeb7
+mark Parquet SHA-256: eb5e7fbff32f0a7860f386ee245b302f008ef087d9c0f647e4fa01fb668c364d
+funding manifest (typed from the existing 1,095-row decimal JSON): 16e5a2465d411b3fa27bea08cf06a5615dc60fa9532032951660ddf37483b825
+```
+
+The raw page store was re-read and strictly merged; its canonical 105,120-row frame matched the saved typed Parquet exactly. All 420,480 OHLC values read back as Decimal. The rebuilt scratch-only catalog passed all five artifact inspectors; canonical 5m/15m reads returned 105,120/35,040 rows, and the verified 288-row base window loaded for `2026-08-20T10:15:00Z`–`2026-08-21T10:15:00Z`.
+
+```text
+scratch bundle hash:   3584be825214b1f9a577aecc6b3de5212918e95e65f9461af458cb85518e6f88
+scratch registry hash: da95f469d26c541cf040154bcb3ff59c8eb3d16949ff305a574238dfe31dee93
+local output: C:\Users\thaqi\AppData\Local\hermes\cache\scratch\xrp365d-precise-mark\rebuilt
+```
+
+This addendum does not alter or replace the existing Kainode bundle. The fresh source and rebuilt catalog remain local scratch only; no candidate qualification, OOS evaluation, tuning, paper activation, deployment, or live action was performed.
