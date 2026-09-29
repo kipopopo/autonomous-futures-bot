@@ -66,7 +66,9 @@ def _verify_kline(root: Path, entry: DatasetRegistryEntry) -> ArtifactInspection
     ):
         raise ArtifactIntegrityError("kline manifest is not bound to the registry entry")
 
-    dataset_root = manifest_path.parent.parent
+    dataset_root = (
+        root.resolve() if manifest_path.parent == root.resolve() else manifest_path.parent.parent
+    )
     for source_file in manifest.source_files:
         source_path = _require_file(
             _resolve_relative(dataset_root, source_file.relative_path),

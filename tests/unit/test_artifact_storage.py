@@ -106,6 +106,38 @@ def test_inspects_kline_manifest_and_all_source_file_hashes(tmp_path: Path) -> N
     assert inspection.source_file_count == 2
 
 
+def test_inspects_flat_kline_manifest_and_source_files(tmp_path: Path) -> None:
+    canonical_path = tmp_path / "BTCUSDT-5m.parquet"
+    canonical_path.write_bytes(b"canonical fixture")
+    manifest_path = tmp_path / "BTCUSDT-5m.manifest.json"
+    manifest = build_manifest(
+        symbols=(SYMBOL,),
+        source_files=(
+            describe_data_file(canonical_path, relative_path=canonical_path.name, rows=1),
+        ),
+        time_start=START,
+        time_end=END,
+        created_at=OBSERVED,
+        code_version="test",
+        dependency_lock_hash="uv.lock",
+        dataset_interval="5m",
+    )
+    write_manifest(manifest_path, manifest)
+    entry = _entry(
+        "kline",
+        interval="5m",
+        time_start=START,
+        time_end=END,
+        content_hash=manifest.manifest_hash,
+        artifact_ref=manifest_path.name,
+    )
+
+    inspection = inspect_artifact_entry(tmp_path, entry)
+
+    assert inspection.data_ref == canonical_path.name
+    assert inspection.source_file_count == 1
+
+
 def test_inspects_funding_manifest_and_parquet_hash(tmp_path: Path) -> None:
     artifact_path = tmp_path / SYMBOL / "canonical" / "BTCUSDT-funding.parquet"
     manifest_path = tmp_path / SYMBOL / "manifests" / "BTCUSDT-funding.json"
