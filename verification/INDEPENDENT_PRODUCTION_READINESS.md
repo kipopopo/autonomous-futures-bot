@@ -33,6 +33,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 | Testnet account reconciliation contract | Offline parser/reconciler rejects duplicate expected or exchange position keys as drift | OFFLINE CONTRACT VERIFIED; no private account request authorized or performed |
 | Signed read-only request handling | API-key headers and replayable signed queries excluded from request repr/serialization; testnet and production read-only transports reject redirects | OFFLINE SAFETY FIX VERIFIED; no account request performed |
 | Autonomous research base data gate | Missing canonical Parquet no longer silently falls back to synthetic windows; synthetic fixtures require explicit flag and missing data stops before artifact creation | OFFLINE FIX VERIFIED |
+| Autonomous base dataset provenance | Cached windows now require a hash-verified bundle+registry and the bundle's verified 5m artifact path; this checkout lacks the required bundle/registry files, so real-data CLI qualification remains unavailable | CODE VERIFIED; DATA PREREQUISITE MISSING |
 | Live certification | No fresh authorized account/protection/reconciliation/first-live evidence established | BLOCKED |
 
 ## Independently inspected findings
@@ -43,6 +44,7 @@ Baseline source: `3408be60b1f084daa6875508856094fbcfc38754`; local main, origin/
 4. `src/autonomous_futures/feed/auto_evolution.py:308-319` classifies empty input as HEALTHY with fabricated positive metrics. This cannot be interpreted as observed strategy performance.
 5. Phase 309 verifier defaults missing drift to zero (`run_phase_309_production_launch.py:95-98`, `run_phase_309_autonomous_launch.py:67-70`). Hash consistency is not semantic evidence completeness.
 6. `scripts/run_autonomous_base.py` previously substituted generated synthetic windows when cached Parquet was missing, then returned a completed cycle with cached-only labels. The missing-file regression reproduced that behavior before the fail-closed gate.
+7. `scripts/run_autonomous_base.py` previously accepted caller-supplied Parquet while attaching default bundle and registry hashes without checking artifact provenance. It now loads the existing verified catalog and artifact-inspection helpers, requires the selected 5m bundle component's verified data path to equal the Parquet input, and checks both supplied hashes. This checkout contains no dataset bundle/registry JSON, so the durable real-Parquet integration fixture correctly skips and production qualification cannot proceed until those artifacts are provided.
 
 ## Secondary audit leads requiring integration review
 
@@ -81,6 +83,7 @@ Scheduler Result=success, ExecMainStatus=0, active since 2026-09-21 15:27:56 UTC
 - Offline account reconciliation now rejects duplicate `(symbol, positionSide)` keys in either expected or exchange rows instead of silently collapsing them through a dict; RED regression reproduced false `reconciled` before fix. Private contract tests: **6 passed**; Ruff/format/mypy passed. No credential or network use.
 - Testnet and production read-only request models no longer expose API-key headers or replayable signed queries through repr/model serialization. Both account reconcilers reject duplicate expected/exchange position keys, and the production read-only transport now blocks automatic redirects; regressions were RED before fixes. Combined private/live read-only contract tests: **11 passed**; Ruff/format/mypy passed. No credential or network use.
 - Autonomous base now returns nonzero when canonical cached Parquet is missing and does not create the artifact root. Synthetic-window execution remains available only with explicit `--use-synthetic-windows`; the synthetic end-to-end fixture now opts in. RED reproduced a completed cycle from a missing path; research-loop suite **16 passed**, Ruff/format/mypy passed.
+- Autonomous base now verifies bundle/registry hashes and checks the Parquet path against the existing artifact inspector's verified 5m component before slicing. RED reproduced acceptance of unrelated Parquet; the regression is GREEN. Targeted suites: **16 passed, 1 skipped** because the required bundle/registry data artifacts are absent; Ruff/format/mypy passed. No network or provider calls.
 
 Fresh scheduler process readback: entrypoint `scripts/run_autonomous_scheduler.py`, **provider=demo**. Health readback: updated_at `2026-09-28T03:05:29.986157+00:00`, status IDLE, last_run_at `2026-09-22T16:33:08.933450+00:00`, total_cycles_executed=7, consecutive_failures=0, admitted_candidates_count=0. This is not provider-backed learning or qualified live trading evidence.
 

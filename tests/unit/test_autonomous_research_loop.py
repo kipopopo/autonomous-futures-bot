@@ -684,11 +684,15 @@ def test_cli_runner_with_durable_artifacts_and_parquet(
     parquet_file = (
         REPO_ROOT / "research" / "immutable-data" / "5m" / "canonical" / "BTCUSDT-5m.parquet"
     )
+    bundle_file = REPO_ROOT / "research" / "immutable-data" / "bundle.json"
+    registry_file = REPO_ROOT / "research" / "immutable-data" / "registry.json"
     if not (
         feedback_file.is_file()
         and learning_file.is_file()
         and plan_file.is_file()
         and parquet_file.is_file()
+        and bundle_file.is_file()
+        and registry_file.is_file()
     ):
         pytest.skip("Required durable research fixtures not found")
 
@@ -705,6 +709,10 @@ def test_cli_runner_with_durable_artifacts_and_parquet(
             str(plan_file),
             "--parquet-path",
             str(parquet_file),
+            "--bundle-path",
+            str(bundle_file),
+            "--registry-path",
+            str(registry_file),
             "--windows-count",
             "1",
             "--bars-per-window",

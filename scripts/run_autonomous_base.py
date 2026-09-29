@@ -30,6 +30,9 @@ _SRC_DIR = _REPO_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+from autonomous_futures.api.artifacts import inspect_artifact_entry  # noqa: E402
+from autonomous_futures.api.catalog import load_verified_dataset_catalog  # noqa: E402
+from autonomous_futures.data.bundle import find_bundle_component  # noqa: E402
 from autonomous_futures.data.parquet import (  # noqa: E402
     DataQualityError,
     read_canonical_parquet,
@@ -266,11 +269,29 @@ def load_and_slice_windows(
     symbol: str,
     bundle_hash: str,
     dataset_registry_hash: str,
+    dataset_root: Path,
+    bundle_path: Path,
+    registry_path: Path,
     windows_count: int,
     bars_per_window: int,
 ) -> tuple[CachedEvaluationWindow, ...]:
     if not parquet_path.is_file():
         raise FileNotFoundError(f"Canonical Parquet file not found: {parquet_path}")
+    catalog = load_verified_dataset_catalog(bundle_path=bundle_path, registry_path=registry_path)
+    if (
+        catalog.bundle.bundle_hash != bundle_hash
+        or catalog.registry.registry_hash != dataset_registry_hash
+    ):
+        raise DataQualityError("bundle or registry hash does not match the requested provenance")
+    component = find_bundle_component(catalog.bundle, kind="kline", symbol=symbol, interval="5m")
+    if component is None:
+        raise DataQualityError(f"bundle has no 5m kline component for {symbol}")
+    inspection = inspect_artifact_entry(dataset_root, component)
+    if (
+        inspection.data_ref is None
+        or (dataset_root / inspection.data_ref).resolve() != parquet_path.resolve()
+    ):
+        raise DataQualityError("Parquet path does not match bundle dataset artifact provenance")
     df = read_canonical_parquet(parquet_path, interval=timedelta(minutes=5))
     total_bars = windows_count * bars_per_window
     if len(df) < total_bars:
@@ -424,6 +445,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional path to canonical 5m Parquet data file",
     )
+    parser.add_argument("--dataset-root", type=Path, default=Path("research/immutable-data"))
+    parser.add_argument("--bundle-path", type=Path, default=None)
+    parser.add_argument("--registry-path", type=Path, default=None)
     parser.add_argument(
         "--windows-count",
         type=int,
@@ -614,6 +638,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             symbol=config.symbol,
             bundle_hash=config.bundle_hash,
             dataset_registry_hash=config.dataset_registry_hash,
+            dataset_root=args.dataset_root,
+            bundle_path=args.bundle_path or args.dataset_root / "bundle.json",
+            registry_path=args.registry_path or args.dataset_root / "registry.json",
             windows_count=w_count,
             bars_per_window=b_count,
         )
