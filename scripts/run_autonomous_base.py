@@ -2,7 +2,8 @@
 
 Supported finite CLI entrypoint for Autonomous Research Base (R2).
 Orchestrates multi-cycle offline research with deterministic bounded cycles:
-- Preflights credentials safely without exposing secrets.
+- Does not inspect or resolve provider credentials.
+- Uses only deterministic offline learner, planner, Critic, and Creator adapters.
 - Enforces zero network and offline cached-only execution by default.
 - Rejects partial, tampered, or out-of-order checkpoints.
 - Tracks forbidden candidate IDs and thesis fingerprints across cycles.
@@ -61,12 +62,10 @@ from autonomous_futures.research.creator_failure_feedback import (  # noqa: E402
 from autonomous_futures.research.creator_generator import (  # noqa: E402
     CreatorGenerationRequest,
 )
-from autonomous_futures.research.google_ai_studio_provider import resolve_credential  # noqa: E402
 from autonomous_futures.research.learner_critic import (  # noqa: E402
     LearnerCriticRequest,
 )
 from autonomous_futures.research.qualification_artifacts import (  # noqa: E402
-    QualificationGateResult,
     WalkForwardQualificationPolicy,
 )
 
@@ -108,34 +107,6 @@ def _check_forbidden_credential_flags(argv: Sequence[str]) -> bool:
         if prefix in FORBIDDEN_CREDENTIAL_FLAGS:
             return True
     return False
-
-
-def _build_default_seed_feedback(
-    *,
-    symbol: str,
-    bundle_hash: str,
-    dataset_registry_hash: str,
-) -> CreatorQualificationFailureFeedback:
-    """Build a deterministic seed failure feedback when no external feedback is provided."""
-    return CreatorQualificationFailureFeedback(
-        candidate_id="cand-seed-001",
-        candidate_artifact_hash="a" * 64,
-        bundle_hash=bundle_hash,
-        dataset_registry_hash=dataset_registry_hash,
-        qualification_hash="c" * 64,
-        qualification_policy_id="policy-seed-001",
-        failed_gates=(
-            QualificationGateResult(
-                gate_id="oos_profit_factor_min",
-                passed=False,
-                observed=Decimal("0.85"),
-                threshold=Decimal("1.0"),
-                comparator="gte",
-                reason_code="oos_profit_factor_below_threshold",
-            ),
-        ),
-        failure_reason_codes=("oos_profit_factor_below_threshold",),
-    )
 
 
 def _offline_learner_transport(request: FailureLearningRequest) -> Mapping[str, Any]:
@@ -425,7 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--feedback-file",
         type=Path,
         default=None,
-        help="Optional path to initial CreatorQualificationFailureFeedback JSON",
+        help="Path to initial failure feedback JSON (required to execute cycles)",
     )
     parser.add_argument(
         "--max-cycles",
@@ -437,7 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Preflight environment, inputs, and configuration without running cycles",
+        help="Preflight inputs and configuration without credentials, providers, or network",
     )
     parser.add_argument(
         "--parquet-path",
@@ -549,16 +520,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         base_run_id = f"base-{uuid4().hex[:16]}"
     artifact_root = args.artifact_root or Path("artifacts") / "autonomous_base" / base_run_id
 
-    # Safe credential preflight (no secrets exposed or printed)
-    cred_resolved = False
-    try:
-        cred = resolve_credential()
-        cred_resolved = bool(cred and len(cred) >= 10)
-    except Exception:
-        cred_resolved = False
-
     # Feedback initialization
-    initial_feedback: CreatorQualificationFailureFeedback
+    initial_feedback: CreatorQualificationFailureFeedback | None = None
     if args.feedback_file is not None:
         if not args.feedback_file.exists():
             sys.stderr.write(f"ERROR: Feedback file not found: {args.feedback_file}\n")
@@ -569,12 +532,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         except Exception as exc:
             sys.stderr.write(f"ERROR: Invalid feedback file schema: {exc}\n")
             return 1
-    else:
-        initial_feedback = _build_default_seed_feedback(
-            symbol=args.symbol,
-            bundle_hash=args.bundle_hash,
-            dataset_registry_hash=args.dataset_registry_hash,
-        )
 
     # Base configuration validation
     try:
@@ -603,14 +560,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         "dataset_registry_hash": config.dataset_registry_hash,
         "artifact_root": str(config.artifact_root),
         "max_cycles": config.max_cycles,
-        "credential_preflight_ok": cred_resolved,
-        "feedback_seed_candidate": initial_feedback.candidate_id,
+        "provider_mode": "offline_deterministic",
+        "provider_calls_enabled": False,
+        "initial_feedback_available": initial_feedback is not None,
+        "feedback_seed_candidate": (
+            initial_feedback.candidate_id if initial_feedback is not None else None
+        ),
         "dry_run": args.dry_run,
     }
 
     if args.dry_run:
         sys.stdout.write(json.dumps(preflight_report, indent=2) + "\n")
         return 0
+
+    if initial_feedback is None:
+        sys.stderr.write(
+            "ERROR: --feedback-file is required; synthetic seed feedback is disabled.\n"
+        )
+        return 1
 
     # Assemble offline deterministic runners
     parquet_path = args.parquet_path

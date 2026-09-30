@@ -454,6 +454,59 @@ def test_cli_runner_preflight_and_dry_run(capsys: pytest.CaptureFixture[str]) ->
     assert report["status"] == "preflight_passed"
     assert report["symbol"] == "BTCUSDT"
     assert report["dry_run"] is True
+    assert report["initial_feedback_available"] is False
+    assert report["feedback_seed_candidate"] is None
+
+
+def test_cli_dry_run_does_not_resolve_credentials(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An offline dry run must not inspect or resolve any provider credential."""
+    import scripts.run_autonomous_base as base_cli
+
+    calls = 0
+
+    def unexpected_credential_lookup() -> str:
+        nonlocal calls
+        calls += 1
+        return ""
+
+    monkeypatch.setattr(
+        base_cli,
+        "resolve_credential",
+        unexpected_credential_lookup,
+        raising=False,
+    )
+
+    assert cli_main(["--dry-run"]) == 0
+    report = json.loads(capsys.readouterr().out)
+
+    assert calls == 0
+    assert report["provider_mode"] == "offline_deterministic"
+    assert report["provider_calls_enabled"] is False
+    assert "credential_preflight_ok" not in report
+
+
+def test_cli_run_requires_explicit_feedback_before_creating_outputs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    artifact_root = tmp_path / "no-feedback-run"
+
+    exit_code = cli_main(
+        [
+            "--base-run-id",
+            "base-no-feedback-001",
+            "--max-cycles",
+            "1",
+            "--use-synthetic-windows",
+            "--artifact-root",
+            str(artifact_root),
+        ]
+    )
+
+    assert exit_code != 0
+    assert not artifact_root.exists()
+    assert "--feedback-file is required" in capsys.readouterr().err
 
 
 def test_cli_runner_rejects_forbidden_credential_flags(capsys: pytest.CaptureFixture[str]) -> None:
@@ -500,12 +553,20 @@ def test_cli_runner_fails_closed_when_cached_parquet_is_missing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     artifact_root = tmp_path / "missing-data-run"
+    feedback_path = tmp_path / "feedback.json"
+    feedback_path.write_text(_feedback().model_dump_json(), encoding="utf-8")
     exit_code = cli_main(
         [
             "--base-run-id",
             "base-missing-parquet-001",
+            "--bundle-hash",
+            HASH_A,
+            "--dataset-registry-hash",
+            HASH_B,
             "--max-cycles",
             "1",
+            "--feedback-file",
+            str(feedback_path),
             "--parquet-path",
             str(tmp_path / "missing.parquet"),
             "--artifact-root",
@@ -522,13 +583,21 @@ def test_cli_runner_executes_offline_cycle_end_to_end(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Verify CLI main executes offline bounded cycles and outputs structured report."""
+    feedback_path = tmp_path / "feedback.json"
+    feedback_path.write_text(_feedback().model_dump_json(), encoding="utf-8")
     exit_code = cli_main(
         [
             "--symbol",
             "BTCUSDT",
+            "--bundle-hash",
+            HASH_A,
+            "--dataset-registry-hash",
+            HASH_B,
             "--max-cycles",
             "1",
             "--use-synthetic-windows",
+            "--feedback-file",
+            str(feedback_path),
             "--artifact-root",
             str(tmp_path / "artifacts"),
         ]
