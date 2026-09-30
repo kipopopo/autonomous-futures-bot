@@ -88,8 +88,11 @@ class KeyboardInputController:
             try:
                 import msvcrt
 
-                if msvcrt.kbhit():
-                    return msvcrt.getwch()
+                key_pending = getattr(msvcrt, "kbhit", None)
+                read_key = getattr(msvcrt, "getwch", None)
+                if callable(key_pending) and callable(read_key) and key_pending():
+                    key = read_key()
+                    return key if isinstance(key, str) else None
             except Exception:
                 return None
         else:

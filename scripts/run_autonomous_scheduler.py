@@ -69,6 +69,14 @@ def _sanitize_string(text: str | None) -> str | None:
     return _SECRET_PATTERN.sub("[REDACTED]", text)
 
 
+def _child_process_creation_flags(platform: str) -> int:
+    """Return the Windows process-group flag without assuming a Windows build host."""
+    if platform != "win32":
+        return 0
+    flag = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    return flag if isinstance(flag, int) else 0
+
+
 FORBIDDEN_CREDENTIAL_FLAGS = (
     "--api-key",
     "--api_key",
@@ -1011,7 +1019,7 @@ class AutonomousSchedulerDaemon:
         start_monotonic = time.monotonic()
         timed_out = False
 
-        creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+        creation_flags = _child_process_creation_flags(sys.platform)
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
