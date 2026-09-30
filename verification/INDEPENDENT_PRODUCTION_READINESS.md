@@ -107,3 +107,12 @@ Real execution transport and reconciliation are absent from the audited Phase 30
 ## Release boundary
 
 Safe local repairs may proceed with failing regressions first. Do not add an exchange transport just to satisfy a label. Preserve all historical hashed artifacts; do not regenerate them to manufacture passing evidence. Once repairs are integrated, run final-tree regressions and update this matrix. Real provider budgets, service changes, testnet/live and first-live lifecycle remain separate explicit gates. This report does NOT certify production readiness.
+
+## Current source and Creator-lineage update — 2026-09-30
+
+- Current source is `0e0e9d50f3288b81646be8ca919ebce22f6f58a5`; local `main` and `origin/main` matched and the worktree was clean at verification.
+- Exact-SHA GitHub Actions quality run `36676135675` completed successfully for that commit. The workflow passed tests, Ruff, format, strict mypy, and Python compilation. The full local locked suite on the same implementation state before a documentation-only commit completed with **4,829 passed, 1 skipped, 0 failed**; the skip remains the missing durable-research-fixture case.
+- Creator lineage remains blocked: individually verified history does not produce a complete snapshot because three historical candidate IDs map to different artifact hashes. Seven more accepted-but-unpersisted IDs are report-only leads, not a typed or exhaustive accepted-proposal ledger. No collision was adjudicated or rewritten.
+- A shared complete-history gate now fails closed at all known real Creator provider entrypoints before credential resolution, output creation, or network access. New acceptance events write a verified write-once `CreatorProposalOutcome` before candidate persistence; this protects future history but does not backfill prior events.
+- These changes establish source/CI quality and fail-closed provider behavior only. They do not establish complete Creator lineage, strategy qualification, real feedback learning, exchange execution, account reconciliation, deployment state, or live readiness. No provider call, exchange request/order, deployment, restart, or testnet/live activation was performed in this update.
+- The detailed findings and safety constraints above remain in force. Creator access can be reconsidered only after complete source-backed history and authorized dispositions are supplied and pass the existing verified preflight. External provider, exchange, VPS, and live-boundary actions remain separately gated.
