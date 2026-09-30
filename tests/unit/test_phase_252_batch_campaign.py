@@ -50,6 +50,15 @@ from autonomous_futures.research.google_ai_studio_provider import (
 )
 
 
+@pytest.fixture
+def mocked_history_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mocked transports exercise batch behavior, not the real history gate."""
+    monkeypatch.setattr(
+        "autonomous_futures.phase_252_batch.require_complete_creator_history",
+        lambda: None,
+    )
+
+
 def _load_script_module(name: str) -> Any:
     script_path = Path(__file__).resolve().parents[2] / "scripts" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, script_path)
@@ -221,7 +230,25 @@ def test_build_phase_252_batch_requests_rejects_empty_or_duplicate() -> None:
 # ==============================================================================
 
 
-def test_execute_phase_252_batch_campaign_all_accepted(tmp_path: Path) -> None:
+def test_phase_252_blocks_before_credential_and_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected_credential(**_kwargs: object) -> str:
+        pytest.fail("credential lookup before complete history preflight")
+
+    monkeypatch.setattr(
+        "autonomous_futures.phase_252_batch.resolve_staging_credential",
+        unexpected_credential,
+    )
+    evidence_root = tmp_path / "blocked"
+    with pytest.raises(ValueError, match="complete Creator history"):
+        execute_phase_252_batch_campaign(evidence_root=evidence_root, env={"PATH": "/usr/bin"})
+    assert not evidence_root.exists()
+
+
+def test_execute_phase_252_batch_campaign_all_accepted(
+    tmp_path: Path, mocked_history_preflight: None
+) -> None:
     evidence_root = tmp_path / "phase252_all_accepted"
     assets = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT")
     campaign_id = "creator-batch-20260904-phase252"
@@ -301,7 +328,9 @@ def test_execute_phase_252_batch_campaign_all_accepted(tmp_path: Path) -> None:
 # ==============================================================================
 
 
-def test_execute_phase_252_batch_campaign_partial_rejection(tmp_path: Path) -> None:
+def test_execute_phase_252_batch_campaign_partial_rejection(
+    tmp_path: Path, mocked_history_preflight: None
+) -> None:
     evidence_root = tmp_path / "phase252_partial_rejection"
     assets = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT")
 
@@ -356,7 +385,7 @@ def test_execute_phase_252_batch_campaign_partial_rejection(tmp_path: Path) -> N
 
 
 def test_execute_phase_252_batch_campaign_read_only_filesystem(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mocked_history_preflight: None
 ) -> None:
     evidence_root = tmp_path / "phase252_readonly"
     assets = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT")
@@ -401,7 +430,10 @@ def test_execute_phase_252_batch_campaign_read_only_filesystem(
 
 
 def test_phase_252_batch_zero_secret_leakage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mocked_history_preflight: None,
 ) -> None:
     canary_key = "AIzaSyCanarySecretBatchKey999888777"
     evidence_root = tmp_path / "phase252_leak_check"

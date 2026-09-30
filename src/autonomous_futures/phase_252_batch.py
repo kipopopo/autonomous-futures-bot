@@ -45,6 +45,7 @@ from .research.creator_generator import (
     CreatorGenerator,
     ProposalTransport,
 )
+from .research.creator_history_gate import require_complete_creator_history
 from .research.creator_prompts import (
     CAPITAL_AND_LEVERAGE_GUIDELINES,
     build_phase_252_proposal_messages,
@@ -159,6 +160,7 @@ def execute_phase_252_batch_campaign(
 
     # 3. Enforce offline safety invariants (zero Binance credentials, zero execution authority)
     assert_offline_safety_invariants(credential_dir=credential_dir, env=env)
+    require_complete_creator_history()
 
     # 4. Construct generation requests and dynamic run_id -> symbol mapping
     requests, symbol_by_run_id = build_phase_252_batch_requests(

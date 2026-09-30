@@ -613,6 +613,9 @@ def test_cli_main_missing_credentials_exits_code_3_with_clean_json(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verify CLI terminates with exit code 3 and clean JSON when credentials missing."""
+    monkeypatch.setattr(
+        "scripts.run_autonomous_cycle.require_complete_creator_history", lambda: None
+    )
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_AI_STUDIO_API_KEY", raising=False)

@@ -26,6 +26,7 @@ from .research.creator_generator import (
     CreatorGenerator,
     ProposalTransport,
 )
+from .research.creator_history_gate import require_complete_creator_history
 from .research.creator_prompts import build_creator_proposal_messages
 from .research.google_ai_studio_provider import (
     GOOGLE_AI_STUDIO_OPENAI_BASE_URL,
@@ -164,6 +165,7 @@ def execute_creator_staging_probe(
 
     # 2. Enforce offline safety invariants (zero Binance credentials, zero execution authority)
     assert_offline_safety_invariants(credential_dir=credential_dir, env=env)
+    require_complete_creator_history()
 
     # 3. Resolve credential in memory
     resolved_api_key = resolve_staging_credential(

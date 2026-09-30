@@ -41,7 +41,11 @@ from ..research.creator_generator import (
     CreatorGenerator,
     ProposalTransport,
 )
-from ..research.creator_proposals import build_candidate_from_proposal
+from ..research.creator_proposals import (
+    build_candidate_from_proposal,
+    build_creator_proposal_outcome,
+    write_creator_proposal_outcome,
+)
 from ..research.learner_critic import CriticTransport, LearnerCritic, LearnerCriticRequest
 from ..research.learner_critic_evidence import (
     build_learner_critique_evidence,
@@ -314,6 +318,17 @@ def execute_autonomous_cycle(
         creator_run_id=f"creator-{config.cycle_id}",
         research_seed=100,
         created_at=timestamp,
+    )
+    proposal_outcome = build_creator_proposal_outcome(
+        proposal=generation_result.proposal,
+        decision="accepted",
+        candidate_artifact_hash=candidate.artifact_hash,
+        reason_codes=generation_result.reason_codes,
+        recorded_at=timestamp,
+    )
+    write_creator_proposal_outcome(
+        config.artifact_root / "evidence" / "creator" / f"{proposal_outcome.proposal_id}.json",
+        proposal_outcome,
     )
 
     # Persist newly generated candidate

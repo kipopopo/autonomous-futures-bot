@@ -325,12 +325,48 @@ def test_cli_rejects_api_key_flag_exit_code_2(
     assert "Traceback" not in captured.err
 
 
+def test_provider_requires_verified_history_before_files_or_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An incomplete history cannot reach credential lookup or create partial output."""
+
+    def unexpected_credential_lookup(**_kwargs: object) -> str:
+        pytest.fail("credential lookup happened before Creator history preflight")
+
+    monkeypatch.setattr(
+        "scripts.run_autonomous_cycle.resolve_credential", unexpected_credential_lookup
+    )
+    output_dir = tmp_path / "blocked"
+    ret = run_cli_main(
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--feedback-path",
+            str(tmp_path / "missing.json"),
+            "--output-dir",
+            str(output_dir),
+            "--provider",
+            "google_ai_studio",
+        ]
+    )
+    assert ret == 3
+    assert not output_dir.exists()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error_code"] == "autonomous_cycle_data_error"
+    assert "complete Creator history" in payload["message"]
+
+
 def test_cli_missing_credentials_exit_code_3(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Running with --provider google_ai_studio when no creds exist cleanly exits code 3."""
+    monkeypatch.setattr(
+        "scripts.run_autonomous_cycle.require_complete_creator_history", lambda: None
+    )
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_AI_STUDIO_API_KEY", raising=False)
@@ -391,6 +427,9 @@ def test_cli_end_to_end_google_ai_studio_mocked(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Full CLI run with --provider google_ai_studio using mocked Gemma 4 HTTP responses."""
+    monkeypatch.setattr(
+        "scripts.run_autonomous_cycle.require_complete_creator_history", lambda: None
+    )
     mock_secret = "AIzaSyFakeSecretKeyForTestingOnly12345"
     monkeypatch.setenv("GOOGLE_API_KEY", mock_secret)
 
@@ -574,6 +613,9 @@ def test_cli_provider_api_error_exit_code_3(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Upstream 500 error exits code 3, logs failure in audit, and scrubs error text."""
+    monkeypatch.setattr(
+        "scripts.run_autonomous_cycle.require_complete_creator_history", lambda: None
+    )
     mock_secret = "AIzaSyMockUpstream500Key9876543210"
     monkeypatch.setenv("GOOGLE_API_KEY", mock_secret)
 

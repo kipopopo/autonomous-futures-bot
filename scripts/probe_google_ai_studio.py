@@ -22,6 +22,9 @@ from autonomous_futures.research.creator_generator import (  # noqa: E402
     CreatorGenerationRequest,
     CreatorGenerator,
 )
+from autonomous_futures.research.creator_history_gate import (  # noqa: E402
+    require_complete_creator_history,
+)
 from autonomous_futures.research.creator_prompts import (  # noqa: E402
     build_creator_proposal_messages,
 )
@@ -92,6 +95,8 @@ def resolve_credential() -> str:
 
 
 def main() -> int:
+    require_complete_creator_history()
+
     try:
         api_key = resolve_credential()
     except RuntimeError as exc:

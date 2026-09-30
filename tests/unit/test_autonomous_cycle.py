@@ -27,9 +27,11 @@ from autonomous_futures.research.cached_evaluation import (
 from autonomous_futures.research.creator_artifacts import (
     CreatorCandidateArtifact,
     build_creator_candidate_artifact,
+    read_creator_candidate_artifact,
 )
 from autonomous_futures.research.creator_failure_feedback import CreatorQualificationFailureFeedback
 from autonomous_futures.research.creator_generator import CreatorGenerationRequest
+from autonomous_futures.research.creator_proposals import read_creator_proposal_outcome
 from autonomous_futures.research.learner_critic import LearnerCriticRequest
 from autonomous_futures.research.qualification_artifacts import (
     QualificationGateResult,
@@ -275,6 +277,15 @@ def test_autonomous_cycle_successful_end_to_end(tmp_path: Path):
     assert result.qualification_decision == "qualified"
     assert result.admission_decision == "admitted"
     assert engine.candidates["BTCUSDT"].candidate_id == result.candidate_id
+    outcome = read_creator_proposal_outcome(
+        config.artifact_root / "evidence" / "creator" / "proposal-revised-002.json"
+    )
+    candidate = read_creator_candidate_artifact(
+        config.artifact_root / "candidates" / f"{result.candidate_id}.json"
+    )
+    assert outcome.decision == "accepted"
+    assert outcome.candidate_id == candidate.candidate_id
+    assert outcome.candidate_artifact_hash == candidate.artifact_hash
 
 
 def test_autonomous_cycle_rejected_qualification_preserves_active_candidate(tmp_path: Path):

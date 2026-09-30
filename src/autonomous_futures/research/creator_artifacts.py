@@ -159,8 +159,14 @@ def build_creator_candidate_artifact(
 
 
 def read_creator_candidate_artifact(path: Path) -> CreatorCandidateArtifact:
-    artifact = CreatorCandidateArtifact.model_validate_json(path.read_text(encoding="utf-8"))
-    if _artifact_content_hash(artifact) != artifact.artifact_hash:
+    raw = path.read_text(encoding="utf-8")
+    payload = json.loads(raw)
+    artifact = CreatorCandidateArtifact.model_validate_json(raw)
+    content = dict(payload)
+    content.pop("created_at", None)
+    content.pop("artifact_hash", None)
+    canonical = json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
+    if sha256(canonical).hexdigest() != artifact.artifact_hash:
         raise DomainViolation(f"creator candidate artifact hash mismatch: {path}")
     return artifact
 

@@ -46,6 +46,7 @@ from autonomous_futures.paper.candidate_registry import (  # noqa: E402
     CandidateRegistryManifest,
     build_candidate_registry_manifest,
     read_candidate_registry,
+    validate_manifest_candidate_artifacts,
     write_candidate_registry,
 )
 from autonomous_futures.paper.feedback_extractor import (  # noqa: E402
@@ -121,11 +122,7 @@ def extract_breach_feedback(
     )
 
     feedbacks: dict[str, CreatorQualificationFailureFeedback] = {}
-    for sym, entry in manifest.symbols.items():
-        cand_path = Path(entry.artifact_path)
-        if not cand_path.is_file():
-            continue
-        cand = read_creator_candidate_artifact(cand_path)
+    for sym, cand in validate_manifest_candidate_artifacts(manifest).items():
         fb = extract_paper_feedback(
             ledger_path=ledger_path,
             lifecycle_path=lifecycle_path,
@@ -195,9 +192,6 @@ def run_paper_feedback_calibration(
 ) -> PaperCalibrationResult:
     """Execute the end-to-end paper feedback extraction and calibration comparison."""
     assert_offline_safety_invariants()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    feedback_dir = output_dir / "feedback"
-    feedback_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Read existing candidate registry
     # Prefer baseline_candidate_registry.json if present in phase262_dir
@@ -217,14 +211,6 @@ def run_paper_feedback_calibration(
 
     extracted_feedbacks = extract_breach_feedback(ledger_path, lifecycle_path, manifest)
 
-    feedback_artifact_hashes: dict[str, str] = {}
-    for _sym, fb in extracted_feedbacks.items():
-        fb_path = feedback_dir / f"feedback-{fb.candidate_id}.json"
-        fb_json = json.dumps(fb.model_dump(mode="json"), indent=2, sort_keys=True)
-        _assert_zero_secrets(fb_json, str(fb_path))
-        fb_path.write_text(fb_json, encoding="utf-8")
-        feedback_artifact_hashes[fb_path.name] = compute_sha256(fb_path)
-
     # 3. Register breached candidates into forbidden_candidate_ids
     forbidden_ids = tuple(sorted(fb.candidate_id for fb in extracted_feedbacks.values()))
 
@@ -232,6 +218,21 @@ def run_paper_feedback_calibration(
     eth_entry = manifest.symbols["ETHUSDT"]
     base_eth_cand = read_creator_candidate_artifact(Path(eth_entry.artifact_path))
     calibrated_eth = synthesize_calibrated_candidate(base_eth_cand)
+    if (
+        calibrated_eth.candidate_id != eth_entry.candidate_id
+        or calibrated_eth.artifact_hash != eth_entry.candidate_artifact_hash
+    ):
+        raise ValueError("calibrated candidate requires its own qualification before registry use")
+
+    feedback_dir = output_dir / "feedback"
+    feedback_dir.mkdir(parents=True, exist_ok=True)
+    feedback_artifact_hashes: dict[str, str] = {}
+    for _sym, fb in extracted_feedbacks.items():
+        fb_path = feedback_dir / f"feedback-{fb.candidate_id}.json"
+        fb_json = json.dumps(fb.model_dump(mode="json"), indent=2, sort_keys=True)
+        _assert_zero_secrets(fb_json, str(fb_path))
+        fb_path.write_text(fb_json, encoding="utf-8")
+        feedback_artifact_hashes[fb_path.name] = compute_sha256(fb_path)
 
     cal_cand_path = feedback_dir / f"{calibrated_eth.candidate_id}.json"
     write_creator_candidate_artifact(cal_cand_path, calibrated_eth)

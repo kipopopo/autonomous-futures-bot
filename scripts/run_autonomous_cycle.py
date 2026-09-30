@@ -66,6 +66,9 @@ from autonomous_futures.research.creator_generator import (  # noqa: E402
     CreatorGenerationRequest,
     ProposalTransport,
 )
+from autonomous_futures.research.creator_history_gate import (  # noqa: E402
+    require_complete_creator_history,
+)
 from autonomous_futures.research.creator_prompts import (  # noqa: E402
     build_creator_proposal_messages,
 )
@@ -586,6 +589,9 @@ def build_cycle_audit(
 
 
 def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
+    if args.provider == "google_ai_studio":
+        require_complete_creator_history()
+
     now = datetime.fromisoformat(args.now).astimezone(UTC) if args.now else datetime.now(UTC)
     symbol = args.symbol.upper()
     cycle_id = args.cycle_id or f"cycle-{symbol.lower()}-{now.strftime('%Y%m%d%H%M%S')}"

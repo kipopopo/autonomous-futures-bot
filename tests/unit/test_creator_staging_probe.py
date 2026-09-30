@@ -45,6 +45,15 @@ preflight_main: Callable[[list[str] | None], int] = preflight_mod.main
 probe_main: Callable[[list[str] | None], int] = probe_mod.main
 
 
+@pytest.fixture
+def mocked_history_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Transport-only tests deliberately bypass the unavailable real history gate."""
+    monkeypatch.setattr(
+        "autonomous_futures.creator_staging_probe.require_complete_creator_history",
+        lambda: None,
+    )
+
+
 def _valid_proposal_payload(
     run_id: str = "run-doge-google-gemma-20260903-phase249",
 ) -> dict[str, Any]:
@@ -187,7 +196,36 @@ def test_assert_offline_safety_invariants(tmp_path: Path) -> None:
         assert_offline_safety_invariants(credential_dir=bad_dir, env={})
 
 
-def test_execute_creator_staging_probe_accepted(tmp_path: Path) -> None:
+def test_staging_probe_blocks_before_credential_and_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected_credential(**_kwargs: object) -> str:
+        pytest.fail("credential lookup before complete history preflight")
+
+    monkeypatch.setattr(
+        "autonomous_futures.creator_staging_probe.resolve_staging_credential",
+        unexpected_credential,
+    )
+    evidence_root = tmp_path / "blocked"
+    with pytest.raises(ValueError, match="complete Creator history"):
+        execute_creator_staging_probe(evidence_root=evidence_root, env={"PATH": "/usr/bin"})
+    assert not evidence_root.exists()
+
+
+def test_legacy_probe_script_blocks_before_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    legacy_probe = _load_script_module("probe_google_ai_studio")
+
+    def unexpected_credential() -> str:
+        pytest.fail("legacy script read credentials before complete history preflight")
+
+    monkeypatch.setattr(legacy_probe, "resolve_credential", unexpected_credential)
+    with pytest.raises(ValueError, match="complete Creator history"):
+        legacy_probe.main()
+
+
+def test_execute_creator_staging_probe_accepted(
+    tmp_path: Path, mocked_history_preflight: None
+) -> None:
     evidence_root = tmp_path / "phase249_evidence"
     run_id = "run-doge-google-gemma-20260903-phase249"
     payload = _valid_proposal_payload(run_id=run_id)
@@ -226,7 +264,9 @@ def test_execute_creator_staging_probe_accepted(tmp_path: Path) -> None:
     assert summary_file.is_file()
 
 
-def test_execute_creator_staging_probe_rejected_provider_http_error(tmp_path: Path) -> None:
+def test_execute_creator_staging_probe_rejected_provider_http_error(
+    tmp_path: Path, mocked_history_preflight: None
+) -> None:
     evidence_root = tmp_path / "phase249_rejected"
     run_id = "run-doge-google-gemma-20260903-phase249"
 
@@ -271,7 +311,9 @@ def test_execute_creator_staging_probe_rejected_provider_http_error(tmp_path: Pa
     assert evidence.trial.decision == "rejected"
 
 
-def test_execute_creator_staging_probe_schema_rejected(tmp_path: Path) -> None:
+def test_execute_creator_staging_probe_schema_rejected(
+    tmp_path: Path, mocked_history_preflight: None
+) -> None:
     evidence_root = tmp_path / "phase249_schema_rejected"
     run_id = "run-doge-google-gemma-20260903-phase249"
 

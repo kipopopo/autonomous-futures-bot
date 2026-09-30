@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -89,6 +91,27 @@ def test_candidate_artifact_is_write_once_and_tamper_evident(tmp_path: Path) -> 
     )
     with pytest.raises(DomainViolation, match="hash mismatch"):
         read_creator_candidate_artifact(path)
+
+
+def test_candidate_artifact_reads_legacy_payload_without_optional_risk_field(
+    tmp_path: Path,
+) -> None:
+    artifact = _artifact()
+    payload = artifact.model_dump(mode="json")
+    payload["strategy"].pop("risk")
+    content = dict(payload)
+    content.pop("created_at")
+    content.pop("artifact_hash")
+    payload["artifact_hash"] = sha256(
+        json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    path = tmp_path / "legacy-candidate.json"
+    path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+    loaded = read_creator_candidate_artifact(path)
+
+    assert loaded.candidate_id == artifact.candidate_id
+    assert loaded.strategy.risk is None
 
 
 def test_candidate_registry_sorts_and_binds_artifacts() -> None:
