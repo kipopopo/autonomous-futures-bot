@@ -35,4 +35,4 @@ The source artifacts establish integrity and binding, not external provenance or
 
 ## Release state
 
-At phase start, local `main` and `origin/main` were at `2e1f0d325ba085a4ea29655cdbc85f32ea843458`; its exact-SHA quality run (`36681906487`) passed. That earlier result does not cover the implementation changes in this report. Record the exact implementation SHA and its Actions conclusion here only after verifying `HEAD == origin/main` and the pushed commit's run; a clean worktree is also required before claiming delivery.
+Implementation commit `7a1c5dad99ccc1d01775e448c04966e38a3fa240` was pushed to `main`; exact-SHA quality run `36689587073` passed the full tests, Ruff, formatting, strict mypy, and Python compilation. This result verifies the implementation SHA; the documentation-only follow-up is verified separately on its own pushed SHA.
