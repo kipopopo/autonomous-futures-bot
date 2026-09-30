@@ -25,6 +25,12 @@ from pathlib import Path
 
 import pytest
 
+from autonomous_futures.domain.contracts import (
+    EntryExit,
+    FeatureRef,
+    StrategySpec,
+    StrategyUniverse,
+)
 from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.pipeline.autonomous_base import (
     AutonomousBaseConfig,
@@ -33,6 +39,7 @@ from autonomous_futures.pipeline.autonomous_base import (
     AutonomousResearchBase,
     build_autonomous_base_result,
     read_autonomous_base_cycle_record,
+    read_autonomous_base_result,
     write_autonomous_base_result,
 )
 from autonomous_futures.pipeline.autonomous_cycle import (
@@ -45,12 +52,22 @@ from autonomous_futures.research.autonomy_contracts import (
     ResearchPlanner,
     ResearchPlanRequest,
     build_failure_memory_entry,
+    read_failure_memory_entry,
     write_failure_memory_entry,
+)
+from autonomous_futures.research.creator_artifacts import (
+    build_creator_candidate_artifact,
+    write_creator_candidate_artifact,
 )
 from autonomous_futures.research.creator_failure_feedback import (
     CreatorQualificationFailureFeedback,
 )
-from autonomous_futures.research.qualification_artifacts import QualificationGateResult
+from autonomous_futures.research.qualification_artifacts import (
+    QualificationGateResult,
+    QualificationMetric,
+    build_creator_candidate_qualification_artifact,
+    write_creator_candidate_qualification_artifact,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -88,6 +105,57 @@ def _feedback(
         ),
         failure_reason_codes=("oos_profit_factor_below_threshold",),
     )
+
+
+def _write_rejected_seed_artifacts(tmp_path: Path):
+    candidate_id = "cand-seed-001"
+    candidate = build_creator_candidate_artifact(
+        candidate_id=candidate_id,
+        strategy=StrategySpec(
+            dsl_version=1,
+            strategy_id=candidate_id,
+            family="range_mean_reversion",
+            universe=StrategyUniverse(
+                symbols=("BTCUSDT",), timeframe="5m", regime_context_timeframe="15m"
+            ),
+            features=(FeatureRef(name="rsi", lookback=14, shift=1),),
+            entry=EntryExit(long="rsi <= 30", short="rsi >= 70"),
+            exit=EntryExit(long="rsi >= 50", short="rsi <= 50"),
+            vetoes=("testing_only_no_promotion",),
+        ),
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        creator_run_id="creator-seed-001",
+        research_seed=1,
+        created_at=NOW,
+    )
+    qualification = build_creator_candidate_qualification_artifact(
+        candidate=candidate,
+        evaluator_run_id="oos-seed-001",
+        evaluator_version="cached-oos-v1",
+        decision="rejected",
+        metrics=(QualificationMetric(metric_id="oos_profit_factor", value=Decimal("0.8")),),
+        gates=(
+            QualificationGateResult(
+                gate_id="oos_profit_factor_min",
+                passed=False,
+                observed=Decimal("0.8"),
+                threshold=Decimal("1.0"),
+                comparator="gte",
+                reason_code="oos_profit_factor_below_threshold",
+            ),
+        ),
+        windows_evaluated=1,
+        evaluated_at=NOW,
+        qualification_policy_id="policy-base-001",
+        oos_aggregation_hash=HASH_C,
+        source="walk_forward_oos",
+    )
+    candidate_path = tmp_path / "candidate.json"
+    qualification_path = tmp_path / "qualification.json"
+    write_creator_candidate_artifact(candidate_path, candidate)
+    write_creator_candidate_qualification_artifact(qualification_path, qualification)
+    return candidate_path, qualification_path, candidate, qualification
 
 
 def _cycle_result(
@@ -506,7 +574,117 @@ def test_cli_run_requires_explicit_feedback_before_creating_outputs(
 
     assert exit_code != 0
     assert not artifact_root.exists()
-    assert "--feedback-file is required" in capsys.readouterr().err
+    captured_err = capsys.readouterr().err
+    assert "--candidate-artifact and --qualification-artifact are required" in captured_err
+
+
+def test_cli_rejects_unbound_feedback_file_before_creating_outputs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    feedback_path = tmp_path / "unbound-feedback.json"
+    feedback_path.write_text(_feedback().model_dump_json(), encoding="utf-8")
+    artifact_root = tmp_path / "unbound-feedback-run"
+
+    exit_code = cli_main(
+        [
+            "--base-run-id",
+            "base-unbound-feedback-001",
+            "--feedback-file",
+            str(feedback_path),
+            "--use-synthetic-windows",
+            "--artifact-root",
+            str(artifact_root),
+        ]
+    )
+
+    assert exit_code != 0
+    assert not artifact_root.exists()
+    assert "--feedback-file is unsupported" in capsys.readouterr().err
+
+
+def test_cli_seeds_from_persisted_candidate_and_rejected_qualification(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    candidate_path, qualification_path, candidate, qualification = _write_rejected_seed_artifacts(
+        tmp_path
+    )
+    artifact_root = tmp_path / "verified-seed-run"
+
+    exit_code = cli_main(
+        [
+            "--base-run-id",
+            "base-verified-seed-001",
+            "--symbol",
+            "BTCUSDT",
+            "--bundle-hash",
+            HASH_A,
+            "--dataset-registry-hash",
+            HASH_B,
+            "--max-cycles",
+            "1",
+            "--use-synthetic-windows",
+            "--candidate-artifact",
+            str(candidate_path),
+            "--qualification-artifact",
+            str(qualification_path),
+            "--artifact-root",
+            str(artifact_root),
+        ]
+    )
+
+    assert exit_code == 0, capsys.readouterr().err
+    result = read_autonomous_base_result(artifact_root / "base-result.json")
+    memories = tuple(
+        read_failure_memory_entry(artifact_root / "failure-memory" / f"failure-{memory_hash}.json")
+        for memory_hash in result.failure_memory_entry_hashes
+    )
+    seed_memory = next(entry for entry in memories if entry.source_type == "seed_feedback")
+
+    assert seed_memory.candidate_id == candidate.candidate_id
+    assert seed_memory.candidate_artifact_hash == candidate.artifact_hash
+    assert seed_memory.qualification_hash == qualification.qualification_hash
+
+
+def test_cli_rejects_candidate_qualification_binding_mismatch_before_outputs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, qualification_path, candidate, _ = _write_rejected_seed_artifacts(tmp_path)
+    mismatched_candidate = build_creator_candidate_artifact(
+        candidate_id=candidate.candidate_id,
+        strategy=candidate.strategy,
+        bundle_hash=candidate.bundle_hash,
+        dataset_registry_hash=candidate.dataset_registry_hash,
+        creator_run_id=candidate.creator_run_id,
+        research_seed=candidate.research_seed + 1,
+        created_at=candidate.created_at,
+    )
+    candidate_path = tmp_path / "mismatched-candidate.json"
+    write_creator_candidate_artifact(candidate_path, mismatched_candidate)
+    artifact_root = tmp_path / "mismatched-seed-run"
+
+    exit_code = cli_main(
+        [
+            "--base-run-id",
+            "base-mismatched-seed-001",
+            "--symbol",
+            "BTCUSDT",
+            "--bundle-hash",
+            HASH_A,
+            "--dataset-registry-hash",
+            HASH_B,
+            "--use-synthetic-windows",
+            "--candidate-artifact",
+            str(candidate_path),
+            "--qualification-artifact",
+            str(qualification_path),
+            "--artifact-root",
+            str(artifact_root),
+        ]
+    )
+
+    assert exit_code != 0
+    assert not artifact_root.exists()
+    assert "candidate and qualification artifacts are not bound" in capsys.readouterr().err
 
 
 def test_cli_runner_rejects_forbidden_credential_flags(capsys: pytest.CaptureFixture[str]) -> None:
@@ -552,9 +730,8 @@ def test_restart_with_conflicting_seed_feedback_rejects(tmp_path: Path) -> None:
 def test_cli_runner_fails_closed_when_cached_parquet_is_missing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    candidate_path, qualification_path, _, _ = _write_rejected_seed_artifacts(tmp_path)
     artifact_root = tmp_path / "missing-data-run"
-    feedback_path = tmp_path / "feedback.json"
-    feedback_path.write_text(_feedback().model_dump_json(), encoding="utf-8")
     exit_code = cli_main(
         [
             "--base-run-id",
@@ -565,8 +742,10 @@ def test_cli_runner_fails_closed_when_cached_parquet_is_missing(
             HASH_B,
             "--max-cycles",
             "1",
-            "--feedback-file",
-            str(feedback_path),
+            "--candidate-artifact",
+            str(candidate_path),
+            "--qualification-artifact",
+            str(qualification_path),
             "--parquet-path",
             str(tmp_path / "missing.parquet"),
             "--artifact-root",
@@ -583,8 +762,7 @@ def test_cli_runner_executes_offline_cycle_end_to_end(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Verify CLI main executes offline bounded cycles and outputs structured report."""
-    feedback_path = tmp_path / "feedback.json"
-    feedback_path.write_text(_feedback().model_dump_json(), encoding="utf-8")
+    candidate_path, qualification_path, _, _ = _write_rejected_seed_artifacts(tmp_path)
     exit_code = cli_main(
         [
             "--symbol",
@@ -596,8 +774,10 @@ def test_cli_runner_executes_offline_cycle_end_to_end(
             "--max-cycles",
             "1",
             "--use-synthetic-windows",
-            "--feedback-file",
-            str(feedback_path),
+            "--candidate-artifact",
+            str(candidate_path),
+            "--qualification-artifact",
+            str(qualification_path),
             "--artifact-root",
             str(tmp_path / "artifacts"),
         ]
@@ -729,122 +909,26 @@ def test_tampered_failure_memory_entry_rejects(tmp_path: Path) -> None:
         base.run(initial_feedback=seed_fb, now=NOW)
 
 
-def test_cli_runner_with_durable_artifacts_and_parquet(
+def test_cli_rejects_unbound_durable_feedback_seed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Verify CLI main executes deterministic cycle with durable artifacts and parquet."""
+    """Legacy durable feedback is not trusted without its source artifacts."""
     feedback_file = REPO_ROOT / "data" / "research" / "seed_feedback.json"
-    learning_file = (
-        REPO_ROOT
-        / "data"
-        / "research"
-        / "durable-evidence"
-        / "learning"
-        / "learn-deb5b2325a25cd9efcdbddd6eb58aee76c70dcb796e7d2b79dcd7a0fe9a867c1.json"
-    )
-    plan_file = (
-        REPO_ROOT
-        / "data"
-        / "research"
-        / "durable-evidence"
-        / "plans"
-        / "plan-a54d0e5d83e6b1a5dd6996455fd880f5806670352e66755994e8c5970825fb37.json"
-    )
-    parquet_file = (
-        REPO_ROOT / "research" / "immutable-data" / "5m" / "canonical" / "BTCUSDT-5m.parquet"
-    )
-    bundle_file = REPO_ROOT / "research" / "immutable-data" / "bundle.json"
-    registry_file = REPO_ROOT / "research" / "immutable-data" / "registry.json"
-    if not (
-        feedback_file.is_file()
-        and learning_file.is_file()
-        and plan_file.is_file()
-        and parquet_file.is_file()
-        and bundle_file.is_file()
-        and registry_file.is_file()
-    ):
-        pytest.skip("Required durable research fixtures not found")
+    if not feedback_file.is_file():
+        pytest.skip("Legacy feedback example is unavailable")
+    artifact_root = tmp_path / "legacy-feedback-run"
 
-    artifact_root = tmp_path / "base_run"
     exit_code = cli_main(
         [
-            "--symbol",
-            "BTCUSDT",
-            "--feedback-file",
-            str(feedback_file),
-            "--learning-file",
-            str(learning_file),
-            "--plan-file",
-            str(plan_file),
-            "--parquet-path",
-            str(parquet_file),
-            "--bundle-path",
-            str(bundle_file),
-            "--registry-path",
-            str(registry_file),
-            "--windows-count",
-            "1",
-            "--bars-per-window",
-            "50",
-            "--max-cycles",
-            "2",
-            "--artifact-root",
-            str(artifact_root),
-        ]
-    )
-    assert exit_code == 0
-    captured = capsys.readouterr()
-    report = json.loads(captured.out)
-    assert report["status"] == "completed"
-    assert report["terminal_reason"] == "qualified_unadmitted"
-    assert report["cycles_executed"] == 1
-    assert (artifact_root / "base-result.json").is_file()
-    assert (artifact_root / "failure-memory").is_dir()
-    assert len(list((artifact_root / "failure-memory").glob("failure-*.json"))) == 1
-
-    # Idempotent re-run returns existing result immediately
-    exit_code_resume = cli_main(
-        [
-            "--symbol",
-            "BTCUSDT",
+            "--base-run-id",
+            "base-legacy-feedback-001",
             "--feedback-file",
             str(feedback_file),
             "--artifact-root",
             str(artifact_root),
         ]
     )
-    assert exit_code_resume == 0
-    _ = capsys.readouterr()
 
-    # Also verify real multi-window rejection path producing chained failure memories
-    artifact_root_rej = tmp_path / "base_run_rejection"
-    exit_code_rej = cli_main(
-        [
-            "--symbol",
-            "BTCUSDT",
-            "--feedback-file",
-            str(feedback_file),
-            "--learning-file",
-            str(learning_file),
-            "--plan-file",
-            str(plan_file),
-            "--parquet-path",
-            str(parquet_file),
-            "--windows-count",
-            "3",
-            "--bars-per-window",
-            "288",
-            "--max-cycles",
-            "2",
-            "--artifact-root",
-            str(artifact_root_rej),
-        ]
-    )
-    assert exit_code_rej == 0
-    captured_rej = capsys.readouterr()
-    report_rej = json.loads(captured_rej.out)
-    assert report_rej["status"] == "stopped"
-    assert report_rej["terminal_reason"] == "max_cycles_reached"
-    assert report_rej["cycles_executed"] == 2
-    assert (artifact_root_rej / "base-result.json").is_file()
-    assert len(list((artifact_root_rej / "failure-memory").glob("failure-*.json"))) == 3
+    assert exit_code != 0
+    assert not artifact_root.exists()
+    assert "--feedback-file is unsupported" in capsys.readouterr().err

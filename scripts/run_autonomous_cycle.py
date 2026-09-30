@@ -589,15 +589,48 @@ def build_cycle_audit(
 
 
 def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
+    provider_candidate: CreatorCandidateArtifact | None = None
     if args.provider == "google_ai_studio":
         require_complete_creator_history()
+        if args.feedback_path is not None:
+            raise DataQualityError(
+                "Google AI Studio requires ledger-derived feedback; "
+                "--feedback-path is not accepted."
+            )
+        if args.ledger_db is None or args.candidate_path is None:
+            raise DataQualityError(
+                "Google AI Studio requires --ledger-db and --candidate-path "
+                "for feedback verification."
+            )
+        ledger_path = Path(args.ledger_db)
+        if ledger_path.is_dir():
+            ledger_path = ledger_path / "paper-ledger.sqlite3"
+        if not ledger_path.is_file():
+            raise DataQualityError("Google AI Studio requires an available paper ledger database.")
+        try:
+            provider_candidate = read_creator_candidate_artifact(args.candidate_path)
+        except Exception as exc:
+            raise DataQualityError(
+                "Google AI Studio requires a valid persisted candidate artifact."
+            ) from exc
+
+        expected_bundle_hash = args.bundle_hash or DEFAULT_BUNDLE_HASH
+        expected_registry_hash = args.dataset_registry_hash or DEFAULT_REGISTRY_HASH
+        if (
+            (args.candidate_id is not None and args.candidate_id != provider_candidate.candidate_id)
+            or args.symbol.upper() not in provider_candidate.strategy.universe.symbols
+            or provider_candidate.bundle_hash != expected_bundle_hash
+            or provider_candidate.dataset_registry_hash != expected_registry_hash
+        ):
+            raise DataQualityError(
+                "Google AI Studio candidate artifact does not match the configured research scope."
+            )
 
     now = datetime.fromisoformat(args.now).astimezone(UTC) if args.now else datetime.now(UTC)
     symbol = args.symbol.upper()
     cycle_id = args.cycle_id or f"cycle-{symbol.lower()}-{now.strftime('%Y%m%d%H%M%S')}"
 
     output_dir = args.output_dir or Path(f"artifacts/autonomous_cycle/{cycle_id}")
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     parquet_path = args.parquet_path or Path(
         f"research/immutable-data/5m/canonical/{symbol}-5m.parquet"
@@ -636,6 +669,22 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             bundle_hash=target_bundle_hash,
             dataset_registry_hash=target_registry_hash,
         )
+
+    if (
+        provider_candidate is not None
+        and prior_feedback is not None
+        and (
+            prior_feedback.candidate_id != provider_candidate.candidate_id
+            or prior_feedback.candidate_artifact_hash != provider_candidate.artifact_hash
+            or prior_feedback.bundle_hash != provider_candidate.bundle_hash
+            or prior_feedback.dataset_registry_hash != provider_candidate.dataset_registry_hash
+        )
+    ):
+        raise DataQualityError(
+            "Ledger-derived feedback does not match the verified candidate artifact."
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Handle zero-breach scenario cleanly
     if prior_feedback is None:

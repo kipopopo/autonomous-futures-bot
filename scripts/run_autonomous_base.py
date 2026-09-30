@@ -56,8 +56,12 @@ from autonomous_futures.research.cached_evaluation import (  # noqa: E402
     CachedEvaluationWindow,
     CachedEvaluationWindowSpec,
 )
+from autonomous_futures.research.creator_artifacts import (  # noqa: E402
+    read_creator_candidate_artifact,
+)
 from autonomous_futures.research.creator_failure_feedback import (  # noqa: E402
     CreatorQualificationFailureFeedback,
+    build_creator_qualification_failure_feedback,
 )
 from autonomous_futures.research.creator_generator import (  # noqa: E402
     CreatorGenerationRequest,
@@ -67,6 +71,7 @@ from autonomous_futures.research.learner_critic import (  # noqa: E402
 )
 from autonomous_futures.research.qualification_artifacts import (  # noqa: E402
     WalkForwardQualificationPolicy,
+    read_creator_candidate_qualification_artifact,
 )
 
 FORBIDDEN_CREDENTIAL_FLAGS = (
@@ -393,11 +398,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory to persist cycle records and research base results",
     )
     parser.add_argument(
-        "--feedback-file",
+        "--candidate-artifact",
         type=Path,
         default=None,
-        help="Path to initial failure feedback JSON (required to execute cycles)",
+        help="Persisted Creator candidate JSON bound to the initial qualification",
     )
+    parser.add_argument(
+        "--qualification-artifact",
+        type=Path,
+        default=None,
+        help="Persisted rejected walk-forward qualification JSON for the initial candidate",
+    )
+    parser.add_argument("--feedback-file", type=Path, default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--max-cycles",
         type=int,
@@ -505,6 +517,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:
         return int(exc.code) if isinstance(exc.code, int) else 1
 
+    if args.feedback_file is not None:
+        sys.stderr.write(
+            "ERROR: --feedback-file is unsupported; use verified --candidate-artifact and "
+            "--qualification-artifact inputs.\n"
+        )
+        return 1
+
     base_run_id = args.base_run_id
     if base_run_id is None and args.artifact_root is not None:
         existing_res = args.artifact_root / "base-result.json"
@@ -520,18 +539,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         base_run_id = f"base-{uuid4().hex[:16]}"
     artifact_root = args.artifact_root or Path("artifacts") / "autonomous_base" / base_run_id
 
-    # Feedback initialization
+    # Seed evidence is loaded only after config scope is known; no caller-authored
+    # feedback payload is accepted as a substitute for persisted source artifacts.
     initial_feedback: CreatorQualificationFailureFeedback | None = None
-    if args.feedback_file is not None:
-        if not args.feedback_file.exists():
-            sys.stderr.write(f"ERROR: Feedback file not found: {args.feedback_file}\n")
-            return 1
-        try:
-            feedback_data = json.loads(args.feedback_file.read_text(encoding="utf-8"))
-            initial_feedback = CreatorQualificationFailureFeedback.model_validate(feedback_data)
-        except Exception as exc:
-            sys.stderr.write(f"ERROR: Invalid feedback file schema: {exc}\n")
-            return 1
 
     # Base configuration validation
     try:
@@ -551,6 +561,53 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         sys.stderr.write(f"ERROR: Configuration validation failed: {exc}\n")
         return 1
+
+    has_candidate_artifact = args.candidate_artifact is not None
+    has_qualification_artifact = args.qualification_artifact is not None
+    if has_candidate_artifact != has_qualification_artifact:
+        sys.stderr.write(
+            "ERROR: --candidate-artifact and --qualification-artifact must be supplied together.\n"
+        )
+        return 1
+    if has_candidate_artifact and has_qualification_artifact:
+        try:
+            candidate = read_creator_candidate_artifact(args.candidate_artifact)
+            qualification = read_creator_candidate_qualification_artifact(
+                args.qualification_artifact
+            )
+        except Exception:
+            sys.stderr.write(
+                "ERROR: Seed candidate or qualification artifact is invalid or unavailable.\n"
+            )
+            return 1
+
+        if (
+            candidate.candidate_id != qualification.candidate_id
+            or candidate.artifact_hash != qualification.candidate_artifact_hash
+            or candidate.bundle_hash != qualification.bundle_hash
+            or candidate.dataset_registry_hash != qualification.dataset_registry_hash
+        ):
+            sys.stderr.write(
+                "ERROR: candidate and qualification artifacts are not bound to the same source.\n"
+            )
+            return 1
+        if (
+            candidate.bundle_hash != config.bundle_hash
+            or candidate.dataset_registry_hash != config.dataset_registry_hash
+            or candidate.strategy.universe.symbols != (config.symbol,)
+        ):
+            sys.stderr.write("ERROR: Seed artifacts do not match configured research scope.\n")
+            return 1
+        if qualification.source != "walk_forward_oos":
+            sys.stderr.write(
+                "ERROR: Seed qualification must be based on walk-forward OOS evidence.\n"
+            )
+            return 1
+
+        initial_feedback = build_creator_qualification_failure_feedback(qualification)
+        if initial_feedback is None:
+            sys.stderr.write("ERROR: Seed qualification does not record a rejected candidate.\n")
+            return 1
 
     preflight_report = {
         "status": "preflight_passed",
@@ -575,7 +632,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if initial_feedback is None:
         sys.stderr.write(
-            "ERROR: --feedback-file is required; synthetic seed feedback is disabled.\n"
+            "ERROR: --candidate-artifact and --qualification-artifact are required "
+            "for cycle execution.\n"
         )
         return 1
 

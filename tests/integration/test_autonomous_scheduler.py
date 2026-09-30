@@ -43,6 +43,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+import scripts.run_autonomous_scheduler as scheduler_module  # noqa: E402
 from autonomous_futures.domain.contracts import (  # noqa: E402
     CandidateSimulationRisk,
     DomainModel,
@@ -541,6 +542,75 @@ def test_exponential_backoff_mathematical_progression() -> None:
     assert calculate_expected_backoff(6, base, factor, max_b) == 1920.0
     assert calculate_expected_backoff(7, base, factor, max_b) == 3600.0  # capped
     assert calculate_expected_backoff(8, base, factor, max_b) == 3600.0  # capped
+
+
+def test_google_scheduler_passes_ledger_not_feedback_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Google provider subprocess must derive feedback from the ledger, not JSON snapshot."""
+    output_dir = tmp_path / "scheduler-output"
+    ledger_path = tmp_path / "paper-ledger.sqlite3"
+    candidate_path = tmp_path / "candidate.json"
+    candidate_registry_path = tmp_path / "missing-registry.json"
+    ledger_path.touch()
+    candidate_path.write_text("{}", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    class FeedbackStub:
+        def model_dump_json(self, *, indent: int) -> str:
+            return json.dumps({"snapshot": "paper-feedback"}, indent=indent)
+
+    class ProcessStub:
+        returncode = 0
+
+        def __init__(self, command: list[str], **_kwargs: object) -> None:
+            commands.append(command)
+            cycle_output_dir = Path(command[command.index("--output-dir") + 1])
+            cycle_output_dir.mkdir(parents=True, exist_ok=True)
+            (cycle_output_dir / "autonomous-cycle-result.json").write_text(
+                json.dumps({"cycle_status": "completed_rejected"}), encoding="utf-8"
+            )
+
+        def poll(self) -> int:
+            return 0
+
+        def communicate(self) -> tuple[str, str]:
+            return "", ""
+
+    monkeypatch.setattr(
+        scheduler_module,
+        "extract_paper_feedback",
+        lambda **_kwargs: FeedbackStub(),
+    )
+    monkeypatch.setattr(scheduler_module.subprocess, "Popen", ProcessStub)
+    args = scheduler_module.build_parser().parse_args(
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--output-dir",
+            str(output_dir),
+            "--ledger-db",
+            str(ledger_path),
+            "--candidate-id",
+            "cand-scheduler-seed-001",
+            "--candidate-path",
+            str(candidate_path),
+            "--candidate-registry-path",
+            str(candidate_registry_path),
+            "--parquet-path",
+            str(tmp_path / "missing.parquet"),
+            "--provider",
+            "google_ai_studio",
+        ]
+    )
+    scheduler = scheduler_module.AutonomousSchedulerDaemon(args)
+
+    assert scheduler._execute_cycle("manual_once") == 0
+    assert len(commands) == 1
+    command = commands[0]
+    assert "--ledger-db" in command
+    assert command[command.index("--ledger-db") + 1] == str(ledger_path.resolve())
+    assert "--feedback-path" not in command
 
 
 def test_is_pid_alive_self_and_dead() -> None:

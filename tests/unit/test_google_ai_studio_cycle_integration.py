@@ -607,37 +607,38 @@ def test_resolve_credential_raises_missing_credentials_error(tmp_path: Path) -> 
     assert _SECRET_PATTERN.search(str(exc_info.value)) is None
 
 
-def test_cli_main_missing_credentials_exits_code_3_with_clean_json(
+def test_google_ai_studio_rejects_unbound_feedback_before_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Verify CLI terminates with exit code 3 and clean JSON when credentials missing."""
+    """Google-provider cycles require feedback derived from a ledger and candidate artifact."""
     monkeypatch.setattr(
         "scripts.run_autonomous_cycle.require_complete_creator_history", lambda: None
     )
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_AI_STUDIO_API_KEY", raising=False)
+
+    credential_lookups = 0
+
+    def unexpected_credential_lookup(**_kwargs: object) -> str:
+        nonlocal credential_lookups
+        credential_lookups += 1
+        return ""
+
     monkeypatch.setattr(
-        "scripts.run_autonomous_cycle._REPO_ENV_PATH",
-        tmp_path / ".env_nonexistent",
-    )
-    assert resolve_credential.__kwdefaults__ is not None
-    monkeypatch.setitem(
-        resolve_credential.__kwdefaults__,
-        "repo_env_path",
-        tmp_path / ".env_nonexistent",
+        "scripts.run_autonomous_cycle.resolve_credential", unexpected_credential_lookup
     )
 
     fb = _make_feedback("cand-cli-init-001")
     fb_path = tmp_path / "feedback.json"
     fb_path.write_text(fb.model_dump_json(indent=2), encoding="utf-8")
+    output_dir = tmp_path / "unbound-feedback-output"
 
     ret = run_cli_main(
         [
             "--symbol",
             "BTCUSDT",
+            "--output-dir",
+            str(output_dir),
             "--provider",
             "google_ai_studio",
             "--feedback-path",
@@ -645,6 +646,8 @@ def test_cli_main_missing_credentials_exits_code_3_with_clean_json(
         ]
     )
     assert ret == 3
+    assert credential_lookups == 0
+    assert not output_dir.exists()
 
     captured = capsys.readouterr()
     assert "Traceback" not in captured.err
@@ -653,11 +656,8 @@ def test_cli_main_missing_credentials_exits_code_3_with_clean_json(
     assert _SECRET_PATTERN.search(captured.err) is None
 
     out_data = json.loads(captured.out)
-    assert out_data["error_code"] == "missing_credentials"
-    assert (
-        out_data["message"]
-        == "No Google AI Studio / Gemini credential found in environment or .env."
-    )
+    assert out_data["error_code"] == "autonomous_cycle_data_error"
+    assert "ledger-derived feedback" in out_data["message"]
 
 
 # ==============================================================================

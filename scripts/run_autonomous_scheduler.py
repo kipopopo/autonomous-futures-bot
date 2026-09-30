@@ -935,7 +935,11 @@ class AutonomousSchedulerDaemon:
             str(self.args.temperature),
         ]
 
-        if feedback_file is not None and feedback_file.is_file():
+        if (
+            self.args.provider != "google_ai_studio"
+            and feedback_file is not None
+            and feedback_file.is_file()
+        ):
             cmd.extend(["--feedback-path", str(feedback_file)])
         elif self.ledger_db.exists():
             cmd.extend(["--ledger-db", str(self.ledger_db)])
