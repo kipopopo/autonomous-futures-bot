@@ -8,6 +8,7 @@
 - Scheduler default Parquet now derives from `--dataset-root`, matching the child default and freshness monitor; explicit `--parquet-path` remains supported. The root mismatch was reproduced with two failing cases, then fixed at the shared constructor path.
 - Final nine-module regression: **170 passed**, no failures/errors/skips, terminal 323.08s. Actual normal demo processes cover bound input, wrong scope and tampering; fixtures grant no production authority. Ruff/format (703 files), Windows/Linux mypy (355 sources each), lock and diff checks passed; final publication checks and exact-head CI remain required.
 - Previous published `820c0f40ff6cc24e3ada5f9ee3d2b9326ba8cac5` passed exact-head Actions `36845908981` (quality job `110315870893`, 9m7s). That success does not cover this follow-up. Creator history and full autonomous execution/learning remain blocked; no remote runtime change or provider/exchange request was performed.
+- Published `b9a10cf6e50794b9da4c1678d80df537b4d6718d` failed Actions `36877797470`: **2 failed, 4,882 passed, 1 skipped**, two warnings, 823.48s. The two legacy closed-loop tests still supplied unbound cache. Both reproduced locally; they now reuse the existing bound fixture with explicit scope/root forwarding, without weakening production validation or qualification thresholds. Their complete module passed **4 tests** in 30.73s; follow-up exact-head CI is required.
 
 ## Historical offline admission checkpoint
 

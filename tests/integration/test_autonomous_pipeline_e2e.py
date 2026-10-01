@@ -398,7 +398,9 @@ def poll_json_file(
 # ==============================================================================
 
 
-def test_autonomous_closed_loop_breach_to_hot_reload_e2e(tmp_path: Path) -> None:
+def test_autonomous_closed_loop_breach_to_hot_reload_e2e(
+    tmp_path: Path, verified_cycle_dataset: Path
+) -> None:
     """Scenario 1: Full E2E Closed Loop from Feedback Breach to Hot-Reload.
 
     Sequence:
@@ -533,6 +535,12 @@ def test_autonomous_closed_loop_breach_to_hot_reload_e2e(tmp_path: Path) -> None
             str(scheduler_health_file),
             "--parquet-path",
             str(CANONICAL_PARQUET),
+            "--dataset-root",
+            str(verified_cycle_dataset),
+            "--bundle-hash",
+            HASH_A,
+            "--dataset-registry-hash",
+            HASH_B,
             "--ledger-db",
             str(storage_dir / "paper-ledger.sqlite3"),
             "--lifecycle-db",
@@ -715,7 +723,9 @@ def test_autonomous_closed_loop_breach_to_hot_reload_e2e(tmp_path: Path) -> None
     assert cycle_result["admission_decision"] == "admitted"
 
 
-def test_autonomous_closed_loop_interval_trigger_e2e(tmp_path: Path) -> None:
+def test_autonomous_closed_loop_interval_trigger_e2e(
+    tmp_path: Path, verified_cycle_dataset: Path
+) -> None:
     """Scenario 2: Interval Timer Trigger with Fresh Market Data Executes & Hot-Reloads.
 
     Sequence:
@@ -765,6 +775,12 @@ def test_autonomous_closed_loop_interval_trigger_e2e(tmp_path: Path) -> None:
             str(scheduler_health_file),
             "--parquet-path",
             str(CANONICAL_PARQUET),
+            "--dataset-root",
+            str(verified_cycle_dataset),
+            "--bundle-hash",
+            HASH_A,
+            "--dataset-registry-hash",
+            HASH_B,
             "--ledger-db",
             str(storage_dir / "paper-ledger.sqlite3"),
             "--candidate-registry-path",

@@ -37,7 +37,9 @@ def verified_cycle_dataset(
         return parser
 
     monkeypatch.setattr(cli, "build_parser", fixture_parser)
-    monkeypatch.setattr(request.module, "PARQUET_PATH", parquet)
+    for name in ("PARQUET_PATH", "CANONICAL_PARQUET"):
+        if hasattr(request.module, name):
+            monkeypatch.setattr(request.module, name, parquet)
     for name in ("BUNDLE_HASH", "HASH_A"):
         if hasattr(request.module, name):
             monkeypatch.setattr(request.module, name, catalog.bundle.bundle_hash)
