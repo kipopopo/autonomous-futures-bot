@@ -31,9 +31,7 @@ _SRC_DIR = _REPO_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
-from autonomous_futures.api.artifacts import inspect_artifact_entry  # noqa: E402
-from autonomous_futures.api.catalog import load_verified_dataset_catalog  # noqa: E402
-from autonomous_futures.data.bundle import find_bundle_component  # noqa: E402
+from autonomous_futures.api.artifacts import verify_cached_kline_provenance  # noqa: E402
 from autonomous_futures.data.parquet import (  # noqa: E402
     DataQualityError,
     read_canonical_parquet,
@@ -253,21 +251,16 @@ def load_and_slice_windows(
 ) -> tuple[CachedEvaluationWindow, ...]:
     if not parquet_path.is_file():
         raise FileNotFoundError(f"Canonical Parquet file not found: {parquet_path}")
-    catalog = load_verified_dataset_catalog(bundle_path=bundle_path, registry_path=registry_path)
-    if (
-        catalog.bundle.bundle_hash != bundle_hash
-        or catalog.registry.registry_hash != dataset_registry_hash
-    ):
-        raise DataQualityError("bundle or registry hash does not match the requested provenance")
-    component = find_bundle_component(catalog.bundle, kind="kline", symbol=symbol, interval="5m")
-    if component is None:
-        raise DataQualityError(f"bundle has no 5m kline component for {symbol}")
-    inspection = inspect_artifact_entry(dataset_root, component)
-    if (
-        inspection.data_ref is None
-        or (dataset_root / inspection.data_ref).resolve() != parquet_path.resolve()
-    ):
-        raise DataQualityError("Parquet path does not match bundle dataset artifact provenance")
+    verify_cached_kline_provenance(
+        parquet_path,
+        dataset_root=dataset_root,
+        bundle_path=bundle_path,
+        registry_path=registry_path,
+        symbol=symbol,
+        interval="5m",
+        bundle_hash=bundle_hash,
+        dataset_registry_hash=dataset_registry_hash,
+    )
     df = read_canonical_parquet(parquet_path, interval=timedelta(minutes=5))
     total_bars = windows_count * bars_per_window
     if len(df) < total_bars:

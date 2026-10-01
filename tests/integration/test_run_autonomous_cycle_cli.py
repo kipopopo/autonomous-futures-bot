@@ -24,6 +24,7 @@ from autonomous_futures.domain.contracts import (
 from autonomous_futures.research.creator_artifacts import (
     CreatorCandidateArtifact,
     build_creator_candidate_artifact,
+    read_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
 from autonomous_futures.research.google_ai_studio_provider import (
@@ -41,6 +42,7 @@ PARQUET_PATH = Path("research/immutable-data/5m/canonical/BTCUSDT-5m.parquet")
 BUNDLE_HASH = "19a55436cd764071c70f068faf1211fe72e70b1cb7803f06ef643b84687f3816"
 REGISTRY_HASH = "583cd7d15cb0a3faf019cb9940f2739578ba9d88d1b62792cb1a9f0a2e8d72bb"
 NOW = datetime(2026, 9, 8, 12, 0, tzinfo=UTC)
+pytestmark = pytest.mark.usefixtures("verified_cycle_dataset")
 SECRET_PATTERN = re.compile(
     r"(?i)(AIza[0-9A-Za-z\-_]{20,}|ya29\.[0-9A-Za-z\-_]+|bearer\s+[A-Za-z0-9\-._~+/]+=*)"
 )
@@ -144,6 +146,102 @@ def test_cli_help_flag() -> None:
     assert "Autonomous Cycle CLI Runner" in result.stdout
 
 
+@pytest.mark.parametrize("input_fault", [None, "scope", "tampered"])
+def test_normal_cycle_real_process_verifies_cached_scope(
+    tmp_path: Path, verified_cycle_dataset: Path, input_fault: str | None
+) -> None:
+    """Actual demo process; bound cached fixture, not real-provider/market authority."""
+    import os
+
+    candidate = _build_candidate("cand-process-cache-001", stop_atr="0.5")
+    candidate_path = tmp_path / "candidate.json"
+    write_creator_candidate_artifact(candidate_path, candidate)
+    ledger = tmp_path / "ledger.sqlite3"
+    _init_test_ledger(ledger, candidate)
+    output = tmp_path / "out"
+    registry = tmp_path / "admission.json"
+    if input_fault == "tampered":
+        PARQUET_PATH.write_bytes(PARQUET_PATH.read_bytes() + b"tampered")
+    before = {
+        path.relative_to(verified_cycle_dataset): path.read_bytes()
+        for path in verified_cycle_dataset.rglob("*")
+        if path.is_file()
+    }
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(_REPO_ROOT / "scripts/run_autonomous_cycle.py"),
+            "--symbol",
+            "BTCUSDT",
+            "--provider",
+            "demo",
+            "--dataset-root",
+            str(verified_cycle_dataset),
+            "--bundle-path",
+            str(verified_cycle_dataset / "bundle.json"),
+            "--registry-path",
+            str(verified_cycle_dataset / "registry.json"),
+            "--bundle-hash",
+            "f" * 64 if input_fault == "scope" else BUNDLE_HASH,
+            "--dataset-registry-hash",
+            REGISTRY_HASH,
+            "--candidate-path",
+            str(candidate_path),
+            "--ledger-db",
+            str(ledger),
+            "--output-dir",
+            str(output),
+            "--candidate-registry-path",
+            str(registry),
+            "--cycle-id",
+            "cycle-process-cache-001",
+            "--windows-count",
+            "1",
+            "--min-windows",
+            "1",
+            "--min-profit-factor",
+            "0.10",
+            "--min-trades",
+            "10",
+            "--max-drawdown-pct",
+            "50.0",
+            "--min-average-return-pct",
+            "-10.0",
+        ],
+        cwd=_REPO_ROOT,
+        env={
+            key: os.environ[key]
+            for key in ("PATH", "SYSTEMROOT", "TMP", "TEMP")
+            if key in os.environ
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert {
+        path.relative_to(verified_cycle_dataset): path.read_bytes()
+        for path in verified_cycle_dataset.rglob("*")
+        if path.is_file()
+    } == before
+    if input_fault is not None:
+        assert completed.returncode != 0
+        assert not (output / "autonomous-cycle-result.json").exists()
+        assert not (output / "candidates").exists()
+        assert not registry.exists()
+        return
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    result = json.loads((output / "autonomous-cycle-result.json").read_text())
+    assert result["execution_authority"] is False
+    assert result["provider"] == "demo"
+    assert result["promotion_state"] == "unpromoted"
+    generated = read_creator_candidate_artifact(
+        output / "candidates" / f"{result['candidate_id']}.json"
+    )
+    assert generated.bundle_hash == BUNDLE_HASH
+    assert generated.dataset_registry_hash == REGISTRY_HASH
+    assert generated.artifact_hash == result["candidate_artifact_hash"]
+
+
 def test_cli_invalid_arguments_exit_code_2() -> None:
     """Verify that missing required arguments exit with code 2."""
     ret = run_cli_main(["--symbol", "INVALID_LOWER_CASE"])
@@ -166,7 +264,7 @@ def test_cli_missing_database_exit_code_3(tmp_path: Path) -> None:
 
 
 def test_cli_end_to_end_real_data(tmp_path: Path) -> None:
-    """Full execution of CLI runner with real BTCUSDT 5m Parquet data."""
+    """CLI composition using a primary-only bound cached fixture, not source authority."""
     cand = _build_candidate("cand-cli-init-001", stop_atr="0.5")
     cand_path = tmp_path / "cand-cli-init-001.json"
     write_creator_candidate_artifact(cand_path, cand)

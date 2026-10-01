@@ -665,10 +665,7 @@ class AutonomousSchedulerDaemon:
             args.provider != "demo" or not args.bundle_hash or not args.dataset_registry_hash
         ):
             raise ValueError("Offline research requires demo mode and both scope hashes")
-        if not self.offline_research and (
-            args.bundle_path is not None or args.registry_path is not None
-        ):
-            raise ValueError("Explicit catalog paths require offline research mode")
+
         self.symbol: str = args.symbol
         self.output_dir: Path = Path(args.output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -701,8 +698,8 @@ class AutonomousSchedulerDaemon:
         if args.parquet_path:
             self.parquet_path: Path = Path(args.parquet_path).resolve()
         else:
-            self.parquet_path = Path(
-                f"research/immutable-data/5m/canonical/{self.symbol}-5m.parquet"
+            self.parquet_path = (
+                args.dataset_root / f"5m/canonical/{self.symbol}-5m.parquet"
             ).resolve()
 
         if args.candidate_registry_path:
@@ -966,18 +963,10 @@ class AutonomousSchedulerDaemon:
                     str(self.args.research_candidate_artifact),
                     "--qualification-artifact",
                     str(self.args.research_qualification_artifact),
-                    "--dataset-root",
-                    str(self.args.dataset_root.resolve()),
                     "--max-cycles",
                     "1",
                 ]
             )
-            for flag, path in (
-                ("--bundle-path", self.args.bundle_path),
-                ("--registry-path", self.args.registry_path),
-            ):
-                if path is not None:
-                    cmd.extend([flag, str(path.resolve())])
         else:
             cmd.extend(
                 [
@@ -989,6 +978,14 @@ class AutonomousSchedulerDaemon:
                     str(self.args.temperature),
                 ]
             )
+
+        cmd.extend(["--dataset-root", str(self.args.dataset_root.resolve())])
+        for flag, path in (
+            ("--bundle-path", self.args.bundle_path),
+            ("--registry-path", self.args.registry_path),
+        ):
+            if path is not None:
+                cmd.extend([flag, str(path.resolve())])
 
         if (
             not self.offline_research

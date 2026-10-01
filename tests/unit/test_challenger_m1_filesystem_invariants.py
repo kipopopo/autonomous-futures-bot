@@ -341,6 +341,7 @@ class TestWindowsAtomicReplacementAndTempCleanup:
         assert loaded.registry_version == 1
 
 
+@pytest.mark.usefixtures("verified_cycle_dataset")
 class TestCliCandidateRegistryIntegration:
     """Challenge 2: Testing CLI runner scripts/run_autonomous_cycle.py registry integration."""
 

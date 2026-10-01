@@ -798,16 +798,48 @@ def test_scheduled_offline_research_rejects_invalid_mode_before_outputs(
 
 
 @pytest.mark.parametrize("flag", ["--bundle-path", "--registry-path"])
-def test_scheduler_rejects_research_catalog_paths_in_normal_mode(tmp_path: Path, flag: str) -> None:
+def test_scheduler_forwards_verified_catalog_paths_in_normal_mode(
+    tmp_path: Path, flag: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import scripts.run_autonomous_scheduler as scheduler_module
 
     output = tmp_path / "s"
+    commands: list[list[str]] = []
+
+    def capture_child(command: list[str], **_kwargs: object) -> None:
+        commands.append(command)
+        raise OSError("fixture stops before launching a child")
+
+    monkeypatch.setattr(scheduler_module.subprocess, "Popen", capture_child)
     args = scheduler_module.build_parser().parse_args(
-        ["--symbol", "BTCUSDT", "--output-dir", str(output), flag, str(tmp_path / "catalog.json")]
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--output-dir",
+            str(output),
+            "--ledger-db",
+            str(tmp_path / "missing.sqlite3"),
+            "--candidate-path",
+            str(tmp_path / "missing.json"),
+            "--dataset-root",
+            str(tmp_path / "d"),
+            flag,
+            str(tmp_path / "catalog.json"),
+        ]
     )
-    with pytest.raises(ValueError, match="catalog paths require offline research mode"):
-        scheduler_module.AutonomousSchedulerDaemon(args)
-    assert not output.exists()
+    daemon = scheduler_module.AutonomousSchedulerDaemon(args)
+    expected_parquet = (tmp_path / "d" / "5m/canonical/BTCUSDT-5m.parquet").resolve()
+    assert daemon.parquet_path == expected_parquet
+    assert daemon.freshness_monitor.parquet_path == expected_parquet
+    expected_parquet.parent.mkdir(parents=True)
+    expected_parquet.touch()
+    with pytest.raises(OSError, match="fixture stops before launching a child"):
+        daemon._execute_cycle("manual_once")
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("--parquet-path") + 1] == str(expected_parquet)
+    assert commands[0][commands[0].index(flag) + 1] == str((tmp_path / "catalog.json").resolve())
+    assert commands[0][commands[0].index("--dataset-root") + 1] == str((tmp_path / "d").resolve())
+    assert daemon.admitted_candidates_count == 0
 
 
 @pytest.mark.parametrize("receipt", ["missing", "zero_cycles"])

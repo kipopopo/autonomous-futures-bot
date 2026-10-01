@@ -2,7 +2,14 @@
 
 **Status as of 2026-10-01 (MYT): NOT PRODUCTION READY.** This document supersedes the older handoff that described Phase 309 as a live production launch. Those historical claims are not current operational evidence; the subsequent independent audit found simulator-backed paths and missing live-readiness foundations. No deployment or service restart was performed as part of this update.
 
-## New offline admission checkpoint
+## Current cached-provenance follow-up
+
+- Normal cached cycles and offline base cycles now reuse one verifier: requested bundle/registry hashes, selected registered 5m component, manifest/source bytes and exact Parquet ownership must agree before evaluation. Normal cycle accepts explicit dataset/catalog paths; the scheduler forwards them in both modes. This supersedes the earlier offline-only catalog guard below.
+- Scheduler default Parquet now derives from `--dataset-root`, matching the child default and freshness monitor; explicit `--parquet-path` remains supported. The root mismatch was reproduced with two failing cases, then fixed at the shared constructor path.
+- Final nine-module regression: **170 passed**, no failures/errors/skips, terminal 323.08s. Actual normal demo processes cover bound input, wrong scope and tampering; fixtures grant no production authority. Ruff/format (703 files), Windows/Linux mypy (355 sources each), lock and diff checks passed; final publication checks and exact-head CI remain required.
+- Previous published `820c0f40ff6cc24e3ada5f9ee3d2b9326ba8cac5` passed exact-head Actions `36845908981` (quality job `110315870893`, 9m7s). That success does not cover this follow-up. Creator history and full autonomous execution/learning remain blocked; no remote runtime change or provider/exchange request was performed.
+
+## Historical offline admission checkpoint
 
 - Scheduler/child follow-up now forwards explicit `--bundle-path` / `--registry-path` to the existing offline base CLI; previously the scheduler could not consume nested catalog layouts although the base CLI supported them. The missing options were RED; normal mode also rejected neither option before the new guard (two RED cases). Both options are offline-only and rejected before output creation in normal mode.
 - **90 focused tests passed** (scheduler/base/receipt), no failures/skips. A real scheduler `--once` OS process launches an actual base child against a hash-bound synthetic canonical Parquet, records exactly one Learner/Planner/cycle, releases its lock and grants no admission or execution authority. A separate base process resumes that completed child byte-identically; missing and tampered cached inputs fail without result/failure-memory evidence. No process stub is used in these new cases. Only the fixture's 5m component is materialized; this is composition proof, not a complete market dataset or real-provider proof.

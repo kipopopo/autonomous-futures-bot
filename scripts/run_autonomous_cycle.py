@@ -32,6 +32,7 @@ _SRC_DIR = _REPO_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+from autonomous_futures.api.artifacts import verify_cached_kline_provenance  # noqa: E402
 from autonomous_futures.data.parquet import (  # noqa: E402
     DataQualityError,
     read_canonical_parquet,
@@ -276,6 +277,9 @@ def build_parser() -> argparse.ArgumentParser:
             "(default: research/immutable-data/5m/canonical/{symbol}-5m.parquet)"
         ),
     )
+    parser.add_argument("--dataset-root", type=Path, default=Path("research/immutable-data"))
+    parser.add_argument("--bundle-path", type=Path, default=None)
+    parser.add_argument("--registry-path", type=Path, default=None)
     parser.add_argument(
         "--windows-count",
         type=_validate_windows_count,
@@ -438,9 +442,22 @@ def load_and_slice_windows(
     dataset_registry_hash: str,
     windows_count: int,
     bars_per_window: int,
+    dataset_root: Path = Path("research/immutable-data"),
+    bundle_path: Path | None = None,
+    registry_path: Path | None = None,
 ) -> tuple[CachedEvaluationWindow, ...]:
     if not parquet_path.is_file():
         raise FileNotFoundError(f"Canonical Parquet file not found: {parquet_path}")
+    verify_cached_kline_provenance(
+        parquet_path,
+        dataset_root=dataset_root,
+        bundle_path=bundle_path or dataset_root / "bundle.json",
+        registry_path=registry_path or dataset_root / "registry.json",
+        symbol=symbol,
+        interval="5m",
+        bundle_hash=bundle_hash,
+        dataset_registry_hash=dataset_registry_hash,
+    )
     df = read_canonical_parquet(parquet_path, interval=timedelta(minutes=5))
     total_bars = windows_count * bars_per_window
     if len(df) < total_bars:
@@ -632,9 +649,7 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
 
     output_dir = args.output_dir or Path(f"artifacts/autonomous_cycle/{cycle_id}")
 
-    parquet_path = args.parquet_path or Path(
-        f"research/immutable-data/5m/canonical/{symbol}-5m.parquet"
-    )
+    parquet_path = args.parquet_path or args.dataset_root / f"5m/canonical/{symbol}-5m.parquet"
 
     # 1. Feedback Intake: Load from path or extract from SQLite ledger
     prior_feedback: CreatorQualificationFailureFeedback | None = None
@@ -761,6 +776,9 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
         dataset_registry_hash=dataset_registry_hash,
         windows_count=args.windows_count,
         bars_per_window=args.bars_per_window,
+        dataset_root=args.dataset_root,
+        bundle_path=args.bundle_path,
+        registry_path=args.registry_path,
     )
 
     # 5. Qualification Policy & Cycle Configuration

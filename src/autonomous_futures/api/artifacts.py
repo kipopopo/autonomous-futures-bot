@@ -3,13 +3,15 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from ..data.bundle import find_bundle_component
 from ..data.derivatives_artifacts import read_derivatives_artifact_manifest
 from ..data.exchange_filters import read_exchange_filter_snapshot
 from ..data.manifest import read_manifest, sha256_file
+from ..data.parquet import DataQualityError
 from ..data.registry import DatasetKind, DatasetRegistryEntry
 from ..domain.contracts import DomainModel
 from ..domain.errors import DomainViolation
-from .catalog import VerifiedDatasetCatalog
+from .catalog import VerifiedDatasetCatalog, load_verified_dataset_catalog
 
 
 class ArtifactIntegrityError(ValueError):
@@ -176,10 +178,41 @@ def resolve_artifact_ref(root: Path, relative_ref: str) -> Path:
     return _resolve_relative(root, relative_ref)
 
 
+def verify_cached_kline_provenance(
+    parquet_path: Path,
+    *,
+    dataset_root: Path,
+    bundle_path: Path,
+    registry_path: Path,
+    symbol: str,
+    interval: str,
+    bundle_hash: str,
+    dataset_registry_hash: str,
+) -> None:
+    catalog = load_verified_dataset_catalog(bundle_path=bundle_path, registry_path=registry_path)
+    if (
+        catalog.bundle.bundle_hash != bundle_hash
+        or catalog.registry.registry_hash != dataset_registry_hash
+    ):
+        raise DataQualityError("bundle or registry hash does not match the requested provenance")
+    component = find_bundle_component(
+        catalog.bundle, kind="kline", symbol=symbol, interval=interval
+    )
+    if component is None:
+        raise DataQualityError(f"bundle has no {interval} kline component for {symbol}")
+    inspection = inspect_artifact_entry(dataset_root, component)
+    if (
+        inspection.data_ref is None
+        or (dataset_root / inspection.data_ref).resolve() != parquet_path.resolve()
+    ):
+        raise DataQualityError("Parquet path does not match bundle dataset artifact provenance")
+
+
 __all__ = [
     "ArtifactInspection",
     "ArtifactIntegrityError",
     "inspect_artifact_entry",
     "inspect_dataset_artifacts",
     "resolve_artifact_ref",
+    "verify_cached_kline_provenance",
 ]

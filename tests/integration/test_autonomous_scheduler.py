@@ -154,6 +154,40 @@ class SchedulerLockPayload(DomainModel):
 # ==============================================================================
 
 
+@pytest.fixture(autouse=True)
+def bind_scheduler_cached_fixtures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Supply source-bound test catalogs to actual children; never bypass their verifier."""
+    from tests.data_fixtures import write_primary_cached_catalog
+
+    original_writer = _create_synthetic_parquet
+    original_spawn = spawn_scheduler
+
+    def write_bound_parquet(target_path: Path, *args, **kwargs) -> None:
+        original_writer(target_path, *args, **kwargs)
+        catalog = write_primary_cached_catalog(target_path, target_path.parent)
+        monkeypatch.setattr(sys.modules[__name__], "DUMMY_HASH_A", catalog.bundle.bundle_hash)
+        monkeypatch.setattr(sys.modules[__name__], "DUMMY_HASH_B", catalog.registry.registry_hash)
+
+    def spawn_with_catalog(args: list[str], **kwargs):
+        if "--parquet-path" in args:
+            root = Path(args[args.index("--parquet-path") + 1]).parent
+            if (root / "bundle.json").is_file():
+                args = list(args)
+                for flag, value in (
+                    ("--dataset-root", str(root)),
+                    ("--bundle-path", str(root / "bundle.json")),
+                    ("--registry-path", str(root / "registry.json")),
+                    ("--bundle-hash", DUMMY_HASH_A),
+                    ("--dataset-registry-hash", DUMMY_HASH_B),
+                ):
+                    if flag not in args:
+                        args.extend([flag, value])
+        return original_spawn(args, **kwargs)
+
+    monkeypatch.setattr(sys.modules[__name__], "_create_synthetic_parquet", write_bound_parquet)
+    monkeypatch.setattr(sys.modules[__name__], "spawn_scheduler", spawn_with_catalog)
+
+
 def calculate_expected_backoff(
     failures: int,
     base: float = 60.0,
@@ -1554,6 +1588,16 @@ def test_single_pass_once_mode_execution(tmp_path: Path) -> None:
             "--provider",
             "demo",
             "--once",
+            "--dataset-root",
+            str(tmp_path),
+            "--bundle-path",
+            str(tmp_path / "bundle.json"),
+            "--registry-path",
+            str(tmp_path / "registry.json"),
+            "--bundle-hash",
+            DUMMY_HASH_A,
+            "--dataset-registry-hash",
+            DUMMY_HASH_B,
         ],
         capture_output=True,
         text=True,
