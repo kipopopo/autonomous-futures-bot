@@ -37,7 +37,7 @@ from autonomous_futures.research.qualification_artifacts import (
     build_creator_candidate_qualification_artifact,
     write_creator_candidate_qualification_artifact,
 )
-from tests.paper_fixtures import write_qualified_paper_fixture
+from tests.paper_fixtures import admit_paper_candidates_fixture, write_qualified_paper_fixture
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
@@ -93,6 +93,7 @@ def _setup_engine(tmp_path: Path, candidate: CreatorCandidateArtifact) -> LivePa
         lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
         observations_db=tmp_path / "paper-observations.sqlite3",
     )
+    admit_paper_candidates_fixture(engine, tmp_path)
     engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
         symbol="BTCUSDT",
         best_bid_price=Decimal("50000"),
@@ -638,12 +639,14 @@ def test_hot_reload_blocks_invalid_qualification_without_mutation(
     )
     engine = _setup_engine(tmp_path, old_cand)
     engine.qualifications_dir = tmp_path / "qualifications"
+    qualifications_before = dict(engine.qualifications)
+    decisions_before = dict(engine.admission_decisions)
     reloader = CandidateRegistryHotReloader(manifest_path, engine)
 
     assert not reloader.check_and_reload()
     assert engine.candidates == {"BTCUSDT": old_cand}
-    assert engine.qualifications == {}
-    assert engine.admission_decisions == {}
+    assert engine.qualifications == qualifications_before
+    assert engine.admission_decisions == decisions_before
     assert reloader.reload_count == 0
     assert reloader.last_registry_hash is None
 
@@ -707,6 +710,8 @@ def test_registry_missing_second_qualification_preserves_all_runtime_state(
     active_trade = engine.active_trades["BTCUSDT"]
     cash = engine.account.cash
     symbols = engine.symbols
+    qualifications_before = dict(engine.qualifications)
+    decisions_before = dict(engine.admission_decisions)
 
     if consumer == "discovery":
         with pytest.raises(DomainViolation, match="Qualification artifact file.*not found"):
@@ -717,8 +722,8 @@ def test_registry_missing_second_qualification_preserves_all_runtime_state(
         assert reloader.reload_count == 0
 
     assert engine.candidates == {"BTCUSDT": old_candidate}
-    assert engine.qualifications == {}
-    assert engine.admission_decisions == {}
+    assert engine.qualifications == qualifications_before
+    assert engine.admission_decisions == decisions_before
     assert engine.registry_manifest is None
     assert engine.symbols == symbols
     assert engine.account.cash == cash

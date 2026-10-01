@@ -11,6 +11,7 @@ from autonomous_futures.paper.circuit_breakers import HardenedSharedMarginAccoun
 from autonomous_futures.paper.live_engine import LivePaperEngine, PaperRestartRecoveryError
 from autonomous_futures.paper.sqlite_ledger import SqlitePaperLedger
 from autonomous_futures.research.creator_artifacts import read_creator_candidate_artifact
+from tests.paper_fixtures import admit_paper_candidates_fixture
 
 
 def _state() -> dict[str, object]:
@@ -74,6 +75,7 @@ def test_open_update_restart_protective_close_and_second_restart(tmp_path) -> No
         "observations_db": paths[2],
     }
     first = LivePaperEngine(**kwargs)
+    admit_paper_candidates_fixture(first, tmp_path)
     first.latest_tickers["BTCUSDT"] = TickerSnapshot(
         symbol="BTCUSDT",
         best_bid_price=Decimal("100"),
@@ -97,10 +99,12 @@ def test_open_update_restart_protective_close_and_second_restart(tmp_path) -> No
 
     second = LivePaperEngine(**kwargs)
     assert trade_id in second.active_trades
+    assert second.qualified_symbols == ()
     assert second.account.total_locked_margin() == first.active_trades[trade_id].base_margin
     second.latest_tickers["BTCUSDT"] = first.latest_tickers["BTCUSDT"]
     closed = second.execute_close("BTCUSDT", "test", datetime(2026, 9, 7, 0, 0, 1, tzinfo=UTC))
     assert closed is not None and closed.status == "closed"
+    assert second.qualified_symbols == ()
 
     final_mark = second.lifecycle_store.latest(
         candidate_id=candidate.candidate_id,

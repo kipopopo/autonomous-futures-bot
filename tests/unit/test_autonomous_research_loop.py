@@ -645,6 +645,221 @@ def test_cli_seeds_from_persisted_candidate_and_rejected_qualification(
     assert seed_memory.qualification_hash == qualification.qualification_hash
 
 
+def test_scheduled_offline_research_runs_existing_learner_planner_cycle(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import autonomous_futures.pipeline.autonomous_base as base_module
+    import scripts.run_autonomous_scheduler as scheduler_module
+
+    tmp_path = tmp_path_factory.mktemp("sr")
+    candidate_path, qualification_path, _, _ = _write_rejected_seed_artifacts(tmp_path)
+    output_dir = tmp_path / "s"
+    stages: list[str] = []
+    commands: list[list[str]] = []
+    plan_hashes: list[str] = []
+    original_learn = FailureLearner.learn
+    original_plan = ResearchPlanner.plan
+    original_cycle = base_module.execute_autonomous_cycle
+
+    def observe_learning(self: FailureLearner, request: FailureLearningRequest):
+        stages.append("learner")
+        return original_learn(self, request)
+
+    def observe_planning(self: ResearchPlanner, request: ResearchPlanRequest):
+        stages.append("planner")
+        result = original_plan(self, request)
+        assert result.plan is not None
+        plan_hashes.append(result.plan.plan_hash)
+        return result
+
+    def observe_cycle(**kwargs):
+        stages.append("cycle")
+        assert kwargs["paper_engine"] is None
+        assert kwargs["research_plan"].plan_hash == plan_hashes[-1]
+        return original_cycle(**kwargs)
+
+    class OfflineBaseProcess:
+        def __init__(self, command: list[str], **_kwargs: object) -> None:
+            commands.append(command)
+            assert Path(command[1]).name == "run_autonomous_base.py"
+            assert "--provider" not in command
+            assert "--feedback-path" not in command
+            assert "--ledger-db" not in command
+            assert "--candidate-registry-path" not in command
+            # Synthetic windows are selected only by this in-process test harness.
+            self.returncode = cli_main([*command[2:], "--use-synthetic-windows"])
+            captured = capsys.readouterr()
+            self.stdout, self.stderr = captured.out, captured.err
+
+        def poll(self) -> int:
+            return self.returncode
+
+        def communicate(self) -> tuple[str, str]:
+            return self.stdout, self.stderr
+
+    monkeypatch.setattr(FailureLearner, "learn", observe_learning)
+    monkeypatch.setattr(ResearchPlanner, "plan", observe_planning)
+    monkeypatch.setattr(base_module, "execute_autonomous_cycle", observe_cycle)
+    monkeypatch.setattr(scheduler_module.subprocess, "Popen", OfflineBaseProcess)
+    monkeypatch.setattr(
+        scheduler_module,
+        "extract_paper_feedback",
+        lambda **_: pytest.fail("paper ledger feedback is not an OOS research seed"),
+    )
+    args = scheduler_module.build_parser().parse_args(
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--provider",
+            "demo",
+            "--output-dir",
+            str(output_dir),
+            "--research-candidate-artifact",
+            str(candidate_path),
+            "--research-qualification-artifact",
+            str(qualification_path),
+            "--bundle-hash",
+            HASH_A,
+            "--dataset-registry-hash",
+            HASH_B,
+            "--parquet-path",
+            str(tmp_path / "missing.parquet"),
+        ]
+    )
+    scheduler = scheduler_module.AutonomousSchedulerDaemon(args)
+
+    assert scheduler._execute_cycle("interval") == 0
+    assert stages == ["learner", "planner", "cycle"]
+    assert len(commands) == 1
+    result_path = Path(commands[0][commands[0].index("--artifact-root") + 1]) / "base-result.json"
+    result = read_autonomous_base_result(result_path)
+    assert result.cycles_executed == 1
+    assert len(result.learning_hashes) == len(result.plan_hashes) == 1
+    assert result.paper_activation is result.execution_authority is result.exchange_access is False
+    assert scheduler.admitted_candidates_count == 0
+    assert scheduler.last_cycle_result is not None
+    assert scheduler.last_cycle_result.status == f"offline_base_{result.status}"
+    assert scheduler.last_cycle_result.admitted is False
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"research_qualification_artifact": None},
+        {"research_candidate_artifact": None},
+        {"provider": "google_ai_studio"},
+        {"bundle_hash": None},
+        {"dataset_registry_hash": None},
+    ],
+)
+def test_scheduled_offline_research_rejects_invalid_mode_before_outputs(
+    tmp_path: Path, override: dict[str, object]
+) -> None:
+    import scripts.run_autonomous_scheduler as scheduler_module
+
+    candidate_path, qualification_path, _, _ = _write_rejected_seed_artifacts(tmp_path)
+    output_dir = tmp_path / "invalid-research"
+    args = scheduler_module.build_parser().parse_args(
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--provider",
+            "demo",
+            "--output-dir",
+            str(output_dir),
+            "--research-candidate-artifact",
+            str(candidate_path),
+            "--research-qualification-artifact",
+            str(qualification_path),
+            "--bundle-hash",
+            HASH_A,
+            "--dataset-registry-hash",
+            HASH_B,
+        ]
+    )
+    for name, value in override.items():
+        setattr(args, name, value)
+
+    with pytest.raises(ValueError):
+        scheduler_module.AutonomousSchedulerDaemon(args)
+    assert not output_dir.exists()
+
+
+@pytest.mark.parametrize("receipt", ["missing", "zero_cycles"])
+def test_scheduled_offline_research_requires_its_own_result_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, receipt: str
+) -> None:
+    import scripts.run_autonomous_scheduler as scheduler_module
+
+    candidate_path, qualification_path, _, _ = _write_rejected_seed_artifacts(tmp_path)
+    output_dir = tmp_path / "missing-base-receipt"
+
+    class FalseAdmissionProcess:
+        returncode = 0
+
+        def __init__(self, command: list[str], **_kwargs: object) -> None:
+            artifact_root = Path(command[command.index("--artifact-root") + 1])
+            if receipt == "zero_cycles":
+                config = AutonomousBaseConfig(
+                    base_run_id=command[command.index("--base-run-id") + 1],
+                    symbol="BTCUSDT",
+                    bundle_hash=HASH_A,
+                    dataset_registry_hash=HASH_B,
+                    artifact_root=artifact_root,
+                    max_cycles=1,
+                )
+                result = build_autonomous_base_result(
+                    config=config,
+                    status="stopped",
+                    terminal_reason="learner_stopped",
+                    records=(),
+                    failure_memory_entry_hashes=(HASH_A,),
+                    completed_at=datetime.now(UTC),
+                )
+                write_autonomous_base_result(artifact_root / "base-result.json", result)
+            (artifact_root / "autonomous-cycle-result.json").write_text(
+                json.dumps(
+                    {"cycle_status": "completed_admitted", "admission_decision": "admitted"}
+                ),
+                encoding="utf-8",
+            )
+
+        def poll(self) -> int:
+            return 0
+
+        def communicate(self) -> tuple[str, str]:
+            return "", ""
+
+    monkeypatch.setattr(scheduler_module.subprocess, "Popen", FalseAdmissionProcess)
+    args = scheduler_module.build_parser().parse_args(
+        [
+            "--symbol",
+            "BTCUSDT",
+            "--provider",
+            "demo",
+            "--output-dir",
+            str(output_dir),
+            "--research-candidate-artifact",
+            str(candidate_path),
+            "--research-qualification-artifact",
+            str(qualification_path),
+            "--bundle-hash",
+            HASH_A,
+            "--dataset-registry-hash",
+            HASH_B,
+        ]
+    )
+    scheduler = scheduler_module.AutonomousSchedulerDaemon(args)
+
+    assert scheduler._execute_cycle("interval") != 0
+    assert scheduler.admitted_candidates_count == 0
+    assert scheduler.last_cycle_result is not None
+    assert scheduler.last_cycle_result.status == "failed"
+    assert scheduler.last_cycle_result.admitted is False
+
+
 def test_cli_rejects_candidate_qualification_binding_mismatch_before_outputs(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -14,6 +14,7 @@ from autonomous_futures.paper.circuit_breakers import HardenedSharedMarginAccoun
 from autonomous_futures.paper.ledger import PaperRestartRecoveryError
 from autonomous_futures.paper.live_engine import LivePaperEngine
 from autonomous_futures.paper.sqlite_ledger import SqlitePaperLedger
+from tests.paper_fixtures import admit_paper_candidates_fixture
 
 
 def test_load_rejects_nonfinite_optional_protection_values(tmp_path):
@@ -78,6 +79,7 @@ def test_restore_rejects_tampered_ledger_artifact_hash_before_account_mutation(t
         "observations_db": paths[2],
     }
     first = LivePaperEngine(**kwargs)
+    admit_paper_candidates_fixture(first, tmp_path)
     first.latest_tickers["BTCUSDT"] = TickerSnapshot(
         symbol="BTCUSDT",
         best_bid_price=Decimal("100"),
@@ -116,6 +118,7 @@ def test_persistence_failure_latches_engine_and_blocks_future_signals(tmp_path, 
         lifecycle_db=paths[1],
         observations_db=paths[2],
     )
+    admit_paper_candidates_fixture(engine, tmp_path)
     monkeypatch.setattr(
         engine.sqlite_ledger,
         "save_position_state",
@@ -181,6 +184,7 @@ def test_failed_state_update_invalidates_stale_state_before_restart(tmp_path, mo
         transaction_time=datetime(2026, 9, 7, tzinfo=UTC),
         event_time=datetime(2026, 9, 7, tzinfo=UTC),
     )
+    admit_paper_candidates_fixture(engine, tmp_path)
     opened = engine.execute_open("BTCUSDT", 1, Decimal("0.75"), datetime(2026, 9, 7, tzinfo=UTC))
     assert opened is not None and opened.status == "opened"
     trade = engine.active_trades["BTCUSDT"]
@@ -241,6 +245,7 @@ def test_marker_write_failure_precedes_open_account_mutation(tmp_path, monkeypat
         "begin_position_update",
         lambda trade_id, intent="mutable_state": (_ for _ in ()).throw(OSError("disk full")),
     )
+    admit_paper_candidates_fixture(engine, tmp_path)
     with pytest.raises(OSError):
         engine.execute_open("BTCUSDT", 1, Decimal("0.75"), datetime(2026, 9, 7, tzinfo=UTC))
     assert engine.account.total_locked_margin() == Decimal("0")
@@ -279,6 +284,7 @@ def test_committed_dirty_marker_blocks_restart_after_update_failure(tmp_path, mo
         transaction_time=datetime(2026, 9, 7, tzinfo=UTC),
         event_time=datetime(2026, 9, 7, tzinfo=UTC),
     )
+    admit_paper_candidates_fixture(engine, tmp_path)
     assert (
         engine.execute_open("BTCUSDT", 1, Decimal("0.75"), datetime(2026, 9, 7, tzinfo=UTC)).status
         == "opened"
@@ -322,6 +328,7 @@ def test_marker_clear_failure_blocks_restart_after_complete_state_write(tmp_path
         transaction_time=datetime(2026, 9, 7, tzinfo=UTC),
         event_time=datetime(2026, 9, 7, tzinfo=UTC),
     )
+    admit_paper_candidates_fixture(engine, tmp_path)
     assert (
         engine.execute_open("BTCUSDT", 1, Decimal("0.75"), datetime(2026, 9, 7, tzinfo=UTC)).status
         == "opened"

@@ -40,6 +40,7 @@ from autonomous_futures.research.creator_artifacts import (
     CreatorCandidateArtifact,
     read_creator_candidate_artifact,
 )
+from tests.paper_fixtures import admit_paper_candidates_fixture
 
 DECIMAL_REGEX = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 ISO_UTC_REGEX = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\+00:00|Z)?$")
@@ -80,6 +81,7 @@ class TestHighVolumeSequentialTradesReconciliation:
             candidates=candidates_all,
         )
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         # Baseline prices and ATRs for all 4 assets
         base_configs: dict[str, dict[str, Decimal]] = {
             "BTCUSDT": {"price": Decimal("60000.00"), "atr": Decimal("400.00")},
@@ -351,6 +353,7 @@ class TestConcurrentPortfolioTradesReconciliation:
             candidates=candidates_all,
         )
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         base_configs: dict[str, dict[str, Decimal]] = {
             "BTCUSDT": {"price": Decimal("62000.00"), "atr": Decimal("450.00")},
             "ETHUSDT": {"price": Decimal("3100.00"), "atr": Decimal("28.00")},
@@ -501,6 +504,7 @@ class TestRandomizedFillsFeesSlippageAndExits:
             candidates=candidates_all,
         )
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         current_time = datetime(2026, 9, 6, 10, 0, 0, tzinfo=UTC)
 
         for iteration in range(50):
@@ -622,6 +626,7 @@ class TestSqlitePersistenceIntegrityAndStringFormatting:
             candidates=candidates_all,
         )
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         now = datetime(2026, 9, 6, 11, 0, 0, tzinfo=UTC)
         engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
             symbol="BTCUSDT",

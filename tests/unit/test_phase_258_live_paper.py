@@ -38,6 +38,7 @@ from autonomous_futures.research.creator_artifacts import (
     CreatorCandidateArtifact,
     read_creator_candidate_artifact,
 )
+from tests.paper_fixtures import admit_paper_candidates_fixture
 
 # Repo root for scripts
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -170,6 +171,7 @@ class TestTopOfBookPricingAndAdverseExecution:
         )
         engine.latest_tickers["BTCUSDT"] = sample_ticker_btc
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         # Execute LONG entry
         now = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
         res = engine.execute_open(
@@ -213,6 +215,7 @@ class TestTopOfBookPricingAndAdverseExecution:
         )
         engine.latest_tickers["BTCUSDT"] = sample_ticker_btc
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         # Execute SHORT entry
         now = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
         res = engine.execute_open(
@@ -239,6 +242,7 @@ class TestTopOfBookPricingAndAdverseExecution:
             observations_db=tmp_path / "obs.sqlite3",
             candidates=candidates_all,
         )
+        admit_paper_candidates_fixture(engine, tmp_path)
         # Entry quote
         t1 = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
         engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
@@ -320,6 +324,7 @@ class TestSharedMarginAndDynamicLeverage:
         )
         now = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         # Set nominal tickers for all 4 symbols
         for sym, price in [
             ("BTCUSDT", Decimal("60000")),
@@ -373,6 +378,7 @@ class TestCircuitBreakersAndTickStops:
         )
         now = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         # Ticker with 25 bps spread (> 20 bps threshold)
         engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
             symbol="BTCUSDT",
@@ -412,6 +418,7 @@ class TestCircuitBreakersAndTickStops:
         )
         engine.monitor._rolling_atrs["BTCUSDT"] = Decimal("500.0")  # ATR = 500
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         # Open Long: stop_loss = fill_price - 1.5 * ATR ~= 60013 - 750 = 59263
         open_res = engine.execute_open(
             "BTCUSDT", signal=1, conviction=Decimal("0.50"), event_time=t1
@@ -460,6 +467,7 @@ class TestCircuitBreakersAndTickStops:
             event_time=t1,
         )
         engine.monitor._rolling_atrs["BTCUSDT"] = Decimal("200.0")  # ATR = 200
+        admit_paper_candidates_fixture(engine, tmp_path)
 
         engine.execute_open("BTCUSDT", signal=1, conviction=Decimal("0.50"), event_time=t1)
         initial_stop = engine.active_trades["BTCUSDT"].stop_price
@@ -492,6 +500,7 @@ class TestCircuitBreakersAndTickStops:
             observations_db=tmp_path / "obs.sqlite3",
             candidates=candidates_all,
         )
+        admit_paper_candidates_fixture(engine, tmp_path)
         # Timestamp with microseconds
         ts_with_ms = datetime(2026, 9, 6, 12, 30, 45, 987654, tzinfo=UTC)
         engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
@@ -543,6 +552,7 @@ class TestZeroBalanceDriftReconciliation:
             candidates=candidates_all,
         )
 
+        admit_paper_candidates_fixture(engine, tmp_path)
         # Trade 1: BTCUSDT Winning Long Trade
         t1 = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
         engine.latest_tickers["BTCUSDT"] = TickerSnapshot(

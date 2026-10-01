@@ -60,6 +60,7 @@ from autonomous_futures.paper.live_engine import (  # noqa: E402
     DEFAULT_STARTING_CAPITAL,
     LivePaperEngine,
 )
+from tests.paper_fixtures import load_legacy_indicator_candidates_fixture  # noqa: E402
 
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT")
 
@@ -119,6 +120,7 @@ def initialized_engine(temp_storage_dir: Path) -> LivePaperEngine:
     )
     return LivePaperEngine(
         symbols=SYMBOLS,
+        candidates=load_legacy_indicator_candidates_fixture(),
         starting_capital=DEFAULT_STARTING_CAPITAL,
         ledger_db=temp_storage_dir / "paper-ledger.sqlite3",
         lifecycle_db=temp_storage_dir / "paper-lifecycle.sqlite3",

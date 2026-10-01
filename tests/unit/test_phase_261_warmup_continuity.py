@@ -54,6 +54,7 @@ from autonomous_futures.paper.live_engine import (  # noqa: E402
     DEFAULT_SYMBOLS,
     LivePaperEngine,
 )
+from tests.paper_fixtures import load_legacy_indicator_candidates_fixture  # noqa: E402
 
 
 @pytest.fixture
@@ -241,6 +242,7 @@ def initialized_engine(tmp_path: Path) -> LivePaperEngine:
     )
     return LivePaperEngine(
         symbols=DEFAULT_SYMBOLS,
+        candidates=load_legacy_indicator_candidates_fixture(),
         account=account,
         monitor=monitor,
         ledger_db=storage_dir / "paper-ledger.sqlite3",

@@ -26,6 +26,7 @@ import time
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -46,6 +47,13 @@ from autonomous_futures.paper.candidate_registry import (  # noqa: E402
 from autonomous_futures.paper.feedback_extractor import (  # noqa: E402
     PaperQualificationPolicy,
     extract_paper_feedback,
+)
+from autonomous_futures.pipeline.autonomous_base import (  # noqa: E402
+    read_autonomous_base_result,
+)
+from autonomous_futures.pipeline.autonomous_cycle import (  # noqa: E402
+    AutonomousCycleResult,
+    autonomous_cycle_content_hash,
 )
 
 try:
@@ -650,6 +658,13 @@ class AutonomousSchedulerDaemon:
 
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
+        self.offline_research = args.research_candidate_artifact is not None
+        if self.offline_research != (args.research_qualification_artifact is not None):
+            raise ValueError("Research candidate and qualification must be supplied together")
+        if self.offline_research and (
+            args.provider != "demo" or not args.bundle_hash or not args.dataset_registry_hash
+        ):
+            raise ValueError("Offline research requires demo mode and both scope hashes")
         self.symbol: str = args.symbol
         self.output_dir: Path = Path(args.output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -806,7 +821,10 @@ class AutonomousSchedulerDaemon:
         cycle_output_dir = self.output_dir / "cycles" / cycle_id
         cycle_output_dir.mkdir(parents=True, exist_ok=True)
 
-        cycle_script = Path(__file__).resolve().parent / "run_autonomous_cycle.py"
+        cycle_script = Path(__file__).resolve().parent / (
+            "run_autonomous_base.py" if self.offline_research else "run_autonomous_cycle.py"
+        )
+        base_run_id = f"base-{cycle_id.removeprefix('cycle-')}"
 
         # 1. Resolve candidate ID and candidate artifact path
         resolved_cid: str | None = getattr(self.args, "candidate_id", None)
@@ -817,7 +835,11 @@ class AutonomousSchedulerDaemon:
         )
 
         # Check candidate registry if not explicitly provided
-        if self.candidate_registry_path and self.candidate_registry_path.is_file():
+        if (
+            not self.offline_research
+            and self.candidate_registry_path
+            and self.candidate_registry_path.is_file()
+        ):
             try:
                 manifest = read_candidate_registry(self.candidate_registry_path, verify_hash=False)
                 if self.symbol in manifest.symbols:
@@ -834,7 +856,12 @@ class AutonomousSchedulerDaemon:
                 logger.debug("Could not resolve candidate from registry: %s", exc)
 
         # Check paper ledger DB for candidate if still missing
-        if resolved_cid is None and self.ledger_db and self.ledger_db.is_file():
+        if (
+            not self.offline_research
+            and resolved_cid is None
+            and self.ledger_db
+            and self.ledger_db.is_file()
+        ):
             try:
                 with sqlite3.connect(self.ledger_db) as conn:
                     cursor = conn.cursor()
@@ -864,7 +891,7 @@ class AutonomousSchedulerDaemon:
             _REPO_ROOT / "artifacts" / "research" / "phase249" / "candidates",
         ]
 
-        if resolved_cpath is None and resolved_cid:
+        if not self.offline_research and resolved_cpath is None and resolved_cid:
             for sdir in search_dirs:
                 if sdir.is_dir():
                     cand_file = sdir / f"{resolved_cid}.json"
@@ -872,7 +899,7 @@ class AutonomousSchedulerDaemon:
                         resolved_cpath = cand_file.resolve()
                         break
 
-        if resolved_cpath is None:
+        if not self.offline_research and resolved_cpath is None:
             # Fallback: search for any candidate JSON matching symbol in known search dirs
             for sdir in search_dirs:
                 if sdir.is_dir():
@@ -895,7 +922,7 @@ class AutonomousSchedulerDaemon:
         # Extract paper feedback if ledger DB is present
         extracted_feedback = None
         feedback_file: Path | None = None
-        if self.ledger_db and self.ledger_db.is_file():
+        if not self.offline_research and self.ledger_db and self.ledger_db.is_file():
             try:
                 extracted_feedback = extract_paper_feedback(
                     ledger_path=self.ledger_db,
@@ -923,38 +950,57 @@ class AutonomousSchedulerDaemon:
             str(cycle_script),
             "--symbol",
             self.symbol,
-            "--output-dir",
+            "--artifact-root" if self.offline_research else "--output-dir",
             str(cycle_output_dir),
-            "--cycle-id",
-            cycle_id,
-            "--provider",
-            self.args.provider,
-            "--model",
-            self.args.model,
-            "--temperature",
-            str(self.args.temperature),
+            "--base-run-id" if self.offline_research else "--cycle-id",
+            base_run_id if self.offline_research else cycle_id,
         ]
+        if self.offline_research:
+            cmd.extend(
+                [
+                    "--candidate-artifact",
+                    str(self.args.research_candidate_artifact),
+                    "--qualification-artifact",
+                    str(self.args.research_qualification_artifact),
+                    "--dataset-root",
+                    str(self.args.dataset_root.resolve()),
+                    "--max-cycles",
+                    "1",
+                ]
+            )
+        else:
+            cmd.extend(
+                [
+                    "--provider",
+                    self.args.provider,
+                    "--model",
+                    self.args.model,
+                    "--temperature",
+                    str(self.args.temperature),
+                ]
+            )
 
         if (
-            self.args.provider != "google_ai_studio"
+            not self.offline_research
+            and self.args.provider != "google_ai_studio"
             and feedback_file is not None
             and feedback_file.is_file()
         ):
             cmd.extend(["--feedback-path", str(feedback_file)])
-        elif self.ledger_db.exists():
+        elif not self.offline_research and self.ledger_db.exists():
             cmd.extend(["--ledger-db", str(self.ledger_db)])
 
-        if self.lifecycle_db and self.lifecycle_db.exists():
+        if not self.offline_research and self.lifecycle_db and self.lifecycle_db.exists():
             cmd.extend(["--lifecycle-db", str(self.lifecycle_db)])
         if self.parquet_path.exists():
             cmd.extend(["--parquet-path", str(self.parquet_path)])
-        if self.candidate_registry_path:
+        if not self.offline_research and self.candidate_registry_path:
             cmd.extend(["--candidate-registry-path", str(self.candidate_registry_path)])
-        if resolved_cid:
+        if not self.offline_research and resolved_cid:
             cmd.extend(["--candidate-id", str(resolved_cid)])
-        if resolved_cpath and resolved_cpath.is_file():
+        if not self.offline_research and resolved_cpath and resolved_cpath.is_file():
             cmd.extend(["--candidate-path", str(resolved_cpath)])
-        if getattr(self.args, "require_flat", False):
+        if not self.offline_research and getattr(self.args, "require_flat", False):
             cmd.append("--require-flat")
         if getattr(self.args, "bundle_hash", None):
             cmd.extend(["--bundle-hash", str(self.args.bundle_hash)])
@@ -966,7 +1012,7 @@ class AutonomousSchedulerDaemon:
         bars_per_window = self.args.bars_per_window
         min_trades = self.args.min_trades
 
-        if self.parquet_path.exists() and _PYARROW_AVAILABLE:
+        if not self.offline_research and self.parquet_path.exists() and _PYARROW_AVAILABLE:
             try:
                 parquet_meta = pq.ParquetFile(str(self.parquet_path)).metadata
                 total_rows = parquet_meta.num_rows
@@ -1001,18 +1047,23 @@ class AutonomousSchedulerDaemon:
                 str(self.args.min_windows),
                 "--policy-id",
                 str(self.args.policy_id),
-                "--paper-net-pnl-min",
-                str(self.args.paper_net_pnl_min),
-                "--paper-profit-factor-min",
-                str(self.args.paper_profit_factor_min),
-                "--paper-win-rate-min",
-                str(self.args.paper_win_rate_min),
-                "--paper-drawdown-max",
-                str(self.args.paper_drawdown_max),
-                "--paper-trades-min",
-                str(self.args.paper_trades_min),
             ]
         )
+        if not self.offline_research:
+            cmd.extend(
+                [
+                    "--paper-net-pnl-min",
+                    str(self.args.paper_net_pnl_min),
+                    "--paper-profit-factor-min",
+                    str(self.args.paper_profit_factor_min),
+                    "--paper-win-rate-min",
+                    str(self.args.paper_win_rate_min),
+                    "--paper-drawdown-max",
+                    str(self.args.paper_drawdown_max),
+                    "--paper-trades-min",
+                    str(self.args.paper_trades_min),
+                ]
+            )
 
         logger.info(
             "Launching autonomous cycle %s for %s (trigger: %s)",
@@ -1084,40 +1135,99 @@ class AutonomousSchedulerDaemon:
 
         admitted = False
         candidate_id: str | None = None
+        offline_result = None
+        if exit_code == 0 and self.offline_research:
+            try:
+                offline_result = read_autonomous_base_result(cycle_output_dir / "base-result.json")
+                if (
+                    offline_result.base_run_id != base_run_id
+                    or offline_result.symbol != self.symbol
+                    or offline_result.bundle_hash != self.args.bundle_hash
+                    or offline_result.dataset_registry_hash != self.args.dataset_registry_hash
+                    or offline_result.cycles_executed != 1
+                    or offline_result.status == "blocked"
+                ):
+                    raise ValueError("Invalid offline research result binding or outcome")
+            except OSError, ValueError:
+                exit_code = 3
+                stderr = "Offline research result is missing, invalid, blocked or mismatched"
 
         if exit_code == 0:
             result_file = cycle_output_dir / "autonomous-cycle-result.json"
             audit_file = cycle_output_dir / "cycle-audit.json"
             for _ in range(5):
-                if result_file.is_file() or audit_file.is_file():
+                if offline_result is not None or result_file.is_file() or audit_file.is_file():
                     break
                 time.sleep(0.05)
 
-            if result_file.is_file():
-                try:
-                    result_data = json.loads(result_file.read_text(encoding="utf-8"))
-                    status = result_data.get("cycle_status", "completed")
-                    candidate_id = result_data.get("candidate_id")
-                    admitted = (
-                        result_data.get("admission_decision") == "admitted"
-                        or result_data.get("cycle_status") == "completed_admitted"
-                    )
-                except Exception as exc:
-                    logger.warning("Could not parse cycle result file: %s", exc)
-                    status = "completed"
-            elif audit_file.is_file():
-                try:
-                    audit_data = json.loads(audit_file.read_text(encoding="utf-8"))
-                    status = audit_data.get("cycle_status", "completed")
-                    lineage = audit_data.get("lineage", {})
-                    candidate_id = lineage.get("candidate_id")
-                    admitted = lineage.get("admission_decision") == "admitted"
-                except Exception as exc:
-                    logger.warning("Could not parse cycle audit file: %s", exc)
-                    status = "completed"
-            else:
-                status = "completed"
+            try:
+                if offline_result is not None:
+                    status = f"offline_base_{offline_result.status}"
+                else:
+                    cycle_result = None
+                    if result_file.is_file():
+                        cycle_result = AutonomousCycleResult.model_validate_json(
+                            result_file.read_text(encoding="utf-8")
+                        )
+                        if (
+                            cycle_result.cycle_id != cycle_id
+                            or cycle_result.symbol != self.symbol
+                            or cycle_result.cycle_hash
+                            != autonomous_cycle_content_hash(cycle_result)
+                            or cycle_result.cycle_status == "failed"
+                        ):
+                            raise ValueError("Invalid cycle result binding or outcome")
+                    if audit_file.is_file():
+                        audit_data = json.loads(audit_file.read_text(encoding="utf-8"))
+                        audit_hash = sha256(
+                            json.dumps(
+                                {k: v for k, v in audit_data.items() if k != "audit_hash"},
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ).encode()
+                        ).hexdigest()
+                        if (
+                            audit_data.get("audit_hash") != audit_hash
+                            or audit_data.get("cycle_id") != cycle_id
+                            or audit_data.get("symbol") != self.symbol
+                            or audit_data.get("safety_invariants")
+                            != {
+                                "data_source": "cached_only",
+                                "promotion_state": "unpromoted",
+                                "execution_authority": False,
+                            }
+                        ):
+                            raise ValueError("Invalid cycle audit binding or integrity")
+                        if cycle_result is not None:
+                            if (
+                                audit_data.get("cycle_hash") != cycle_result.cycle_hash
+                                or audit_data.get("cycle_status") != cycle_result.cycle_status
+                                or audit_data.get("lineage", {}).get("candidate_id")
+                                != cycle_result.candidate_id
+                                or audit_data.get("lineage", {}).get("admission_decision")
+                                != cycle_result.admission_decision
+                            ):
+                                raise ValueError("Conflicting cycle result and audit")
+                        elif (
+                            audit_data.get("cycle_status") != "skipped_no_breaches"
+                            or audit_data.get("lineage", {}).get("admission_decision") is not None
+                        ):
+                            raise ValueError("Cycle audit has no successful result")
+                    elif cycle_result is None:
+                        raise ValueError("Missing cycle receipt")
+                    if cycle_result is not None:
+                        status = cycle_result.cycle_status
+                        candidate_id = cycle_result.candidate_id
+                        admitted = cycle_result.admission_decision == "admitted"
+                    else:
+                        status = "skipped_no_breaches"
+            except (OSError, ValueError, AttributeError, TypeError) as exc:
+                exit_code = 3
+                stderr = f"Invalid cycle receipt: {exc}"
+                admitted = False
+                candidate_id = None
 
+        if exit_code == 0:
             if admitted:
                 self.admitted_candidates_count += 1
 
@@ -1505,6 +1615,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset-registry-hash", type=str, default=None)
     parser.add_argument("--candidate-id", type=str, default=None)
     parser.add_argument("--candidate-path", type=Path, default=None)
+    parser.add_argument(
+        "--research-candidate-artifact",
+        type=Path,
+        default=None,
+        help="Offline-only research seed candidate; requires its rejected OOS qualification.",
+    )
+    parser.add_argument(
+        "--research-qualification-artifact",
+        type=Path,
+        default=None,
+        help="Offline-only rejected OOS seed; never substituted with paper-ledger feedback.",
+    )
+    parser.add_argument("--dataset-root", type=Path, default=Path("research/immutable-data"))
 
     return parser
 

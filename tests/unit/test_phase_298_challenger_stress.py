@@ -13,7 +13,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 import pytest
@@ -52,6 +51,7 @@ from autonomous_futures.paper.candidate_registry import (
 )
 from autonomous_futures.paper.live_engine import (
     ActivePaperTrade,
+    LivePaperEngine,
     evaluate_strategy_exit,
 )
 from autonomous_futures.research.creator_artifacts import (
@@ -59,6 +59,7 @@ from autonomous_futures.research.creator_artifacts import (
     build_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
+from tests.paper_fixtures import write_qualified_paper_fixture
 
 # =====================================================================
 # Fixtures & Helpers
@@ -733,7 +734,7 @@ class TestChallenge4OpenTradeImmutabilityUnderHotReload:
             candidate_id=cand_a.candidate_id,
             candidate_artifact_hash=cand_a.artifact_hash,
             artifact_path=str(art_path_a),
-            qualification_hash="1" * 64,
+            qualification_hash=write_qualified_paper_fixture(art_path_a, cand_a),
             admitted_at=datetime.now(UTC).isoformat(),
         )
         manifest_v2 = build_candidate_registry_manifest(
@@ -743,24 +744,15 @@ class TestChallenge4OpenTradeImmutabilityUnderHotReload:
         )
         write_candidate_registry(manifest_path, manifest_v2)
 
-        # 2. Mock live paper engine with active trade under Candidate A
-        class MockEngine:
-            def __init__(self) -> None:
-                self.candidates: dict[str, CreatorCandidateArtifact] = {"BTCUSDT": cand_a}
-                self.qualified_symbols: tuple[str, ...] = ("BTCUSDT",)
-                self.admission_decisions: dict[str, Any] = {}
-                self.admitted_history: list[tuple[CreatorCandidateArtifact, str]] = []
-
-            def admit_candidate(
-                self,
-                candidate: CreatorCandidateArtifact,
-                qualification_hash: str | None = None,
-                require_flat: bool = False,
-            ) -> None:
-                self.admitted_history.append((candidate, qualification_hash or ""))
-                self.candidates[candidate.strategy.universe.symbols[0]] = candidate
-
-        engine = MockEngine()
+        # 2. Exercise the real engine with explicitly persisted fixture qualification.
+        engine = LivePaperEngine(
+            registry_manifest=manifest_path,
+            qualifications_dir=candidates_dir / "qualifications",
+            ledger_db=tmp_path / "paper-ledger.sqlite3",
+            lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+            observations_db=tmp_path / "paper-observations.sqlite3",
+        )
+        cand_a = engine.candidates["BTCUSDT"]
 
         # Simulate Active Trade opened under Candidate A
         # The trade directly binds `trade.candidate = cand_a`
@@ -784,6 +776,7 @@ class TestChallenge4OpenTradeImmutabilityUnderHotReload:
             opened_at=open_time,
             candidate=cand_a,  # BOUND TO CANDIDATE A
         )
+        engine.active_trades["BTCUSDT"] = trade
 
         reloader = CandidateRegistryHotReloader(
             manifest_path=manifest_path,
@@ -808,7 +801,7 @@ class TestChallenge4OpenTradeImmutabilityUnderHotReload:
             candidate_id=cand_b.candidate_id,
             candidate_artifact_hash=cand_b.artifact_hash,
             artifact_path=str(art_path_b),
-            qualification_hash="2" * 64,
+            qualification_hash=write_qualified_paper_fixture(art_path_b, cand_b),
             admitted_at=datetime.now(UTC).isoformat(),
         )
         manifest_v3 = build_candidate_registry_manifest(
@@ -823,6 +816,8 @@ class TestChallenge4OpenTradeImmutabilityUnderHotReload:
         assert reloaded is True, "Hot reload should succeed"
         assert engine.candidates["BTCUSDT"].candidate_id == "cand-btcusdt-msm-001"
         assert reloader.reload_count == 1
+        assert engine.active_trades["BTCUSDT"] is trade
+        assert engine.active_trades["BTCUSDT"].candidate is cand_a
 
         # 5. VERIFY OPEN TRADE IMMUTABILITY:
         # The active trade MUST still reference Candidate A, not Candidate B!
@@ -885,7 +880,7 @@ class TestChallenge4OpenTradeImmutabilityUnderHotReload:
             candidate_id=cand_a.candidate_id,
             candidate_artifact_hash=cand_a.artifact_hash,
             artifact_path=str(art_path_a),
-            qualification_hash="1" * 64,
+            qualification_hash=write_qualified_paper_fixture(art_path_a, cand_a),
             admitted_at=datetime.now(UTC).isoformat(),
         )
         manifest_v2 = build_candidate_registry_manifest(
@@ -895,14 +890,13 @@ class TestChallenge4OpenTradeImmutabilityUnderHotReload:
         )
         write_candidate_registry(manifest_path, manifest_v2)
 
-        class MockEngine:
-            def __init__(self) -> None:
-                self.candidates = {"BTCUSDT": cand_a}
-
-            def admit_candidate(self, *args: Any, **kwargs: Any) -> None:
-                pass
-
-        engine = MockEngine()
+        engine = LivePaperEngine(
+            registry_manifest=manifest_path,
+            qualifications_dir=candidates_dir / "qualifications",
+            ledger_db=tmp_path / "paper-ledger.sqlite3",
+            lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
+            observations_db=tmp_path / "paper-observations.sqlite3",
+        )
         reloader = CandidateRegistryHotReloader(manifest_path=manifest_path, engine=engine)
 
         # Initial clean reload

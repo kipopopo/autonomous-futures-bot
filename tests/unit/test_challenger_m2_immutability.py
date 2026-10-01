@@ -32,7 +32,7 @@ from autonomous_futures.research.creator_artifacts import (
     build_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
-from tests.paper_fixtures import write_qualified_paper_fixture
+from tests.paper_fixtures import admit_paper_candidates_fixture, write_qualified_paper_fixture
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
@@ -91,6 +91,7 @@ def _setup_engine(tmp_path: Path, candidate: CreatorCandidateArtifact) -> LivePa
         observations_db=tmp_path / "paper-observations.sqlite3",
     )
     engine.monitor._rolling_atrs["BTCUSDT"] = Decimal("100.0")
+    admit_paper_candidates_fixture(engine, tmp_path)
     engine.monitor._baseline_atrs["BTCUSDT"] = Decimal("100.0")
     engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
         symbol="BTCUSDT",

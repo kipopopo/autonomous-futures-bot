@@ -45,13 +45,12 @@ from autonomous_futures.feed.models import (
 from autonomous_futures.paper.circuit_breakers import (
     HardenedSharedMarginAccount,
 )
-from autonomous_futures.paper.live_engine import (
-    LivePaperEngine,
-)
+from autonomous_futures.paper.live_engine import LivePaperEngine
 from autonomous_futures.research.creator_artifacts import (
     CreatorCandidateArtifact,
     read_creator_candidate_artifact,
 )
+from tests.paper_fixtures import admit_paper_candidates_fixture
 
 
 @pytest.fixture
@@ -81,6 +80,7 @@ class TestSuddenPriceGapsAndEquityFloor:
             observations_db=tmp_path / "obs_gap_down.sqlite3",
             candidates=candidates_all,
         )
+        admit_paper_candidates_fixture(engine, tmp_path)
         t0 = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
         engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
             symbol="BTCUSDT",
@@ -144,6 +144,7 @@ class TestSuddenPriceGapsAndEquityFloor:
             observations_db=tmp_path / "obs_gap_up.sqlite3",
             candidates=candidates_all,
         )
+        admit_paper_candidates_fixture(engine, tmp_path)
         t0 = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
         engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
             symbol="BTCUSDT",
@@ -204,6 +205,7 @@ class TestSuddenPriceGapsAndEquityFloor:
             observations_db=tmp_path / "obs_tp.sqlite3",
             candidates=candidates_all,
         )
+        admit_paper_candidates_fixture(engine, tmp_path)
         t0 = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
         engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
             symbol="BTCUSDT",
@@ -253,6 +255,7 @@ class TestSuddenPriceGapsAndEquityFloor:
             observations_db=tmp_path / "obs_crash_all.sqlite3",
             candidates=candidates_all,
         )
+        admit_paper_candidates_fixture(engine, tmp_path)
         t0 = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
 
         nominal_prices = {
@@ -366,6 +369,7 @@ class TestMassiveSpreadBlowoutsAndCircuitBreakerHalts:
             observations_db=tmp_path / "obs_spread.sqlite3",
             candidates=candidates_all,
         )
+        admit_paper_candidates_fixture(engine, tmp_path)
         now = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
 
         # 60 bps spread blowout: bid=60000, ask=60360 (spread=360, mid=60180 -> 59.8 bps)
@@ -397,6 +401,7 @@ class TestMassiveSpreadBlowoutsAndCircuitBreakerHalts:
             observations_db=tmp_path / "obs_halt.sqlite3",
             candidates=candidates_all,
         )
+        admit_paper_candidates_fixture(engine, tmp_path)
         now = datetime(2026, 9, 6, 12, 0, 0, tzinfo=UTC)
 
         assert str(engine.account.current_state) == "NORMAL"

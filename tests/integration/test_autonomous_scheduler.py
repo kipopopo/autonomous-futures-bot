@@ -567,8 +567,17 @@ def test_google_scheduler_passes_ledger_not_feedback_snapshot(
             commands.append(command)
             cycle_output_dir = Path(command[command.index("--output-dir") + 1])
             cycle_output_dir.mkdir(parents=True, exist_ok=True)
+            from autonomous_futures.pipeline.autonomous_cycle import _build_cycle_result
+
+            result = _build_cycle_result(
+                cycle_id=command[command.index("--cycle-id") + 1],
+                symbol="BTCUSDT",
+                cycle_status="completed_unadmitted",
+                active_candidate_id="cand-scheduler-seed-001",
+                completed_at=datetime.now(UTC),
+            )
             (cycle_output_dir / "autonomous-cycle-result.json").write_text(
-                json.dumps({"cycle_status": "completed_rejected"}), encoding="utf-8"
+                result.model_dump_json(), encoding="utf-8"
             )
 
         def poll(self) -> int:

@@ -737,7 +737,7 @@ def test_cli_candidate_registry_publication(tmp_path: Path) -> None:
     from autonomous_futures.paper.candidate_registry import read_candidate_registry
 
     manifest = read_candidate_registry(registry_path, verify_hash=True)
-    assert manifest.registry_version == 1
+    assert manifest.registry_version == 2
     assert "BTCUSDT" in manifest.symbols
     btc_entry = manifest.symbols["BTCUSDT"]
     assert btc_entry.candidate_id.startswith("cand-")

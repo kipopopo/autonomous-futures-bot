@@ -43,6 +43,7 @@ from autonomous_futures.feed.telemetry import FeedTelemetryAccumulator
 from autonomous_futures.paper.admission import (
     StrategyAdmissionDecider,
     StrategyAdmissionDecision,
+    strategy_admission_content_hash,
 )
 from autonomous_futures.paper.candidate_registry import (
     CandidateRegistryManifest,
@@ -371,7 +372,13 @@ class LivePaperEngine:
         else:
             self.candidates = {}
 
-        self.qualified_symbols: tuple[str, ...] = tuple(self.candidates.keys())
+        self.qualified_symbols: tuple[str, ...] = tuple(
+            symbol
+            for symbol in self.candidates
+            if symbol in self.qualifications
+            and symbol in self.admission_decisions
+            and self.admission_decisions[symbol].decision == "admitted"
+        )
 
         # Track recorded 6-hour observation slots per candidate to enforce fixed-slot invariant
         self._recorded_observation_slots: dict[str, set[datetime]] = {}
@@ -626,7 +633,12 @@ class LivePaperEngine:
         sym = symbol.upper()
         if sym not in self.symbols:
             self.symbols = (*self.symbols, sym)
-        if sym not in self.qualified_symbols:
+        if (
+            sym not in self.qualified_symbols
+            and sym in self.qualifications
+            and sym in self.admission_decisions
+            and self.admission_decisions[sym].decision == "admitted"
+        ):
             self.qualified_symbols = (*self.qualified_symbols, sym)
         if hasattr(self, "_bar_history"):
             self._bar_history.setdefault(sym, [])
@@ -1175,21 +1187,36 @@ class LivePaperEngine:
             return None
 
         qual = self.qualifications.get(sym)
-        if qual is not None and qual.qualification_hash != _qualification_content_hash(qual):
+        if qual is None:
+            logger.warning("Trade rejected for %s: missing qualification authority", sym)
+            return None
+        if qual.qualification_hash != _qualification_content_hash(qual):
             logger.error(
                 "Tampered qualification artifact detected for %s; aborting trade execution", sym
             )
             return None
 
-        if self.registry_manifest is not None and sym not in self.admission_decisions:
-            logger.warning("Trade rejected for %s: missing admission decision from manifest", sym)
-            return None
-
         adm_dec = self.admission_decisions.get(sym)
-        if adm_dec is not None and adm_dec.decision != "admitted":
-            logger.warning(
-                "Trade rejected for %s: strategy admission decision is %s", sym, adm_dec.decision
-            )
+        if (
+            adm_dec is None
+            or adm_dec.decision != "admitted"
+            or not adm_dec.paper_activation
+            or adm_dec.symbol != sym
+            or adm_dec.candidate_id != cand.candidate_id
+            or adm_dec.candidate_artifact_hash != cand.artifact_hash
+            or adm_dec.decision_hash != strategy_admission_content_hash(adm_dec)
+        ):
+            logger.warning("Trade rejected for %s: missing or invalid admission authority", sym)
+            return None
+        current_decision = StrategyAdmissionDecider().evaluate_admission(
+            candidate=cand,
+            qualification=qual,
+            qualification_hash=adm_dec.qualification_hash,
+            symbol=sym,
+            evaluated_at=event_time,
+        )
+        if current_decision.decision != "admitted":
+            logger.warning("Trade rejected for %s: invalid current qualification binding", sym)
             return None
 
         # Circuit breaker safety guards
@@ -1406,7 +1433,7 @@ class LivePaperEngine:
         close_req = PaperExecutionRequest(
             candidate_id=trade.candidate_id,
             candidate_artifact_hash=trade.candidate_artifact_hash,
-            qualified_symbols=self.qualified_symbols,
+            qualified_symbols=(sym,),
             symbol=sym,
             side=trade.side,
             mark_price=exit_mark,

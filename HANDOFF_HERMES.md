@@ -4,6 +4,11 @@
 
 ## New offline admission checkpoint
 
+- The published admission checkpoint `427cc0f1d07c4264de49da11f277039c044aa751` failed exact-head Actions `36817609423`: 8 failed, 4,838 passed, 1 skipped. It is not a delivered quality pass.
+- Follow-up removes constructor-only entry authority, revalidates current candidate/qualification/admission binding at execution, and preserves protective closure using trade-owned scope after restart/removal. Expected-success legacy fixtures now explicitly call real admission with persisted, synthetic test-only qualification. Nine affected modules: **100 passed**; standalone hot-reload integration: **7 passed**.
+- A frozen full run including those changes passed **4,861 tests**, no failures/skips, two warnings in 1,014.16s. A later normal-scheduler receipt fix is **not covered** by that full result: nine invalid receipt cases were RED, then scheduler/base/receipt focus passed **83 tests**. Final Ruff/format (701 files), Windows/Linux mypy (355 sources each), lock/diff passed; independent final receipt review reported no blocking findings. Final publication SHA and exact-head Actions still require verification.
+- Offline scheduled Learner/Planner routing reuses the existing one-cycle base CLI with paired rejected-OOS seed artifacts, explicit scope hashes and demo mode only. The positive test is a real-core/in-process harness, not actual OS subprocess or genuine-market/provenance proof. Normal result/audit receipt validation is fail-closed; producer-written paired files remain legitimate.
+
 - Paper admission now requires candidate/content/bundle/registry-bound qualification evidence; hash-only admission is blocked. Startup and runtime consumers share the persisted resolver, new publication uses registry schema version 2, and invalid registry entries cannot partially update runtime state.
 - Removed implicit historical pinned-candidate startup activation. Startup without an explicit candidate mapping or validated registry is idle.
 - Eleven focused modules: **158 passed, 0 failed, 0 skipped** in 72.338s. The final test-only tracemalloc teardown addition was separately exercised; final-tree Ruff, formatting, Windows/Linux mypy, lock, AST and diff checks passed.

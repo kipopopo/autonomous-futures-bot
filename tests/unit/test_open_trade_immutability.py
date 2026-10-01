@@ -125,7 +125,9 @@ def _build_qualification(
     )
 
 
-def _setup_engine(tmp_path: Path, candidate: CreatorCandidateArtifact) -> LivePaperEngine:
+def _setup_engine(
+    tmp_path: Path, candidate: CreatorCandidateArtifact, *, admit: bool = True
+) -> LivePaperEngine:
     engine = LivePaperEngine(
         symbols=("BTCUSDT",),
         candidates={"BTCUSDT": candidate},
@@ -133,6 +135,13 @@ def _setup_engine(tmp_path: Path, candidate: CreatorCandidateArtifact) -> LivePa
         lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
         observations_db=tmp_path / "paper-observations.sqlite3",
     )
+    if admit:
+        assert (
+            engine.admit_candidate(
+                candidate, qualification=_build_qualification(candidate)
+            ).decision
+            == "admitted"
+        )
     engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
         symbol="BTCUSDT",
         best_bid_price=Decimal("50000"),
@@ -143,6 +152,49 @@ def _setup_engine(tmp_path: Path, candidate: CreatorCandidateArtifact) -> LivePa
         event_time=NOW,
     )
     return engine
+
+
+@pytest.mark.parametrize(
+    "missing_authority",
+    [
+        "pending_constructor",
+        "missing_qualification",
+        "missing_decision",
+        "foreign_qualification",
+        "replaced_candidate",
+        "rejected_qualification",
+    ],
+)
+def test_paper_entry_requires_current_bound_admission_authority(
+    tmp_path: Path, missing_authority: str
+) -> None:
+    candidate = _build_candidate("cand-btc-authority")
+    engine = _setup_engine(tmp_path, candidate, admit=False)
+    if missing_authority != "pending_constructor":
+        decision = engine.admit_candidate(candidate, qualification=_build_qualification(candidate))
+        assert decision.decision == "admitted"
+    if missing_authority == "missing_qualification":
+        engine.qualifications.clear()
+    elif missing_authority == "missing_decision":
+        engine.admission_decisions.clear()
+    elif missing_authority == "foreign_qualification":
+        engine.qualifications["BTCUSDT"] = _build_qualification(
+            _build_candidate("cand-btc-foreign")
+        )
+    elif missing_authority == "replaced_candidate":
+        engine.candidates["BTCUSDT"] = _build_candidate("cand-btc-replaced")
+    elif missing_authority == "rejected_qualification":
+        engine.qualifications["BTCUSDT"] = _build_qualification(candidate, decision="rejected")
+    cash_before = engine.account.cash
+
+    opened = engine.execute_open("BTCUSDT", 1, Decimal("100"), NOW)
+
+    assert opened is None
+    assert engine.active_trades == {}
+    assert engine.sqlite_ledger.load().entries == ()
+    assert engine.account.cash == cash_before
+    if missing_authority == "pending_constructor":
+        assert engine.qualified_symbols == ()
 
 
 def test_open_trade_immutability_full_lifecycle(tmp_path: Path) -> None:

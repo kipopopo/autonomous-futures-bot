@@ -53,7 +53,10 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     build_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
-from tests.paper_fixtures import write_qualified_paper_fixture  # noqa: E402
+from tests.paper_fixtures import (  # noqa: E402
+    admit_paper_candidates_fixture,
+    write_qualified_paper_fixture,
+)
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
@@ -117,6 +120,7 @@ def _setup_engine(
         lifecycle_db=tmp_path / "paper-lifecycle.sqlite3",
         observations_db=tmp_path / "paper-observations.sqlite3",
     )
+    admit_paper_candidates_fixture(engine, tmp_path)
     for sym in symbols:
         engine.monitor._rolling_atrs[sym] = Decimal("100.0")
         engine.monitor._baseline_atrs[sym] = Decimal("100.0")
