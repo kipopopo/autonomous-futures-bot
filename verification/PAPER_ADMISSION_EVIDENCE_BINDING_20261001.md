@@ -2,7 +2,16 @@
 
 ## Scope and status
 
-**Offline safety checkpoint; NOT PRODUCTION READY.** This records local verification before publication. A full-suite pass for the publication SHA is not claimed here; the exact-head GitHub Actions quality gate remains required. Nothing in this checkpoint authorizes deployment, a restart, provider spending, signed exchange requests, testnet/live activation, or orders.
+**Offline safety checkpoint; NOT PRODUCTION READY.** Published implementation `e850db78bf6c69374f5204b9d04ca77bae723c43` passed exact-head [Actions `36833304635`](https://github.com/kipopopo/autonomous-futures-bot/actions/runs/36833304635): full tests, Ruff, formatting, strict types and compile. Re-read GitHub run metadata confirmed that exact SHA and completed/success state. No final CI test count is asserted. Nothing in this checkpoint authorizes deployment, a restart, provider spending, signed exchange requests, testnet/live activation, or orders.
+
+### Direct OS-process verification follow-up
+
+- Reused the existing base CLI and seed writers; no production wrapper, dependency or alternate orchestration was added. The child environment contains only process-platform variables, not provider credentials or ambient Python configuration.
+- Actual subprocess with unavailable cached Parquet: exit **1**, expected unavailable-input diagnostic, no artifact root. No implicit synthetic fallback.
+- Actual subprocess with explicit `--use-synthetic-windows`: exactly one cycle, one learning hash and one plan hash, paper/execution/exchange authority false. A second OS process returned the same typed result and JSON report; every persisted evidence file remained byte-identical, with no extra files or duplicate cycle.
+- Scheduler/base/receipt focus: **85 passed, 0 failed, 0 errors, 0 skipped**; terminal duration 83.53s. JUnit totals independently parsed. The test extends existing behavior coverage; no production behavior changed and no RED-to-GREEN implementation is claimed.
+- Scope remains **synthetic contract testing**, not market provenance, OOS quality, provider-backed learning, the positive scheduler-child seam or actual execution-feedback closure. The implementation Actions run above predates this test-only follow-up; it is not the follow-up's quality verdict.
+- Local cache discovery found nine canonical Parquet paths but no bundle file under `research/immutable-data`. Data presence alone does not authorize a provenance-valid autonomous research run. The Creator-history gate still explicitly rejects real calls pending complete authoritative history and accepted-proposal preflight.
 
 ## Changes
 

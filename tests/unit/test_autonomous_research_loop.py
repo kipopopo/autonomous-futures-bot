@@ -1006,6 +1006,71 @@ def test_cli_runner_executes_offline_cycle_end_to_end(
     assert (tmp_path / "artifacts" / "base-result.json").is_file()
 
 
+@pytest.mark.parametrize("synthetic_windows", [False, True])
+def test_offline_base_real_process_enforces_inputs_and_idempotent_resume(
+    tmp_path_factory: pytest.TempPathFactory,
+    synthetic_windows: bool,
+) -> None:
+    """OS-process/checkpoint proof only; synthetic inputs are not market evidence."""
+    import os
+    import subprocess
+    import sys
+
+    root = tmp_path_factory.mktemp("bp")
+    candidate_path, qualification_path, _, _ = _write_rejected_seed_artifacts(root)
+    output = root / "b"
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[2] / "scripts" / "run_autonomous_base.py"),
+        "--symbol",
+        "BTCUSDT",
+        "--bundle-hash",
+        HASH_A,
+        "--dataset-registry-hash",
+        HASH_B,
+        "--base-run-id",
+        "base-process-proof",
+        "--max-cycles",
+        "1",
+        "--use-synthetic-windows",
+        "--candidate-artifact",
+        str(candidate_path),
+        "--qualification-artifact",
+        str(qualification_path),
+        "--artifact-root",
+        str(output),
+    ]
+    # Do not inherit provider credentials or ambient Python configuration.
+    env = {
+        key: os.environ[key] for key in ("PATH", "SYSTEMROOT", "TMP", "TEMP") if key in os.environ
+    }
+    if not synthetic_windows:
+        command.remove("--use-synthetic-windows")
+        command.extend(["--parquet-path", str(root / "missing.parquet")])
+    first = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
+    if not synthetic_windows:
+        assert first.returncode == 1
+        assert "canonical cached parquet file is unavailable" in first.stderr
+        assert not output.exists()
+        return
+    assert first.returncode == 0, first.stderr
+    result = read_autonomous_base_result(output / "base-result.json")
+    assert result.cycles_executed == 1
+    assert len(result.learning_hashes) == len(result.plan_hashes) == len(result.cycle_ids) == 1
+    assert result.paper_activation is result.execution_authority is result.exchange_access is False
+    before = {
+        path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()
+    }
+
+    resumed = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
+    assert resumed.returncode == 0, resumed.stderr
+    assert json.loads(resumed.stdout) == json.loads(first.stdout)
+    assert read_autonomous_base_result(output / "base-result.json") == result
+    assert {
+        path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()
+    } == before
+
+
 def test_autonomous_base_write_readback_mismatch_rejects(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
