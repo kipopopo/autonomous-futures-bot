@@ -107,7 +107,9 @@ def _feedback(
     )
 
 
-def _write_rejected_seed_artifacts(tmp_path: Path):
+def _write_rejected_seed_artifacts(
+    tmp_path: Path, *, bundle_hash: str = HASH_A, dataset_registry_hash: str = HASH_B
+):
     candidate_id = "cand-seed-001"
     candidate = build_creator_candidate_artifact(
         candidate_id=candidate_id,
@@ -123,8 +125,8 @@ def _write_rejected_seed_artifacts(tmp_path: Path):
             exit=EntryExit(long="rsi >= 50", short="rsi <= 50"),
             vetoes=("testing_only_no_promotion",),
         ),
-        bundle_hash=HASH_A,
-        dataset_registry_hash=HASH_B,
+        bundle_hash=bundle_hash,
+        dataset_registry_hash=dataset_registry_hash,
         creator_run_id="creator-seed-001",
         research_seed=1,
         created_at=NOW,
@@ -726,6 +728,10 @@ def test_scheduled_offline_research_runs_existing_learner_planner_cycle(
             HASH_B,
             "--parquet-path",
             str(tmp_path / "missing.parquet"),
+            "--bundle-path",
+            str(tmp_path / "bundle" / "dataset-bundle.json"),
+            "--registry-path",
+            str(tmp_path / "registry" / "dataset-registry.json"),
         ]
     )
     scheduler = scheduler_module.AutonomousSchedulerDaemon(args)
@@ -733,6 +739,10 @@ def test_scheduled_offline_research_runs_existing_learner_planner_cycle(
     assert scheduler._execute_cycle("interval") == 0
     assert stages == ["learner", "planner", "cycle"]
     assert len(commands) == 1
+    assert commands[0][commands[0].index("--bundle-path") + 1] == str(args.bundle_path.resolve())
+    assert commands[0][commands[0].index("--registry-path") + 1] == str(
+        args.registry_path.resolve()
+    )
     result_path = Path(commands[0][commands[0].index("--artifact-root") + 1]) / "base-result.json"
     result = read_autonomous_base_result(result_path)
     assert result.cycles_executed == 1
@@ -785,6 +795,19 @@ def test_scheduled_offline_research_rejects_invalid_mode_before_outputs(
     with pytest.raises(ValueError):
         scheduler_module.AutonomousSchedulerDaemon(args)
     assert not output_dir.exists()
+
+
+@pytest.mark.parametrize("flag", ["--bundle-path", "--registry-path"])
+def test_scheduler_rejects_research_catalog_paths_in_normal_mode(tmp_path: Path, flag: str) -> None:
+    import scripts.run_autonomous_scheduler as scheduler_module
+
+    output = tmp_path / "s"
+    args = scheduler_module.build_parser().parse_args(
+        ["--symbol", "BTCUSDT", "--output-dir", str(output), flag, str(tmp_path / "catalog.json")]
+    )
+    with pytest.raises(ValueError, match="catalog paths require offline research mode"):
+        scheduler_module.AutonomousSchedulerDaemon(args)
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("receipt", ["missing", "zero_cycles"])
@@ -1069,6 +1092,225 @@ def test_offline_base_real_process_enforces_inputs_and_idempotent_resume(
     assert {
         path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()
     } == before
+
+
+@pytest.mark.parametrize("input_fault", [None, "missing", "tampered"])
+def test_scheduler_real_child_uses_bound_cached_input(
+    tmp_path_factory: pytest.TempPathFactory, input_fault: str | None
+) -> None:
+    """Actual scheduler/child proof; synthetic cached fixture, not market qualification."""
+    import os
+    import subprocess
+
+    from autonomous_futures.data.bundle import build_dataset_bundle, write_dataset_bundle
+    from autonomous_futures.data.manifest import build_manifest, describe_data_file, write_manifest
+    from autonomous_futures.data.parquet import write_canonical_parquet
+    from autonomous_futures.data.registry import (
+        DatasetRegistryEntry,
+        build_dataset_registry,
+        write_dataset_registry,
+    )
+    from scripts.run_autonomous_base import _make_default_windows
+
+    root = tmp_path_factory.mktemp("sp")
+    data_root = root / "d"
+    parquet = data_root / "BTCUSDT-5m.parquet"
+    # Only the inspected 5m component is materialized. Other catalog entries
+    # describe test-only coverage; this fixture is not a complete market dataset.
+    window = _make_default_windows("BTCUSDT", HASH_A, HASH_B)[0]
+    write_canonical_parquet(window.frame, parquet, interval=timedelta(minutes=5))
+    start, end = window.spec.time_start, window.spec.time_end
+    manifest = build_manifest(
+        symbols=("BTCUSDT",),
+        source_files=(describe_data_file(parquet, relative_path=parquet.name, rows=50),),
+        time_start=start,
+        time_end=end - timedelta(minutes=5),
+        created_at=NOW,
+        code_version="synthetic-process-fixture",
+        dependency_lock_hash="test-only",
+    )
+    write_manifest(data_root / "manifest.json", manifest)
+    entries = tuple(
+        DatasetRegistryEntry(
+            kind=kind,
+            symbols=("BTCUSDT",),
+            interval=interval,
+            time_start=lower,
+            time_end=upper,
+            observed_at=NOW,
+            schema_version="synthetic-fixture-v1",
+            content_hash=content_hash,
+            artifact_ref=ref,
+            endpoint_path=endpoint,
+            provenance=("unsigned", "synthetic_process_fixture"),
+        )
+        for kind, interval, lower, upper, content_hash, ref, endpoint in (
+            (
+                "kline",
+                "5m",
+                start,
+                end - timedelta(minutes=5),
+                manifest.manifest_hash,
+                "manifest.json",
+                "/fapi/v1/klines",
+            ),
+            (
+                "kline",
+                "15m",
+                start - timedelta(minutes=15),
+                end,
+                HASH_A,
+                "unavailable-context.json",
+                "/fapi/v1/klines",
+            ),
+            (
+                "mark_price",
+                "5m",
+                start,
+                end,
+                HASH_A,
+                "unavailable-mark.json",
+                "/fapi/v1/markPriceKlines",
+            ),
+            (
+                "funding_rate",
+                None,
+                start - timedelta(hours=8),
+                end,
+                HASH_A,
+                "unavailable-funding.json",
+                "/fapi/v1/fundingRate",
+            ),
+            (
+                "exchange_filters",
+                None,
+                None,
+                None,
+                HASH_A,
+                "unavailable-filters.json",
+                "/fapi/v1/exchangeInfo",
+            ),
+        )
+    )
+    registry = build_dataset_registry(entries, created_at=NOW)
+    registry_path = data_root / "registry" / "dataset-registry.json"
+    write_dataset_registry(registry_path, registry)
+    bundle = build_dataset_bundle(
+        registry, symbols=("BTCUSDT",), time_start=start, time_end=end, created_at=NOW
+    )
+    bundle_path = data_root / "bundle" / "dataset-bundle.json"
+    write_dataset_bundle(bundle_path, bundle)
+    candidate_path, qualification_path, _, _ = _write_rejected_seed_artifacts(
+        root, bundle_hash=bundle.bundle_hash, dataset_registry_hash=registry.registry_hash
+    )
+    if input_fault == "missing":
+        parquet.unlink()
+    elif input_fault == "tampered":
+        parquet.write_bytes(parquet.read_bytes() + b"tampered")
+    source_files = [p for p in root.rglob("*") if p.is_file()]
+    before = {p: p.read_bytes() for p in source_files}
+    output = root / "s"
+    env = {
+        key: os.environ[key] for key in ("PATH", "SYSTEMROOT", "TMP", "TEMP") if key in os.environ
+    }
+    command = [
+        sys.executable,
+        str(REPO_ROOT / "scripts" / "run_autonomous_scheduler.py"),
+        "--once",
+        "--symbol",
+        "BTCUSDT",
+        "--provider",
+        "demo",
+        "--output-dir",
+        str(output),
+        "--ledger-db",
+        str(root / "absent.sqlite3"),
+        "--research-candidate-artifact",
+        str(candidate_path),
+        "--research-qualification-artifact",
+        str(qualification_path),
+        "--bundle-hash",
+        bundle.bundle_hash,
+        "--dataset-registry-hash",
+        registry.registry_hash,
+        "--dataset-root",
+        str(data_root),
+        "--bundle-path",
+        str(bundle_path),
+        "--registry-path",
+        str(registry_path),
+        "--parquet-path",
+        str(parquet),
+        "--windows-count",
+        "1",
+        "--bars-per-window",
+        "50",
+        "--cycle-timeout-seconds",
+        "30",
+    ]
+    process = subprocess.run(
+        command, cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=60
+    )
+    health = json.loads((output / "scheduler-health.json").read_text())
+    assert health["status"] == "STOPPED"
+    assert health["total_cycles_executed"] == 1
+    assert health["admitted_candidates_count"] == 0
+    assert health["last_cycle_result"]["admitted"] is False
+    assert not (output / "scheduler.lock").exists()
+    assert {p: p.read_bytes() for p in source_files} == before
+    results = list(output.rglob("base-result.json"))
+    if input_fault is not None:
+        assert process.returncode != 0
+        assert health["last_cycle_result"]["status"] == "failed"
+        assert not results
+        assert not list(output.rglob("failure-memory"))
+        return
+    assert process.returncode == 0, process.stderr
+    assert len(results) == 1
+    result = read_autonomous_base_result(results[0])
+    assert result.cycles_executed == 1
+    assert result.bundle_hash == bundle.bundle_hash
+    assert result.dataset_registry_hash == registry.registry_hash
+    assert len(result.learning_hashes) == len(result.plan_hashes) == len(result.cycle_ids) == 1
+    assert result.paper_activation is result.execution_authority is result.exchange_access is False
+    assert health["last_cycle_result"]["status"] == f"offline_base_{result.status}"
+    evidence = {p: p.read_bytes() for p in results[0].parent.rglob("*") if p.is_file()}
+    # Resume the exact completed child, not a new scheduler cycle identity.
+    import scripts.run_autonomous_scheduler as scheduler_module
+
+    scheduler_args = scheduler_module.build_parser().parse_args(command[2:])
+    resume_command = [
+        sys.executable,
+        str(REPO_ROOT / "scripts" / "run_autonomous_base.py"),
+        "--base-run-id",
+        result.base_run_id,
+        "--symbol",
+        "BTCUSDT",
+        "--max-cycles",
+        "1",
+        "--artifact-root",
+        str(results[0].parent),
+        "--candidate-artifact",
+        str(candidate_path),
+        "--qualification-artifact",
+        str(qualification_path),
+        *command[command.index("--bundle-hash") : command.index("--cycle-timeout-seconds")],
+    ]
+    for flag in (
+        "min-profit-factor",
+        "max-drawdown-pct",
+        "min-average-return-pct",
+        "min-trades",
+        "min-windows",
+        "policy-id",
+    ):
+        resume_command.extend([f"--{flag}", str(getattr(scheduler_args, flag.replace("-", "_")))])
+    resumed = subprocess.run(
+        resume_command, cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=60
+    )
+    assert resumed.returncode == 0, resumed.stderr
+    assert read_autonomous_base_result(results[0]) == result
+    assert {p: p.read_bytes() for p in results[0].parent.rglob("*") if p.is_file()} == evidence
 
 
 def test_autonomous_base_write_readback_mismatch_rejects(

@@ -665,6 +665,10 @@ class AutonomousSchedulerDaemon:
             args.provider != "demo" or not args.bundle_hash or not args.dataset_registry_hash
         ):
             raise ValueError("Offline research requires demo mode and both scope hashes")
+        if not self.offline_research and (
+            args.bundle_path is not None or args.registry_path is not None
+        ):
+            raise ValueError("Explicit catalog paths require offline research mode")
         self.symbol: str = args.symbol
         self.output_dir: Path = Path(args.output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -968,6 +972,12 @@ class AutonomousSchedulerDaemon:
                     "1",
                 ]
             )
+            for flag, path in (
+                ("--bundle-path", self.args.bundle_path),
+                ("--registry-path", self.args.registry_path),
+            ):
+                if path is not None:
+                    cmd.extend([flag, str(path.resolve())])
         else:
             cmd.extend(
                 [
@@ -1628,6 +1638,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Offline-only rejected OOS seed; never substituted with paper-ledger feedback.",
     )
     parser.add_argument("--dataset-root", type=Path, default=Path("research/immutable-data"))
+    parser.add_argument(
+        "--bundle-path", type=Path, default=None, help="Explicit offline research dataset bundle."
+    )
+    parser.add_argument(
+        "--registry-path",
+        type=Path,
+        default=None,
+        help="Explicit offline research dataset registry.",
+    )
 
     return parser
 
