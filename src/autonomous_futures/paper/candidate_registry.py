@@ -22,6 +22,8 @@ from ..research.creator_artifacts import (
     _artifact_content_hash,
     read_creator_candidate_artifact,
 )
+from ..research.qualification_artifacts import CreatorCandidateQualificationArtifact
+from .admission import StrategyAdmissionDecider, StrategyAdmissionDecision
 
 logger = logging.getLogger(__name__)
 
@@ -238,10 +240,10 @@ def publish_candidate_admission(
     if target_path.is_file():
         prior_manifest = read_candidate_registry(target_path, verify_hash=True)
         updated_symbols = dict(prior_manifest.symbols)
-        version = prior_manifest.registry_version
+        version = max(2, prior_manifest.registry_version)
     else:
         updated_symbols = {}
-        version = 1
+        version = 2
 
     if admitted_at is None:
         admitted_str = datetime.now(UTC).isoformat()
@@ -458,18 +460,10 @@ class CandidateRegistryHotReloader:
             self.last_size = stat_res.st_size
             return False
 
-        candidates_to_admit: list[tuple[CreatorCandidateArtifact, str]] = []
         loaded_candidates: dict[str, CreatorCandidateArtifact] = {}
+        loaded_qualifications: dict[str, CreatorCandidateQualificationArtifact] = {}
+        decisions: dict[str, StrategyAdmissionDecision] = {}
         for symbol, entry in manifest.symbols.items():
-            current = getattr(self.engine, "candidates", {}).get(symbol)
-            if (
-                current is not None
-                and getattr(current, "candidate_id", None) == entry.candidate_id
-                and getattr(current, "artifact_hash", None) == entry.candidate_artifact_hash
-            ):
-                loaded_candidates[symbol] = current
-                continue
-
             try:
                 verify_candidate_manifest_entry(entry, base_dir=self.base_dir)
             except FileNotFoundError as exc:
@@ -524,18 +518,41 @@ class CandidateRegistryHotReloader:
                 self.last_size = stat_res.st_size
                 return False
 
-            loaded_candidates[symbol] = cand
-            candidates_to_admit.append((cand, entry.qualification_hash))
-
-        for cand, q_hash in candidates_to_admit:
-            self.engine.admit_candidate(
+            try:
+                qualification = self.engine.load_candidate_qualification(
+                    cand,
+                    qualification_hash=entry.qualification_hash,
+                    artifact_path=art_path,
+                    manifest_dir=self.manifest_path.parent,
+                )
+            except (OSError, ValueError, DomainViolation) as _exc:
+                logger.warning("Invalid qualification evidence for %s", cand.candidate_id)
+                self.last_reload_status = "FAILED_QUALIFICATION"
+                return False
+            decision = StrategyAdmissionDecider().evaluate_admission(
                 candidate=cand,
-                qualification_hash=q_hash,
-                require_flat=False,
+                qualification=qualification,
+                qualification_hash=entry.qualification_hash,
+                symbol=symbol,
+                active_trades=self.engine.active_trades,
+                require_flat=self.engine.require_flat,
             )
+            if decision.decision != "admitted" or qualification is None:
+                logger.warning("Candidate admission blocked for %s: %s", symbol, decision.decision)
+                self.last_reload_status = "FAILED_ADMISSION"
+                return False
+            loaded_candidates[symbol] = cand
+            loaded_qualifications[symbol] = qualification
+            decisions[symbol] = decision
 
         self.engine.candidates = loaded_candidates
         self.engine.qualified_symbols = tuple(loaded_candidates)
+        self.engine.qualifications = loaded_qualifications
+        self.engine.admission_decisions.clear()
+        self.engine.admission_decisions.update(decisions)
+        self.engine.registry_manifest = manifest
+        for symbol in loaded_candidates:
+            self.engine._register_symbol(symbol)
 
         self.last_reloaded_at = datetime.now(UTC).isoformat()
         self.last_registry_hash = manifest.registry_hash
@@ -548,7 +565,7 @@ class CandidateRegistryHotReloader:
             "registry_hash=%s, reloaded=%d, total_reloads=%d",
             self.manifest_path,
             manifest.registry_hash,
-            len(candidates_to_admit),
+            len(loaded_candidates),
             self.reload_count,
         )
         return True

@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from autonomous_futures.domain.contracts import (
     CandidateSimulationRisk,
     EntryExit,
@@ -263,3 +265,43 @@ def test_live_paper_engine_admit_candidate_and_trade_isolation(tmp_path: Path):
 
     # Active trade's candidate remains strictly the old candidate (never mutated!)
     assert engine.active_trades["BTCUSDT"].candidate.candidate_id == "cand-old-001"
+
+
+def test_live_paper_engine_blocks_hash_only_admission(tmp_path: Path):
+    old_cand = _build_test_candidate("cand-old-001")
+    new_cand = _build_test_candidate("cand-new-002")
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        candidates={"BTCUSDT": old_cand},
+        ledger_db=tmp_path / "ledger.sqlite3",
+        lifecycle_db=tmp_path / "lifecycle.sqlite3",
+        observations_db=tmp_path / "obs.sqlite3",
+        qualifications_dir=tmp_path / "qualifications",
+        base_dir=tmp_path,
+    )
+
+    decision = engine.admit_candidate(new_cand, qualification_hash=HASH_C)
+
+    assert decision.decision == "blocked_unqualified"
+    assert decision.paper_activation is False
+    assert decision.decision_hash == strategy_admission_content_hash(decision)
+    assert engine.candidates == {"BTCUSDT": old_cand}
+    assert engine.qualifications == {}
+
+
+@pytest.mark.parametrize("field", ["bundle_hash", "dataset_registry_hash"])
+def test_strategy_admission_blocks_qualification_scope_mismatch(field: str):
+    from autonomous_futures.research.qualification_artifacts import _qualification_content_hash
+
+    candidate = _build_test_candidate()
+    qualification = _build_test_qualification(candidate).model_copy(update={field: "f" * 64})
+    qualification = qualification.model_copy(
+        update={"qualification_hash": _qualification_content_hash(qualification)}
+    )
+
+    decision = StrategyAdmissionDecider().evaluate_admission(
+        candidate=candidate, qualification=qualification, symbol="BTCUSDT", evaluated_at=NOW
+    )
+
+    assert decision.decision == "blocked_invalid_binding"
+    assert decision.paper_activation is False

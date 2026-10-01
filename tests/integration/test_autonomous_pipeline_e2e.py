@@ -87,6 +87,7 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     build_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
+from tests.paper_fixtures import write_qualified_paper_fixture  # noqa: E402
 
 SCHEDULER_SCRIPT = _REPO_ROOT / "scripts" / "run_autonomous_scheduler.py"
 CYCLE_SCRIPT = _REPO_ROOT / "scripts" / "run_autonomous_cycle.py"
@@ -443,7 +444,7 @@ def test_autonomous_closed_loop_breach_to_hot_reload_e2e(tmp_path: Path) -> None
         candidate_id=cand_a.candidate_id,
         candidate_artifact_hash=cand_a.artifact_hash,
         artifact_path=cand_a_file,
-        qualification_hash=QUAL_HASH,
+        qualification_hash=write_qualified_paper_fixture(cand_a_file, cand_a),
         admitted_at=NOW,
     )
 
@@ -743,7 +744,7 @@ def test_autonomous_closed_loop_interval_trigger_e2e(tmp_path: Path) -> None:
         candidate_id=cand_a.candidate_id,
         candidate_artifact_hash=cand_a.artifact_hash,
         artifact_path=cand_a_file,
-        qualification_hash=QUAL_HASH,
+        qualification_hash=write_qualified_paper_fixture(cand_a_file, cand_a),
         admitted_at=NOW,
     )
 
@@ -856,7 +857,7 @@ def test_e2e_open_trade_tick_atr_trailing_stop_immutability(tmp_path: Path) -> N
         candidate_id=cand_a.candidate_id,
         candidate_artifact_hash=cand_a.artifact_hash,
         artifact_path=cand_a_file,
-        qualification_hash=QUAL_HASH,
+        qualification_hash=write_qualified_paper_fixture(cand_a_file, cand_a),
         admitted_at=NOW,
     )
 
@@ -879,7 +880,7 @@ def test_e2e_open_trade_tick_atr_trailing_stop_immutability(tmp_path: Path) -> N
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="2" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW + timedelta(seconds=2),
     )
     assert reloader.check_and_reload() is True
@@ -973,7 +974,7 @@ def test_e2e_tampered_manifest_fail_closed_resilience(tmp_path: Path) -> None:
         candidate_id=cand_a.candidate_id,
         candidate_artifact_hash=cand_a.artifact_hash,
         artifact_path=cand_a_file,
-        qualification_hash=QUAL_HASH,
+        qualification_hash=write_qualified_paper_fixture(cand_a_file, cand_a),
         admitted_at=NOW,
     )
 
@@ -1093,7 +1094,7 @@ def test_e2e_tampered_manifest_fail_closed_resilience(tmp_path: Path) -> None:
         candidate_id=cand_c.candidate_id,
         candidate_artifact_hash=cand_c.artifact_hash,
         artifact_path=cand_c_file,
-        qualification_hash=QUAL_HASH,
+        qualification_hash=write_qualified_paper_fixture(cand_c_file, cand_c),
         admitted_at=NOW + timedelta(seconds=10),
     )
     assert reloader.check_and_reload() is True

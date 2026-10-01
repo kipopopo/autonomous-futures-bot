@@ -53,17 +53,11 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     build_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
+from tests.paper_fixtures import write_qualified_paper_fixture  # noqa: E402
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
 NOW = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
-
-
-def _hex64(val: int | str) -> str:
-    """Generate deterministic 64-char lowercase hex string."""
-    import hashlib
-
-    return hashlib.sha256(str(val).encode("utf-8")).hexdigest()
 
 
 def _build_test_candidate(
@@ -251,7 +245,7 @@ def test_empirical_sqlite_lock_contention_and_integrity_under_rapid_churn(
         candidate_id=cand_init.candidate_id,
         candidate_artifact_hash=cand_init.artifact_hash,
         artifact_path=cand_init_file,
-        qualification_hash=_hex64("init"),
+        qualification_hash=write_qualified_paper_fixture(cand_init_file, cand_init),
     )
 
     engine = _setup_engine(storage_dir, {"BTCUSDT": cand_init})
@@ -310,7 +304,7 @@ def test_empirical_sqlite_lock_contention_and_integrity_under_rapid_churn(
             candidate_id=new_cand.candidate_id,
             candidate_artifact_hash=new_cand.artifact_hash,
             artifact_path=new_cand_file,
-            qualification_hash=_hex64(cycle),
+            qualification_hash=write_qualified_paper_fixture(new_cand_file, new_cand),
         )
 
         try:
@@ -381,6 +375,7 @@ def test_empirical_sqlite_lock_contention_and_integrity_under_rapid_churn(
 
 def test_empirical_memory_leak_and_candidate_retention_across_churn(
     tmp_path: Path,
+    request: pytest.FixtureRequest,
 ) -> None:
     """Empirical challenge: Memory stability and candidate artifact retention across churn.
 
@@ -403,7 +398,7 @@ def test_empirical_memory_leak_and_candidate_retention_across_churn(
         candidate_id=cand_0.candidate_id,
         candidate_artifact_hash=cand_0.artifact_hash,
         artifact_path=cand_0_file,
-        qualification_hash=_hex64("mem-000"),
+        qualification_hash=write_qualified_paper_fixture(cand_0_file, cand_0),
     )
 
     engine = _setup_engine(storage_dir, {"BTCUSDT": cand_0})
@@ -412,6 +407,7 @@ def test_empirical_memory_leak_and_candidate_retention_across_churn(
     # Force garbage collection and start tracemalloc
     gc.collect()
     tracemalloc.start()
+    request.addfinalizer(tracemalloc.stop)
 
     snapshot_early = None
     total_reloads = 60
@@ -426,7 +422,7 @@ def test_empirical_memory_leak_and_candidate_retention_across_churn(
             candidate_id=cand.candidate_id,
             candidate_artifact_hash=cand.artifact_hash,
             artifact_path=cand_file,
-            qualification_hash=_hex64(f"mem-{i}"),
+            qualification_hash=write_qualified_paper_fixture(cand_file, cand),
         )
 
         reloaded = reloader.check_and_reload()
@@ -483,7 +479,7 @@ async def test_empirical_unhandled_task_exceptions_and_lifecycle_invariants(
         candidate_id=cand_init.candidate_id,
         candidate_artifact_hash=cand_init.artifact_hash,
         artifact_path=cand_init_file,
-        qualification_hash=_hex64("lifecycle01"),
+        qualification_hash=write_qualified_paper_fixture(cand_init_file, cand_init),
     )
 
     # 120 streaming wire frames
@@ -535,7 +531,7 @@ async def test_empirical_unhandled_task_exceptions_and_lifecycle_invariants(
             candidate_id=c2.candidate_id,
             candidate_artifact_hash=c2.artifact_hash,
             artifact_path=c2_file,
-            qualification_hash=_hex64("lifecycle02"),
+            qualification_hash=write_qualified_paper_fixture(c2_file, c2),
         )
         await asyncio.sleep(0.15)
 
@@ -553,7 +549,7 @@ async def test_empirical_unhandled_task_exceptions_and_lifecycle_invariants(
                     candidate_id=c3.candidate_id,
                     candidate_artifact_hash=c3.artifact_hash,
                     artifact_path=str(c3_file),
-                    qualification_hash=_hex64("lifecycle03"),
+                    qualification_hash=write_qualified_paper_fixture(c3_file, c3),
                     admitted_at=NOW.isoformat(),
                 )
             },

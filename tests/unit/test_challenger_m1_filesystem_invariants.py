@@ -390,7 +390,7 @@ class TestCliCandidateRegistryIntegration:
 
         assert custom_reg_path.is_file(), "Manifest should have been published"
         manifest = read_candidate_registry(custom_reg_path, verify_hash=True)
-        assert manifest.registry_version == 1
+        assert manifest.registry_version == 2
         assert "BTCUSDT" in manifest.symbols
 
         btc_entry = manifest.symbols["BTCUSDT"]

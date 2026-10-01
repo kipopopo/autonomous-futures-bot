@@ -12,7 +12,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 import socket
 import sys
 from collections.abc import Mapping, Sequence
@@ -44,7 +43,6 @@ from autonomous_futures.feed.telemetry import FeedTelemetryAccumulator
 from autonomous_futures.paper.admission import (
     StrategyAdmissionDecider,
     StrategyAdmissionDecision,
-    strategy_admission_content_hash,
 )
 from autonomous_futures.paper.candidate_registry import (
     CandidateRegistryManifest,
@@ -103,13 +101,6 @@ DEFAULT_SLIPPAGE_BPS: Final[Decimal] = Decimal("2.0")  # 2 bps adverse slippage
 DEFAULT_SLIPPAGE_RATE: Final[Decimal] = Decimal("0.0002")
 SPREAD_HALT_THRESHOLD_BPS: Final[Decimal] = Decimal("20.0")  # >=20 bps spread halt
 VOLATILITY_HALT_RATIO: Final[Decimal] = Decimal("3.0")  # >=3.0x ATR halt
-
-PINNED_CANDIDATE_IDS: Final[dict[str, str]] = {
-    "BTCUSDT": "cand-fb5550f7a2a266293385d1a1c424c61eaa1c09c0830d75bccd03a45008c63c74",
-    "ETHUSDT": "cand-1f87c23b87c117a5909a32a38dd44f0001b66d70f6a0818375a6e95d429aa632",
-    "SOLUSDT": "cand-009ebbf1b484c1a1ba9ee3e28d826d00bcce290b42d15f60c635344e9060c3dd",
-    "DOGEUSDT": "cand-09891e9fead9965035c61117e65bd12a9e6b59f179905ec7c5d2963288f8f2a8",
-}
 
 
 @dataclass(slots=True)
@@ -378,7 +369,7 @@ class LivePaperEngine:
                 require_admitted=True,
             )
         else:
-            self.candidates = self._load_default_candidates()
+            self.candidates = {}
 
         self.qualified_symbols: tuple[str, ...] = tuple(self.candidates.keys())
 
@@ -468,21 +459,6 @@ class LivePaperEngine:
                             f"(reasons: {decision.reason_codes})"
                         )
 
-    def _load_default_candidates(self) -> dict[str, CreatorCandidateArtifact]:
-        """Load pinned candidate artifacts if available on filesystem."""
-        candidates: dict[str, CreatorCandidateArtifact] = {}
-        candidates_dir = Path("artifacts/research/phase252/candidates")
-        if candidates_dir.is_dir():
-            for symbol, cand_id in PINNED_CANDIDATE_IDS.items():
-                target_path = candidates_dir / f"{cand_id}.json"
-                if target_path.is_file():
-                    try:
-                        cand = read_creator_candidate_artifact(target_path)
-                        candidates[symbol] = cand
-                    except Exception as exc:
-                        logger.warning("Failed to load candidate for %s: %s", symbol, exc)
-        return candidates
-
     def _load_candidates_from_manifest(
         self,
         manifest_input: CandidateRegistryManifest | Path | str,
@@ -511,8 +487,9 @@ class LivePaperEngine:
                 f"CandidateRegistryManifest version must be >= 2, got {manifest.registry_version}"
             )
 
-        self.registry_manifest = manifest
         loaded: dict[str, CreatorCandidateArtifact] = {}
+        qualifications: dict[str, CreatorCandidateQualificationArtifact] = {}
+        decisions: dict[str, StrategyAdmissionDecision] = {}
         decider = StrategyAdmissionDecider()
 
         for symbol, entry in manifest.symbols.items():
@@ -564,55 +541,24 @@ class LivePaperEngine:
                     f"{cand.strategy.universe.symbols}"
                 )
 
-            # Locate qualification artifact
-            qual_paths = []
-            if qualifications_dir is not None:
-                qual_paths.append(Path(qualifications_dir) / f"qual-{entry.candidate_id}.json")
-                qual_paths.append(Path(qualifications_dir) / f"{entry.candidate_id}.json")
-                qual_paths.append(Path(qualifications_dir) / f"{entry.qualification_hash}.json")
-            qual_paths.append(
-                art_path.parent.parent / "qualifications" / f"qual-{entry.candidate_id}.json"
-            )
-            qual_paths.append(
-                art_path.parent.parent / "qualifications" / f"{entry.candidate_id}.json"
-            )
-            qual_paths.append(
-                Path("artifacts/paper_live/qualifications") / f"qual-{entry.candidate_id}.json"
-            )
-            qual_paths.append(
-                Path("artifacts/paper_live/qualifications") / f"{entry.candidate_id}.json"
-            )
-            qual_paths.append(art_path.parent / f"qual-{entry.candidate_id}.json")
-            qual_paths.append(art_path.parent / f"{entry.candidate_id}.json")
-            if base_dir is not None:
-                qual_paths.append(
-                    Path(base_dir)
-                    / "artifacts/paper_live/qualifications"
-                    / f"qual-{entry.candidate_id}.json"
-                )
-                qual_paths.append(
-                    Path(base_dir)
-                    / "artifacts/paper_live/qualifications"
-                    / f"{entry.candidate_id}.json"
-                )
-                qual_paths.append(
-                    Path(base_dir) / "qualifications" / f"qual-{entry.candidate_id}.json"
-                )
-                qual_paths.append(Path(base_dir) / "qualifications" / f"{entry.candidate_id}.json")
-
-            qual_file = next((p for p in qual_paths if p.is_file()), None)
-            if qual_file is None:
-                raise DomainViolation(
-                    f"Qualification artifact file for {entry.candidate_id} not found"
-                )
-
             try:
-                qual = read_creator_candidate_qualification_artifact(qual_file)
+                qual = self.load_candidate_qualification(
+                    cand,
+                    qualification_hash=entry.qualification_hash,
+                    artifact_path=art_path,
+                    manifest_dir=manifest_dir,
+                    qualifications_dir=qualifications_dir,
+                    base_dir=base_dir,
+                )
             except (json.JSONDecodeError, ValidationError) as exc:
                 raise DomainViolation(
                     f"Qualification artifact file for {entry.candidate_id} is invalid JSON/schema: "
-                    f"{qual_file}: {exc}"
+                    f"{exc}"
                 ) from exc
+            if qual is None:
+                raise DomainViolation(
+                    f"Qualification artifact file for {entry.candidate_id} not found"
+                )
 
             if qual.qualification_hash != entry.qualification_hash:
                 raise DomainViolation(
@@ -646,8 +592,7 @@ class LivePaperEngine:
                 require_flat=require_flat,
                 evaluated_at=datetime.now(UTC),
             )
-            self.admission_decisions[sym] = decision
-            self.qualifications[sym] = qual
+            decisions[sym] = decision
 
             if decision.decision != "admitted":
                 if require_admitted:
@@ -665,7 +610,11 @@ class LivePaperEngine:
 
             if allowed_symbols is None or sym in allowed_symbols:
                 loaded[sym] = cand
+                qualifications[sym] = qual
 
+        self.registry_manifest = manifest
+        self.admission_decisions.update(decisions)
+        self.qualifications.update(qualifications)
         return loaded
 
     def _register_symbol(self, symbol: str) -> None:
@@ -2039,6 +1988,44 @@ class LivePaperEngine:
 
         return summary
 
+    def load_candidate_qualification(
+        self,
+        candidate: CreatorCandidateArtifact,
+        *,
+        qualification_hash: str | None = None,
+        artifact_path: Path | None = None,
+        manifest_dir: Path | None = None,
+        qualifications_dir: Path | None = None,
+        base_dir: Path | None = None,
+    ) -> CreatorCandidateQualificationArtifact | None:
+        """Read persisted qualification evidence; a hash alone is never evidence."""
+        directories = [qualifications_dir or self.qualifications_dir]
+        if artifact_path is not None:
+            directories.extend(
+                (artifact_path.parent.parent / "qualifications", artifact_path.parent)
+            )
+        if manifest_dir is not None:
+            directories.append(manifest_dir / "qualifications")
+        root = base_dir or self.base_dir
+        if root is not None:
+            directories.extend(
+                (
+                    root / "artifacts/paper_live/qualifications",
+                    root / "qualifications",
+                )
+            )
+        directories.append(Path("artifacts/paper_live/qualifications"))
+        names = [f"qual-{candidate.candidate_id}.json", f"{candidate.candidate_id}.json"]
+        if qualification_hash is not None:
+            names.append(f"{qualification_hash}.json")
+        for directory in directories:
+            if directory is not None:
+                for name in names:
+                    path = directory / name
+                    if path != artifact_path and path.is_file():
+                        return read_creator_candidate_qualification_artifact(path)
+        return None
+
     def admit_candidate(
         self,
         candidate: CreatorCandidateArtifact,
@@ -2046,117 +2033,32 @@ class LivePaperEngine:
         *,
         qualification_hash: str | None = None,
         require_flat: bool = False,
+        symbol: str | None = None,
     ) -> StrategyAdmissionDecision:
         """Evaluate and admit a newly qualified strategy candidate safely into paper runtime."""
-        symbol = (
+        symbol = symbol or (
             candidate.strategy.universe.symbols[0]
             if candidate.strategy.universe.symbols
             else self.symbols[0]
         )
 
-        # Attempt to locate qualification artifact on disk if not provided
         if qualification is None:
-            qual_paths = []
-            if self.qualifications_dir is not None:
-                qual_paths.append(self.qualifications_dir / f"qual-{candidate.candidate_id}.json")
-                if qualification_hash:
-                    qual_paths.append(self.qualifications_dir / f"{qualification_hash}.json")
-            qual_paths.append(
-                Path("artifacts/paper_live/qualifications") / f"qual-{candidate.candidate_id}.json"
-            )
-            if self.base_dir is not None:
-                qual_paths.append(
-                    self.base_dir
-                    / "artifacts/paper_live/qualifications"
-                    / f"qual-{candidate.candidate_id}.json"
+            try:
+                qualification = self.load_candidate_qualification(
+                    candidate, qualification_hash=qualification_hash
                 )
-                qual_paths.append(
-                    self.base_dir / "qualifications" / f"qual-{candidate.candidate_id}.json"
-                )
+            except (OSError, ValueError, DomainViolation) as _exc:
+                logger.warning("Invalid qualification evidence for %s", candidate.candidate_id)
 
-            qual_file = next((p for p in qual_paths if p.is_file()), None)
-            if qual_file is not None:
-                try:
-                    qualification = read_creator_candidate_qualification_artifact(qual_file)
-                except Exception as exc:
-                    logger.warning("Failed to load qualification from %s: %s", qual_file, exc)
-
-        if qualification is not None:
-            decider = StrategyAdmissionDecider()
-            decision = decider.evaluate_admission(
-                candidate=candidate,
-                qualification=qualification,
-                symbol=symbol,
-                active_trades=self.active_trades,
-                require_flat=require_flat,
-                evaluated_at=datetime.now(UTC),
-            )
-        else:
-            now = datetime.now(UTC)
-            cand_slug = re.sub(r"[^a-z0-9-]", "-", candidate.candidate_id.lower()).strip("-")
-            dec_id = f"admission-{cand_slug[:24]}-{int(now.timestamp())}"
-
-            # Check candidate content hash integrity
-            if _artifact_content_hash(candidate) != candidate.artifact_hash:
-                provisional = StrategyAdmissionDecision.model_validate(
-                    {
-                        "decision_version": 1,
-                        "decision_id": dec_id,
-                        "candidate_id": candidate.candidate_id,
-                        "candidate_artifact_hash": candidate.artifact_hash,
-                        "qualification_hash": qualification_hash or ("0" * 64),
-                        "symbol": symbol,
-                        "decision": "blocked_invalid_binding",
-                        "reason_codes": ("candidate_hash_mismatch",),
-                        "active_trade_retained": False,
-                        "data_source": "cached_only",
-                        "promotion_state": "unpromoted",
-                        "paper_activation": False,
-                        "execution_authority": False,
-                        "evaluated_at": now,
-                        "decision_hash": "0" * 64,
-                    }
-                )
-                dec_hash = strategy_admission_content_hash(provisional)
-                decision = provisional.model_copy(update={"decision_hash": dec_hash})
-            else:
-                has_active = symbol in self.active_trades
-                if has_active and require_flat:
-                    decision_outcome = "deferred_active_position"
-                    reasons = ("active_position_open",)
-                    active_retained = False
-                else:
-                    decision_outcome = "admitted"
-                    reasons = (
-                        ("candidate_qualified_active_trade_retained",)
-                        if has_active
-                        else ("candidate_qualified_for_admission",)
-                    )
-                    active_retained = has_active
-
-                q_hash = qualification_hash or ("0" * 64)
-                sorted_reasons = tuple(sorted(set(reasons)))
-                provisional = StrategyAdmissionDecision.model_validate(
-                    {
-                        "decision_version": 1,
-                        "decision_id": dec_id,
-                        "candidate_id": candidate.candidate_id,
-                        "candidate_artifact_hash": candidate.artifact_hash,
-                        "qualification_hash": q_hash,
-                        "symbol": symbol,
-                        "decision": decision_outcome,
-                        "reason_codes": sorted_reasons,
-                        "active_trade_retained": active_retained,
-                        "data_source": "cached_only",
-                        "promotion_state": "unpromoted",
-                        "paper_activation": decision_outcome == "admitted",
-                        "execution_authority": False,
-                        "evaluated_at": now,
-                        "decision_hash": "0" * 64,
-                    }
-                )
-                dec_hash = strategy_admission_content_hash(provisional)
-                decision = provisional.model_copy(update={"decision_hash": dec_hash})
+        decision = StrategyAdmissionDecider().evaluate_admission(
+            candidate=candidate,
+            qualification=qualification,
+            qualification_hash=qualification_hash,
+            symbol=symbol,
+            active_trades=self.active_trades,
+            require_flat=require_flat,
+            evaluated_at=datetime.now(UTC),
+        )
 
         self.admission_decisions[symbol] = decision
         if decision.decision == "admitted":

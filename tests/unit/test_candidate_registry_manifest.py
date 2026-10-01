@@ -335,7 +335,7 @@ class TestAtomicPublisherOperations:
             admitted_at=NOW_ISO,
         )
         assert manifest_path.is_file()
-        assert manifest.registry_version == 1
+        assert manifest.registry_version == 2
         assert "BTCUSDT" in manifest.symbols
         assert manifest.symbols["BTCUSDT"].candidate_id == "cand-btc-001"
         assert verify_candidate_registry_manifest(manifest) is True

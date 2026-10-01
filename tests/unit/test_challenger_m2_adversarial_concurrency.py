@@ -58,6 +58,7 @@ from autonomous_futures.research.creator_artifacts import (
     build_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
+from tests.paper_fixtures import write_qualified_paper_fixture
 
 # Ensure repo root is on sys.path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -412,7 +413,7 @@ def test_adversarial_all_or_nothing_multi_symbol_atomic_preservation(tmp_path: P
         candidate_id=cand_btc_valid.candidate_id,
         candidate_artifact_hash=cand_btc_valid.artifact_hash,
         artifact_path=cand_btc_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_btc_file, cand_btc_valid),
         admitted_at=NOW,
     )
     # Add corrupted ETH entry into same manifest
@@ -422,7 +423,7 @@ def test_adversarial_all_or_nothing_multi_symbol_atomic_preservation(tmp_path: P
                 candidate_id=cand_btc_valid.candidate_id,
                 candidate_artifact_hash=cand_btc_valid.artifact_hash,
                 artifact_path=str(cand_btc_file),
-                qualification_hash="1" * 64,
+                qualification_hash=write_qualified_paper_fixture(cand_btc_file, cand_btc_valid),
                 admitted_at=NOW.isoformat(),
             ),
             "ETHUSDT": CandidateManifestEntry(
@@ -508,7 +509,7 @@ def test_concurrent_writer_publisher_and_daemon_reloader_stress(tmp_path: Path) 
         candidate_id=candidates[0].candidate_id,
         candidate_artifact_hash=candidates[0].artifact_hash,
         artifact_path=cand_files[0],
-        qualification_hash="0" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_files[0], candidates[0]),
         admitted_at=NOW,
     )
 
@@ -534,7 +535,7 @@ def test_concurrent_writer_publisher_and_daemon_reloader_stress(tmp_path: Path) 
                     candidate_id=cand.candidate_id,
                     candidate_artifact_hash=cand.artifact_hash,
                     artifact_path=c_file,
-                    qualification_hash=f"{idx:064d}",
+                    qualification_hash=write_qualified_paper_fixture(c_file, cand),
                     admitted_at=datetime.now(UTC),
                 )
             except Exception as e:
@@ -592,7 +593,7 @@ def test_windows_permission_error_winerror_5_retry_in_reloader(tmp_path: Path) -
         candidate_id=cand.candidate_id,
         candidate_artifact_hash=cand.artifact_hash,
         artifact_path=cand_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_file, cand),
         admitted_at=NOW,
     )
 
@@ -696,7 +697,7 @@ def test_health_checkpoint_telemetry_across_reload_lifecycle(tmp_path: Path) -> 
         candidate_id=cand_a.candidate_id,
         candidate_artifact_hash=cand_a.artifact_hash,
         artifact_path=cand_a_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_a_file, cand_a),
         admitted_at=NOW,
     )
 
@@ -749,7 +750,7 @@ def test_health_checkpoint_telemetry_across_reload_lifecycle(tmp_path: Path) -> 
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="2" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW,
     )
 
@@ -842,7 +843,7 @@ async def test_heartbeat_loop_periodic_execution_and_telemetry_emission(tmp_path
         candidate_id=cand_a.candidate_id,
         candidate_artifact_hash=cand_a.artifact_hash,
         artifact_path=cand_a_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_a_file, cand_a),
         admitted_at=NOW,
     )
 
@@ -899,7 +900,7 @@ async def test_heartbeat_loop_periodic_execution_and_telemetry_emission(tmp_path
             candidate_id=cand_b.candidate_id,
             candidate_artifact_hash=cand_b.artifact_hash,
             artifact_path=cand_b_file,
-            qualification_hash="2" * 64,
+            qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
             admitted_at=datetime.now(UTC),
         )
 

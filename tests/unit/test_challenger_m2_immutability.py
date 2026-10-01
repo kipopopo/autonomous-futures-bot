@@ -32,6 +32,7 @@ from autonomous_futures.research.creator_artifacts import (
     build_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
+from tests.paper_fixtures import write_qualified_paper_fixture
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
@@ -176,7 +177,7 @@ def test_empirical_atr_trailing_stop_multiplier_immutability_under_ticks(tmp_pat
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="b" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW,
     )
     reloader = CandidateRegistryHotReloader(manifest_path, engine)
@@ -342,7 +343,7 @@ def test_empirical_opposing_signal_isolation_during_hot_reload(tmp_path: Path) -
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="b" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW,
     )
     reloader = CandidateRegistryHotReloader(manifest_path, engine)
@@ -480,7 +481,7 @@ def test_empirical_exit_rule_divergence_isolation(tmp_path: Path) -> None:
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="b" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW,
     )
     reloader = CandidateRegistryHotReloader(manifest_path, engine)
@@ -604,7 +605,7 @@ def test_empirical_multiple_consecutive_hot_reloads_immutability(tmp_path: Path)
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="b" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW,
     )
     assert reloader.check_and_reload() is True
@@ -619,7 +620,7 @@ def test_empirical_multiple_consecutive_hot_reloads_immutability(tmp_path: Path)
         candidate_id=cand_c.candidate_id,
         candidate_artifact_hash=cand_c.artifact_hash,
         artifact_path=cand_c_file,
-        qualification_hash="c" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_c_file, cand_c),
         admitted_at=NOW + timedelta(seconds=5),
     )
     assert reloader.check_and_reload() is True
@@ -684,7 +685,7 @@ def test_empirical_sqlite_persistence_and_recovery_immutability(tmp_path: Path) 
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="b" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW,
     )
     reloader = CandidateRegistryHotReloader(manifest_path, engine)
@@ -761,7 +762,7 @@ def test_empirical_resilient_handling_when_candidate_b_malformed_features(tmp_pa
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="b" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW,
     )
     reloader = CandidateRegistryHotReloader(manifest_path, engine)

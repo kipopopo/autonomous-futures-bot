@@ -1,6 +1,14 @@
 # Autonomous Futures Bot — Current Handoff
 
-**Status as of 2026-09-30 (MYT): NOT PRODUCTION READY.** This document supersedes the older handoff that described Phase 309 as a live production launch. Those historical claims are not current operational evidence; the subsequent independent audit found simulator-backed paths and missing live-readiness foundations. No deployment or service restart was performed as part of this update.
+**Status as of 2026-10-01 (MYT): NOT PRODUCTION READY.** This document supersedes the older handoff that described Phase 309 as a live production launch. Those historical claims are not current operational evidence; the subsequent independent audit found simulator-backed paths and missing live-readiness foundations. No deployment or service restart was performed as part of this update.
+
+## New offline admission checkpoint
+
+- Paper admission now requires candidate/content/bundle/registry-bound qualification evidence; hash-only admission is blocked. Startup and runtime consumers share the persisted resolver, new publication uses registry schema version 2, and invalid registry entries cannot partially update runtime state.
+- Removed implicit historical pinned-candidate startup activation. Startup without an explicit candidate mapping or validated registry is idle.
+- Eleven focused modules: **158 passed, 0 failed, 0 skipped** in 72.338s. The final test-only tracemalloc teardown addition was separately exercised; final-tree Ruff, formatting, Windows/Linux mypy, lock, AST and diff checks passed.
+- This section records pre-publication local evidence, not a new full-suite or CI pass. The older exact-SHA CI evidence below does not cover this checkpoint; verify the publication SHA's quality run before treating it as delivered.
+- Scope, failed diagnostic runs, fixture limitations, Windows path handling and remaining gates are recorded in `verification/PAPER_ADMISSION_EVIDENCE_BINDING_20261001.md`. Creator lineage and complete autonomous learning/execution proof remain unresolved.
 
 ## Verified source and quality state
 

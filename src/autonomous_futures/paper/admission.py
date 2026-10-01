@@ -88,8 +88,9 @@ class StrategyAdmissionDecider:
         self,
         *,
         candidate: CreatorCandidateArtifact,
-        qualification: CreatorCandidateQualificationArtifact,
+        qualification: CreatorCandidateQualificationArtifact | None,
         symbol: str,
+        qualification_hash: str | None = None,
         active_trades: Mapping[str, ActivePaperTrade] | None = None,
         require_flat: bool = False,
         evaluated_at: datetime | None = None,
@@ -98,12 +99,31 @@ class StrategyAdmissionDecider:
         now = evaluated_at or datetime.now(UTC)
         dec_id = decision_id or f"admission-{candidate.candidate_id[5:17]}-{int(now.timestamp())}"
 
+        if qualification is None:
+            return self._build_decision(
+                decision_id=dec_id,
+                candidate=candidate,
+                qualification=None,
+                qualification_hash=qualification_hash,
+                symbol=symbol,
+                decision="blocked_unqualified",
+                reason_codes=("qualification_artifact_missing",),
+                active_trade_retained=False,
+                evaluated_at=now,
+            )
+
         # 1. Validate cryptographic binding, scope, and content hash integrity
         if (
             qualification.candidate_id != candidate.candidate_id
             or qualification.candidate_artifact_hash != candidate.artifact_hash
+            or qualification.bundle_hash != candidate.bundle_hash
+            or qualification.dataset_registry_hash != candidate.dataset_registry_hash
             or _artifact_content_hash(candidate) != candidate.artifact_hash
             or _qualification_content_hash(qualification) != qualification.qualification_hash
+            or (
+                qualification_hash is not None
+                and qualification.qualification_hash != qualification_hash
+            )
         ):
             return self._build_decision(
                 decision_id=dec_id,
@@ -182,12 +202,13 @@ class StrategyAdmissionDecider:
         *,
         decision_id: str,
         candidate: CreatorCandidateArtifact,
-        qualification: CreatorCandidateQualificationArtifact,
+        qualification: CreatorCandidateQualificationArtifact | None,
         symbol: str,
         decision: AdmissionOutcome,
         reason_codes: tuple[str, ...],
         active_trade_retained: bool,
         evaluated_at: datetime,
+        qualification_hash: str | None = None,
     ) -> StrategyAdmissionDecision:
         sorted_reasons = tuple(sorted(set(reason_codes)))
         provisional = StrategyAdmissionDecision.model_validate(
@@ -196,7 +217,11 @@ class StrategyAdmissionDecider:
                 "decision_id": decision_id,
                 "candidate_id": candidate.candidate_id,
                 "candidate_artifact_hash": candidate.artifact_hash,
-                "qualification_hash": qualification.qualification_hash,
+                "qualification_hash": (
+                    qualification.qualification_hash
+                    if qualification is not None
+                    else qualification_hash or "0" * 64
+                ),
                 "symbol": symbol,
                 "decision": decision,
                 "reason_codes": sorted_reasons,

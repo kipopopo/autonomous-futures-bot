@@ -8,6 +8,8 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from autonomous_futures.domain.contracts import (
     CandidateSimulationRisk,
     EntryExit,
@@ -15,6 +17,7 @@ from autonomous_futures.domain.contracts import (
     StrategySpec,
     StrategyUniverse,
 )
+from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.feed.models import CanonicalBar, TickerSnapshot
 from autonomous_futures.paper.candidate_registry import (
     CandidateRegistryHotReloader,
@@ -28,6 +31,13 @@ from autonomous_futures.research.creator_artifacts import (
     build_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
+from autonomous_futures.research.qualification_artifacts import (
+    QualificationGateResult,
+    QualificationMetric,
+    build_creator_candidate_qualification_artifact,
+    write_creator_candidate_qualification_artifact,
+)
+from tests.paper_fixtures import write_qualified_paper_fixture
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
@@ -95,6 +105,28 @@ def _setup_engine(tmp_path: Path, candidate: CreatorCandidateArtifact) -> LivePa
     return engine
 
 
+def test_startup_without_registry_does_not_activate_historical_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    candidate = _build_test_candidate(
+        "cand-fb5550f7a2a266293385d1a1c424c61eaa1c09c0830d75bccd03a45008c63c74"
+    )
+    candidate_path = (
+        tmp_path / "artifacts/research/phase252/candidates" / f"{candidate.candidate_id}.json"
+    )
+    write_creator_candidate_artifact(candidate_path, candidate)
+    engine = LivePaperEngine(symbols=("BTCUSDT",))
+
+    assert engine.candidates == {}
+    assert engine.qualifications == {}
+    assert engine.qualified_symbols == ()
+    assert (
+        engine.execute_open("BTCUSDT", signal=1, conviction=Decimal("0.8"), event_time=NOW) is None
+    )
+    assert engine.sqlite_ledger.load().entries == ()
+
+
 def test_hot_reloader_initial_state(tmp_path: Path) -> None:
     manifest_path = tmp_path / "candidate_registry.json"
     engine = MagicMock()
@@ -132,7 +164,7 @@ def test_stat_first_polling_skips_io_when_unchanged(tmp_path: Path) -> None:
         candidate_id=cand.candidate_id,
         candidate_artifact_hash=cand.artifact_hash,
         artifact_path=cand_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_file, cand),
         admitted_at=NOW,
     )
 
@@ -164,7 +196,7 @@ def test_hot_reload_skips_when_registry_hash_identical(tmp_path: Path) -> None:
         candidate_id=cand.candidate_id,
         candidate_artifact_hash=cand.artifact_hash,
         artifact_path=cand_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_file, cand),
         admitted_at=NOW,
     )
 
@@ -195,7 +227,7 @@ def test_hot_reload_success_updates_engine_candidates(tmp_path: Path) -> None:
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="2" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW,
     )
 
@@ -257,7 +289,7 @@ def test_open_trade_immutability_during_hot_reload(tmp_path: Path) -> None:
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="b" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW,
     )
 
@@ -415,7 +447,7 @@ def test_windows_contention_retry_in_reloader(tmp_path: Path) -> None:
         candidate_id=cand.candidate_id,
         candidate_artifact_hash=cand.artifact_hash,
         artifact_path=cand_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_file, cand),
         admitted_at=NOW,
     )
 
@@ -464,29 +496,32 @@ def test_windows_contention_retry_in_write_candidate_registry(tmp_path: Path) ->
         assert manifest_path.exists()
 
 
-def test_admit_candidate_optional_qualification(tmp_path: Path) -> None:
+def test_admit_candidate_reads_persisted_qualification(tmp_path: Path) -> None:
     cand_a = _build_test_candidate("cand-btc-001")
     cand_b = _build_test_candidate("cand-btc-002")
 
     engine = _setup_engine(tmp_path, cand_a)
-    # 1. Admit candidate without qualification artifact
+    engine.qualifications_dir = tmp_path / "qualifications"
+    q_hash = write_qualified_paper_fixture(tmp_path / "cand-btc-002.json", cand_b)
+    # Omit the object only when persisted qualification evidence can be read.
     decision = engine.admit_candidate(
         candidate=cand_b,
         qualification=None,
-        qualification_hash="e" * 64,
+        qualification_hash=q_hash,
         require_flat=False,
     )
     assert decision.decision == "admitted"
-    assert decision.qualification_hash == "e" * 64
+    assert decision.qualification_hash == q_hash
     assert engine.candidates["BTCUSDT"].candidate_id == "cand-btc-002"
 
     # 2. While active trade is open with require_flat=True
     engine.execute_open("BTCUSDT", 1, Decimal("100"), NOW)
     cand_c = _build_test_candidate("cand-btc-003")
+    q_hash_c = write_qualified_paper_fixture(tmp_path / "cand-btc-003.json", cand_c)
     deferred_decision = engine.admit_candidate(
         candidate=cand_c,
         qualification=None,
-        qualification_hash="f" * 64,
+        qualification_hash=q_hash_c,
         require_flat=True,
     )
     assert deferred_decision.decision == "deferred_active_position"
@@ -557,3 +592,134 @@ def test_resilient_exit_evaluation_when_new_candidate_fails(tmp_path: Path) -> N
             # Bar triggers exit on Candidate A despite Candidate B raising RuntimeError
             engine._process_closed_bar(test_bar)
             assert "BTCUSDT" not in engine.active_trades
+
+
+@pytest.mark.parametrize("evidence", ["missing", "corrupt", "rejected", "wrong_hash"])
+def test_hot_reload_blocks_invalid_qualification_without_mutation(
+    tmp_path: Path, evidence: str
+) -> None:
+    old_cand = _build_test_candidate("cand-btc-old")
+    new_cand = _build_test_candidate("cand-btc-new")
+    candidate_path = tmp_path / "candidates" / f"{new_cand.candidate_id}.json"
+    write_creator_candidate_artifact(candidate_path, new_cand)
+    qualification = build_creator_candidate_qualification_artifact(
+        candidate=new_cand,
+        evaluator_run_id="test-reload-evaluator",
+        evaluator_version="test-only",
+        decision="rejected" if evidence == "rejected" else "qualified",
+        metrics=(QualificationMetric(metric_id="profit_factor", value=Decimal("1.5")),),
+        gates=(
+            QualificationGateResult(
+                gate_id="oos_profit_factor_min",
+                passed=evidence != "rejected",
+                comparator="gte",
+                reason_code="fixture_only",
+            ),
+        ),
+        windows_evaluated=1,
+        evaluated_at=NOW,
+    )
+    qualification_path = tmp_path / "qualifications" / f"qual-{new_cand.candidate_id}.json"
+    if evidence != "missing":
+        write_creator_candidate_qualification_artifact(qualification_path, qualification)
+    if evidence == "corrupt":
+        qualification_path.write_text("{}", encoding="utf-8")
+    manifest_path = tmp_path / "candidate_registry.json"
+    publish_candidate_admission(
+        manifest_path=manifest_path,
+        symbol="BTCUSDT",
+        candidate_id=new_cand.candidate_id,
+        candidate_artifact_hash=new_cand.artifact_hash,
+        artifact_path=candidate_path,
+        qualification_hash=(
+            "f" * 64 if evidence == "wrong_hash" else qualification.qualification_hash
+        ),
+        admitted_at=NOW,
+    )
+    engine = _setup_engine(tmp_path, old_cand)
+    engine.qualifications_dir = tmp_path / "qualifications"
+    reloader = CandidateRegistryHotReloader(manifest_path, engine)
+
+    assert not reloader.check_and_reload()
+    assert engine.candidates == {"BTCUSDT": old_cand}
+    assert engine.qualifications == {}
+    assert engine.admission_decisions == {}
+    assert reloader.reload_count == 0
+    assert reloader.last_registry_hash is None
+
+
+def test_manifest_startup_reads_cycle_hash_addressed_qualification(tmp_path: Path) -> None:
+    candidate = _build_test_candidate("cand-cycle-persisted")
+    cycle_dir = tmp_path / "cycles" / "cycle-001"
+    candidate_path = cycle_dir / "candidates" / f"{candidate.candidate_id}.json"
+    write_creator_candidate_artifact(candidate_path, candidate)
+    q_hash = write_qualified_paper_fixture(cycle_dir / "candidate.json", candidate)
+    manifest_path = tmp_path / "daemon" / "candidate_registry.json"
+    publish_candidate_admission(
+        manifest_path=manifest_path,
+        symbol="BTCUSDT",
+        candidate_id=candidate.candidate_id,
+        candidate_artifact_hash=candidate.artifact_hash,
+        artifact_path=candidate_path,
+        qualification_hash=q_hash,
+        admitted_at=NOW,
+    )
+
+    engine = LivePaperEngine(
+        registry_manifest=manifest_path,
+        ledger_db=tmp_path / "ledger.sqlite3",
+        lifecycle_db=tmp_path / "lifecycle.sqlite3",
+        observations_db=tmp_path / "observations.sqlite3",
+    )
+
+    assert engine.candidates == {"BTCUSDT": candidate}
+    assert engine.qualifications["BTCUSDT"].qualification_hash == q_hash
+    assert engine.admission_decisions["BTCUSDT"].decision == "admitted"
+
+
+@pytest.mark.parametrize("consumer", ["discovery", "hot_reload"])
+def test_registry_missing_second_qualification_preserves_all_runtime_state(
+    tmp_path: Path, consumer: str
+) -> None:
+    old_candidate = _build_test_candidate("cand-btc-retained")
+    new_candidate = _build_test_candidate("cand-btc-qualified")
+    unqualified_candidate = _build_test_candidate("cand-eth-unqualified", symbol="ETHUSDT")
+    manifest_path = tmp_path / "candidate_registry.json"
+    for candidate in (new_candidate, unqualified_candidate):
+        path = tmp_path / "candidates" / f"{candidate.candidate_id}.json"
+        write_creator_candidate_artifact(path, candidate)
+        q_hash = (
+            write_qualified_paper_fixture(tmp_path / "candidate.json", candidate)
+            if candidate is new_candidate
+            else "f" * 64
+        )
+        publish_candidate_admission(
+            manifest_path=manifest_path,
+            symbol=candidate.strategy.universe.symbols[0],
+            candidate_id=candidate.candidate_id,
+            candidate_artifact_hash=candidate.artifact_hash,
+            artifact_path=path,
+            qualification_hash=q_hash,
+            admitted_at=NOW,
+        )
+    engine = _setup_engine(tmp_path, old_candidate)
+    assert engine.execute_open("BTCUSDT", 1, Decimal("100"), NOW) is not None
+    active_trade = engine.active_trades["BTCUSDT"]
+    cash = engine.account.cash
+    symbols = engine.symbols
+
+    if consumer == "discovery":
+        with pytest.raises(DomainViolation, match="Qualification artifact file.*not found"):
+            engine.discover_and_admit_candidates(manifest_path)
+    else:
+        reloader = CandidateRegistryHotReloader(manifest_path, engine)
+        assert not reloader.check_and_reload()
+        assert reloader.reload_count == 0
+
+    assert engine.candidates == {"BTCUSDT": old_candidate}
+    assert engine.qualifications == {}
+    assert engine.admission_decisions == {}
+    assert engine.registry_manifest is None
+    assert engine.symbols == symbols
+    assert engine.account.cash == cash
+    assert engine.active_trades["BTCUSDT"] is active_trade

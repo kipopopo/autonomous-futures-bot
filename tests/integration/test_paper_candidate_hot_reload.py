@@ -65,6 +65,7 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     build_creator_candidate_artifact,
     write_creator_candidate_artifact,
 )
+from tests.paper_fixtures import write_qualified_paper_fixture  # noqa: E402
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
@@ -327,7 +328,7 @@ async def test_scenario_a_hot_reload_during_active_position_immutability(
         candidate_id=cand_a.candidate_id,
         candidate_artifact_hash=cand_a.artifact_hash,
         artifact_path=cand_a_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_a_file, cand_a),
         admitted_at=NOW,
     )
 
@@ -353,7 +354,7 @@ async def test_scenario_a_hot_reload_during_active_position_immutability(
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="2" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW + timedelta(seconds=10),
     )
     reloaded = reloader.check_and_reload()
@@ -465,7 +466,7 @@ async def test_scenario_a_tick_level_atr_trailing_stop_immutability(
         candidate_id=cand_a.candidate_id,
         candidate_artifact_hash=cand_a.artifact_hash,
         artifact_path=cand_a_file,
-        qualification_hash="a" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_a_file, cand_a),
         admitted_at=NOW,
     )
 
@@ -487,7 +488,7 @@ async def test_scenario_a_tick_level_atr_trailing_stop_immutability(
         candidate_id=cand_b.candidate_id,
         candidate_artifact_hash=cand_b.artifact_hash,
         artifact_path=cand_b_file,
-        qualification_hash="b" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_b_file, cand_b),
         admitted_at=NOW + timedelta(seconds=1),
     )
     assert reloader.check_and_reload()
@@ -562,7 +563,7 @@ async def test_scenario_b_malformed_and_tampered_manifest_resistance(
         candidate_id=cand_valid.candidate_id,
         candidate_artifact_hash=cand_valid.artifact_hash,
         artifact_path=cand_valid_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_valid_file, cand_valid),
         admitted_at=NOW,
     )
 
@@ -677,7 +678,9 @@ async def test_scenario_b_malformed_and_tampered_manifest_resistance(
                 candidate_id=cand_btc_batch.candidate_id,
                 candidate_artifact_hash=cand_btc_batch.artifact_hash,
                 artifact_path=str(cand_btc_batch_file),
-                qualification_hash="b" * 64,
+                qualification_hash=write_qualified_paper_fixture(
+                    cand_btc_batch_file, cand_btc_batch
+                ),
                 admitted_at=NOW.isoformat(),
             ),
             "ETHUSDT": CandidateManifestEntry(
@@ -707,7 +710,9 @@ async def test_scenario_b_malformed_and_tampered_manifest_resistance(
                 candidate_id=cand_recovered.candidate_id,
                 candidate_artifact_hash=cand_recovered.artifact_hash,
                 artifact_path=str(cand_recovered_file),
-                qualification_hash="5" * 64,
+                qualification_hash=write_qualified_paper_fixture(
+                    cand_recovered_file, cand_recovered
+                ),
                 admitted_at=NOW.isoformat(),
             )
         },
@@ -743,7 +748,7 @@ async def test_scenario_c_continuous_daemon_stability_and_shared_margin_invarian
         candidate_id=cand_init.candidate_id,
         candidate_artifact_hash=cand_init.artifact_hash,
         artifact_path=cand_init_file,
-        qualification_hash="0" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_init_file, cand_init),
         admitted_at=NOW,
     )
 
@@ -795,7 +800,7 @@ async def test_scenario_c_continuous_daemon_stability_and_shared_margin_invarian
                 candidate_id=c.candidate_id,
                 candidate_artifact_hash=c.artifact_hash,
                 artifact_path=c_file,
-                qualification_hash=f"{step}" * 64,
+                qualification_hash=write_qualified_paper_fixture(c_file, c),
                 admitted_at=NOW + timedelta(seconds=step),
             )
             await asyncio.sleep(0.12)
@@ -850,7 +855,7 @@ async def test_scenario_d_health_telemetry_across_daemon_lifecycle(
         candidate_id=cand_1.candidate_id,
         candidate_artifact_hash=cand_1.artifact_hash,
         artifact_path=cand_1_file,
-        qualification_hash="1" * 64,
+        qualification_hash=write_qualified_paper_fixture(cand_1_file, cand_1),
         admitted_at=NOW,
     )
 
@@ -896,7 +901,7 @@ async def test_scenario_d_health_telemetry_across_daemon_lifecycle(
             candidate_id=cand_2.candidate_id,
             candidate_artifact_hash=cand_2.artifact_hash,
             artifact_path=cand_2_file,
-            qualification_hash="2" * 64,
+            qualification_hash=write_qualified_paper_fixture(cand_2_file, cand_2),
             admitted_at=datetime.now(UTC),
         )
 
@@ -973,7 +978,7 @@ async def test_scenario_e_multi_symbol_interleaved_hot_reload_isolation(
         cand_btc_1.candidate_id,
         cand_btc_1.artifact_hash,
         storage_dir / f"{cand_btc_1.candidate_id}.json",
-        "a" * 64,
+        write_qualified_paper_fixture(storage_dir / f"{cand_btc_1.candidate_id}.json", cand_btc_1),
         NOW,
     )
     publish_candidate_admission(
@@ -982,7 +987,7 @@ async def test_scenario_e_multi_symbol_interleaved_hot_reload_isolation(
         cand_eth_1.candidate_id,
         cand_eth_1.artifact_hash,
         storage_dir / f"{cand_eth_1.candidate_id}.json",
-        "b" * 64,
+        write_qualified_paper_fixture(storage_dir / f"{cand_eth_1.candidate_id}.json", cand_eth_1),
         NOW,
     )
     publish_candidate_admission(
@@ -991,7 +996,7 @@ async def test_scenario_e_multi_symbol_interleaved_hot_reload_isolation(
         cand_sol_1.candidate_id,
         cand_sol_1.artifact_hash,
         storage_dir / f"{cand_sol_1.candidate_id}.json",
-        "c" * 64,
+        write_qualified_paper_fixture(storage_dir / f"{cand_sol_1.candidate_id}.json", cand_sol_1),
         NOW,
     )
 
@@ -1022,7 +1027,7 @@ async def test_scenario_e_multi_symbol_interleaved_hot_reload_isolation(
         cand_eth_2.candidate_id,
         cand_eth_2.artifact_hash,
         storage_dir / f"{cand_eth_2.candidate_id}.json",
-        "d" * 64,
+        write_qualified_paper_fixture(storage_dir / f"{cand_eth_2.candidate_id}.json", cand_eth_2),
         NOW + timedelta(seconds=1),
     )
     publish_candidate_admission(
@@ -1031,7 +1036,7 @@ async def test_scenario_e_multi_symbol_interleaved_hot_reload_isolation(
         cand_sol_2.candidate_id,
         cand_sol_2.artifact_hash,
         storage_dir / f"{cand_sol_2.candidate_id}.json",
-        "e" * 64,
+        write_qualified_paper_fixture(storage_dir / f"{cand_sol_2.candidate_id}.json", cand_sol_2),
         NOW + timedelta(seconds=2),
     )
     assert reloader.check_and_reload()
@@ -1083,7 +1088,7 @@ async def test_scenario_e_multi_symbol_interleaved_hot_reload_isolation(
         cand_btc_2.candidate_id,
         cand_btc_2.artifact_hash,
         storage_dir / f"{cand_btc_2.candidate_id}.json",
-        "f" * 64,
+        write_qualified_paper_fixture(storage_dir / f"{cand_btc_2.candidate_id}.json", cand_btc_2),
         NOW + timedelta(seconds=15),
     )
     assert reloader.check_and_reload()
@@ -1132,7 +1137,7 @@ async def test_scenario_f_adversarial_shared_margin_invariance_under_churn(
         cand_btc.candidate_id,
         cand_btc.artifact_hash,
         storage_dir / "cand-btc-base.json",
-        "1" * 64,
+        write_qualified_paper_fixture(storage_dir / "cand-btc-base.json", cand_btc),
         NOW,
     )
     publish_candidate_admission(
@@ -1141,7 +1146,7 @@ async def test_scenario_f_adversarial_shared_margin_invariance_under_churn(
         cand_eth.candidate_id,
         cand_eth.artifact_hash,
         storage_dir / "cand-eth-base.json",
-        "2" * 64,
+        write_qualified_paper_fixture(storage_dir / "cand-eth-base.json", cand_eth),
         NOW,
     )
 
@@ -1173,7 +1178,7 @@ async def test_scenario_f_adversarial_shared_margin_invariance_under_churn(
             c.candidate_id,
             c.artifact_hash,
             c_file,
-            f"{i}" * 64,
+            write_qualified_paper_fixture(c_file, c),
             NOW + timedelta(seconds=i),
         )
         assert reloader.check_and_reload()
@@ -1243,7 +1248,7 @@ async def test_scenario_f_adversarial_shared_margin_invariance_under_churn(
             c.candidate_id,
             c.artifact_hash,
             c_file,
-            f"{k:02d}" * 32,
+            write_qualified_paper_fixture(c_file, c),
             NOW + timedelta(minutes=3, seconds=k),
         )
         assert reloader.check_and_reload()
