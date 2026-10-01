@@ -37,6 +37,7 @@ from autonomous_futures.data.parquet import (  # noqa: E402
     read_canonical_parquet,
 )
 from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
+from autonomous_futures.paper.feedback_extractor import extract_paper_feedback  # noqa: E402
 from autonomous_futures.pipeline.autonomous_base import (  # noqa: E402
     AutonomousBaseConfig,
     AutonomousResearchBase,
@@ -404,6 +405,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--feedback-file", type=Path, default=None, help=argparse.SUPPRESS)
     parser.add_argument(
+        "--ledger-db",
+        type=Path,
+        default=None,
+        help="Read-only paper ledger seed; requires --candidate-artifact, excludes OOS seed",
+    )
+    parser.add_argument(
         "--max-cycles",
         type=int,
         default=2,
@@ -557,17 +564,21 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     has_candidate_artifact = args.candidate_artifact is not None
     has_qualification_artifact = args.qualification_artifact is not None
-    if has_candidate_artifact != has_qualification_artifact:
+    has_ledger = args.ledger_db is not None
+    if has_ledger and (has_qualification_artifact or args.use_synthetic_windows):
         sys.stderr.write(
-            "ERROR: --candidate-artifact and --qualification-artifact must be supplied together.\n"
+            "ERROR: Paper ledger seed excludes qualification artifacts and synthetic windows.\n"
         )
         return 1
-    if has_candidate_artifact and has_qualification_artifact:
+    if has_candidate_artifact != (has_qualification_artifact or has_ledger):
+        sys.stderr.write(
+            "ERROR: --candidate-artifact and --qualification-artifact must be supplied together "
+            "unless a read-only --ledger-db seed is supplied.\n"
+        )
+        return 1
+    if has_candidate_artifact:
         try:
             candidate = read_creator_candidate_artifact(args.candidate_artifact)
-            qualification = read_creator_candidate_qualification_artifact(
-                args.qualification_artifact
-            )
         except Exception:
             sys.stderr.write(
                 "ERROR: Seed candidate or qualification artifact is invalid or unavailable.\n"
@@ -575,32 +586,63 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
 
         if (
-            candidate.candidate_id != qualification.candidate_id
-            or candidate.artifact_hash != qualification.candidate_artifact_hash
-            or candidate.bundle_hash != qualification.bundle_hash
-            or candidate.dataset_registry_hash != qualification.dataset_registry_hash
-        ):
-            sys.stderr.write(
-                "ERROR: candidate and qualification artifacts are not bound to the same source.\n"
-            )
-            return 1
-        if (
             candidate.bundle_hash != config.bundle_hash
             or candidate.dataset_registry_hash != config.dataset_registry_hash
             or candidate.strategy.universe.symbols != (config.symbol,)
         ):
             sys.stderr.write("ERROR: Seed artifacts do not match configured research scope.\n")
             return 1
-        if qualification.source != "walk_forward_oos":
-            sys.stderr.write(
-                "ERROR: Seed qualification must be based on walk-forward OOS evidence.\n"
-            )
-            return 1
 
-        initial_feedback = build_creator_qualification_failure_feedback(qualification)
-        if initial_feedback is None:
-            sys.stderr.write("ERROR: Seed qualification does not record a rejected candidate.\n")
-            return 1
+        if has_ledger:
+            if not args.ledger_db.is_file():
+                sys.stderr.write("ERROR: Paper ledger seed is unavailable.\n")
+                return 1
+            try:
+                initial_feedback = extract_paper_feedback(
+                    ledger_path=args.ledger_db,
+                    candidate_artifact=candidate,
+                    symbol=config.symbol,
+                    bundle_hash=config.bundle_hash,
+                    dataset_registry_hash=config.dataset_registry_hash,
+                )
+            except OSError, ValueError, DomainViolation, DataQualityError:
+                sys.stderr.write("ERROR: Paper ledger seed is invalid or mismatched.\n")
+                return 1
+            if initial_feedback is None:
+                sys.stderr.write("ERROR: Paper ledger seed records no performance breach.\n")
+                return 1
+        else:
+            try:
+                qualification = read_creator_candidate_qualification_artifact(
+                    args.qualification_artifact
+                )
+            except Exception:
+                sys.stderr.write(
+                    "ERROR: Seed candidate or qualification artifact is invalid or unavailable.\n"
+                )
+                return 1
+            if (
+                candidate.candidate_id != qualification.candidate_id
+                or candidate.artifact_hash != qualification.candidate_artifact_hash
+                or candidate.bundle_hash != qualification.bundle_hash
+                or candidate.dataset_registry_hash != qualification.dataset_registry_hash
+            ):
+                sys.stderr.write(
+                    "ERROR: candidate and qualification artifacts are not bound "
+                    "to the same source.\n"
+                )
+                return 1
+            if qualification.source != "walk_forward_oos":
+                sys.stderr.write(
+                    "ERROR: Seed qualification must be based on walk-forward OOS evidence.\n"
+                )
+                return 1
+            initial_feedback = build_creator_qualification_failure_feedback(qualification)
+            if initial_feedback is None:
+                sys.stderr.write(
+                    "ERROR: Seed qualification does not record a rejected candidate.\n"
+                )
+                return 1
 
     preflight_report = {
         "status": "preflight_passed",
@@ -613,6 +655,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "provider_mode": "offline_deterministic",
         "provider_calls_enabled": False,
         "initial_feedback_available": initial_feedback is not None,
+        "feedback_seed_source": (
+            "paper_ledger"
+            if has_ledger
+            else "walk_forward_oos"
+            if has_qualification_artifact
+            else None
+        ),
         "feedback_seed_candidate": (
             initial_feedback.candidate_id if initial_feedback is not None else None
         ),

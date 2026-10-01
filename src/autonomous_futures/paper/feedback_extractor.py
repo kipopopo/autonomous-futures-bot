@@ -511,6 +511,20 @@ class PaperFeedbackExtractor:
                 raise FileNotFoundError(f"Candidate artifact file not found: {cand_path}")
             loaded_art = read_creator_candidate_artifact(cand_path)
         if loaded_art is not None:
+            if (
+                (candidate_id is not None and candidate_id != loaded_art.candidate_id)
+                or (
+                    candidate_artifact_hash is not None
+                    and candidate_artifact_hash != loaded_art.artifact_hash
+                )
+                or (bundle_hash is not None and bundle_hash != loaded_art.bundle_hash)
+                or (
+                    dataset_registry_hash is not None
+                    and dataset_registry_hash != loaded_art.dataset_registry_hash
+                )
+                or (symbol is not None and symbol not in loaded_art.strategy.universe.symbols)
+            ):
+                raise DataQualityError("paper feedback candidate binding mismatch")
             target_cand_id = target_cand_id or loaded_art.candidate_id
             if target_symbol is None and loaded_art.strategy.universe.symbols:
                 target_symbol = loaded_art.strategy.universe.symbols[0]
@@ -529,6 +543,8 @@ class PaperFeedbackExtractor:
         )
 
         candidate_trades = [t for t in trades if t.candidate_id == meta.candidate_id]
+        if any(t.candidate_artifact_hash != meta.candidate_artifact_hash for t in candidate_trades):
+            raise DataQualityError("paper feedback trade artifact binding mismatch")
         logger.debug(
             "Extracted %d trades for candidate %s on symbol %s (total trades in ledger: %d)",
             len(candidate_trades),

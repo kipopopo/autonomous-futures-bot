@@ -966,8 +966,11 @@ def test_cli_runner_rejects_forbidden_credential_flags(capsys: pytest.CaptureFix
         assert "CRITICAL: Credentials must NOT be supplied via CLI flags" in captured.err
 
 
-def test_restart_with_conflicting_seed_feedback_rejects(tmp_path: Path) -> None:
+@pytest.mark.parametrize("completed", [False, True])
+def test_restart_with_conflicting_seed_feedback_rejects(tmp_path: Path, completed: bool) -> None:
     """Verify restarting a base run with conflicting seed feedback raises DomainViolation."""
+    from autonomous_futures.data.parquet import DataQualityError
+
     config = AutonomousBaseConfig(
         base_run_id="base-conflict-seed-001",
         symbol="BTCUSDT",
@@ -981,20 +984,29 @@ def test_restart_with_conflicting_seed_feedback_rejects(tmp_path: Path) -> None:
 
     base = AutonomousResearchBase(
         config=config,
-        learner=FailureLearner(_make_learner_transport()),
+        learner=FailureLearner(
+            _make_learner_transport(decision="stop" if completed else "accepted")
+        ),
         planner=ResearchPlanner(_make_planner_transport()),
         cycle_runner=lambda _req: None,  # type: ignore[return-value]
     )
 
     # First run creates seed failure memory with seed_fb1
-    try:
+    if completed:
         base.run(initial_feedback=seed_fb1, now=NOW)
-    except Exception:
-        pass
+        assert (tmp_path / "base-result.json").is_file()
+    else:
+        with pytest.raises(DataQualityError, match="invalid typed execution"):
+            base.run(initial_feedback=seed_fb1, now=NOW)
 
     # Second run with different seed feedback must reject
     with pytest.raises(DomainViolation, match="persisted seed failure memory does not match"):
         base.run(initial_feedback=seed_fb2, now=NOW + timedelta(minutes=1))
+    if completed:
+        for path in (tmp_path / "failure-memory").glob("*.json"):
+            path.unlink()
+        with pytest.raises(DomainViolation, match="missing seed failure memory"):
+            base.run(initial_feedback=seed_fb1, now=NOW + timedelta(minutes=1))
 
 
 def test_cli_runner_fails_closed_when_cached_parquet_is_missing(

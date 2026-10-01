@@ -620,6 +620,7 @@ class AutonomousResearchBase:
         timestamp = now.astimezone(UTC)
         self._validate_initial_feedback(initial_feedback)
         result_path = self.config.artifact_root / "base-result.json"
+        existing: AutonomousBaseResult | None = None
         if result_path.exists():
             existing = read_autonomous_base_result(result_path)
             if (
@@ -629,7 +630,6 @@ class AutonomousResearchBase:
                 or existing.dataset_registry_hash != self.config.dataset_registry_hash
             ):
                 raise DomainViolation("persisted autonomous base result scope mismatch")
-            return existing
 
         failure_memory_root = self.config.artifact_root / "failure-memory"
         existing_seed: FailureMemoryEntry | None = None
@@ -661,6 +661,10 @@ class AutonomousResearchBase:
                 )
             seed_memory = existing_seed
         else:
+            if existing is not None:
+                raise DomainViolation(
+                    "persisted autonomous base result is missing seed failure memory"
+                )
             seed_memory = build_failure_memory_entry(
                 base_run_id=self.config.base_run_id,
                 source_type="seed_feedback",
@@ -673,6 +677,13 @@ class AutonomousResearchBase:
             )
             seed_path = failure_memory_root / f"failure-{seed_memory.memory_hash}.json"
             seed_memory = write_failure_memory_entry(seed_path, seed_memory)
+
+        if existing is not None:
+            if seed_memory.memory_hash not in existing.failure_memory_entry_hashes:
+                raise DomainViolation(
+                    "persisted seed failure memory does not belong to base result"
+                )
+            return existing
 
         records, memory, feedback, forbidden, learning_hashes, plan_hashes = (
             self._load_existing_records(

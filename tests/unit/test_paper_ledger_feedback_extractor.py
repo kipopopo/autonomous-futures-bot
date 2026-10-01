@@ -244,6 +244,99 @@ def create_synthetic_ledger(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "fault", ["trade_hash", "candidate_id", "artifact_hash", "bundle_hash", "registry_hash"]
+)
+def test_feedback_rejects_foreign_candidate_bindings(tmp_path: Path, fault: str) -> None:
+    candidate = _build_test_candidate()
+    ledger = create_synthetic_ledger(
+        tmp_path,
+        [
+            {
+                "trade_id": "trade-binding-001",
+                "candidate_id": candidate.candidate_id,
+                "candidate_artifact_hash": (
+                    "f" * 64 if fault == "trade_hash" else candidate.artifact_hash
+                ),
+                "entry_price": "50000",
+                "exit_price": "49000",
+                "opened_at": (NOW - timedelta(minutes=5)).isoformat(),
+                "closed_at": NOW.isoformat(),
+                "gross_pnl": "-10",
+                "net_pnl": "-10.04",
+            }
+        ],
+    )
+    before = ledger.read_bytes()
+    overrides = {
+        "candidate_id": "cand-foreign-001" if fault == "candidate_id" else candidate.candidate_id,
+        "candidate_artifact_hash": (
+            "f" * 64 if fault == "artifact_hash" else candidate.artifact_hash
+        ),
+        "bundle_hash": "f" * 64 if fault == "bundle_hash" else candidate.bundle_hash,
+        "dataset_registry_hash": "f" * 64
+        if fault == "registry_hash"
+        else candidate.dataset_registry_hash,
+    }
+    with pytest.raises(DataQualityError, match="binding"):
+        extract_paper_feedback(ledger_path=ledger, candidate_artifact=candidate, **overrides)
+    assert ledger.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "fault", ["missing", "foreign", "ambiguous", "synthetic", "scope", "candidate_missing"]
+)
+def test_base_cli_rejects_invalid_ledger_seed_before_outputs(tmp_path: Path, fault: str) -> None:
+    from autonomous_futures.research.creator_artifacts import write_creator_candidate_artifact
+    from scripts.run_autonomous_base import main
+
+    candidate = _build_test_candidate()
+    candidate_path = tmp_path / "candidate.json"
+    write_creator_candidate_artifact(candidate_path, candidate)
+    ledger = create_synthetic_ledger(
+        tmp_path,
+        [
+            {
+                "trade_id": "trade-base-001",
+                "candidate_id": candidate.candidate_id,
+                "candidate_artifact_hash": "f" * 64
+                if fault == "foreign"
+                else candidate.artifact_hash,
+                "entry_price": "50000",
+                "exit_price": "49000",
+                "opened_at": (NOW - timedelta(minutes=5)).isoformat(),
+                "closed_at": NOW.isoformat(),
+                "gross_pnl": "-10",
+                "net_pnl": "-10.04",
+            }
+        ],
+    )
+    output = tmp_path / "base"
+    before = {path: path.read_bytes() for path in (ledger, candidate_path)}
+    arguments = [
+        "--base-run-id",
+        "base-invalid-ledger-001",
+        "--bundle-hash",
+        "f" * 64 if fault == "scope" else candidate.bundle_hash,
+        "--dataset-registry-hash",
+        candidate.dataset_registry_hash,
+        "--ledger-db",
+        str(tmp_path / "missing.sqlite3" if fault == "missing" else ledger),
+        "--artifact-root",
+        str(output),
+        "--dry-run",
+    ]
+    if fault != "candidate_missing":
+        arguments.extend(["--candidate-artifact", str(candidate_path)])
+    if fault == "ambiguous":
+        arguments.extend(["--qualification-artifact", str(tmp_path / "missing.json")])
+    if fault == "synthetic":
+        arguments.append("--use-synthetic-windows")
+    assert main(arguments) != 0
+    assert not output.exists()
+    assert {path: path.read_bytes() for path in before} == before
+
+
 class TestHappyPathBreachEvaluation:
     """Tests where underperforming candidates breach policy thresholds."""
 

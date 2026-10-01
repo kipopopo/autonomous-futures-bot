@@ -42,6 +42,7 @@ Scenarios Covered:
 from __future__ import annotations
 
 import json
+import os
 import signal
 import sqlite3
 import subprocess
@@ -503,6 +504,91 @@ def test_autonomous_closed_loop_breach_to_hot_reload_e2e(
     )
     assert fb is not None
     assert any(g.gate_id != "paper_trades_min" for g in fb.failed_gates)
+
+    # Consume actual simulated ledger outcomes in the existing offline learning core.
+    from autonomous_futures.pipeline.autonomous_base import (
+        read_autonomous_base_cycle_record,
+        read_autonomous_base_result,
+    )
+    from autonomous_futures.research.autonomy_contracts import (
+        read_failure_memory_entry,
+    )
+
+    learning_root = tmp_path / "learn"
+    source_before = {
+        path: path.read_bytes()
+        for path in (storage_dir / "paper-ledger.sqlite3", cand_a_file, manifest_path)
+    }
+    command = [
+        sys.executable,
+        str(_REPO_ROOT / "scripts" / "run_autonomous_base.py"),
+        "--base-run-id",
+        "base-paper-feedback-001",
+        "--symbol",
+        "BTCUSDT",
+        "--bundle-hash",
+        HASH_A,
+        "--dataset-registry-hash",
+        HASH_B,
+        "--artifact-root",
+        str(learning_root),
+        "--candidate-artifact",
+        str(cand_a_file),
+        "--ledger-db",
+        str(storage_dir / "paper-ledger.sqlite3"),
+        "--dataset-root",
+        str(verified_cycle_dataset),
+        "--parquet-path",
+        str(CANONICAL_PARQUET),
+        "--max-cycles",
+        "1",
+        "--windows-count",
+        "1",
+        "--bars-per-window",
+        "100",
+    ]
+    environment = {
+        key: value
+        for key in ("PATH", "SYSTEMROOT", "TMP", "TEMP")
+        if (value := os.environ.get(key)) is not None
+    }
+    process = subprocess.run(
+        command, cwd=_REPO_ROOT, env=environment, capture_output=True, text=True, timeout=60
+    )
+    assert process.returncode == 0, process.stderr
+    learned = read_autonomous_base_result(learning_root / "base-result.json")
+    assert learned.cycles_executed == 1
+    assert len(learned.learning_hashes) == len(learned.plan_hashes) == 1
+    assert (
+        learned.paper_activation is learned.execution_authority is learned.exchange_access is False
+    )
+    evidence_before = {
+        path.relative_to(learning_root): path.read_bytes()
+        for path in learning_root.rglob("*")
+        if path.is_file()
+    }
+    replay = subprocess.run(
+        command, cwd=_REPO_ROOT, env=environment, capture_output=True, text=True, timeout=60
+    )
+    assert replay.returncode == 0, replay.stderr
+    assert json.loads(replay.stdout) == json.loads(process.stdout)
+    assert {
+        path.relative_to(learning_root): path.read_bytes()
+        for path in learning_root.rglob("*")
+        if path.is_file()
+    } == evidence_before
+    seed = next(
+        entry
+        for path in (learning_root / "failure-memory").glob("*.json")
+        if (entry := read_failure_memory_entry(path)).sequence == 0
+    )
+    assert seed.candidate_artifact_hash == cand_a.artifact_hash
+    assert seed.failed_gates == fb.failed_gates
+    assert seed.qualification_hash == fb.qualification_hash
+    record = read_autonomous_base_cycle_record(next((learning_root / "cycles").glob("*.json")))
+    assert record.result.execution_authority is False
+    assert record.result.admission_decision != "admitted"
+    assert {path: path.read_bytes() for path in source_before} == source_before
 
     # Step 3: Open an In-Flight Trade under Candidate A before triggering cycle
     t_inflight = NOW - timedelta(minutes=5)

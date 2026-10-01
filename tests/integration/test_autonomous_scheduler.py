@@ -169,6 +169,13 @@ def bind_scheduler_cached_fixtures(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(sys.modules[__name__], "DUMMY_HASH_B", catalog.registry.registry_hash)
 
     def spawn_with_catalog(args: list[str], **kwargs):
+        args = list(args)
+        if "--ledger-db" in args and "--candidate-path" not in args:
+            candidate_path = (
+                Path(args[args.index("--ledger-db") + 1]).parent / "ledger-candidate.json"
+            )
+            if candidate_path.is_file():
+                args.extend(["--candidate-path", str(candidate_path)])
         if "--parquet-path" in args:
             root = Path(args[args.index("--parquet-path") + 1]).parent
             if (root / "bundle.json").is_file():
@@ -284,6 +291,7 @@ def _init_test_ledger(
 ) -> None:
     """Initialize SQLite paper ledger schema and optionally insert trades."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    write_creator_candidate_artifact(db_path.parent / "ledger-candidate.json", cand)
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
@@ -1590,6 +1598,8 @@ def test_single_pass_once_mode_execution(tmp_path: Path) -> None:
             "--once",
             "--dataset-root",
             str(tmp_path),
+            "--candidate-path",
+            str(tmp_path / "ledger-candidate.json"),
             "--bundle-path",
             str(tmp_path / "bundle.json"),
             "--registry-path",
