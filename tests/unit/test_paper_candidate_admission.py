@@ -135,6 +135,138 @@ def test_strategy_admission_decision_content_hash_and_model():
     assert decision.decision_hash == strategy_admission_content_hash(decision)
 
 
+@pytest.mark.parametrize("missing_file", [False, True])
+def test_epoch_runtime_requires_control_before_outputs(tmp_path: Path, missing_file: bool):
+    from autonomous_futures.domain.errors import DomainViolation
+    from autonomous_futures.research.creator_epoch import create_creator_epoch
+
+    path = tmp_path / "epoch.sqlite3"
+    checkpoint = create_creator_epoch(path, epoch_id="epoch-20261002", policy_hash=HASH_C)
+    output = tmp_path / "runtime"
+    with pytest.raises(DomainViolation):
+        LivePaperEngine(
+            symbols=("BTCUSDT",),
+            ledger_db=output / "ledger.sqlite3",
+            lifecycle_db=output / "lifecycle.sqlite3",
+            observations_db=output / "obs.sqlite3",
+            epoch_path=path,
+            epoch_checkpoint=checkpoint,
+            epoch_control=tmp_path / "missing-control.sqlite3" if missing_file else None,
+        )
+    assert not output.exists()
+
+
+def test_epoch_engine_quarantines_legacy_despite_valid_qualification(tmp_path: Path):
+    from autonomous_futures.research.creator_epoch import (
+        create_creator_epoch,
+        create_creator_epoch_control,
+    )
+
+    path = tmp_path / "epoch.sqlite3"
+    checkpoint = create_creator_epoch(path, epoch_id="epoch-20261002", policy_hash=HASH_C)
+    candidate = _build_test_candidate()
+    qualification = _build_test_qualification(candidate)
+    control = tmp_path / "control.sqlite3"
+    create_creator_epoch_control(control, path, checkpoint)
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        candidates={"BTCUSDT": candidate},
+        ledger_db=tmp_path / "ledger.sqlite3",
+        lifecycle_db=tmp_path / "lifecycle.sqlite3",
+        observations_db=tmp_path / "observations.sqlite3",
+        epoch_path=path,
+        epoch_checkpoint=checkpoint,
+        epoch_control=control,
+    )
+    decision = engine.admit_candidate(candidate, qualification)
+    assert decision.decision == "blocked_invalid_binding"
+    assert decision.reason_codes == ("creator_epoch_candidate_quarantined",)
+    assert not engine.qualifications
+    assert not engine.sqlite_ledger.load().entries
+
+
+def test_epoch_engine_revalidates_journal_before_entry(tmp_path: Path):
+    from autonomous_futures.feed.models import TickerSnapshot
+    from autonomous_futures.research.creator_epoch import (
+        append_creator_epoch_acceptance,
+        create_creator_epoch,
+        create_creator_epoch_control,
+    )
+    from autonomous_futures.research.creator_proposals import (
+        build_candidate_from_proposal,
+        parse_creator_proposal,
+    )
+
+    path = tmp_path / "epoch.sqlite3"
+    checkpoint = create_creator_epoch(path, epoch_id="epoch-20261002", policy_hash=HASH_C)
+    proposal = parse_creator_proposal(
+        {
+            "proposal_id": "proposal-epoch-001",
+            "research_run_id": "run-epoch-001",
+            "hypothesis": "Test-only causal strategy",
+            "expected_regime": "test",
+            "novelty_reason": "Test-only epoch isolation",
+            "strategy": _build_test_candidate().strategy.model_dump(),
+        },
+        epoch_id=checkpoint.epoch_id,
+    )
+    candidate = build_candidate_from_proposal(
+        proposal,
+        bundle_hash=HASH_A,
+        dataset_registry_hash=HASH_B,
+        creator_run_id="run-epoch-001",
+        research_seed=42,
+        created_at=NOW,
+    )
+    outcome = proposal.build_outcome(
+        decision="accepted",
+        candidate_artifact_hash=candidate.artifact_hash,
+        reason_codes=("schema_valid",),
+        recorded_at=NOW,
+    )
+    control = tmp_path / "control.sqlite3"
+    create_creator_epoch_control(control, path, checkpoint)
+    checkpoint = append_creator_epoch_acceptance(
+        path,
+        checkpoint,
+        proposal,
+        candidate,
+        outcome,
+        control_path=control,
+    )
+    engine = LivePaperEngine(
+        symbols=("BTCUSDT",),
+        candidates={"BTCUSDT": candidate},
+        ledger_db=tmp_path / "ledger.sqlite3",
+        lifecycle_db=tmp_path / "lifecycle.sqlite3",
+        observations_db=tmp_path / "observations.sqlite3",
+        epoch_path=path,
+        epoch_checkpoint=checkpoint,
+        epoch_control=control,
+    )
+    assert (
+        engine.admit_candidate(candidate, _build_test_qualification(candidate)).decision
+        == "admitted"
+    )
+    engine.latest_tickers["BTCUSDT"] = TickerSnapshot(
+        symbol="BTCUSDT",
+        best_bid_price=Decimal("50000"),
+        best_bid_qty=Decimal("2"),
+        best_ask_price=Decimal("50001"),
+        best_ask_qty=Decimal("2"),
+        transaction_time=NOW,
+        event_time=NOW,
+    )
+    equity = engine.current_equity()
+    path.unlink()
+    assert (
+        engine.execute_open("BTCUSDT", signal=1, conviction=Decimal("0.8"), event_time=NOW) is None
+    )
+    assert engine.current_equity() == equity
+    assert engine.active_trades == {}
+    assert engine.sqlite_ledger.load().entries == ()
+
+
 def test_strategy_admission_blocks_unqualified():
     cand = _build_test_candidate()
     qual = _build_test_qualification(cand, decision="rejected")

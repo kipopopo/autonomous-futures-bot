@@ -78,6 +78,7 @@ from autonomous_futures.research.creator_artifacts import (
     _artifact_content_hash,
     read_creator_candidate_artifact,
 )
+from autonomous_futures.research.creator_epoch import CreatorEpochCheckpoint
 from autonomous_futures.research.feature_signals import (
     CausalFeatureSignalEvaluator,
     _parse_expression,
@@ -292,7 +293,15 @@ class LivePaperEngine:
         qualifications_dir: Path | str | None = None,
         base_dir: Path | str | None = None,
         require_flat: bool = False,
+        epoch_path: Path | None = None,
+        epoch_checkpoint: CreatorEpochCheckpoint | None = None,
+        epoch_control: Path | None = None,
     ) -> None:
+        self.admission_decider = StrategyAdmissionDecider(
+            epoch_path=epoch_path,
+            epoch_checkpoint=epoch_checkpoint,
+            epoch_control=epoch_control,
+        )
         explicit_symbols = symbols is not None
         if symbols is not None:
             self.symbols: tuple[str, ...] = tuple(s.upper() for s in symbols)
@@ -447,7 +456,7 @@ class LivePaperEngine:
         # Re-evaluate admission decisions against restored open positions
         # to preserve single-position invariants
         if self.registry_manifest is not None and self.active_trades:
-            decider = StrategyAdmissionDecider()
+            decider = self.admission_decider
             for sym, cand in list(self.candidates.items()):
                 qual = self.qualifications.get(sym)
                 if qual is not None:
@@ -497,7 +506,7 @@ class LivePaperEngine:
         loaded: dict[str, CreatorCandidateArtifact] = {}
         qualifications: dict[str, CreatorCandidateQualificationArtifact] = {}
         decisions: dict[str, StrategyAdmissionDecision] = {}
-        decider = StrategyAdmissionDecider()
+        decider = self.admission_decider
 
         for symbol, entry in manifest.symbols.items():
             sym = symbol.upper()
@@ -1208,7 +1217,7 @@ class LivePaperEngine:
         ):
             logger.warning("Trade rejected for %s: missing or invalid admission authority", sym)
             return None
-        current_decision = StrategyAdmissionDecider().evaluate_admission(
+        current_decision = self.admission_decider.evaluate_admission(
             candidate=cand,
             qualification=qual,
             qualification_hash=adm_dec.qualification_hash,
@@ -2077,7 +2086,7 @@ class LivePaperEngine:
             except (OSError, ValueError, DomainViolation) as _exc:
                 logger.warning("Invalid qualification evidence for %s", candidate.candidate_id)
 
-        decision = StrategyAdmissionDecider().evaluate_admission(
+        decision = self.admission_decider.evaluate_admission(
             candidate=candidate,
             qualification=qualification,
             qualification_hash=qualification_hash,

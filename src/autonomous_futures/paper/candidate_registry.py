@@ -23,7 +23,7 @@ from ..research.creator_artifacts import (
     read_creator_candidate_artifact,
 )
 from ..research.qualification_artifacts import CreatorCandidateQualificationArtifact
-from .admission import StrategyAdmissionDecider, StrategyAdmissionDecision
+from .admission import StrategyAdmissionDecision
 
 logger = logging.getLogger(__name__)
 
@@ -529,7 +529,7 @@ class CandidateRegistryHotReloader:
                 logger.warning("Invalid qualification evidence for %s", cand.candidate_id)
                 self.last_reload_status = "FAILED_QUALIFICATION"
                 return False
-            decision = StrategyAdmissionDecider().evaluate_admission(
+            decision = self.engine.admission_decider.evaluate_admission(
                 candidate=cand,
                 qualification=qualification,
                 qualification_hash=entry.qualification_hash,

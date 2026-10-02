@@ -6,14 +6,21 @@ import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field, field_validator, model_validator
 
 from ..domain.contracts import DomainModel
+from ..domain.errors import DomainViolation
 from ..research.creator_artifacts import (
     CreatorCandidateArtifact,
     _artifact_content_hash,
+)
+from ..research.creator_epoch import (
+    CreatorEpochCheckpoint,
+    read_creator_epoch_control,
+    require_creator_epoch_candidate,
 )
 from ..research.qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
@@ -84,6 +91,28 @@ def strategy_admission_content_hash(decision: StrategyAdmissionDecision) -> str:
 class StrategyAdmissionDecider:
     """Evaluates qualification evidence and paper position state before strategy admission."""
 
+    def __init__(
+        self,
+        *,
+        epoch_path: Path | None = None,
+        epoch_checkpoint: CreatorEpochCheckpoint | None = None,
+        epoch_control: Path | None = None,
+    ) -> None:
+        configured = (
+            epoch_path is not None,
+            epoch_checkpoint is not None,
+            epoch_control is not None,
+        )
+        if any(configured) and not all(configured):
+            raise DomainViolation(
+                "Creator epoch requires journal, pinned checkpoint and control store"
+            )
+        if epoch_path is not None and epoch_checkpoint is not None and epoch_control is not None:
+            read_creator_epoch_control(epoch_control, epoch_path, epoch_checkpoint)
+        self.epoch_path = epoch_path
+        self.epoch_checkpoint = epoch_checkpoint
+        self.epoch_control = epoch_control
+
     def evaluate_admission(
         self,
         *,
@@ -98,6 +127,31 @@ class StrategyAdmissionDecider:
     ) -> StrategyAdmissionDecision:
         now = evaluated_at or datetime.now(UTC)
         dec_id = decision_id or f"admission-{candidate.candidate_id[5:17]}-{int(now.timestamp())}"
+
+        if (
+            self.epoch_path is not None
+            and self.epoch_checkpoint is not None
+            and self.epoch_control is not None
+        ):
+            try:
+                checkpoint = read_creator_epoch_control(
+                    self.epoch_control,
+                    self.epoch_path,
+                    self.epoch_checkpoint,
+                )
+                require_creator_epoch_candidate(self.epoch_path, checkpoint, candidate)
+            except DomainViolation:
+                return self._build_decision(
+                    decision_id=dec_id,
+                    candidate=candidate,
+                    qualification=qualification,
+                    qualification_hash=qualification_hash,
+                    symbol=symbol,
+                    decision="blocked_invalid_binding",
+                    reason_codes=("creator_epoch_candidate_quarantined",),
+                    active_trade_retained=False,
+                    evaluated_at=now,
+                )
 
         if qualification is None:
             return self._build_decision(

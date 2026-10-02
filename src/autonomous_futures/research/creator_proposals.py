@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import tempfile
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -98,8 +100,12 @@ def _proposal_content_hash(proposal: CreatorProposal) -> str:
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def canonical_creator_candidate_id(strategy: StrategySpec) -> str:
+def canonical_creator_candidate_id(strategy: StrategySpec, *, epoch_id: str | None = None) -> str:
     payload = strategy.model_dump(mode="json", exclude={"strategy_id"})
+    if epoch_id is not None:
+        if re.fullmatch(r"epoch-[a-z0-9][a-z0-9-]{0,47}", epoch_id) is None:
+            raise ValueError("invalid Creator lineage epoch")
+        payload = {"epoch_id": epoch_id, "strategy": payload}
     digest = sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return f"cand-{digest}"
 
@@ -108,7 +114,9 @@ def proposal_content_hash(proposal: CreatorProposal) -> str:
     return _proposal_content_hash(proposal)
 
 
-def parse_creator_proposal(payload: Mapping[str, object]) -> CreatorProposal:
+def parse_creator_proposal(
+    payload: Mapping[str, object], *, epoch_id: str | None = None
+) -> CreatorProposal:
     """Validate untrusted structured model output without executing or persisting it."""
     try:
         provisional = CreatorProposal.model_validate({**payload, "proposal_hash": "0" * 64})
@@ -117,7 +125,11 @@ def parse_creator_proposal(payload: Mapping[str, object]) -> CreatorProposal:
     provisional = provisional.model_copy(
         update={
             "strategy": provisional.strategy.model_copy(
-                update={"strategy_id": canonical_creator_candidate_id(provisional.strategy)}
+                update={
+                    "strategy_id": canonical_creator_candidate_id(
+                        provisional.strategy, epoch_id=epoch_id
+                    )
+                }
             )
         }
     )
@@ -215,9 +227,17 @@ def write_creator_proposal_outcome(
         return existing
     payload = json.dumps(outcome.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_name(f".{path.name}.tmp")
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary_path = Path(temporary_name)
     try:
-        temporary_path.write_text(payload, encoding="utf-8", newline="\n")
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as temporary:
+            temporary.write(payload)
+            temporary.flush()
+            os.fsync(temporary.fileno())
         os.link(temporary_path, path)
     except FileExistsError:
         existing = read_creator_proposal_outcome(path)
