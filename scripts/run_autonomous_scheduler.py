@@ -658,8 +658,15 @@ class AutonomousSchedulerDaemon:
 
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
+        self.research_ledger_feedback = args.research_ledger_feedback
+        if self.research_ledger_feedback and args.ledger_db is None:
+            raise ValueError("Research ledger feedback requires explicit --ledger-db")
         self.offline_research = args.research_candidate_artifact is not None
-        if self.offline_research != (args.research_qualification_artifact is not None):
+        if self.research_ledger_feedback and args.research_qualification_artifact is not None:
+            raise ValueError("Research ledger and qualification seeds are mutually exclusive")
+        if self.offline_research != (
+            args.research_qualification_artifact is not None or self.research_ledger_feedback
+        ):
             raise ValueError("Research candidate and qualification must be supplied together")
         if self.offline_research and (
             args.provider != "demo" or not args.bundle_hash or not args.dataset_registry_hash
@@ -682,7 +689,7 @@ class AutonomousSchedulerDaemon:
             else self.output_dir / "scheduler.lock"
         )
 
-        ledger_p = Path(args.ledger_db).resolve()
+        ledger_p = Path(args.ledger_db or "artifacts/paper_live/paper-ledger.sqlite3").resolve()
         self.ledger_db: Path = ledger_p / "paper-ledger.sqlite3" if ledger_p.is_dir() else ledger_p
 
         if args.lifecycle_db:
@@ -961,8 +968,10 @@ class AutonomousSchedulerDaemon:
                 [
                     "--candidate-artifact",
                     str(self.args.research_candidate_artifact),
-                    "--qualification-artifact",
-                    str(self.args.research_qualification_artifact),
+                    "--ledger-db" if self.research_ledger_feedback else "--qualification-artifact",
+                    str(self.ledger_db)
+                    if self.research_ledger_feedback
+                    else str(self.args.research_qualification_artifact),
                     "--max-cycles",
                     "1",
                 ]
@@ -1056,7 +1065,7 @@ class AutonomousSchedulerDaemon:
                 str(self.args.policy_id),
             ]
         )
-        if not self.offline_research:
+        if not self.offline_research or self.research_ledger_feedback:
             cmd.extend(
                 [
                     "--paper-net-pnl-min",
@@ -1071,6 +1080,8 @@ class AutonomousSchedulerDaemon:
                     str(self.args.paper_trades_min),
                 ]
             )
+            if self.research_ledger_feedback:
+                cmd.extend(["--paper-policy-id", self.policy.policy_id])
 
         logger.info(
             "Launching autonomous cycle %s for %s (trigger: %s)",
@@ -1574,7 +1585,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ledger-db",
         type=Path,
-        default=Path("artifacts/paper_live/paper-ledger.sqlite3"),
+        default=None,
         help="Path to paper ledger SQLite database.",
     )
     parser.add_argument(
@@ -1622,6 +1633,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset-registry-hash", type=str, default=None)
     parser.add_argument("--candidate-id", type=str, default=None)
     parser.add_argument("--candidate-path", type=Path, default=None)
+    parser.add_argument(
+        "--research-ledger-feedback",
+        action="store_true",
+        help="Seed the demo-only research base from --ledger-db and --research-candidate-artifact",
+    )
     parser.add_argument(
         "--research-candidate-artifact",
         type=Path,

@@ -55,6 +55,7 @@ from typing import Any, Literal
 from unittest.mock import patch
 
 from pydantic import Field
+from pytest import TempPathFactory
 
 # Ensure repository root is on sys.path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -400,7 +401,7 @@ def poll_json_file(
 
 
 def test_autonomous_closed_loop_breach_to_hot_reload_e2e(
-    tmp_path: Path, verified_cycle_dataset: Path
+    tmp_path: Path, verified_cycle_dataset: Path, tmp_path_factory: TempPathFactory
 ) -> None:
     """Scenario 1: Full E2E Closed Loop from Feedback Breach to Hot-Reload.
 
@@ -496,11 +497,22 @@ def test_autonomous_closed_loop_breach_to_hot_reload_e2e(
     assert engine.total_closed_trades == 5
 
     # Verify PaperFeedbackExtractor directly flags the performance breach
+    from autonomous_futures.paper.feedback_extractor import PaperQualificationPolicy
+
+    paper_policy = PaperQualificationPolicy(
+        policy_id="paper-ledger-regression",
+        paper_net_pnl_min=Decimal("1.00"),
+        paper_profit_factor_min=Decimal("1.07"),
+        paper_win_rate_min=Decimal("40.00"),
+        paper_drawdown_max=Decimal("14.00"),
+        paper_trades_min=6,
+    )
     fb = extract_paper_feedback(
         ledger_path=storage_dir / "paper-ledger.sqlite3",
         symbol="BTCUSDT",
         candidate_id=cand_a.candidate_id,
         candidate_artifact_path=cand_a_file,
+        policy=paper_policy,
     )
     assert fb is not None
     assert any(g.gate_id != "paper_trades_min" for g in fb.failed_gates)
@@ -514,7 +526,7 @@ def test_autonomous_closed_loop_breach_to_hot_reload_e2e(
         read_failure_memory_entry,
     )
 
-    learning_root = tmp_path / "learn"
+    learning_root = tmp_path_factory.mktemp("l")
     source_before = {
         path: path.read_bytes()
         for path in (storage_dir / "paper-ledger.sqlite3", cand_a_file, manifest_path)
@@ -552,11 +564,68 @@ def test_autonomous_closed_loop_breach_to_hot_reload_e2e(
         for key in ("PATH", "SYSTEMROOT", "TMP", "TEMP")
         if (value := os.environ.get(key)) is not None
     }
+    scheduler_command = command.copy()
+    paper_arguments = [
+        value
+        for field, setting in paper_policy.model_dump().items()
+        if field != "policy_id"
+        for value in (f"--{field.replace('_', '-')}", str(setting))
+    ]
+    scheduler_command.extend(paper_arguments)
+    scheduler_command[1] = str(SCHEDULER_SCRIPT)
+    for flag in ("--base-run-id", "--max-cycles"):
+        index = scheduler_command.index(flag)
+        del scheduler_command[index : index + 2]
+    scheduler_command[scheduler_command.index("--artifact-root")] = "--output-dir"
+    scheduler_command[scheduler_command.index("--candidate-artifact")] = (
+        "--research-candidate-artifact"
+    )
+    scheduler_command.extend(
+        [
+            "--once",
+            "--research-ledger-feedback",
+            "--policy-id",
+            paper_policy.policy_id,
+            "--min-profit-factor",
+            "1.10",
+            "--max-drawdown-pct",
+            "0.15",
+            "--min-trades",
+            "1",
+            "--min-windows",
+            "1",
+        ]
+    )
     process = subprocess.run(
-        command, cwd=_REPO_ROOT, env=environment, capture_output=True, text=True, timeout=60
+        scheduler_command,
+        cwd=_REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert process.returncode == 0, process.stderr
-    learned = read_autonomous_base_result(learning_root / "base-result.json")
+    health = json.loads((learning_root / "scheduler-health.json").read_text())
+    assert health["status"] == "STOPPED"
+    assert health["total_cycles_executed"] == 1
+    assert health["admitted_candidates_count"] == 0
+    assert health["last_cycle_result"]["admitted"] is False
+    assert not (learning_root / "scheduler.lock").exists()
+    result_paths = list(learning_root.rglob("base-result.json"))
+    assert len(result_paths) == 1
+    learning_root = result_paths[0].parent
+    learned = read_autonomous_base_result(result_paths[0])
+    command[command.index("--base-run-id") + 1] = learned.base_run_id
+    command[command.index("--artifact-root") + 1] = str(learning_root)
+    command.extend(
+        [
+            "--policy-id",
+            paper_policy.policy_id,
+            "--paper-policy-id",
+            paper_policy.policy_id,
+            *paper_arguments,
+        ]
+    )
     assert learned.cycles_executed == 1
     assert len(learned.learning_hashes) == len(learned.plan_hashes) == 1
     assert (
@@ -571,7 +640,7 @@ def test_autonomous_closed_loop_breach_to_hot_reload_e2e(
         command, cwd=_REPO_ROOT, env=environment, capture_output=True, text=True, timeout=60
     )
     assert replay.returncode == 0, replay.stderr
-    assert json.loads(replay.stdout) == json.loads(process.stdout)
+    assert json.loads(replay.stdout)["base_hash"] == learned.base_hash
     assert {
         path.relative_to(learning_root): path.read_bytes()
         for path in learning_root.rglob("*")

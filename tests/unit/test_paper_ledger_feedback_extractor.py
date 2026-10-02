@@ -286,7 +286,10 @@ def test_feedback_rejects_foreign_candidate_bindings(tmp_path: Path, fault: str)
 @pytest.mark.parametrize(
     "fault", ["missing", "foreign", "ambiguous", "synthetic", "scope", "candidate_missing"]
 )
-def test_base_cli_rejects_invalid_ledger_seed_before_outputs(tmp_path: Path, fault: str) -> None:
+@pytest.mark.parametrize("scheduler", [False, True])
+def test_base_cli_rejects_invalid_ledger_seed_before_outputs(
+    tmp_path: Path, fault: str, scheduler: bool, verified_cycle_dataset: Path
+) -> None:
     from autonomous_futures.research.creator_artifacts import write_creator_candidate_artifact
     from scripts.run_autonomous_base import main
 
@@ -332,6 +335,53 @@ def test_base_cli_rejects_invalid_ledger_seed_before_outputs(tmp_path: Path, fau
         arguments.extend(["--qualification-artifact", str(tmp_path / "missing.json")])
     if fault == "synthetic":
         arguments.append("--use-synthetic-windows")
+    if scheduler:
+        import os
+        import subprocess
+        import sys
+
+        arguments = arguments[2:]
+        arguments.remove("--dry-run")
+        arguments[arguments.index("--artifact-root")] = "--output-dir"
+        for old, new in (
+            ("--candidate-artifact", "--research-candidate-artifact"),
+            ("--qualification-artifact", "--research-qualification-artifact"),
+        ):
+            if old in arguments:
+                arguments[arguments.index(old)] = new
+        process = subprocess.run(
+            [
+                sys.executable,
+                "scripts/run_autonomous_scheduler.py",
+                *arguments,
+                "--symbol",
+                "BTCUSDT",
+                "--once",
+                "--research-ledger-feedback",
+                "--dataset-root",
+                str(verified_cycle_dataset),
+            ],
+            cwd=Path(__file__).resolve().parents[2],
+            env={k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "TMP", "TEMP")},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert process.returncode != 0, process.stdout
+        assert not list(output.rglob("base-result.json"))
+        assert not list(output.rglob("failure-memory"))
+        assert not (output / "scheduler.lock").exists()
+        if fault in ("missing", "foreign", "scope"):
+            health = json.loads((output / "scheduler-health.json").read_text())
+            expected_error = {
+                "missing": "ERROR: Paper ledger seed is unavailable.",
+                "foreign": "ERROR: Paper ledger seed is invalid or mismatched.",
+                "scope": "ERROR: Seed artifacts do not match configured research scope.",
+            }[fault]
+            assert health["last_cycle_result"]["error_message"] == expected_error
+            assert health["admitted_candidates_count"] == 0
+        assert {path: path.read_bytes() for path in before} == before
+        return
     assert main(arguments) != 0
     assert not output.exists()
     assert {path: path.read_bytes() for path in before} == before

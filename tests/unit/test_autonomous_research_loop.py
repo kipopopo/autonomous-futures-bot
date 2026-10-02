@@ -1357,6 +1357,35 @@ def test_scheduler_real_child_uses_bound_cached_input(
     assert {p: p.read_bytes() for p in results[0].parent.rglob("*") if p.is_file()} == evidence
 
 
+@pytest.mark.parametrize("fault", ["ledger", "provider", "candidate", "qualification"])
+def test_scheduler_ledger_seed_contract_rejects_before_outputs(tmp_path: Path, fault: str) -> None:
+    import scripts.run_autonomous_scheduler as scheduler
+
+    output = tmp_path / "out"
+    argv = [
+        "--symbol",
+        "BTCUSDT",
+        "--research-ledger-feedback",
+        "--bundle-hash",
+        HASH_A,
+        "--dataset-registry-hash",
+        HASH_B,
+        "--output-dir",
+        str(output),
+    ]
+    if fault != "ledger":
+        argv.extend(["--ledger-db", str(tmp_path / "ledger.sqlite3")])
+    if fault != "candidate":
+        argv.extend(["--research-candidate-artifact", str(tmp_path / "candidate.json")])
+    if fault == "provider":
+        argv.extend(["--provider", "google_ai_studio"])
+    if fault == "qualification":
+        argv.extend(["--research-qualification-artifact", str(tmp_path / "qualification.json")])
+    with pytest.raises(ValueError):
+        scheduler.AutonomousSchedulerDaemon(scheduler.build_parser().parse_args(argv))
+    assert not output.exists()
+
+
 def test_autonomous_base_write_readback_mismatch_rejects(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

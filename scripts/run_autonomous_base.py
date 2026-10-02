@@ -37,7 +37,10 @@ from autonomous_futures.data.parquet import (  # noqa: E402
     read_canonical_parquet,
 )
 from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
-from autonomous_futures.paper.feedback_extractor import extract_paper_feedback  # noqa: E402
+from autonomous_futures.paper.feedback_extractor import (  # noqa: E402
+    PaperQualificationPolicy,
+    extract_paper_feedback,
+)
 from autonomous_futures.pipeline.autonomous_base import (  # noqa: E402
     AutonomousBaseConfig,
     AutonomousResearchBase,
@@ -410,6 +413,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Read-only paper ledger seed; requires --candidate-artifact, excludes OOS seed",
     )
+    paper_defaults = PaperQualificationPolicy()
+    parser.add_argument("--paper-policy-id", default=paper_defaults.policy_id)
+    for name in (
+        "paper_net_pnl_min",
+        "paper_profit_factor_min",
+        "paper_win_rate_min",
+        "paper_drawdown_max",
+        "paper_trades_min",
+    ):
+        default = getattr(paper_defaults, name)
+        parser.add_argument(f"--{name.replace('_', '-')}", type=type(default), default=default)
     parser.add_argument(
         "--max-cycles",
         type=int,
@@ -604,6 +618,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     symbol=config.symbol,
                     bundle_hash=config.bundle_hash,
                     dataset_registry_hash=config.dataset_registry_hash,
+                    policy=PaperQualificationPolicy(
+                        policy_id=args.paper_policy_id,
+                        paper_net_pnl_min=args.paper_net_pnl_min,
+                        paper_profit_factor_min=args.paper_profit_factor_min,
+                        paper_win_rate_min=args.paper_win_rate_min,
+                        paper_drawdown_max=args.paper_drawdown_max,
+                        paper_trades_min=args.paper_trades_min,
+                    ),
                 )
             except OSError, ValueError, DomainViolation, DataQualityError:
                 sys.stderr.write("ERROR: Paper ledger seed is invalid or mismatched.\n")
