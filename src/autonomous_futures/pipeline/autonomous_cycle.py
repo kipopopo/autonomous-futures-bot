@@ -26,6 +26,7 @@ from pydantic import Field, field_validator
 
 from ..data.parquet import DataQualityError
 from ..domain.contracts import DomainModel
+from ..domain.errors import DomainViolation
 from ..paper.admission import AdmissionOutcome, StrategyAdmissionDecider
 from ..research.autonomy_contracts import ResearchPlan
 from ..research.cached_evaluation import CachedEvaluationWindow
@@ -34,6 +35,11 @@ from ..research.candidate_window_simulation import simulate_candidate_window
 from ..research.creator_artifacts import (
     CreatorCandidateArtifact,
     write_creator_candidate_artifact,
+)
+from ..research.creator_epoch import (
+    append_creator_epoch_acceptance,
+    read_creator_epoch_control,
+    verify_creator_epoch,
 )
 from ..research.creator_failure_feedback import CreatorQualificationFailureFeedback
 from ..research.creator_generator import (
@@ -153,9 +159,30 @@ def execute_autonomous_cycle(
     model: str = "deterministic-heuristic",
     call_status: str = "success",
     latency_ms: float = 0.0,
+    reserve_creator_epoch: bool = False,
 ) -> AutonomousCycleResult:
     """Execute one complete, bounded, auditable closed-loop autonomous cycle."""
     timestamp = now or datetime.now(UTC)
+    epoch_decider = paper_engine.admission_decider if paper_engine is not None else None
+    epoch_checkpoint = None
+    forbidden_ids = set(config.forbidden_candidate_ids) | {prior_feedback.candidate_id}
+    if reserve_creator_epoch:
+        if (
+            epoch_decider is None
+            or epoch_decider.epoch_path is None
+            or epoch_decider.epoch_checkpoint is None
+            or epoch_decider.epoch_control is None
+        ):
+            raise DomainViolation("Creator epoch reservation requires configured paper runtime")
+        epoch_checkpoint = read_creator_epoch_control(
+            epoch_decider.epoch_control,
+            epoch_decider.epoch_path,
+            epoch_decider.epoch_checkpoint,
+        )
+        forbidden_ids.update(
+            outcome.candidate_id
+            for outcome in verify_creator_epoch(epoch_decider.epoch_path, epoch_checkpoint)
+        )
     active_cand_id = (
         paper_engine.candidates[config.symbol].candidate_id
         if paper_engine and config.symbol in paper_engine.candidates
@@ -177,9 +204,7 @@ def execute_autonomous_cycle(
         raise DataQualityError("prior failure feedback does not match cycle bundle scope")
 
     if research_plan is not None:
-        expected_forbidden = tuple(
-            sorted(set(config.forbidden_candidate_ids) | {prior_feedback.candidate_id})
-        )
+        expected_forbidden = tuple(sorted(forbidden_ids))
         if (
             research_plan.cycle_id != config.cycle_id
             or research_plan.research_run_id != f"run-creator-{config.cycle_id}"
@@ -279,10 +304,9 @@ def execute_autonomous_cycle(
         input_evidence_refs=tuple(sorted(creator_evidence_refs)),
         output_schema_id="creator-proposal-v1",
         attempt=1,
-        forbidden_candidate_ids=tuple(
-            sorted(set(config.forbidden_candidate_ids) | {prior_feedback.candidate_id})
-        ),
+        forbidden_candidate_ids=tuple(sorted(forbidden_ids)),
         research_plan=research_plan,
+        epoch_id=epoch_checkpoint.epoch_id if epoch_checkpoint is not None else None,
     )
 
     t_creator_start = time.perf_counter()
@@ -326,6 +350,17 @@ def execute_autonomous_cycle(
         reason_codes=generation_result.reason_codes,
         recorded_at=timestamp,
     )
+    if epoch_checkpoint is not None and epoch_decider is not None:
+        assert epoch_decider.epoch_path is not None
+        assert epoch_decider.epoch_control is not None
+        append_creator_epoch_acceptance(
+            epoch_decider.epoch_path,
+            epoch_checkpoint,
+            generation_result.proposal,
+            candidate,
+            proposal_outcome,
+            control_path=epoch_decider.epoch_control,
+        )
     write_creator_proposal_outcome(
         config.artifact_root / "evidence" / "creator" / f"{proposal_outcome.proposal_id}.json",
         proposal_outcome,

@@ -1,11 +1,14 @@
 """Synthetic cycle regression: runtime quarantine must remain visible in its receipt."""
 
+import sqlite3
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+import autonomous_futures.pipeline.autonomous_cycle as cycle_module
+from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.paper.admission import StrategyAdmissionDecider
 from autonomous_futures.paper.live_engine import LivePaperEngine
 from autonomous_futures.pipeline.autonomous_cycle import (
@@ -15,6 +18,8 @@ from autonomous_futures.pipeline.autonomous_cycle import (
 from autonomous_futures.research.creator_epoch import (
     create_creator_epoch,
     create_creator_epoch_control,
+    read_creator_epoch_control,
+    require_creator_epoch_candidate,
 )
 from autonomous_futures.research.creator_failure_feedback import CreatorQualificationFailureFeedback
 from autonomous_futures.research.qualification_artifacts import QualificationGateResult
@@ -33,7 +38,9 @@ from tests.unit.test_autonomous_cycle import (
 )
 
 
-@pytest.mark.parametrize("phase", ["initial", "adoption"])
+@pytest.mark.parametrize(
+    "phase", ["initial", "adoption", "reserve", "missing_control", "control_failure"]
+)
 def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -55,7 +62,7 @@ def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
         ledger_db=tmp_path / "ledger.sqlite3",
         lifecycle_db=tmp_path / "lifecycle.sqlite3",
         observations_db=tmp_path / "obs.sqlite3",
-        **(epoch_options if phase == "initial" else {}),
+        **(epoch_options if phase != "adoption" else {}),
     )
     if phase == "adoption":
         original_admit = engine.admit_candidate
@@ -85,7 +92,10 @@ def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
         ),
     )
 
+    calls = []
+
     def critic(request):
+        calls.append("critic")
         return {
             "review_id": "review-epoch-cycle",
             "research_run_id": request.research_run_id,
@@ -96,6 +106,7 @@ def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
         }
 
     def creator(request):
+        calls.append("creator")
         return {
             "proposal_id": "proposal-epoch-cycle",
             "research_run_id": request.research_run_id,
@@ -142,24 +153,79 @@ def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
             equity_curve=(EquityPoint(timestamp=timestamp, equity=equity),),
         )
 
-    result = execute_autonomous_cycle(
-        config=AutonomousCycleConfig(
-            cycle_id="cycle-epoch-receipt",
-            symbol="BTCUSDT",
-            bundle_hash=HASH_A,
-            dataset_registry_hash=HASH_B,
-            qualification_policy=_policy(),
-            artifact_root=tmp_path / "cycle",
-        ),
-        windows=(_make_cached_window(),),
-        prior_feedback=feedback,
-        critic_transport=critic,
-        creator_transport=creator,
-        paper_engine=engine,
-        simulator=simulator,
-        now=NOW,
-    )
+    if phase == "missing_control":
+        control.unlink()
+    if phase == "control_failure":
+        with sqlite3.connect(control) as conn:
+            conn.execute(
+                "CREATE TRIGGER reject_head BEFORE UPDATE ON epoch_control "
+                "BEGIN SELECT RAISE(ABORT, 'checkpoint rejected'); END"
+            )
+    if phase == "reserve":
+        original_write = cycle_module.write_creator_candidate_artifact
+
+        def verify_before_persistence(path, candidate):
+            assert not path.exists()
+            current = read_creator_epoch_control(control, journal, checkpoint)
+            assert current.sequence == 1
+            require_creator_epoch_candidate(journal, current, candidate)
+            return original_write(path, candidate)
+
+        monkeypatch.setattr(
+            cycle_module, "write_creator_candidate_artifact", verify_before_persistence
+        )
+
+    def run():
+        return execute_autonomous_cycle(
+            config=AutonomousCycleConfig(
+                cycle_id="cycle-epoch-receipt",
+                symbol="BTCUSDT",
+                bundle_hash=HASH_A,
+                dataset_registry_hash=HASH_B,
+                qualification_policy=_policy(),
+                artifact_root=tmp_path / "cycle",
+            ),
+            windows=(_make_cached_window(),),
+            prior_feedback=feedback,
+            critic_transport=critic,
+            creator_transport=creator,
+            paper_engine=engine,
+            simulator=simulator,
+            now=NOW,
+            **(
+                {"reserve_creator_epoch": True}
+                if phase in ("reserve", "missing_control", "control_failure")
+                else {}
+            ),
+        )
+
+    if phase in ("missing_control", "control_failure"):
+        with pytest.raises(DomainViolation):
+            run()
+        assert not (tmp_path / "cycle" / "candidates").exists()
+        assert not (tmp_path / "cycle" / "evidence" / "creator").exists()
+        if phase == "missing_control":
+            assert calls == []
+            assert not (tmp_path / "cycle").exists()
+        else:
+            assert calls == ["critic", "creator"]
+            assert read_creator_epoch_control(control, journal, checkpoint) == checkpoint
+        return
+    result = run()
     assert result.qualification_decision == "qualified"
+    if phase == "reserve":
+        assert result.cycle_status == "completed_admitted"
+        candidate = engine.candidates["BTCUSDT"]
+        current = read_creator_epoch_control(control, journal, checkpoint)
+        assert current.sequence == 1
+        require_creator_epoch_candidate(journal, current, candidate)
+        assert result.active_candidate_id == candidate.candidate_id
+        assert engine.sqlite_ledger.load().entries == ()
+        second = run()
+        assert second.cycle_status == "failed"
+        assert second.stop_reasons == ("candidate_id_forbidden",)
+        assert read_creator_epoch_control(control, journal, checkpoint) == current
+        return
     assert result.cycle_status == "completed_unadmitted"
     assert result.admission_decision == "blocked_invalid_binding"
     assert result.stop_reasons == ("creator_epoch_candidate_quarantined",)

@@ -161,3 +161,19 @@ def test_generator_preserves_only_safe_provider_metadata() -> None:
         "status_code": 200,
         "transport_error_type": "ReadTimeout",
     }
+
+
+def test_generator_binds_epoch_identity_before_repeat_check() -> None:
+    from autonomous_futures.research.creator_proposals import parse_creator_proposal
+
+    request = CreatorGenerationRequest.model_validate(
+        {**_request().model_dump(), "epoch_id": "epoch-generator"}
+    )
+    expected = parse_creator_proposal(_proposal(), epoch_id=request.epoch_id)
+    result = CreatorGenerator(lambda _: _proposal()).generate(request)
+    assert result.proposal == expected
+    assert result.proposal != parse_creator_proposal(_proposal())
+    blocked = CreatorGenerator(lambda _: _proposal()).generate(
+        request.model_copy(update={"forbidden_candidate_ids": (expected.strategy.strategy_id,)})
+    )
+    assert blocked.reason_codes == ("candidate_id_forbidden",)

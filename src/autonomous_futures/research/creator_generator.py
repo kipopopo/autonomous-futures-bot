@@ -26,6 +26,7 @@ class CreatorGenerationRequest(DomainModel):
     attempt: int = Field(ge=1, strict=True)
     forbidden_candidate_ids: tuple[str, ...] = ()
     research_plan: ResearchPlan | None = None
+    epoch_id: str | None = Field(default=None, pattern=r"^epoch-[a-z0-9][a-z0-9-]{0,47}$")
 
     @field_validator("input_evidence_refs")
     @classmethod
@@ -140,7 +141,7 @@ class CreatorGenerator:
 
         provider_metadata = _safe_provider_metadata(getattr(payload, "metadata", None))
         try:
-            proposal = parse_creator_proposal(payload)
+            proposal = parse_creator_proposal(payload, epoch_id=request.epoch_id)
         except Exception:
             return CreatorGenerationResult(
                 decision="rejected",
