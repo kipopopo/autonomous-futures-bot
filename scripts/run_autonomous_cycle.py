@@ -991,6 +991,7 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             candidate_artifact_hash=result.candidate_artifact_hash,
             artifact_path=cand_artifact_path.as_posix(),
             qualification_hash=result.qualification_hash,
+            admission_decider=paper_engine.admission_decider if paper_engine is not None else None,
             admitted_at=result.completed_at.isoformat()
             if hasattr(result.completed_at, "isoformat")
             else str(result.completed_at),

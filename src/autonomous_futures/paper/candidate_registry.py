@@ -23,7 +23,7 @@ from ..research.creator_artifacts import (
     read_creator_candidate_artifact,
 )
 from ..research.qualification_artifacts import CreatorCandidateQualificationArtifact
-from .admission import StrategyAdmissionDecision
+from .admission import StrategyAdmissionDecider, StrategyAdmissionDecision
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +229,8 @@ def publish_candidate_admission(
     artifact_path: str | Path,
     qualification_hash: str,
     admitted_at: str | datetime | None = None,
+    *,
+    admission_decider: StrategyAdmissionDecider | None = None,
 ) -> CandidateRegistryManifest:
     """Publish an admitted candidate into the candidate registry manifest atomically.
 
@@ -268,6 +270,12 @@ def publish_candidate_admission(
         registry_version=version,
     )
 
+    if admission_decider is not None and admission_decider.epoch_path is not None:
+        candidates = validate_manifest_candidate_artifacts(
+            new_manifest, base_dir=target_path.parent
+        )
+        for candidate in candidates.values():
+            admission_decider.require_epoch_membership(candidate)
     write_candidate_registry(target_path, new_manifest)
     return new_manifest
 

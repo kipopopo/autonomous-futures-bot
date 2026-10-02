@@ -113,6 +113,19 @@ class StrategyAdmissionDecider:
         self.epoch_checkpoint = epoch_checkpoint
         self.epoch_control = epoch_control
 
+    def require_epoch_membership(self, candidate: CreatorCandidateArtifact) -> None:
+        if (
+            self.epoch_path is not None
+            and self.epoch_checkpoint is not None
+            and self.epoch_control is not None
+        ):
+            checkpoint = read_creator_epoch_control(
+                self.epoch_control,
+                self.epoch_path,
+                self.epoch_checkpoint,
+            )
+            require_creator_epoch_candidate(self.epoch_path, checkpoint, candidate)
+
     def evaluate_admission(
         self,
         *,
@@ -134,12 +147,7 @@ class StrategyAdmissionDecider:
             and self.epoch_control is not None
         ):
             try:
-                checkpoint = read_creator_epoch_control(
-                    self.epoch_control,
-                    self.epoch_path,
-                    self.epoch_checkpoint,
-                )
-                require_creator_epoch_candidate(self.epoch_path, checkpoint, candidate)
+                self.require_epoch_membership(candidate)
             except DomainViolation:
                 return self._build_decision(
                     decision_id=dec_id,

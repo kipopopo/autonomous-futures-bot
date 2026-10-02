@@ -385,7 +385,9 @@ def execute_autonomous_cycle(
     )
 
     # 6. Step 6: Strategy Admission Decision
-    admission_decider = StrategyAdmissionDecider()
+    admission_decider = (
+        paper_engine.admission_decider if paper_engine is not None else StrategyAdmissionDecider()
+    )
     active_trades = paper_engine.active_trades if paper_engine is not None else None
     admission = admission_decider.evaluate_admission(
         candidate=candidate,
@@ -398,8 +400,15 @@ def execute_autonomous_cycle(
 
     # 7. Step 7: Safe Candidate Adoption in Paper Trading
     if admission.decision == "admitted" and paper_engine is not None:
-        paper_engine.admit_candidate(candidate, qualification, require_flat=config.require_flat)
-        active_cand_id = candidate.candidate_id
+        adoption = paper_engine.admit_candidate(
+            candidate,
+            qualification,
+            require_flat=config.require_flat,
+        )
+        if adoption.decision == "admitted":
+            active_cand_id = candidate.candidate_id
+        else:
+            admission = adoption
 
     cycle_status: CycleStatus = (
         "completed_admitted" if admission.decision == "admitted" else "completed_unadmitted"
