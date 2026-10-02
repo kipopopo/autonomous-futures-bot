@@ -147,7 +147,16 @@ def test_cli_help_flag() -> None:
 
 
 @pytest.mark.parametrize(
-    "input_fault", [None, "scope", "tampered", "epoch", "epoch_missing_control", "epoch_partial"]
+    "input_fault",
+    [
+        None,
+        "scope",
+        "tampered",
+        "epoch",
+        "epoch_missing_control",
+        "epoch_partial",
+        "epoch_scheduler",
+    ],
 )
 def test_normal_cycle_real_process_verifies_cached_scope(
     tmp_path: Path, verified_cycle_dataset: Path, input_fault: str | None
@@ -196,7 +205,15 @@ def test_normal_cycle_real_process_verifies_cached_scope(
     completed = subprocess.run(
         [
             sys.executable,
-            str(_REPO_ROOT / "scripts/run_autonomous_cycle.py"),
+            str(
+                _REPO_ROOT
+                / "scripts"
+                / (
+                    "run_autonomous_scheduler.py"
+                    if input_fault == "epoch_scheduler"
+                    else "run_autonomous_cycle.py"
+                )
+            ),
             "--symbol",
             "BTCUSDT",
             "--provider",
@@ -219,8 +236,11 @@ def test_normal_cycle_real_process_verifies_cached_scope(
             str(output),
             "--candidate-registry-path",
             str(registry),
-            "--cycle-id",
-            "cycle-process-cache-001",
+            *(
+                ["--once"]
+                if input_fault == "epoch_scheduler"
+                else ["--cycle-id", "cycle-process-cache-001"]
+            ),
             "--windows-count",
             "1",
             "--min-windows",
@@ -250,24 +270,33 @@ def test_normal_cycle_real_process_verifies_cached_scope(
         for path in verified_cycle_dataset.rglob("*")
         if path.is_file()
     } == before
-    if input_fault not in (None, "epoch"):
+    if input_fault not in (None, "epoch", "epoch_scheduler"):
         assert completed.returncode != 0
         assert not (output / "autonomous-cycle-result.json").exists()
         assert not (output / "candidates").exists()
         assert not registry.exists()
         return
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    result = json.loads((output / "autonomous-cycle-result.json").read_text())
+    cycle_output = output
+    if input_fault == "epoch_scheduler":
+        receipts = list(output.rglob("autonomous-cycle-result.json"))
+        assert len(receipts) == 1
+        cycle_output = receipts[0].parent
+        health = json.loads((output / "scheduler-health.json").read_text())
+        assert health["total_cycles_executed"] == 1
+        assert health["status"] == "STOPPED"
+        assert not (output / "scheduler.lock").exists()
+    result = json.loads((cycle_output / "autonomous-cycle-result.json").read_text())
     assert result["execution_authority"] is False
     assert result["provider"] == "demo"
     assert result["promotion_state"] == "unpromoted"
     generated = read_creator_candidate_artifact(
-        output / "candidates" / f"{result['candidate_id']}.json"
+        cycle_output / "candidates" / f"{result['candidate_id']}.json"
     )
     assert generated.bundle_hash == BUNDLE_HASH
     assert generated.dataset_registry_hash == REGISTRY_HASH
     assert generated.artifact_hash == result["candidate_artifact_hash"]
-    if input_fault == "epoch":
+    if input_fault in ("epoch", "epoch_scheduler"):
         from autonomous_futures.research.creator_epoch import (
             read_creator_epoch_control,
             require_creator_epoch_candidate,

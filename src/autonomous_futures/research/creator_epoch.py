@@ -247,6 +247,26 @@ def read_creator_epoch_control(
         raise DomainViolation("Creator epoch control is unavailable or invalid") from exc
 
 
+def read_creator_epoch_configuration(
+    journal: Path | None,
+    control: Path | None,
+    checkpoint_file: Path | None,
+) -> CreatorEpochCheckpoint | None:
+    """Read explicit operator pins; never initialize or discover authority."""
+    if journal is None and control is None and checkpoint_file is None:
+        return None
+    if journal is None or control is None or checkpoint_file is None:
+        raise DomainViolation("Creator epoch requires journal, control and pinned checkpoint")
+    try:
+        expected = CreatorEpochCheckpoint.model_validate_json(
+            checkpoint_file.read_text(encoding="utf-8")
+        )
+        read_creator_epoch_control(control, journal, expected)
+        return expected
+    except (OSError, ValueError) as exc:
+        raise DomainViolation("Creator epoch configuration is unavailable or invalid") from exc
+
+
 def append_creator_epoch_acceptance(
     path: Path,
     checkpoint: CreatorEpochCheckpoint,

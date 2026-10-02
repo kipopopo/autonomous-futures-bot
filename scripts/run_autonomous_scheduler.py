@@ -55,6 +55,9 @@ from autonomous_futures.pipeline.autonomous_cycle import (  # noqa: E402
     AutonomousCycleResult,
     autonomous_cycle_content_hash,
 )
+from autonomous_futures.research.creator_epoch import (  # noqa: E402
+    read_creator_epoch_configuration,
+)
 
 try:
     import pyarrow.parquet as pq
@@ -674,6 +677,15 @@ class AutonomousSchedulerDaemon:
             raise ValueError("Offline research requires demo mode and both scope hashes")
 
         self.symbol: str = args.symbol
+        self.epoch_paths = tuple(
+            getattr(args, f"creator_epoch_{name}", None)
+            for name in ("journal", "control", "checkpoint")
+        )
+        if any(path is not None for path in self.epoch_paths) and (
+            args.provider != "demo" or args.ledger_db is None or self.offline_research
+        ):
+            raise ValueError("Creator epoch scheduler requires demo cycle mode and explicit ledger")
+        self.epoch_checkpoint = read_creator_epoch_configuration(*self.epoch_paths)
         self.output_dir: Path = Path(args.output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -820,6 +832,8 @@ class AutonomousSchedulerDaemon:
         emit_scheduler_health(self.health_path, checkpoint)
 
     def _execute_cycle(self, trigger_type: TriggerType) -> int:
+        if read_creator_epoch_configuration(*self.epoch_paths) != self.epoch_checkpoint:
+            raise ValueError("Creator epoch scheduler pins changed after startup")
         now = datetime.now(UTC)
         self.last_run_at = now.isoformat()
         self.status = "RUNNING_CYCLE"
@@ -827,7 +841,8 @@ class AutonomousSchedulerDaemon:
 
         cycle_id = f"cycle-{self.symbol.lower()}-{now.strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:6]}"
         cycle_output_dir = self.output_dir / "cycles" / cycle_id
-        cycle_output_dir.mkdir(parents=True, exist_ok=True)
+        if self.epoch_checkpoint is None:
+            cycle_output_dir.mkdir(parents=True, exist_ok=True)
 
         cycle_script = Path(__file__).resolve().parent / (
             "run_autonomous_base.py" if self.offline_research else "run_autonomous_cycle.py"
@@ -930,7 +945,12 @@ class AutonomousSchedulerDaemon:
         # Extract paper feedback if ledger DB is present
         extracted_feedback = None
         feedback_file: Path | None = None
-        if not self.offline_research and self.ledger_db and self.ledger_db.is_file():
+        if (
+            not self.offline_research
+            and self.epoch_checkpoint is None
+            and self.ledger_db
+            and self.ledger_db.is_file()
+        ):
             try:
                 extracted_feedback = extract_paper_feedback(
                     ledger_path=self.ledger_db,
@@ -989,6 +1009,14 @@ class AutonomousSchedulerDaemon:
             )
 
         cmd.extend(["--dataset-root", str(self.args.dataset_root.resolve())])
+        if self.epoch_checkpoint is not None:
+            for name, path in zip(
+                ("journal", "control", "checkpoint"), self.epoch_paths, strict=True
+            ):
+                if path is None:
+                    raise ValueError("Creator epoch scheduler pin is missing")
+                cmd.extend([f"--creator-epoch-{name}", str(path.resolve())])
+            cmd.extend(["--ledger-db", str(self.ledger_db)])
         for flag, path in (
             ("--bundle-path", self.args.bundle_path),
             ("--registry-path", self.args.registry_path),
@@ -1003,7 +1031,9 @@ class AutonomousSchedulerDaemon:
             and feedback_file.is_file()
         ):
             cmd.extend(["--feedback-path", str(feedback_file)])
-        elif not self.offline_research and self.ledger_db.exists():
+        elif (
+            not self.offline_research and self.epoch_checkpoint is None and self.ledger_db.exists()
+        ):
             cmd.extend(["--ledger-db", str(self.ledger_db)])
 
         if not self.offline_research and self.lifecycle_db and self.lifecycle_db.exists():
@@ -1480,6 +1510,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Autonomous Scheduling & Trigger Daemon for paper futures trading."
     )
+    for name in ("journal", "control", "checkpoint"):
+        parser.add_argument(
+            f"--creator-epoch-{name}",
+            type=Path,
+            default=None,
+            help=f"Existing operator-pinned epoch {name}; demo cycle mode only",
+        )
     # Required target symbol
     parser.add_argument(
         "--symbol",

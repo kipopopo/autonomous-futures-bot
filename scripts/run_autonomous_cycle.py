@@ -61,8 +61,7 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     read_creator_candidate_artifact,
 )
 from autonomous_futures.research.creator_epoch import (  # noqa: E402
-    CreatorEpochCheckpoint,
-    read_creator_epoch_control,
+    read_creator_epoch_configuration,
 )
 from autonomous_futures.research.creator_failure_feedback import (  # noqa: E402
     CreatorQualificationFailureFeedback,
@@ -622,17 +621,13 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
     checkpoint_path = getattr(args, "creator_epoch_checkpoint", None)
     epoch_checkpoint = None
     if any(value is not None for value in (epoch_journal, epoch_control, checkpoint_path)):
-        if epoch_journal is None or epoch_control is None or checkpoint_path is None:
-            raise DomainViolation("Creator epoch requires journal, control and pinned checkpoint")
         if args.provider != "demo" or args.ledger_db is None:
             raise DomainViolation("Creator epoch CLI requires demo provider and paper ledger")
-        try:
-            epoch_checkpoint = CreatorEpochCheckpoint.model_validate_json(
-                checkpoint_path.read_text(encoding="utf-8")
-            )
-            read_creator_epoch_control(epoch_control, epoch_journal, epoch_checkpoint)
-        except (OSError, ValueError) as exc:
-            raise DomainViolation("Creator epoch CLI state is unavailable or invalid") from exc
+        epoch_checkpoint = read_creator_epoch_configuration(
+            epoch_journal,
+            epoch_control,
+            checkpoint_path,
+        )
     provider_candidate: CreatorCandidateArtifact | None = None
     if args.provider == "google_ai_studio":
         require_complete_creator_history()

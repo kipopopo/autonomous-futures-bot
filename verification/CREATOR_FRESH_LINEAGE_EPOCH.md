@@ -55,7 +55,7 @@ RED: the new request epoch and explicit cycle option were rejected as absent. GR
 
 Acceptance caller published as `5c1581e8c04e7eccf6a24772488e25404ec47171`; exact-head Actions [37015447424](https://github.com/kipopopo/autonomous-futures-bot/actions/runs/37015447424) completed successfully (tests, lint, format, strict types and compile). It does not cover the CLI follow-up below.
 
-### Offline CLI follow-up — publication pending
+### Offline CLI follow-up — published
 
 The existing cycle CLI now accepts `--creator-epoch-journal`, `--creator-epoch-control` and `--creator-epoch-checkpoint` (typed JSON). All three are required together, with demo provider and explicit paper ledger. Existing state is verified before feedback, output directories, runtime initialization or credential lookup. The exact pins are forwarded to the engine; the cycle uses explicit reservation and existing all-entry publication checks. The CLI does not initialize stores, infer owner identity, discover a trust head or unlock real providers. Production pins must still be supplied by separately reviewed protected operator configuration.
 
@@ -63,4 +63,16 @@ Actual subprocess RED rejected the absent flags; GREEN **six subprocess cases pa
 
 These are local contracts, not initialized production authority. The control path and policy must be pinned by trusted operator configuration and separately protected from journal writers. Hashes, local file permissions and this document do not establish owner identity or defeat privileged replacement/rollback of **both** journal and control. Failed initialization leaves an unusable file rather than silently resetting history; repair requires an explicit reviewed recovery action.
 
-The bounded offline acceptance caller, configured admission/publication guards and demo cycle CLI wiring are implemented. Real-provider fresh-epoch preflight, API/scheduler configuration and protected deployment control-store provisioning remain unfinished. Default legacy provider history remains blocked. No real epoch, provider request, deployment, restart or order has been activated. This decision record is not an acceptance ledger, epoch manifest or executable bypass. Full project readiness and exact-published-SHA CI for the CLI follow-up remain pending; provider, deployment and trading approvals stay separate.
+CLI slice `87a132a9a890c80d8a7204e101e80f9851c78c26` passed exact-head Actions `37020877519` (tests, lint, format, strict types and compile).
+
+### Offline scheduler follow-up — publication pending
+
+Scheduler demo cycle mode now accepts the same three operator pins; unsupported offline-base research mode, real provider, missing explicit ledger and incomplete/invalid state fail before output initialization. CLI and scheduler reuse the typed configuration reader. Each launch rereads state and rejects changed checkpoint pins; exact resolved pins and ledger are passed to the existing cycle child.
+
+Actual scheduler process → actual cycle subprocess → accepted epoch journal/control membership passed using the existing cached/ledger fixture. The test verifies one cycle, stopped health and released lock, unchanged market fixture bytes, disabled execution and exact persisted candidate membership. It does not prove live market qualification or operational protection.
+
+Read-only review identified that scheduler-created cycle directories/feedback snapshots survived a child preflight rejection. A late control-deletion regression reproduced this (RED). In epoch mode the scheduler now leaves per-cycle output creation and ledger feedback extraction to the child after its own preflight; it passes the ledger once and does not write a feedback snapshot (GREEN). Scheduler failure health remains diagnostic evidence. Failures *after* successful child preflight may retain research evidence and an accepted reservation; those must not be erased or automatically retried. No cross-process guarantee against arbitrary later mutation is claimed.
+
+Final six-module regression after the fix: **99 passed in 182.11s**. The preceding **98-test** run predates the late-control fix and is not its verification. Whole-tree Ruff/format, Windows/Linux strict types, lock/diff checks passed. Exact-head scheduler publication CI remains pending.
+
+The bounded offline acceptance caller, configured admission/publication guards and demo cycle/scheduler wiring are implemented. Real-provider fresh-epoch preflight, API configuration and protected deployment control-store provisioning remain unfinished. Default legacy provider history remains blocked. No real epoch, provider request, deployment, restart or order has been activated. This decision record is not an acceptance ledger, epoch manifest or executable bypass. Full project readiness and exact-published-SHA CI for the scheduler follow-up remain pending; provider, deployment and trading approvals stay separate.
