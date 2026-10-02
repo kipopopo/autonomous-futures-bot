@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..paper.admission import StrategyAdmissionDecider
 from ..research.creator_artifacts import CreatorCandidateArtifact, CreatorCandidateRegistry
 from ..research.qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
@@ -84,10 +85,12 @@ def load_verified_creator_candidate_qualification(
     candidate_artifact_root: Path,
     qualification_root: Path,
     candidate_id: str,
+    admission_decider: StrategyAdmissionDecider | None = None,
 ) -> VerifiedCreatorQualification:
     verified_registry = load_verified_creator_candidate_registry(
         registry_path=registry_path,
         artifact_root=candidate_artifact_root,
+        admission_decider=admission_decider,
     )
     candidate = _candidate_from_registry(verified_registry, candidate_id)
     path = _qualification_path(qualification_root, candidate.candidate_id)
@@ -101,10 +104,12 @@ def load_verified_creator_candidate_qualifications(
     registry_path: Path,
     candidate_artifact_root: Path,
     qualification_root: Path,
+    admission_decider: StrategyAdmissionDecider | None = None,
 ) -> VerifiedCreatorQualifications:
     verified_registry = load_verified_creator_candidate_registry(
         registry_path=registry_path,
         artifact_root=candidate_artifact_root,
+        admission_decider=admission_decider,
     )
     qualifications: list[VerifiedCreatorQualification] = []
     missing_candidate_ids: list[str] = []

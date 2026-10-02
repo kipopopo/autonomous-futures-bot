@@ -10,7 +10,9 @@ from fastapi import FastAPI, HTTPException, Query
 from ..data.bundle import DatasetBundle
 from ..data.registry import DatasetKind, DatasetRegistry, DatasetRegistryEntry
 from ..domain.contracts import DomainModel
+from ..paper.admission import StrategyAdmissionDecider
 from ..research.creator_artifacts import CreatorCandidateRegistry
+from ..research.creator_epoch import read_creator_epoch_configuration
 from ..research.learner_artifacts import LearnerArtifact
 from ..research.learner_metric_quality_qualification import (
     LearnerMetricQualityQualificationEvidence,
@@ -244,6 +246,9 @@ def create_app(
     creator_candidate_registry_path: Path | None = None,
     creator_candidate_artifact_root: Path | None = None,
     qualification_artifact_root: Path | None = None,
+    creator_epoch_journal: Path | None = None,
+    creator_epoch_control: Path | None = None,
+    creator_epoch_checkpoint: Path | None = None,
     learner_artifact_path: Path | None = None,
     learner_model_root: Path | None = None,
     learner_run_path: Path | None = None,
@@ -262,6 +267,29 @@ def create_app(
     telemetry_broadcaster: TelemetryBroadcastManager | None = None,
     frontend_dist_path: Path | None = None,
 ) -> FastAPI:
+    if (
+        creator_epoch_journal is None
+        and (value := os.environ.get("AFBOT_CREATOR_EPOCH_JOURNAL")) is not None
+    ):
+        creator_epoch_journal = Path(value)
+    if (
+        creator_epoch_control is None
+        and (value := os.environ.get("AFBOT_CREATOR_EPOCH_CONTROL")) is not None
+    ):
+        creator_epoch_control = Path(value)
+    if (
+        creator_epoch_checkpoint is None
+        and (value := os.environ.get("AFBOT_CREATOR_EPOCH_CHECKPOINT")) is not None
+    ):
+        creator_epoch_checkpoint = Path(value)
+    epoch_checkpoint = read_creator_epoch_configuration(
+        creator_epoch_journal, creator_epoch_control, creator_epoch_checkpoint
+    )
+    creator_admission_decider = StrategyAdmissionDecider(
+        epoch_path=creator_epoch_journal,
+        epoch_checkpoint=epoch_checkpoint,
+        epoch_control=creator_epoch_control,
+    )
     configured_bundle_path = bundle_path or _configured_path(
         "AFBOT_DATASET_BUNDLE_PATH", "data/dataset-bundle.json"
     )
@@ -623,6 +651,7 @@ def create_app(
             verified = load_verified_creator_candidate_registry(
                 registry_path=configured_creator_registry_path,
                 artifact_root=configured_creator_artifact_root,
+                admission_decider=creator_admission_decider,
             )
         except CreatorCandidateRegistryNotFoundError as exc:
             raise HTTPException(
@@ -650,6 +679,7 @@ def create_app(
                 registry_path=configured_creator_registry_path,
                 candidate_artifact_root=configured_creator_artifact_root,
                 qualification_root=configured_qualification_artifact_root,
+                admission_decider=creator_admission_decider,
             )
         except CreatorCandidateRegistryNotFoundError as exc:
             raise HTTPException(
@@ -700,6 +730,7 @@ def create_app(
                 candidate_artifact_root=configured_creator_artifact_root,
                 qualification_root=configured_qualification_artifact_root,
                 candidate_id=candidate_id,
+                admission_decider=creator_admission_decider,
             )
         except CreatorCandidateRegistryNotFoundError as exc:
             raise HTTPException(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from ..paper.admission import StrategyAdmissionDecider
 from ..research.creator_artifacts import (
     CreatorCandidateArtifact,
     CreatorCandidateRegistry,
@@ -56,7 +57,10 @@ def _entry_matches_artifact(
 
 
 def load_verified_creator_candidate_registry(
-    *, registry_path: Path, artifact_root: Path
+    *,
+    registry_path: Path,
+    artifact_root: Path,
+    admission_decider: StrategyAdmissionDecider | None = None,
 ) -> VerifiedCreatorCandidateRegistry:
     if not registry_path.exists():
         raise CreatorCandidateRegistryNotFoundError(registry_path)
@@ -71,6 +75,8 @@ def load_verified_creator_candidate_registry(
                 raise CreatorCandidateRegistryIntegrityError(
                     "creator registry entry is not bound to its artifact"
                 )
+            if admission_decider is not None:
+                admission_decider.require_epoch_membership(artifact)
             artifacts.append(artifact)
     except CreatorCandidateRegistryIntegrityError:
         raise
