@@ -60,6 +60,10 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     CreatorCandidateArtifact,
     read_creator_candidate_artifact,
 )
+from autonomous_futures.research.creator_epoch import (  # noqa: E402
+    CreatorEpochCheckpoint,
+    read_creator_epoch_control,
+)
 from autonomous_futures.research.creator_failure_feedback import (  # noqa: E402
     CreatorQualificationFailureFeedback,
 )
@@ -226,6 +230,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Autonomous Cycle CLI Runner — bounded strategy revision and paper admission.",
     )
+    for name in ("journal", "control", "checkpoint"):
+        parser.add_argument(
+            f"--creator-epoch-{name}",
+            type=Path,
+            default=None,
+            help=f"Operator-pinned existing epoch {name}; all three required, demo-only",
+        )
     parser.add_argument(
         "--symbol",
         type=_validate_symbol,
@@ -606,6 +617,22 @@ def build_cycle_audit(
 
 
 def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
+    epoch_journal = getattr(args, "creator_epoch_journal", None)
+    epoch_control = getattr(args, "creator_epoch_control", None)
+    checkpoint_path = getattr(args, "creator_epoch_checkpoint", None)
+    epoch_checkpoint = None
+    if any(value is not None for value in (epoch_journal, epoch_control, checkpoint_path)):
+        if epoch_journal is None or epoch_control is None or checkpoint_path is None:
+            raise DomainViolation("Creator epoch requires journal, control and pinned checkpoint")
+        if args.provider != "demo" or args.ledger_db is None:
+            raise DomainViolation("Creator epoch CLI requires demo provider and paper ledger")
+        try:
+            epoch_checkpoint = CreatorEpochCheckpoint.model_validate_json(
+                checkpoint_path.read_text(encoding="utf-8")
+            )
+            read_creator_epoch_control(epoch_control, epoch_journal, epoch_checkpoint)
+        except (OSError, ValueError) as exc:
+            raise DomainViolation("Creator epoch CLI state is unavailable or invalid") from exc
     provider_candidate: CreatorCandidateArtifact | None = None
     if args.provider == "google_ai_studio":
         require_complete_creator_history()
@@ -828,6 +855,9 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             ledger_db=ledger_file,
             lifecycle_db=lifecycle_file,
             observations_db=obs_file,
+            epoch_path=epoch_journal,
+            epoch_checkpoint=epoch_checkpoint,
+            epoch_control=epoch_control,
         )
 
     # 7. Transports Resolution
@@ -925,6 +955,7 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             paper_engine=paper_engine,
             now=now,
             provider=args.provider,
+            reserve_creator_epoch=epoch_checkpoint is not None,
             model=args.model if args.provider == "google_ai_studio" else "deterministic-heuristic",
         )
     finally:

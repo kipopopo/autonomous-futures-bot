@@ -146,7 +146,9 @@ def test_cli_help_flag() -> None:
     assert "Autonomous Cycle CLI Runner" in result.stdout
 
 
-@pytest.mark.parametrize("input_fault", [None, "scope", "tampered"])
+@pytest.mark.parametrize(
+    "input_fault", [None, "scope", "tampered", "epoch", "epoch_missing_control", "epoch_partial"]
+)
 def test_normal_cycle_real_process_verifies_cached_scope(
     tmp_path: Path, verified_cycle_dataset: Path, input_fault: str | None
 ) -> None:
@@ -160,6 +162,30 @@ def test_normal_cycle_real_process_verifies_cached_scope(
     _init_test_ledger(ledger, candidate)
     output = tmp_path / "out"
     registry = tmp_path / "admission.json"
+    epoch_args = []
+    checkpoint = None
+    if input_fault is not None and input_fault.startswith("epoch"):
+        from autonomous_futures.research.creator_epoch import (
+            create_creator_epoch,
+            create_creator_epoch_control,
+        )
+
+        journal = tmp_path / "epoch.sqlite3"
+        control = tmp_path / "control.sqlite3"
+        checkpoint_path = tmp_path / "checkpoint.json"
+        checkpoint = create_creator_epoch(journal, epoch_id="epoch-cli", policy_hash="c" * 64)
+        create_creator_epoch_control(control, journal, checkpoint)
+        checkpoint_path.write_text(checkpoint.model_dump_json(), encoding="utf-8")
+        epoch_args = ["--creator-epoch-journal", str(journal)]
+        if input_fault != "epoch_partial":
+            epoch_args += [
+                "--creator-epoch-control",
+                str(control),
+                "--creator-epoch-checkpoint",
+                str(checkpoint_path),
+            ]
+        if input_fault == "epoch_missing_control":
+            control.unlink()
     if input_fault == "tampered":
         PARQUET_PATH.write_bytes(PARQUET_PATH.read_bytes() + b"tampered")
     before = {
@@ -207,6 +233,7 @@ def test_normal_cycle_real_process_verifies_cached_scope(
             "50.0",
             "--min-average-return-pct",
             "-10.0",
+            *epoch_args,
         ],
         cwd=_REPO_ROOT,
         env={
@@ -223,7 +250,7 @@ def test_normal_cycle_real_process_verifies_cached_scope(
         for path in verified_cycle_dataset.rglob("*")
         if path.is_file()
     } == before
-    if input_fault is not None:
+    if input_fault not in (None, "epoch"):
         assert completed.returncode != 0
         assert not (output / "autonomous-cycle-result.json").exists()
         assert not (output / "candidates").exists()
@@ -240,6 +267,15 @@ def test_normal_cycle_real_process_verifies_cached_scope(
     assert generated.bundle_hash == BUNDLE_HASH
     assert generated.dataset_registry_hash == REGISTRY_HASH
     assert generated.artifact_hash == result["candidate_artifact_hash"]
+    if input_fault == "epoch":
+        from autonomous_futures.research.creator_epoch import (
+            read_creator_epoch_control,
+            require_creator_epoch_candidate,
+        )
+
+        current = read_creator_epoch_control(control, journal, checkpoint)
+        assert current.sequence == 1
+        require_creator_epoch_candidate(journal, current, generated)
 
 
 def test_cli_invalid_arguments_exit_code_2() -> None:
