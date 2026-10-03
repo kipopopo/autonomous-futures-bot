@@ -61,7 +61,10 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     read_creator_candidate_artifact,
 )
 from autonomous_futures.research.creator_epoch import (  # noqa: E402
+    CreatorEpochProviderPermit,
     read_creator_epoch_configuration,
+    read_creator_epoch_provider_permit,
+    reserve_creator_epoch_provider_permit,
 )
 from autonomous_futures.research.creator_failure_feedback import (  # noqa: E402
     CreatorQualificationFailureFeedback,
@@ -147,22 +150,29 @@ class BoundedTransportCallGovernor:
         *,
         max_calls: int = 1,
         name: str = "transport",
+        preflight: Callable[[], object] | None = None,
     ) -> None:
         self._transport = transport
         self._max_calls = max_calls
         self.call_count: int = 0
         self.total_latency_ms: float = 0.0
         self._name = name
+        self._preflight = preflight
 
     def __call__(self, request: Any) -> Mapping[str, object]:
         if self.call_count >= self._max_calls:
             raise RuntimeError(
                 f"Budget ceiling breach: {self._name} exceeded limit of {self._max_calls}"
             )
+        if self._preflight is not None:
+            self._preflight()
         self.call_count += 1
         start = time.perf_counter()
         try:
-            return self._transport(request)
+            response = self._transport(request)
+            if self._preflight is not None:
+                self._preflight()
+            return response
         finally:
             self.total_latency_ms += (time.perf_counter() - start) * 1000.0
 
@@ -234,8 +244,14 @@ def build_parser() -> argparse.ArgumentParser:
             f"--creator-epoch-{name}",
             type=Path,
             default=None,
-            help=f"Operator-pinned existing epoch {name}; all three required, demo-only",
+            help=f"Operator-pinned existing epoch {name}; all three required",
         )
+    parser.add_argument(
+        "--creator-epoch-provider-permit",
+        type=Path,
+        default=None,
+        help="Separately approved root-owned single-cycle provider permit; never a genesis grant",
+    )
     parser.add_argument(
         "--symbol",
         type=_validate_symbol,
@@ -619,18 +635,62 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
     epoch_journal = getattr(args, "creator_epoch_journal", None)
     epoch_control = getattr(args, "creator_epoch_control", None)
     checkpoint_path = getattr(args, "creator_epoch_checkpoint", None)
+    permit_path = getattr(args, "creator_epoch_provider_permit", None)
     epoch_checkpoint = None
     if any(value is not None for value in (epoch_journal, epoch_control, checkpoint_path)):
-        if args.provider != "demo" or args.ledger_db is None:
-            raise DomainViolation("Creator epoch CLI requires demo provider and paper ledger")
+        if args.ledger_db is None or (args.provider != "demo" and permit_path is None):
+            raise DomainViolation("Creator epoch CLI requires paper ledger and provider authority")
         epoch_checkpoint = read_creator_epoch_configuration(
             epoch_journal,
             epoch_control,
             checkpoint_path,
         )
+
+    def provider_preflight() -> CreatorEpochProviderPermit:
+        if (
+            permit_path is None
+            or epoch_journal is None
+            or epoch_control is None
+            or checkpoint_path is None
+        ):
+            raise DomainViolation(
+                "Creator epoch provider requires explicit pins and protected permit"
+            )
+        return read_creator_epoch_provider_permit(
+            permit_path,
+            journal=epoch_journal,
+            control=epoch_control,
+            checkpoint_file=checkpoint_path,
+            cycle_id=args.cycle_id,
+            provider=args.provider,
+            model=args.model,
+            bundle_hash=args.bundle_hash or DEFAULT_BUNDLE_HASH,
+            dataset_registry_hash=args.dataset_registry_hash or DEFAULT_REGISTRY_HASH,
+            ledger_path=(
+                args.ledger_db / "paper-ledger.sqlite3"
+                if args.ledger_db is not None and args.ledger_db.is_dir()
+                else args.ledger_db
+            ),
+            lifecycle_path=args.lifecycle_db,
+        )
+
+    provider_permit = provider_preflight() if permit_path is not None else None
+
+    def require_current_provider_permit() -> None:
+        if provider_preflight() != provider_permit:
+            raise DomainViolation("Creator epoch provider permit changed after preflight")
+
+    if (
+        provider_permit is not None
+        and (
+            provider_permit.journal.parent / f".provider-{provider_permit.cycle_id}.reserved"
+        ).exists()
+    ):
+        raise DomainViolation("Creator epoch provider budget already reserved")
     provider_candidate: CreatorCandidateArtifact | None = None
     if args.provider == "google_ai_studio":
-        require_complete_creator_history()
+        if provider_permit is None:
+            require_complete_creator_history()
         if args.feedback_path is not None:
             raise DataQualityError(
                 "Google AI Studio requires ledger-derived feedback; "
@@ -660,6 +720,10 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             or args.symbol.upper() not in provider_candidate.strategy.universe.symbols
             or provider_candidate.bundle_hash != expected_bundle_hash
             or provider_candidate.dataset_registry_hash != expected_registry_hash
+            or (
+                provider_permit is not None
+                and provider_candidate.artifact_hash != provider_permit.candidate_artifact_hash
+            )
         ):
             raise DataQualityError(
                 "Google AI Studio candidate artifact does not match the configured research scope."
@@ -822,6 +886,7 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
         artifact_root=output_dir,
         max_attempts=1,
         require_flat=args.require_flat,
+        research_only=provider_permit is not None,
     )
 
     # 6. Paper Engine Setup (if ledger-db specified)
@@ -861,6 +926,12 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
     http_client: httpx.Client | None = None
     try:
         if args.provider == "google_ai_studio":
+            if provider_permit is not None:
+                current_permit = provider_preflight()
+                if current_permit != provider_permit:
+                    raise DomainViolation("Creator epoch provider permit changed after preflight")
+                assert permit_path is not None
+                reserve_creator_epoch_provider_permit(current_permit, permit_path=permit_path)
             api_key = resolve_credential(repo_env_path=_REPO_ENV_PATH)
             provider_config = GoogleAIStudioProviderConfig(
                 base_url=GOOGLE_AI_STUDIO_OPENAI_BASE_URL,
@@ -928,10 +999,16 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             )
 
             critic_governor = BoundedTransportCallGovernor(
-                raw_critic_transport, max_calls=1, name="critic"
+                raw_critic_transport,
+                max_calls=1,
+                name="critic",
+                preflight=require_current_provider_permit if provider_permit is not None else None,
             )
             creator_governor = BoundedTransportCallGovernor(
-                raw_creator_transport, max_calls=1, name="creator"
+                raw_creator_transport,
+                max_calls=1,
+                name="creator",
+                preflight=require_current_provider_permit if provider_permit is not None else None,
             )
 
             critic_transport = critic_governor

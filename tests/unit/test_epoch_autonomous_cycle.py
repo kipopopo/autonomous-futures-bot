@@ -39,7 +39,8 @@ from tests.unit.test_autonomous_cycle import (
 
 
 @pytest.mark.parametrize(
-    "phase", ["initial", "adoption", "reserve", "missing_control", "control_failure"]
+    "phase",
+    ["initial", "adoption", "reserve", "research_only", "missing_control", "control_failure"],
 )
 def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
     tmp_path: Path,
@@ -184,6 +185,7 @@ def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
                 dataset_registry_hash=HASH_B,
                 qualification_policy=_policy(),
                 artifact_root=tmp_path / "cycle",
+                **({"research_only": True} if phase == "research_only" else {}),
             ),
             windows=(_make_cached_window(),),
             prior_feedback=feedback,
@@ -194,7 +196,7 @@ def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
             now=NOW,
             **(
                 {"reserve_creator_epoch": True}
-                if phase in ("reserve", "missing_control", "control_failure")
+                if phase in ("reserve", "research_only", "missing_control", "control_failure")
                 else {}
             ),
         )
@@ -213,6 +215,16 @@ def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
         return
     result = run()
     assert result.qualification_decision == "qualified"
+    if phase == "research_only":
+        assert result.cycle_status == "completed_unadmitted"
+        assert result.admission_decision is None
+        assert result.stop_reasons == ("paper_admission_not_authorized",)
+        assert result.active_candidate_id == initial.candidate_id
+        assert engine.candidates == {"BTCUSDT": initial}
+        assert engine.qualifications == {}
+        assert engine.sqlite_ledger.load().entries == ()
+        assert read_creator_epoch_control(control, journal, checkpoint).sequence == 1
+        return
     if phase == "reserve":
         assert result.cycle_status == "completed_admitted"
         candidate = engine.candidates["BTCUSDT"]

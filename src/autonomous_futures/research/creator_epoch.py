@@ -9,11 +9,14 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import stat
 from contextlib import closing
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from ..domain.contracts import DomainModel
 from ..domain.errors import DomainViolation
@@ -32,6 +35,177 @@ class CreatorEpochCheckpoint(DomainModel):
     policy_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     sequence: int = Field(ge=0)
     head_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CreatorEpochProviderPermit(DomainModel):
+    """Separate operator approval; genesis and caller-selected pins never grant calls."""
+
+    cycle_id: str = Field(pattern=r"^cycle-[a-z0-9][a-z0-9-]{0,63}$")
+    checkpoint: CreatorEpochCheckpoint
+    journal: Path
+    control: Path
+    checkpoint_file: Path
+    ledger_path: Path
+    lifecycle_path: Path | None = None
+    writer_uid: int = Field(ge=1)
+    provider: Literal["google_ai_studio"]
+    model: str = Field(min_length=1, max_length=100)
+    bundle_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    dataset_registry_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    candidate_artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expires_at: datetime
+    critic_calls: Literal[1]
+    creator_calls: Literal[1]
+
+    @field_validator("expires_at")
+    @classmethod
+    def expiry_is_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("Creator epoch provider permit expiry must be UTC")
+        return value.astimezone(UTC)
+
+
+def _require_protected_epoch_file(path: Path, owner_uid: int) -> None:
+    current = path.absolute()
+    for entry in (current, *current.parents):
+        metadata = entry.lstat()
+        if (
+            metadata.st_uid not in ({owner_uid} if entry == current else {0, owner_uid})
+            or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+            or not (
+                stat.S_ISREG(metadata.st_mode)
+                if entry == current
+                else stat.S_ISDIR(metadata.st_mode)
+            )
+        ):
+            raise DomainViolation("Creator epoch provider authority is not operator-protected")
+
+
+def _read_protected_epoch_pin(path: Path) -> str:
+    _require_protected_epoch_file(path, 0)
+    checked = path.lstat()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    with os.fdopen(os.open(path, flags), encoding="utf-8") as stream:
+        opened = os.fstat(stream.fileno())
+        if (
+            opened.st_uid != 0
+            or opened.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+            or not stat.S_ISREG(opened.st_mode)
+            or (opened.st_dev, opened.st_ino) != (checked.st_dev, checked.st_ino)
+        ):
+            raise DomainViolation("Creator epoch provider authority is not operator-protected")
+        content = stream.read(65537)
+        if len(content) > 65536:
+            raise DomainViolation("Creator epoch provider pin exceeds size limit")
+        return content
+
+
+def read_creator_epoch_provider_permit(
+    path: Path,
+    *,
+    journal: Path,
+    control: Path,
+    checkpoint_file: Path,
+    cycle_id: str,
+    provider: str,
+    model: str,
+    bundle_hash: str,
+    dataset_registry_hash: str,
+    ledger_path: Path,
+    lifecycle_path: Path | None = None,
+    now: datetime | None = None,
+) -> CreatorEpochProviderPermit:
+    """Verify a root-owned bounded grant before credentials, requests or outputs.
+
+    The grant is independent of immutable genesis policy and does not change it.
+    Its trusted installation and source/runtime protection require separate approval.
+    """
+    current_time = now or datetime.now(UTC)
+    if current_time.tzinfo is None or current_time.utcoffset() != UTC.utcoffset(current_time):
+        raise DomainViolation("Creator epoch provider preflight time must be UTC")
+    try:
+        permit = CreatorEpochProviderPermit.model_validate_json(_read_protected_epoch_pin(path))
+        get_uid = getattr(os, "geteuid", None)
+        if not callable(get_uid) or get_uid() != permit.writer_uid:
+            raise DomainViolation("Creator epoch provider requires the approved operator writer")
+        _require_protected_epoch_file(journal, permit.writer_uid)
+        _require_protected_epoch_file(control, permit.writer_uid)
+        checkpoint = CreatorEpochCheckpoint.model_validate_json(
+            _read_protected_epoch_pin(checkpoint_file)
+        )
+        read_creator_epoch_control(control, journal, checkpoint)
+        if (
+            checkpoint != permit.checkpoint
+            or permit.journal != journal.resolve()
+            or permit.control != control.resolve()
+            or permit.checkpoint_file != checkpoint_file.resolve()
+            or permit.cycle_id != cycle_id
+            or permit.provider != provider
+            or permit.model != model
+            or permit.bundle_hash != bundle_hash
+            or permit.dataset_registry_hash != dataset_registry_hash
+            or permit.ledger_path != ledger_path.resolve()
+            or permit.lifecycle_path != (lifecycle_path.resolve() if lifecycle_path else None)
+            or permit.expires_at <= current_time
+        ):
+            raise DomainViolation("Creator epoch provider permit scope mismatch or expired")
+        return permit
+    except (OSError, ValueError) as exc:
+        raise DomainViolation("Creator epoch provider permit is unavailable or invalid") from exc
+
+
+def reserve_creator_epoch_provider_permit(
+    permit: CreatorEpochProviderPermit, *, permit_path: Path
+) -> None:
+    """Consume the entire two-call budget once, even if later credential/setup work fails."""
+    marker = permit.journal.parent / f".provider-{permit.cycle_id}.reserved"
+    try:
+        current = read_creator_epoch_provider_permit(
+            permit_path,
+            journal=permit.journal,
+            control=permit.control,
+            checkpoint_file=permit.checkpoint_file,
+            cycle_id=permit.cycle_id,
+            provider=permit.provider,
+            model=permit.model,
+            bundle_hash=permit.bundle_hash,
+            dataset_registry_hash=permit.dataset_registry_hash,
+            ledger_path=permit.ledger_path,
+            lifecycle_path=permit.lifecycle_path,
+        )
+        if current != permit:
+            raise DomainViolation("Creator epoch provider permit changed after preflight")
+        get_uid = getattr(os, "geteuid", None)
+        if not callable(get_uid) or get_uid() != permit.writer_uid:
+            raise DomainViolation("Creator epoch provider requires the approved operator writer")
+        _require_protected_epoch_file(permit.journal, permit.writer_uid)
+        _require_protected_epoch_file(permit.control, permit.writer_uid)
+        read_creator_epoch_control(permit.control, permit.journal, permit.checkpoint)
+        if permit.expires_at <= datetime.now(UTC):
+            raise DomainViolation("Creator epoch provider permit expired")
+        descriptor = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(
+                {
+                    "cycle_id": permit.cycle_id,
+                    "permit_hash": sha256(permit.model_dump_json().encode()).hexdigest(),
+                    "status": "reserved_before_credentials",
+                },
+                stream,
+                sort_keys=True,
+            )
+            stream.flush()
+            os.fsync(stream.fileno())
+        directory = os.open(marker.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except FileExistsError:
+        raise DomainViolation("Creator epoch provider budget already reserved") from None
+    except OSError as exc:
+        # Preserve any partial marker; a setup failure is not permission to retry.
+        raise DomainViolation("Creator epoch provider budget reservation failed") from exc
 
 
 def _hash(*values: object) -> str:

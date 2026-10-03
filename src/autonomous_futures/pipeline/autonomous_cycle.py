@@ -82,6 +82,7 @@ class AutonomousCycleConfig(DomainModel):
     artifact_root: Path
     max_attempts: int = Field(default=1, ge=1, le=5)
     require_flat: bool = False
+    research_only: bool = False
     forbidden_candidate_ids: tuple[str, ...] = ()
     data_source: Literal["cached_only"] = "cached_only"
     promotion_state: Literal["unpromoted"] = "unpromoted"
@@ -418,6 +419,26 @@ def execute_autonomous_cycle(
         qual_dir / f"{qualification.qualification_hash}.json",
         qualification,
     )
+
+    if config.research_only:
+        return _build_cycle_result(
+            cycle_id=config.cycle_id,
+            symbol=config.symbol,
+            cycle_status="completed_unadmitted",
+            provider=provider,
+            model=model,
+            call_status=call_status,
+            latency_ms=_compute_latency(critic_latency_ms + creator_latency_ms),
+            prior_feedback_hash=feedback_hash,
+            critique_evidence_hash=critique_evidence.review_hash,
+            candidate_id=candidate.candidate_id,
+            candidate_artifact_hash=candidate.artifact_hash,
+            qualification_hash=qualification.qualification_hash,
+            qualification_decision=qualification.decision,
+            stop_reasons=("paper_admission_not_authorized",),
+            active_candidate_id=active_cand_id,
+            completed_at=timestamp,
+        )
 
     # 6. Step 6: Strategy Admission Decision
     admission_decider = (
