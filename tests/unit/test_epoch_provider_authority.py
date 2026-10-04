@@ -173,24 +173,39 @@ def test_epoch_provider_rejects_unprotected_open_descriptor(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize(
-    "fault",
+    ("seed_source", "fault"),
     [
-        "none",
-        "control_after_critic",
-        "permit_after_critic",
-        "permit_after_creator",
-        "seed_hash",
-        "ledger_scope",
-        "expired",
-        "writer",
-        "writable_parent",
-        "partial",
-        "acceptance_failure",
-        "credential_failure",
+        (source, fault)
+        for source in ("paper_ledger", "walk_forward_oos")
+        for fault in (
+            "none",
+            "control_after_critic",
+            "permit_after_critic",
+            "permit_after_creator",
+            "seed_hash",
+            "ledger_scope",
+            "expired",
+            "writer",
+            "writable_parent",
+            "partial",
+            "acceptance_failure",
+            "credential_failure",
+        )
+    ]
+    + [
+        ("walk_forward_oos", fault)
+        for fault in (
+            "qualification_scope",
+            "qualification_hash",
+            "qualification_hash_missing",
+            "lifecycle_scope",
+            "qualification_after_critic",
+            "qualification_after_creator",
+        )
     ],
 )
 def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
-    tmp_path, monkeypatch, fault
+    tmp_path, monkeypatch, fault, seed_source
 ):
     from autonomous_futures.pipeline import autonomous_cycle as pipeline
     from autonomous_futures.research.creator_artifacts import (
@@ -199,11 +214,24 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
     )
     from tests.integration.test_run_autonomous_cycle_cli import _init_test_ledger
     from tests.unit.test_autonomous_cycle import _build_test_candidate, _make_cached_window
+    from tests.unit.test_autonomous_research_loop import _write_rejected_seed_artifacts
 
     journal, control, pin, permit_file, payload = _permit(tmp_path, monkeypatch)
-    candidate = _build_test_candidate("cand-provider-seed")
-    candidate_file = tmp_path / "seed.json"
-    write_creator_candidate_artifact(candidate_file, candidate)
+    qualification_file = None
+    if seed_source == "walk_forward_oos":
+        candidate_file, qualification_file, candidate, qualification = (
+            _write_rejected_seed_artifacts(tmp_path)
+        )
+        payload["ledger_path"] = None
+        payload["qualification_path"] = str(qualification_file.resolve())
+        payload["qualification_hash"] = qualification.qualification_hash
+        monkeypatch.setattr(
+            cli, "LivePaperEngine", lambda **kw: pytest.fail("OOS seed cannot create paper state")
+        )
+    else:
+        candidate = _build_test_candidate("cand-provider-seed")
+        candidate_file = tmp_path / "seed.json"
+        write_creator_candidate_artifact(candidate_file, candidate)
     payload["candidate_artifact_hash"] = candidate.artifact_hash
     if fault == "seed_hash":
         payload["candidate_artifact_hash"] = "e" * 64
@@ -211,9 +239,18 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
         payload["ledger_path"] = str((tmp_path / "different-ledger.sqlite3").resolve())
     if fault == "expired":
         payload["expires_at"] = "2020-01-01T00:00:00Z"
+    if fault == "qualification_scope":
+        payload["qualification_path"] = str((tmp_path / "other-qualification.json").resolve())
+    if fault == "qualification_hash":
+        payload["qualification_hash"] = "e" * 64
+    if fault == "qualification_hash_missing":
+        del payload["qualification_hash"]
+    if fault == "lifecycle_scope":
+        payload["lifecycle_path"] = str((tmp_path / "lifecycle.sqlite3").resolve())
     permit_file.write_text(json.dumps(payload), encoding="utf-8")
     ledger = tmp_path / "ledger.sqlite3"
-    _init_test_ledger(ledger, candidate)
+    if seed_source == "paper_ledger":
+        _init_test_ledger(ledger, candidate)
     calls = []
     marker = journal.parent / f".provider-{payload['cycle_id']}.reserved"
 
@@ -226,13 +263,17 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
 
     monkeypatch.setattr(cli, "resolve_credential", credential)
     monkeypatch.setattr(cli, "load_and_slice_windows", lambda *a, **kw: (_make_cached_window(),))
-    feedback = cli.extract_paper_feedback(
-        ledger_path=ledger,
-        symbol="BTCUSDT",
-        candidate_artifact_path=candidate_file,
-        policy=cli.PaperQualificationPolicy(policy_id="paper-policy-cli-001"),
-        bundle_hash=payload["bundle_hash"],
-        dataset_registry_hash=payload["dataset_registry_hash"],
+    feedback = (
+        cli.build_creator_qualification_failure_feedback(qualification)
+        if seed_source == "walk_forward_oos"
+        else cli.extract_paper_feedback(
+            ledger_path=ledger,
+            symbol="BTCUSDT",
+            candidate_artifact_path=candidate_file,
+            policy=cli.PaperQualificationPolicy(policy_id="paper-policy-cli-001"),
+            bundle_hash=payload["bundle_hash"],
+            dataset_registry_hash=payload["dataset_registry_hash"],
+        )
     )
     assert feedback is not None
 
@@ -252,6 +293,8 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
                 control.unlink()
             if fault == "permit_after_critic":
                 permit_file.unlink()
+            if fault == "qualification_after_critic":
+                qualification_file.unlink()
         else:
             assert calls == ["credential", "critic"]
             calls.append("creator")
@@ -270,6 +313,8 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
             }
             if fault == "permit_after_creator":
                 permit_file.unlink()
+            if fault == "qualification_after_creator":
+                qualification_file.unlink()
         return httpx.Response(
             200,
             json={
@@ -335,8 +380,8 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
         payload["model"],
         "--cycle-id",
         payload["cycle_id"],
-        "--ledger-db",
-        str(ledger),
+        "--ledger-db" if seed_source == "paper_ledger" else "--qualification-path",
+        str(ledger if seed_source == "paper_ledger" else qualification_file),
         "--candidate-path",
         str(candidate_file),
         "--bundle-hash",
@@ -359,14 +404,30 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
         del argv[index : index + 2]
     before = {p.name: p.read_bytes() for p in tmp_path.iterdir() if p.is_file()}
     exit_code = cli.main(argv)
-    if fault in ("seed_hash", "ledger_scope", "expired", "writer", "writable_parent", "partial"):
+    if fault in (
+        "seed_hash",
+        "ledger_scope",
+        "expired",
+        "writer",
+        "writable_parent",
+        "partial",
+        "qualification_scope",
+        "qualification_hash",
+        "qualification_hash_missing",
+        "lifecycle_scope",
+    ):
         assert exit_code == 3
         assert calls == []
         assert not output.exists()
         assert not marker.exists()
         assert {p.name: p.read_bytes() for p in tmp_path.iterdir() if p.is_file()} == before
         return
-    if fault in ("credential_failure", "acceptance_failure", "permit_after_creator"):
+    if fault in (
+        "credential_failure",
+        "acceptance_failure",
+        "permit_after_creator",
+        "qualification_after_creator",
+    ):
         assert exit_code == 3
         assert calls == (
             ["credential"] if fault == "credential_failure" else ["credential", "critic", "creator"]
@@ -382,7 +443,7 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
         )
         assert cli.main(argv) == 3
         return
-    if fault in ("control_after_critic", "permit_after_critic"):
+    if fault in ("control_after_critic", "permit_after_critic", "qualification_after_critic"):
         assert exit_code == 3
         assert calls == ["credential", "critic"]
         assert not (output / "candidates").exists()
@@ -392,6 +453,10 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
     result = json.loads((output / "autonomous-cycle-result.json").read_text())
     assert result["cycle_status"] == "completed_unadmitted"
     assert result["admission_decision"] is None
+    if seed_source == "walk_forward_oos":
+        assert result["active_candidate_id"] is None
+        assert not ledger.exists()
+        assert not (tmp_path / "lifecycle.sqlite3").exists()
     assert result["stop_reasons"] == ["paper_admission_not_authorized"]
     assert not (tmp_path / "candidate_registry.json").exists()
     assert calls == ["credential", "critic", "creator", "persist"]

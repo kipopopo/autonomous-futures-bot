@@ -38,6 +38,7 @@ from autonomous_futures.data.parquet import (  # noqa: E402
     read_canonical_parquet,
 )
 from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
+from autonomous_futures.paper.admission import StrategyAdmissionDecider  # noqa: E402
 from autonomous_futures.paper.candidate_registry import (  # noqa: E402
     DEFAULT_CANDIDATE_REGISTRY_PATH,
     publish_candidate_admission,
@@ -68,6 +69,7 @@ from autonomous_futures.research.creator_epoch import (  # noqa: E402
 )
 from autonomous_futures.research.creator_failure_feedback import (  # noqa: E402
     CreatorQualificationFailureFeedback,
+    build_creator_qualification_failure_feedback,
 )
 from autonomous_futures.research.creator_generator import (  # noqa: E402
     CreatorGenerationRequest,
@@ -98,6 +100,7 @@ from autonomous_futures.research.learner_critic_provider import (  # noqa: E402
 )
 from autonomous_futures.research.qualification_artifacts import (  # noqa: E402
     WalkForwardQualificationPolicy,
+    read_creator_candidate_qualification_artifact,
 )
 
 logger = logging.getLogger("autonomous_futures.cli.autonomous_cycle")
@@ -293,6 +296,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Optional path to initial candidate artifact JSON",
+    )
+    parser.add_argument(
+        "--qualification-path",
+        type=Path,
+        default=None,
+        help="Verified rejected OOS seed paired with --candidate-path; research-only, no paper DB",
     )
     parser.add_argument(
         "--parquet-path",
@@ -610,6 +619,13 @@ def build_cycle_audit(
         "configuration": {
             "ledger_db": str(args.ledger_db) if getattr(args, "ledger_db", None) else None,
             "parquet_path": str(args.parquet_path) if getattr(args, "parquet_path", None) else None,
+            "feedback_seed_source": (
+                "walk_forward_oos"
+                if getattr(args, "qualification_path", None) is not None
+                else "feedback_json"
+                if getattr(args, "feedback_path", None) is not None
+                else "paper_ledger"
+            ),
             "candidate_registry_path": (
                 str(args.candidate_registry_path)
                 if getattr(args, "candidate_registry_path", None)
@@ -632,14 +648,52 @@ def build_cycle_audit(
 
 
 def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
+    qualification_path = getattr(args, "qualification_path", None)
+    oos_feedback = None
+    if qualification_path is not None:
+        if args.candidate_path is None or any(
+            value is not None
+            for value in (
+                args.ledger_db,
+                args.lifecycle_db,
+                args.observations_db,
+                args.feedback_path,
+            )
+        ):
+            raise DataQualityError("OOS seed requires a candidate and excludes paper/JSON inputs")
+        seed_candidate = read_creator_candidate_artifact(args.candidate_path)
+        seed_qualification = read_creator_candidate_qualification_artifact(qualification_path)
+        if (
+            seed_qualification.candidate_id != seed_candidate.candidate_id
+            or seed_qualification.candidate_artifact_hash != seed_candidate.artifact_hash
+            or seed_qualification.bundle_hash != seed_candidate.bundle_hash
+            or seed_qualification.dataset_registry_hash != seed_candidate.dataset_registry_hash
+            or seed_candidate.strategy.universe.symbols != (args.symbol.upper(),)
+            or (args.candidate_id is not None and args.candidate_id != seed_candidate.candidate_id)
+            or (args.bundle_hash is not None and args.bundle_hash != seed_candidate.bundle_hash)
+            or (
+                args.dataset_registry_hash is not None
+                and args.dataset_registry_hash != seed_candidate.dataset_registry_hash
+            )
+            or seed_qualification.source != "walk_forward_oos"
+            or seed_qualification.windows_evaluated < 1
+        ):
+            raise DataQualityError("OOS seed artifacts do not match the verified research scope")
+        oos_feedback = build_creator_qualification_failure_feedback(seed_qualification)
+        if oos_feedback is None:
+            raise DataQualityError("OOS seed must record a rejected qualification")
     epoch_journal = getattr(args, "creator_epoch_journal", None)
     epoch_control = getattr(args, "creator_epoch_control", None)
     checkpoint_path = getattr(args, "creator_epoch_checkpoint", None)
     permit_path = getattr(args, "creator_epoch_provider_permit", None)
     epoch_checkpoint = None
     if any(value is not None for value in (epoch_journal, epoch_control, checkpoint_path)):
-        if args.ledger_db is None or (args.provider != "demo" and permit_path is None):
-            raise DomainViolation("Creator epoch CLI requires paper ledger and provider authority")
+        if (args.ledger_db is None and qualification_path is None) or (
+            args.provider != "demo" and permit_path is None
+        ):
+            raise DomainViolation(
+                "Creator epoch CLI requires a verified seed and provider authority"
+            )
         epoch_checkpoint = read_creator_epoch_configuration(
             epoch_journal,
             epoch_control,
@@ -656,6 +710,17 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             raise DomainViolation(
                 "Creator epoch provider requires explicit pins and protected permit"
             )
+        if qualification_path is not None:
+            assert oos_feedback is not None
+            if (
+                read_creator_candidate_artifact(args.candidate_path).artifact_hash
+                != oos_feedback.candidate_artifact_hash
+                or read_creator_candidate_qualification_artifact(
+                    qualification_path
+                ).qualification_hash
+                != oos_feedback.qualification_hash
+            ):
+                raise DomainViolation("Creator epoch OOS source changed after preflight")
         return read_creator_epoch_provider_permit(
             permit_path,
             journal=epoch_journal,
@@ -672,6 +737,8 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
                 else args.ledger_db
             ),
             lifecycle_path=args.lifecycle_db,
+            qualification_path=qualification_path,
+            qualification_hash=oos_feedback.qualification_hash if oos_feedback else None,
         )
 
     provider_permit = provider_preflight() if permit_path is not None else None
@@ -687,8 +754,12 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
         ).exists()
     ):
         raise DomainViolation("Creator epoch provider budget already reserved")
-    provider_candidate: CreatorCandidateArtifact | None = None
+    provider_candidate: CreatorCandidateArtifact | None = (
+        seed_candidate if qualification_path is not None else None
+    )
     if args.provider == "google_ai_studio":
+        if qualification_path is not None and provider_permit is None:
+            raise DomainViolation("OOS provider seed requires separately protected epoch authority")
         if provider_permit is None:
             require_complete_creator_history()
         if args.feedback_path is not None:
@@ -696,16 +767,19 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
                 "Google AI Studio requires ledger-derived feedback; "
                 "--feedback-path is not accepted."
             )
-        if args.ledger_db is None or args.candidate_path is None:
+        if args.candidate_path is None or (args.ledger_db is None and qualification_path is None):
             raise DataQualityError(
                 "Google AI Studio requires --ledger-db and --candidate-path "
                 "for feedback verification."
             )
-        ledger_path = Path(args.ledger_db)
-        if ledger_path.is_dir():
-            ledger_path = ledger_path / "paper-ledger.sqlite3"
-        if not ledger_path.is_file():
-            raise DataQualityError("Google AI Studio requires an available paper ledger database.")
+        if qualification_path is None:
+            ledger_path = Path(args.ledger_db)
+            if ledger_path.is_dir():
+                ledger_path = ledger_path / "paper-ledger.sqlite3"
+            if not ledger_path.is_file():
+                raise DataQualityError(
+                    "Google AI Studio requires an available paper ledger database."
+                )
         try:
             provider_candidate = read_creator_candidate_artifact(args.candidate_path)
         except Exception as exc:
@@ -739,7 +813,9 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
 
     # 1. Feedback Intake: Load from path or extract from SQLite ledger
     prior_feedback: CreatorQualificationFailureFeedback | None = None
-    if args.feedback_path:
+    if oos_feedback is not None:
+        prior_feedback = oos_feedback
+    elif args.feedback_path:
         fb_path = Path(args.feedback_path)
         if not fb_path.is_file():
             raise FileNotFoundError(f"Feedback file not found: {fb_path}")
@@ -886,11 +962,20 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
         artifact_root=output_dir,
         max_attempts=1,
         require_flat=args.require_flat,
-        research_only=provider_permit is not None,
+        research_only=provider_permit is not None or qualification_path is not None,
     )
 
     # 6. Paper Engine Setup (if ledger-db specified)
     paper_engine: LivePaperEngine | None = None
+    research_epoch_decider = (
+        StrategyAdmissionDecider(
+            epoch_path=epoch_journal,
+            epoch_checkpoint=epoch_checkpoint,
+            epoch_control=epoch_control,
+        )
+        if epoch_checkpoint is not None and qualification_path is not None
+        else None
+    )
     if args.ledger_db:
         ledger_path = Path(args.ledger_db)
         if ledger_path.is_dir():
@@ -1028,6 +1113,7 @@ def run_autonomous_cycle(args: argparse.Namespace) -> dict[str, Any]:
             now=now,
             provider=args.provider,
             reserve_creator_epoch=epoch_checkpoint is not None,
+            epoch_decider=research_epoch_decider,
             model=args.model if args.provider == "google_ai_studio" else "deterministic-heuristic",
         )
     finally:
@@ -1145,12 +1231,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         # Cross-argument validation
-        if not args.feedback_path and not args.ledger_db:
+        if not args.feedback_path and not args.ledger_db and not args.qualification_path:
             print(
                 json.dumps(
                     {
                         "error_code": "missing_input_source",
-                        "message": "Either --feedback-path or --ledger-db must be provided.",
+                        "message": "Provide --qualification-path, --feedback-path or --ledger-db.",
                     }
                 ),
                 file=sys.stderr,

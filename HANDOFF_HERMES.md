@@ -1,8 +1,18 @@
 # Autonomous Futures Bot — Current Handoff
 
-**Status as of 2026-10-03 (MYT): NOT PRODUCTION READY.** This document supersedes the older handoff that described Phase 309 as a live production launch. Those historical claims are not current operational evidence; the subsequent independent audit found simulator-backed paths and missing live-readiness foundations. No service activation/restart or order was performed by this update.
+**Status as of 2026-10-04 (MYT): NOT PRODUCTION READY.** This document supersedes the older handoff that described Phase 309 as a live production launch. Those historical claims are not current operational evidence; the subsequent independent audit found simulator-backed paths and missing live-readiness foundations. No service activation/restart or order was performed by this update.
 
-## Latest protected-grant integration — inactive, publication CI pending
+## Latest offline seed/OOS integration — inactive, publication CI required
+
+The approved one-shot operator-authored BTC baseline was evaluated once on verified retained cache and **rejected**: 3 windows, 89 simulated trades, negative pooled net P&L and profit factor below the unchanged gate. Its candidate/qualification/aggregation and receipt are retained outside the repository under `../Autonomous Futures Bot Evidence/offline-bootstrap-20261004-001/`; clean-environment verify-only readback passed without another evaluation. This is research evidence, not Creator acceptance or paper-ledger feedback. Exact hashes, metrics, source limitations and checks are in `verification/OFFLINE_FRESH_SEED_OOS_BOOTSTRAP.md`.
+
+The existing cycle CLI now consumes paired rejected OOS evidence without creating paper state. A real provider requires a separately protected epoch permit binding the exact qualification path/hash in place of a ledger, with mutually exclusive source validation, before/after transport rechecks and the existing burned one-shot budget. A standalone research-only decider preserves acceptance-before-persistence; no admission/publication or fictitious active candidate is reported. Legacy source defaults and history gates remain intact.
+
+Final affected regression: **129 passed in 120.00s**; CI-scoped Ruff/format, Windows/Linux mypy, lock/diff and 710-file in-memory compilation passed. Read-only safety review returned no actionable findings, with no claim of production POSIX or independent provenance verification. Exact-published-SHA full CI is required after publication; previous release `45ef79e5e9a876a3b12c15e9a72b7ea5933651c6` passed Actions `37133852203`, rechecked as completed/success. No real provider request, credential resolution, VPS write, real epoch acceptance, service activation or order occurred in this offline bootstrap/integration.
+
+Next material boundary: separately authorized inactive source/input staging and an exact protected one-cycle research grant (one Critic and one Creator request, no retry/fallback), followed by retained typed results and monotonic consumer-pin verification. Generic proceed and the prior bootstrap approval do not authorize that work. Paper admission/runtime rollout and live/account/legal/capital/reconciliation gates remain separate; do not tune or retry the rejected baseline to manufacture profitability.
+
+## Earlier protected-grant integration — historical local verification
 
 This section supersedes the older implementation/provisioning status below. API release `7a017192c240870b465c42a090c8de07ab19c5d3` passed exact-head Actions `37031975259`. Separate explicit approvals subsequently covered inactive protected source staging of that SHA, isolated locked dependencies and policy/empty genesis only; the saved independent genesis receipt has zero acceptances. Details and original observation times are in `verification/CREATOR_FRESH_LINEAGE_EPOCH.md` and the sibling `Autonomous Futures Bot Evidence/read-only-20261003` receipts. Old services and historical evidence remain unchanged.
 
@@ -88,8 +98,8 @@ Consumer follow-up verification: the cycle no longer reports adoption rejected b
 
 ## Current hard blockers
 
-1. **Creator lineage is incomplete and ambiguous.** Verified historical registries contain three candidate-ID collisions (two DOGE and one ETH), each mapping to different artifact hashes. Do not deduplicate, select a winner, or edit history. Seven other accepted-but-unpersisted IDs are mentioned in verification prose only; these are leads, not a complete typed ledger.
-2. **Creator calls remain fail-closed.** All known real provider entrypoints require complete verified history and accepted-proposal preflight before credentials, output creation, or network access. The gate must not be bypassed. `CreatorProposalOutcome` protects new acceptance events; it does not backfill old history.
+1. **Historical Creator authority is unavailable.** The owner confirmed the missing acceptance record never existed. Preserve historical collisions and report-only IDs; do not repeatedly request nonexistent records, choose winners or backfill acceptance. The separate fresh epoch does not attest that history.
+2. **Real Creator calls remain fail-closed without a new grant.** The isolated cycle branch supports separately protected fresh-epoch authority; no such production provider grant has been provisioned. Legacy entrypoints retain the complete-history gate. `CreatorProposalOutcome` protects new acceptance events, not old history. The operator seed is rejected research evidence, not an accepted Creator event.
 3. **Autonomous trading loop is not established.** Audited Phase 307/309 paths use simulation rather than verified exchange execution. Account reconciliation, authenticated execution wiring, and current account/protection evidence remain unavailable or unauthorized.
 4. **Learning/adoption integration is incomplete.** Simulator artifacts and historical metrics do not establish real feedback learning, qualification, admission, or production strategy health.
 5. **Live/testnet/deployment gates remain closed.** No fresh private-account request, order, activation, deployment, restart, or first-live lifecycle was performed or authorized by this work.
@@ -102,7 +112,7 @@ Consumer follow-up verification: the cycle no longer reports adoption rejected b
 
 ## Safe next steps
 
-- Obtain complete, source-backed Creator registry/artifact history plus durable accepted-proposal records and authorized dispositions for conflicting bindings. Then run the existing verified readers and complete-history preflight. Do not infer authority from hashes or from this handoff.
+- Preserve the unavailable historical authority. Use the approved separate fresh-epoch design only after its specific source, grant and writer-protection approvals; never rebind old artifacts or infer authority from hashes or this handoff.
 - Continue bounded offline implementation and TDD for missing research/learning/execution integration only where the source contracts and tests establish a concrete requirement. Preserve paper-safe defaults and immutable historical artifacts.
 - Treat provider spending, exchange requests/orders, VPS writes/restarts, testnet/live activation, and first-live operation as separate approval gates. A generic “proceed” is not approval to cross those external boundaries.
 

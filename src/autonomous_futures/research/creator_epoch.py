@@ -16,7 +16,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from ..domain.contracts import DomainModel
 from ..domain.errors import DomainViolation
@@ -45,8 +45,10 @@ class CreatorEpochProviderPermit(DomainModel):
     journal: Path
     control: Path
     checkpoint_file: Path
-    ledger_path: Path
+    ledger_path: Path | None = None
     lifecycle_path: Path | None = None
+    qualification_path: Path | None = None
+    qualification_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     writer_uid: int = Field(ge=1)
     provider: Literal["google_ai_studio"]
     model: str = Field(min_length=1, max_length=100)
@@ -56,6 +58,17 @@ class CreatorEpochProviderPermit(DomainModel):
     expires_at: datetime
     critic_calls: Literal[1]
     creator_calls: Literal[1]
+
+    @model_validator(mode="after")
+    def feedback_source_is_exclusive(self) -> CreatorEpochProviderPermit:
+        has_oos = self.qualification_path is not None
+        if (
+            (self.ledger_path is not None) == has_oos
+            or has_oos != (self.qualification_hash is not None)
+            or (has_oos and self.lifecycle_path is not None)
+        ):
+            raise ValueError("permit requires exactly one ledger or hash-bound OOS source")
+        return self
 
     @field_validator("expires_at")
     @classmethod
@@ -111,8 +124,10 @@ def read_creator_epoch_provider_permit(
     model: str,
     bundle_hash: str,
     dataset_registry_hash: str,
-    ledger_path: Path,
+    ledger_path: Path | None = None,
     lifecycle_path: Path | None = None,
+    qualification_path: Path | None = None,
+    qualification_hash: str | None = None,
     now: datetime | None = None,
 ) -> CreatorEpochProviderPermit:
     """Verify a root-owned bounded grant before credentials, requests or outputs.
@@ -144,8 +159,11 @@ def read_creator_epoch_provider_permit(
             or permit.model != model
             or permit.bundle_hash != bundle_hash
             or permit.dataset_registry_hash != dataset_registry_hash
-            or permit.ledger_path != ledger_path.resolve()
+            or permit.ledger_path != (ledger_path.resolve() if ledger_path else None)
             or permit.lifecycle_path != (lifecycle_path.resolve() if lifecycle_path else None)
+            or permit.qualification_path
+            != (qualification_path.resolve() if qualification_path else None)
+            or permit.qualification_hash != qualification_hash
             or permit.expires_at <= current_time
         ):
             raise DomainViolation("Creator epoch provider permit scope mismatch or expired")
@@ -172,6 +190,8 @@ def reserve_creator_epoch_provider_permit(
             dataset_registry_hash=permit.dataset_registry_hash,
             ledger_path=permit.ledger_path,
             lifecycle_path=permit.lifecycle_path,
+            qualification_path=permit.qualification_path,
+            qualification_hash=permit.qualification_hash,
         )
         if current != permit:
             raise DomainViolation("Creator epoch provider permit changed after preflight")

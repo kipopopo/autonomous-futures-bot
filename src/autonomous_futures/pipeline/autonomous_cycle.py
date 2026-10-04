@@ -112,7 +112,7 @@ class AutonomousCycleResult(DomainModel):
     admission_decision: AdmissionOutcome | None = None
     admission_decision_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     stop_reasons: tuple[str, ...] = ()
-    active_candidate_id: str = Field(pattern=r"^cand-[a-z0-9][a-z0-9-]{0,63}$")
+    active_candidate_id: str | None = Field(pattern=r"^cand-[a-z0-9][a-z0-9-]{0,63}$")
     data_source: Literal["cached_only"] = "cached_only"
     promotion_state: Literal["unpromoted"] = "unpromoted"
     execution_authority: Literal[False] = False
@@ -161,10 +161,17 @@ def execute_autonomous_cycle(
     call_status: str = "success",
     latency_ms: float = 0.0,
     reserve_creator_epoch: bool = False,
+    epoch_decider: StrategyAdmissionDecider | None = None,
 ) -> AutonomousCycleResult:
     """Execute one complete, bounded, auditable closed-loop autonomous cycle."""
     timestamp = now or datetime.now(UTC)
-    epoch_decider = paper_engine.admission_decider if paper_engine is not None else None
+    if epoch_decider is not None:
+        if not config.research_only or paper_engine is not None:
+            raise DomainViolation(
+                "Standalone epoch writer requires research-only without paper runtime"
+            )
+    else:
+        epoch_decider = paper_engine.admission_decider if paper_engine is not None else None
     epoch_checkpoint = None
     forbidden_ids = set(config.forbidden_candidate_ids) | {prior_feedback.candidate_id}
     if reserve_creator_epoch:
@@ -187,6 +194,8 @@ def execute_autonomous_cycle(
     active_cand_id = (
         paper_engine.candidates[config.symbol].candidate_id
         if paper_engine and config.symbol in paper_engine.candidates
+        else None
+        if config.research_only
         else prior_feedback.candidate_id
     )
 
@@ -498,7 +507,7 @@ def _build_cycle_result(
     cycle_id: str,
     symbol: str,
     cycle_status: CycleStatus,
-    active_candidate_id: str,
+    active_candidate_id: str | None,
     completed_at: datetime,
     provider: str = "demo",
     model: str = "deterministic-heuristic",

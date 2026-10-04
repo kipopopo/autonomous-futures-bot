@@ -14,6 +14,7 @@ from ..domain.contracts import DomainModel, StrategySpec
 from ..domain.errors import DomainViolation
 
 CandidateState = Literal["testing"]
+CandidateSource = Literal["creator_research", "operator_authored_research"]
 
 
 class CreatorCandidateArtifact(DomainModel):
@@ -25,7 +26,7 @@ class CreatorCandidateArtifact(DomainModel):
     dataset_registry_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     creator_run_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
     research_seed: int = Field(ge=0)
-    source: Literal["creator_research"] = "creator_research"
+    source: CandidateSource = "creator_research"
     created_at: datetime
     artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -141,6 +142,7 @@ def build_creator_candidate_artifact(
     creator_run_id: str,
     research_seed: int,
     created_at: datetime,
+    source: CandidateSource = "creator_research",
 ) -> CreatorCandidateArtifact:
     try:
         provisional = CreatorCandidateArtifact(
@@ -150,6 +152,7 @@ def build_creator_candidate_artifact(
             dataset_registry_hash=dataset_registry_hash,
             creator_run_id=creator_run_id,
             research_seed=research_seed,
+            source=source,
             created_at=created_at,
             artifact_hash="0" * 64,
         )

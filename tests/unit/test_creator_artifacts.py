@@ -77,6 +77,24 @@ def test_candidate_artifact_rejects_strategy_identity_mismatch() -> None:
         _artifact(candidate_id="cand-001", strategy_id="cand-other")
 
 
+def test_operator_seed_preserves_its_source_without_claiming_creator_output(tmp_path: Path) -> None:
+    artifact = build_creator_candidate_artifact(
+        candidate_id="cand-operator-seed",
+        strategy=_strategy("cand-operator-seed"),
+        bundle_hash="a" * 64,
+        dataset_registry_hash="b" * 64,
+        creator_run_id="operator-seed-v1",
+        research_seed=1,
+        created_at=CREATED_AT,
+        source="operator_authored_research",
+    )
+    path = tmp_path / "seed.json"
+    write_creator_candidate_artifact(path, artifact)
+    assert read_creator_candidate_artifact(path).source == "operator_authored_research"
+    assert artifact.state == "testing"
+    assert _artifact().source == "creator_research"
+
+
 def test_candidate_artifact_is_write_once_and_tamper_evident(tmp_path: Path) -> None:
     artifact = _artifact()
     path = tmp_path / "candidates" / "cand-001.json"
