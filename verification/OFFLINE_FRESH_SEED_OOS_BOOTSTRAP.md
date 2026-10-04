@@ -62,9 +62,15 @@ Before any remote action, source preflight identified a credential-delivery mism
 
 GREEN: 11 credential-resolution cases passed; six-module affected regression **142 passed in 116.69s**, including the actual synthetic runtime-file reader after the permit budget reservation. Workflow-scoped Ruff/format, native/Linux mypy, lock/diff passed. The initial format check requested Python 3.14 exception syntax formatting; the corrected check passed without behavioral changes. The new source needs its own exact-SHA CI and an explicitly updated staging pin; approval of `9944c9b` is not approval to deploy a different commit.
 
+## Subsequent approved real-cycle outcome
+
+The preceding hold is historical. Source `a1b4e688210d3f09586564e31e5fb8c33aa9df7b` passed exact-head Actions `37212293934` (**5,006 passed, 1 skipped, 2 warnings**). The owner then selected **“Lulus SHA pengganti dan one-shot research ini”**, explicitly replacing the staging pin and approving one temporary encrypted-credential research unit under the same bounded budget and prohibitions.
+
+That cycle completed with one Critic and one Creator request, no retry/fallback, one fresh acceptance and protected pin advancement 0→1. Its new Creator candidate was **rejected** after 3 windows / 35 simulated trades; it was not admitted. The original operator baseline was not reevaluated. Source/input hashes, actual Linux writer/reader checks, closed permit, collected unit, preserved evidence and unchanged existing services are recorded in [First protected Creator epoch cycle](FIRST_PROTECTED_CREATOR_EPOCH_CYCLE.md). This source label does not turn reused research windows into an untouched holdout.
+
 ## Remaining authority gates
 
-1. Source and exact retained inputs are not deployed. Staging approval above pins `9944c9b`; it must be updated before staging the repaired source. Existing inactive source/runtime/genesis receipts remain historical observations only.
-2. The bounded cycle package is approved but held on its prerequisite; no protected real-provider grant has been installed or consumed. Resume only after the repaired source's quality gate and exact staging-pin approval, with the same two-request budget and all original limits intact.
-3. Automated protected consumer-pin advancement and an active writer/consumer runtime remain unproven. Synthetic POSIX identity tests and manual pin updates do not establish continuous operation.
-4. A rejected baseline cannot be admitted. Future qualification/admission, autonomous paper execution/feedback, service activation and first-live legal/account/capital/reconciliation/kill-switch review remain separate gates. No profitability, testnet/live readiness or whole-project completion is claimed.
+1. Both the bootstrap evaluation and the real provider-cycle budget are spent; the real permit is closed and its reservation retained. No automatic retry, tuning, artifact rebinding or additional provider request is authorized.
+2. Freeze untouched-holdout and window-level evidence protocols before separately approved further data/research work. The rejected artifacts remain unadmitted.
+3. Continuous protected consumer-pin advancement and an active writer/consumer runtime remain unproven. One real supervised writer/reader transition does not establish continuous operation.
+4. Future qualification/admission, autonomous paper execution/feedback, service activation and first-live legal/account/capital/reconciliation/kill-switch review remain separate gates. No profitability, testnet/live readiness or whole-project completion is claimed.
