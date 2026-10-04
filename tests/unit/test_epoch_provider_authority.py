@@ -212,6 +212,7 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
         read_creator_candidate_artifact,
         write_creator_candidate_artifact,
     )
+    from autonomous_futures.research.google_ai_studio_provider import resolve_credential
     from tests.integration.test_run_autonomous_cycle_cli import _init_test_ledger
     from tests.unit.test_autonomous_cycle import _build_test_candidate, _make_cached_window
     from tests.unit.test_autonomous_research_loop import _write_rejected_seed_artifacts
@@ -227,6 +228,11 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
         payload["qualification_hash"] = qualification.qualification_hash
         monkeypatch.setattr(
             cli, "LivePaperEngine", lambda **kw: pytest.fail("OOS seed cannot create paper state")
+        )
+        credential_dir = tmp_path / "runtime-credentials"
+        credential_dir.mkdir()
+        (credential_dir / "google_ai_studio_api_key").write_text(
+            "fixture-only-not-a-real-key", encoding="utf-8"
         )
     else:
         candidate = _build_test_candidate("cand-provider-seed")
@@ -259,6 +265,8 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
         calls.append("credential")
         if fault == "credential_failure":
             raise cli.MissingCredentialsError("Synthetic missing credential")
+        if seed_source == "walk_forward_oos":
+            return resolve_credential(env={"CREDENTIALS_DIRECTORY": str(credential_dir)})
         return "fixture-only-not-a-real-key"
 
     monkeypatch.setattr(cli, "resolve_credential", credential)

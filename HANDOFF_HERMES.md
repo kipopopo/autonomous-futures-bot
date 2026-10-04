@@ -2,7 +2,13 @@
 
 **Status as of 2026-10-04 (MYT): NOT PRODUCTION READY.** This document supersedes the older handoff that described Phase 309 as a live production launch. Those historical claims are not current operational evidence; the subsequent independent audit found simulator-backed paths and missing live-readiness foundations. No service activation/restart or order was performed by this update.
 
-## Latest offline seed/OOS integration — inactive, publication CI required
+## Latest credential-boundary follow-up — offline, publication CI required
+
+OOS release `9944c9be90f5b17bc26cae500e81a20ddd8adacf` passed exact-head Actions `37210559196`: **5,000 passed, 1 Windows-specific skip, 2 warnings**, plus lint/format/types/compile. The owner then explicitly approved protected staging of that exact SHA and a single research-only Google AI Studio `gemma-4-31b-it` cycle, bounded to one Critic and one Creator request, safe existing credential resolution, fresh-epoch acceptance and protected pin advancement, no retries/fallback/tuning/admission/service activation/orders, and a stop on failed prerequisites.
+
+Local source preflight found that the shared cycle resolver ignored the existing systemd credential directory and could fall back to environment/.env. The approved remote/provider operation was held **before any SSH attempt, remote write or real credential/provider access**. Six synthetic regressions reproduced the mismatch. The minimal offline fix reuses the existing staging credential reader lazily: an explicit absolute `CREDENTIALS_DIRECTORY` is exclusive and invalid/missing sources fail with a sanitized error, without fallback; legacy unconfigured behavior remains unchanged. Existing OOS permit tests now exercise that actual reader after budget reservation. **142 affected tests passed in 116.69s**; workflow-scoped lint/format, native/Linux strict types and lock/diff checks passed. Exact-new-SHA CI remains required. The owner's source pin is still `9944c9b`; do not silently deploy this changed source or start the paid cycle under that old pin.
+
+## Published offline seed/OOS integration — inactive
 
 The approved one-shot operator-authored BTC baseline was evaluated once on verified retained cache and **rejected**: 3 windows, 89 simulated trades, negative pooled net P&L and profit factor below the unchanged gate. Its candidate/qualification/aggregation and receipt are retained outside the repository under `../Autonomous Futures Bot Evidence/offline-bootstrap-20261004-001/`; clean-environment verify-only readback passed without another evaluation. This is research evidence, not Creator acceptance or paper-ledger feedback. Exact hashes, metrics, source limitations and checks are in `verification/OFFLINE_FRESH_SEED_OOS_BOOTSTRAP.md`.
 

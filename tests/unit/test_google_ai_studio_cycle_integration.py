@@ -497,6 +497,33 @@ def test_cli_forbidden_credential_flags_rejected_with_exit_code_2(
 # ==============================================================================
 
 
+@pytest.mark.parametrize("fault", ["none", "missing", "empty", "malformed", "symlink", "relative"])
+def test_resolve_credential_uses_explicit_systemd_source_without_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    credential_file = tmp_path / "google_ai_studio_api_key"
+    synthetic_key = "synthetic-systemd-fixture-not-a-real-key"
+    if fault != "missing":
+        credential_file.write_text(
+            "" if fault == "empty" else "bad key" if fault == "malformed" else synthetic_key,
+            encoding="utf-8",
+        )
+    if fault == "symlink":
+        original = Path.is_symlink
+        monkeypatch.setattr(Path, "is_symlink", lambda p: p == credential_file or original(p))
+    env = {
+        "CREDENTIALS_DIRECTORY": "relative" if fault == "relative" else str(tmp_path),
+        "GOOGLE_API_KEY": "must-not-fall-back-to-environment",
+    }
+    if fault == "none":
+        assert resolve_credential(env=env) == synthetic_key
+    else:
+        with pytest.raises(MissingCredentialsError) as error:
+            resolve_credential(env=env)
+        assert str(tmp_path) not in str(error.value)
+        assert synthetic_key not in str(error.value)
+
+
 def test_resolve_credential_precedence_env_variables() -> None:
     """Verify priority cascade among environment variables."""
     # Priority 1: GOOGLE_API_KEY

@@ -461,6 +461,9 @@ def resolve_credential(
 ) -> str:
     """Resolve Google AI Studio / Gemini API credential in strict priority order.
 
+    An explicit CREDENTIALS_DIRECTORY selects the systemd credential exclusively;
+    missing or invalid runtime credentials must not fall back to environment/.env.
+
     Priority:
       1. GOOGLE_API_KEY from env (or os.environ)
       2. GEMINI_API_KEY from env (or os.environ)
@@ -478,8 +481,22 @@ def resolve_credential(
     """
     priority_keys = ("GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_STUDIO_API_KEY")
 
-    # 1. Inspect environment variables
     source_env = os.environ if env is None else env
+    if "CREDENTIALS_DIRECTORY" in source_env:
+        # Lazy import: the staging reader also imports these provider transport types.
+        from ..creator_staging_probe import resolve_staging_credential
+
+        try:
+            credential_dir = Path(source_env["CREDENTIALS_DIRECTORY"])
+            if not credential_dir.is_absolute():
+                raise ValueError("runtime credential directory must be absolute")
+            return resolve_staging_credential(credential_dir=credential_dir, env={})
+        except OSError, ValueError, RuntimeError:
+            raise MissingCredentialsError(
+                "Configured systemd Google credential is unavailable or invalid."
+            ) from None
+
+    # 1. Inspect environment variables only when no systemd source is configured.
     for var_name in priority_keys:
         val = source_env.get(var_name)
         if val is not None and val.strip():
