@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
@@ -89,8 +90,14 @@ def write_window_simulation_evidence(
         )
     )
     evidence = provisional.model_copy(update={"evidence_hash": _content_hash(provisional)})
+    return _write_window_evidence_once(path, evidence, read_window_simulation_evidence)
+
+
+def _write_window_evidence_once[T: DomainModel](
+    path: Path, evidence: T, reader: Callable[[Path], T]
+) -> T:
     if path.exists():
-        existing = read_window_simulation_evidence(path)
+        existing = reader(path)
         if existing != evidence:
             raise DomainViolation("window simulation evidence path is immutable")
         return existing
@@ -105,10 +112,10 @@ def write_window_simulation_evidence(
             os.fsync(temporary.fileno())
         os.link(temporary_path, path)
     except FileExistsError:
-        existing = read_window_simulation_evidence(path)
+        existing = reader(path)
         if existing != evidence:
             raise DomainViolation("window simulation evidence path is immutable") from None
         return existing
     finally:
         temporary_path.unlink(missing_ok=True)
-    return read_window_simulation_evidence(path)
+    return reader(path)
