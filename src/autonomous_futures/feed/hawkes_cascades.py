@@ -22,6 +22,7 @@ from collections import deque
 from datetime import UTC, datetime
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from enum import StrEnum
+from math import exp
 from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid4
@@ -1611,6 +1612,17 @@ class HawkesCascadeEngine:
             [float(self._mu.get(si, Decimal("0.10"))) for si in self._symbols],
             dtype=np.float64,
         )
+        common_beta = float(self._b_mat[0, 0])
+        self._common_beta: float | None = (
+            common_beta if common_beta >= 0.0 and np.all(self._b_mat == common_beta) else None
+        )
+
+    def _decay_r_matrix(self, dt: float) -> None:
+        """Use one exponential for an exact common rate; retain per-pair decay otherwise."""
+        if self._common_beta is not None:
+            self._r_matrix *= exp(-self._common_beta * dt)
+        else:
+            self._r_matrix *= np.exp(-self._b_mat * dt)
 
     def _rebuild_r_matrix_from_history(self, t_now: float) -> None:
         """Rebuild R_matrix from history if out-of-order event or alpha shock occurs."""
@@ -1630,14 +1642,14 @@ class HawkesCascadeEngine:
             if self._last_event_time is not None:
                 dt = t_ev - self._last_event_time
                 if dt > 0.0:
-                    self._r_matrix *= np.exp(-self._b_mat * dt)
+                    self._decay_r_matrix(dt)
             self._r_matrix[:, j] += self._a_mat[:, j]
             self._last_event_time = t_ev
         if self._last_event_time is not None and t_horizon > self._last_event_time:
             dt = t_horizon - self._last_event_time
-            self._r_matrix *= np.exp(-self._b_mat * dt)
+            self._decay_r_matrix(dt)
             self._last_event_time = t_horizon
-        intensities = self._mu_arr + np.sum(self._r_matrix, axis=1)
+        intensities = self._mu_arr + self._r_matrix.sum(axis=1)
         for idx, si in enumerate(self._symbols):
             self._prev_intensity[si] = self._current_intensity[si]
             self._current_intensity[si] = Decimal(f"{intensities[idx]:.6f}")
@@ -1654,12 +1666,12 @@ class HawkesCascadeEngine:
 
         dt = t_now - self._last_event_time
         if dt > 0.0:
-            self._r_matrix *= np.exp(-self._b_mat * dt)
+            self._decay_r_matrix(dt)
 
         self._r_matrix[:, j] += self._a_mat[:, j]
         self._last_event_time = t_now
 
-        intensities = self._mu_arr + np.sum(self._r_matrix, axis=1)
+        intensities = self._mu_arr + self._r_matrix.sum(axis=1)
         for idx, si in enumerate(self._symbols):
             self._prev_intensity[si] = self._current_intensity[si]
             self._current_intensity[si] = Decimal(f"{intensities[idx]:.6f}")
@@ -1668,20 +1680,20 @@ class HawkesCascadeEngine:
     def compute_fast_online_intensities(
         self, symbol: str, timestamp_sec: float
     ) -> tuple[float, float, float]:
-        """Compute rolling jump intensities lambda_i(t) via exact O(1) recursive decay in < 1 us."""
+        """Compute rolling jump intensities lambda_i(t) via fixed-size recursive decay."""
         sym = symbol.strip().upper()
         with self._global_lock:
             if sym not in self._symbol_idx:
-                intensities = self._mu_arr + np.sum(self._r_matrix, axis=1)
+                intensities = self._mu_arr + self._r_matrix.sum(axis=1)
                 return float(intensities[0]), float(intensities[1]), float(intensities[2])
             j = self._symbol_idx[sym]
             t_now = timestamp_sec
             dt = t_now - self._last_event_time if self._last_event_time is not None else 0.0
             if dt > 0.0:
-                self._r_matrix *= np.exp(-self._b_mat * dt)
+                self._decay_r_matrix(dt)
             self._r_matrix[:, j] += self._a_mat[:, j]
             self._last_event_time = t_now
-            intensities = self._mu_arr + np.sum(self._r_matrix, axis=1)
+            intensities = self._mu_arr + self._r_matrix.sum(axis=1)
             return float(intensities[0]), float(intensities[1]), float(intensities[2])
 
     def get_decay_matrix(self) -> np.ndarray:

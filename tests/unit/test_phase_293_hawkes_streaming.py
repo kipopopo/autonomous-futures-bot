@@ -15,7 +15,8 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from math import exp
+from unittest.mock import AsyncMock, patch
 
 import numpy as np
 import pytest
@@ -62,6 +63,78 @@ def test_hawkes_engine_recursive_decay_exact_equivalence():
     r_mat = engine.get_decay_matrix()
     assert r_mat.shape == (3, 3)
     assert np.all(r_mat >= 0.0)
+
+
+@pytest.mark.parametrize("path", ["fast", "arrival", "rebuild"])
+def test_uniform_hawkes_decay_avoids_matrix_exponentials(path: str) -> None:
+    """A common rate needs one scalar exponential, not nine array exponentials."""
+    engine = HawkesCascadeEngine()
+    with engine._global_lock:
+        for pair in engine._beta:
+            engine._beta[pair] = Decimal("2.5")
+        engine._sync_matrices()
+
+    events = [(1000.0, "BTCUSDT"), (1000.5, "ETHUSDT")]
+    if path == "rebuild":
+        events.append((1000.25, "SOLUSDT"))
+    horizon = max(timestamp for timestamp, _ in events)
+    expected = np.zeros((3, 3))
+    for timestamp, symbol in events:
+        column = CANARY_STAGED_SYMBOLS.index(symbol)
+        for row, affected in enumerate(CANARY_STAGED_SYMBOLS):
+            expected[row, column] += float(engine._alpha[(affected, symbol)]) * exp(
+                -2.5 * (horizon - timestamp)
+            )
+
+    with patch("autonomous_futures.feed.hawkes_cascades.np.exp", wraps=np.exp) as exponential:
+        for timestamp, symbol in events:
+            if path == "fast":
+                intensities = engine.compute_fast_online_intensities(symbol, timestamp)
+            else:
+                engine.record_event_arrival(symbol, timestamp_sec=timestamp)
+        np.testing.assert_allclose(engine.get_decay_matrix(), expected, rtol=1e-13, atol=1e-13)
+        if path == "fast":
+            np.testing.assert_allclose(intensities, engine._mu_arr + expected.sum(axis=1))
+        assert not any(
+            isinstance(call.args[0], np.ndarray) for call in exponential.call_args_list
+        ), "uniform decay still allocates matrix exponentials on the hot path"
+
+
+def test_hawkes_fast_decay_matches_per_pair_reference_after_rate_refresh() -> None:
+    """Switch common/mixed rates without using a stale common decay cache."""
+    engine = HawkesCascadeEngine()
+    reference = np.zeros((3, 3))
+    previous_time = None
+    rates = [
+        np.full((3, 3), 2.5),
+        np.array([[0.5, 1.0, 1.5], [2.0, 2.5, 3.0], [3.5, 4.0, 4.5]]),
+        np.full((3, 3), 0.0),
+        np.full((3, 3), -0.25),
+        np.full((3, 3), 1.75),
+    ]
+    for stage, beta in enumerate(rates):
+        with engine._global_lock:
+            for i, affected in enumerate(CANARY_STAGED_SYMBOLS):
+                for j, trigger in enumerate(CANARY_STAGED_SYMBOLS):
+                    engine._beta[(affected, trigger)] = Decimal(str(beta[i, j]))
+            engine._sync_matrices()
+        for tick in range(6):
+            symbol = CANARY_STAGED_SYMBOLS[tick % 3]
+            timestamp = 1000.0 + stage * 2.0 + (tick // 2) * 0.5
+            if previous_time is not None and timestamp > previous_time:
+                reference *= np.exp(-beta * (timestamp - previous_time))
+            column = CANARY_STAGED_SYMBOLS.index(symbol)
+            reference[:, column] += engine._a_mat[:, column]
+            result = engine.compute_fast_online_intensities(f" {symbol.lower()} ", timestamp)
+            np.testing.assert_allclose(engine.get_decay_matrix(), reference, rtol=1e-13, atol=1e-13)
+            np.testing.assert_allclose(result, engine._mu_arr + reference.sum(axis=1), rtol=1e-13)
+            previous_time = timestamp
+
+        before = engine.get_decay_matrix()
+        result = engine.compute_fast_online_intensities("UNKNOWN_COIN", timestamp + 100.0)
+        np.testing.assert_array_equal(engine.get_decay_matrix(), before)
+        np.testing.assert_allclose(result, engine._mu_arr + reference.sum(axis=1), rtol=1e-13)
+        assert engine._last_event_time == previous_time
 
 
 def test_hawkes_engine_sub_microsecond_update_benchmark():
