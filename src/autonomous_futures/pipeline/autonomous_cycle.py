@@ -63,6 +63,8 @@ from ..research.qualification_artifacts import (
     write_creator_candidate_qualification_artifact,
 )
 from ..research.trade_simulation import TradeSimulationConfig, TradeSimulationResult
+from ..research.walk_forward import write_walk_forward_aggregation
+from ..research.window_evidence import write_window_simulation_evidence
 
 if TYPE_CHECKING:
     from ..paper.live_engine import LivePaperEngine
@@ -405,11 +407,34 @@ def execute_autonomous_cycle(
                 config=sim_config,
             )
 
+    simulations: dict[tuple[str, str], TradeSimulationResult] = {}
+
+    def observed_simulator(
+        c: CreatorCandidateArtifact, frame: pd.DataFrame, w: CachedEvaluationWindow
+    ) -> TradeSimulationResult:
+        result = effective_simulator(c, frame, w)
+        simulations[(w.spec.symbol, w.spec.window_id)] = result
+        return result
+
     aggregation = evaluate_cached_oos_walk_forward(
         candidate=candidate,
         windows=windows,
-        simulator=effective_simulator,
+        simulator=observed_simulator,
     )
+    write_walk_forward_aggregation(
+        config.artifact_root / "evaluations" / f"{eval_run_id}.json", aggregation
+    )
+    for window in windows:
+        write_window_simulation_evidence(
+            config.artifact_root
+            / "evaluations"
+            / eval_run_id
+            / window.spec.symbol
+            / f"{window.spec.window_id}.json",
+            candidate,
+            window.spec,
+            simulations[(window.spec.symbol, window.spec.window_id)],
+        )
 
     # 5. Step 5: Candidate Qualification
     qualification = build_walk_forward_qualification_artifact(

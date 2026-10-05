@@ -30,6 +30,12 @@ from autonomous_futures.research.creator_artifacts import (
 from autonomous_futures.research.google_ai_studio_provider import (
     resolve_credential,
 )
+from autonomous_futures.research.performance_metrics import calculate_performance_metrics
+from autonomous_futures.research.qualification_artifacts import (
+    read_creator_candidate_qualification_artifact,
+)
+from autonomous_futures.research.walk_forward import read_walk_forward_aggregation
+from autonomous_futures.research.window_evidence import read_window_simulation_evidence
 
 # Ensure repository root is on sys.path for scripts import
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -296,6 +302,25 @@ def test_normal_cycle_real_process_verifies_cached_scope(
     assert generated.bundle_hash == BUNDLE_HASH
     assert generated.dataset_registry_hash == REGISTRY_HASH
     assert generated.artifact_hash == result["candidate_artifact_hash"]
+    aggregation = read_walk_forward_aggregation(
+        cycle_output / "evaluations" / f"eval-{result['cycle_id']}.json"
+    )
+    qualification = read_creator_candidate_qualification_artifact(
+        cycle_output / "qualifications" / f"{result['qualification_hash']}.json"
+    )
+    assert qualification.oos_aggregation_hash == aggregation.aggregation_hash
+    for window in aggregation.aggregation.windows:
+        evidence = read_window_simulation_evidence(
+            cycle_output
+            / "evaluations"
+            / f"eval-{result['cycle_id']}"
+            / window.symbol
+            / f"{window.window_id}.json"
+        )
+        assert evidence.candidate_artifact_hash == generated.artifact_hash
+        assert evidence.window.time_start == window.window_start
+        assert evidence.window.time_end == window.window_end
+        assert calculate_performance_metrics(evidence.simulation) == window.metrics
     if input_fault in ("epoch", "epoch_scheduler"):
         from autonomous_futures.research.creator_epoch import (
             read_creator_epoch_control,

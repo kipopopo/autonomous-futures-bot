@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -242,10 +244,24 @@ def write_walk_forward_aggregation(
         return existing
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(artifact.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
-    temporary_path = path.with_name(f".{path.name}.tmp")
-    temporary_path.write_text(payload, encoding="utf-8", newline="\n")
-    temporary_path.replace(path)
-    return artifact
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".aggregation-", suffix=".tmp", dir=path.parent
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as temporary:
+            temporary.write(payload)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.link(temporary_path, path)
+    except FileExistsError:
+        existing = read_walk_forward_aggregation(path)
+        if existing != artifact:
+            raise DomainViolation(f"walk-forward aggregation path is immutable: {path}") from None
+        return existing
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return read_walk_forward_aggregation(path)
 
 
 def _build_symbol_summary(

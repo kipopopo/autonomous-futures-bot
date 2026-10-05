@@ -36,12 +36,15 @@ from autonomous_futures.research.learner_critic import LearnerCriticRequest
 from autonomous_futures.research.qualification_artifacts import (
     QualificationGateResult,
     WalkForwardQualificationPolicy,
+    read_creator_candidate_qualification_artifact,
 )
 from autonomous_futures.research.trade_simulation import (
     EquityPoint,
     SimulatedTrade,
     TradeSimulationResult,
 )
+from autonomous_futures.research.walk_forward import read_walk_forward_aggregation
+from autonomous_futures.research.window_evidence import read_window_simulation_evidence
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
@@ -287,6 +290,26 @@ def test_autonomous_cycle_successful_end_to_end(tmp_path: Path):
     assert outcome.candidate_id == candidate.candidate_id
     assert outcome.candidate_artifact_hash == candidate.artifact_hash
 
+    aggregation = read_walk_forward_aggregation(
+        config.artifact_root / "evaluations" / f"eval-{config.cycle_id}.json"
+    )
+    qualification = read_creator_candidate_qualification_artifact(
+        config.artifact_root / "qualifications" / f"{result.qualification_hash}.json"
+    )
+    assert qualification.oos_aggregation_hash == aggregation.aggregation_hash
+    assert aggregation.aggregation.windows[0].window_id == window.spec.window_id
+    assert aggregation.aggregation.windows[0].metrics.trade_count == 2
+    ledger = read_window_simulation_evidence(
+        config.artifact_root
+        / "evaluations"
+        / f"eval-{config.cycle_id}"
+        / window.spec.symbol
+        / f"{window.spec.window_id}.json"
+    )
+    assert ledger.candidate_artifact_hash == candidate.artifact_hash
+    assert ledger.window == window.spec
+    assert len(ledger.simulation.trades) == 2
+
 
 def test_autonomous_cycle_rejected_qualification_preserves_active_candidate(tmp_path: Path):
     initial_cand = _build_test_candidate("cand-initial-001")
@@ -385,6 +408,26 @@ def test_autonomous_cycle_rejected_qualification_preserves_active_candidate(tmp_
     assert result.qualification_decision == "rejected"
     assert result.admission_decision == "blocked_unqualified"
     assert engine.candidates["BTCUSDT"].candidate_id == initial_cand.candidate_id
+
+    aggregation = read_walk_forward_aggregation(
+        config.artifact_root / "evaluations" / f"eval-{config.cycle_id}.json"
+    )
+    qualification = read_creator_candidate_qualification_artifact(
+        config.artifact_root / "qualifications" / f"{result.qualification_hash}.json"
+    )
+    assert qualification.oos_aggregation_hash == aggregation.aggregation_hash
+    assert aggregation.aggregation.window_count == 1
+    assert aggregation.aggregation.windows[0].window_start == window.spec.time_start
+    assert aggregation.aggregation.windows[0].window_end == window.spec.time_end
+    ledger = read_window_simulation_evidence(
+        config.artifact_root
+        / "evaluations"
+        / f"eval-{config.cycle_id}"
+        / window.spec.symbol
+        / f"{window.spec.window_id}.json"
+    )
+    assert ledger.candidate_artifact_hash == qualification.candidate_artifact_hash
+    assert ledger.window == window.spec
 
 
 def test_autonomous_cycle_critic_stop_halts_early(tmp_path: Path):

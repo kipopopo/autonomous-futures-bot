@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
+from threading import Barrier
 
 import pytest
 from pydantic import ValidationError
 
+from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.research.performance_metrics import TradePerformanceMetrics
 from autonomous_futures.research.walk_forward import (
     WalkForwardWindowMetrics,
     aggregate_walk_forward_metrics,
+    read_walk_forward_aggregation,
+    write_walk_forward_aggregation,
 )
 
 START = datetime(2026, 8, 7, 12, tzinfo=UTC)
@@ -163,3 +170,56 @@ def test_invalid_window_contract_is_rejected() -> None:
             window_end=START,
             metrics=_metrics("ETHUSDT", "1"),
         )
+
+
+@pytest.mark.parametrize("second_pnl", ["1", "2"])
+def test_concurrent_aggregation_writers_cannot_replace_each_other(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, second_pnl: str
+) -> None:
+    path = tmp_path / "aggregation.json"
+    inputs = tuple(
+        aggregate_walk_forward_metrics(
+            (_window("fold-1", "BTCUSDT", 0, pnl),), required_symbols=("BTCUSDT",)
+        )
+        for pnl in ("1", second_pnl)
+    )
+    barrier = Barrier(2)
+    original_exists = Path.exists
+
+    def synchronized_exists(p: Path) -> bool:
+        exists = original_exists(p)
+        if p == path:
+            barrier.wait(timeout=10)
+        return exists
+
+    monkeypatch.setattr(Path, "exists", synchronized_exists)
+
+    def write(aggregation):
+        try:
+            return write_walk_forward_aggregation(path, aggregation)
+        except DomainViolation as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = tuple(pool.map(write, inputs))
+    winners = tuple(r for r in results if not isinstance(r, DomainViolation))
+    assert len(winners) == (2 if second_pnl == "1" else 1)
+    assert all(winner == winners[0] for winner in winners)
+    assert read_walk_forward_aggregation(path) == winners[0]
+    assert tuple(tmp_path.iterdir()) == (path,)
+
+
+def test_aggregation_writer_cleans_temporary_file_when_publication_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    aggregation = aggregate_walk_forward_metrics(
+        (_window("fold-1", "BTCUSDT", 0, "1"),), required_symbols=("BTCUSDT",)
+    )
+
+    def fail_link(*args, **kwargs):
+        raise OSError("synthetic publication failure")
+
+    monkeypatch.setattr(os, "link", fail_link)
+    with pytest.raises(OSError, match="synthetic"):
+        write_walk_forward_aggregation(tmp_path / "aggregation.json", aggregation)
+    assert not tuple(tmp_path.iterdir())
