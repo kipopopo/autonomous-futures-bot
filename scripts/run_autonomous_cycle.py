@@ -564,7 +564,7 @@ def make_demo_creator_transport(symbol: str) -> ProposalTransport:
                 "features": [{"name": "returns", "lookback": 3, "shift": 1}],
                 "entry": {"long": "returns > 0.001", "short": "returns < -0.001"},
                 "exit": {"long": "returns < -0.001", "short": "returns > 0.001"},
-                "vetoes": ["testing_only_no_promotion"],
+                "vetoes": ["returns > 0 and returns < 0"],
                 "risk": {
                     "position_fraction": Decimal("0.10"),
                     "stop_atr_multiplier": Decimal("2.0"),

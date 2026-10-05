@@ -321,6 +321,7 @@ def simulate_cached_signals(
     parsed_rows: list[
         tuple[datetime, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]
     ] = []
+    entry_vetoes: list[Decimal] = []
     for row in rows:
         timestamp = pd.Timestamp(row["timestamp"]).to_pydatetime()
         raw_open = _decimal(row["open"], field="open")
@@ -340,6 +341,11 @@ def simulate_cached_signals(
         short_exit_decimal = (
             _binary_decimal(row["short_exit_condition"], field="short_exit_condition")
             if "short_exit_condition" in row
+            else Decimal("0")
+        )
+        entry_vetoes.append(
+            _binary_decimal(row["entry_vetoed"], field="entry_vetoed")
+            if "entry_vetoed" in row
             else Decimal("0")
         )
         parsed_rows.append(
@@ -446,7 +452,7 @@ def simulate_cached_signals(
                     else min(position.watermark, raw_low)
                 ),
             )
-        if position is None and not closed_this_bar and signal != 0:
+        if position is None and not closed_this_bar and signal != 0 and entry_vetoes[index] == 0:
             protection_atr = atr_values[index]
             if not protections_enabled or protection_atr is not None:
                 side: Literal["LONG", "SHORT"] = "LONG" if signal == 1 else "SHORT"

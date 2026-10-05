@@ -106,6 +106,7 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
 from autonomous_futures.research.feature_signals import (  # noqa: E402
     CausalFeatureSignalEvaluator,
     _parse_expression,
+    entry_is_allowed,
 )
 
 logger = logging.getLogger("run_phase_264_stress_simulation")
@@ -649,18 +650,6 @@ def run_single_phase_264_track(
         else CircuitBreakerConfig()
     )
 
-    harness = Phase264StressHarness(
-        output_dir=output_dir,
-        candidates=candidates,
-        starting_equity=starting_equity,
-        fee_rate=fee_rate,
-        slippage_bps=slippage_bps,
-        max_margin_utilization=DEFAULT_MAX_MARGIN_UTILIZATION,
-        position_fraction=DEFAULT_POSITION_FRACTION,
-        circuit_config=circuit_config,
-        qualification_hashes=qualification_hashes,
-    )
-
     # 1. Apply deterministic shock vectors
     shocked_15m, shocked_1h = apply_track_shocks(raw_frames_15m, raw_frames_1h, track_spec)
 
@@ -684,6 +673,18 @@ def run_single_phase_264_track(
             evaluated_signals[sym] = evaluator.evaluate(cand, shocked_1h[sym])
         else:
             evaluated_signals[sym] = evaluator.evaluate(cand, shocked_15m[sym])
+
+    harness = Phase264StressHarness(
+        output_dir=output_dir,
+        candidates=candidates,
+        starting_equity=starting_equity,
+        fee_rate=fee_rate,
+        slippage_bps=slippage_bps,
+        max_margin_utilization=DEFAULT_MAX_MARGIN_UTILIZATION,
+        position_fraction=DEFAULT_POSITION_FRACTION,
+        circuit_config=circuit_config,
+        qualification_hashes=qualification_hashes,
+    )
 
     signals_by_time: dict[tuple[str, datetime], pd.Series] = {}
     for sym, sig_df in evaluated_signals.items():
@@ -964,7 +965,7 @@ def run_single_phase_264_track(
 
                 sig_row = signals_by_time[(sym, bar_ts)]
                 signal = int(sig_row["signal"])
-                if signal == 0:
+                if signal == 0 or not entry_is_allowed(sig_row):
                     continue
 
                 valid_conviction, conviction = compute_signal_conviction(sig_row, signal)

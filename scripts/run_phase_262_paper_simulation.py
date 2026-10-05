@@ -87,6 +87,7 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
 from autonomous_futures.research.feature_signals import (  # noqa: E402
     CausalFeatureSignalEvaluator,
     _parse_expression,
+    entry_is_allowed,
 )
 
 logger = logging.getLogger("run_phase_262_paper_simulation")
@@ -440,16 +441,6 @@ def run_phase_262_simulation(
     candidates = validate_manifest_candidate_artifacts(manifest)
 
     # 2. Initialize harness
-    harness = Phase262PaperHarness(
-        output_dir=output_dir,
-        candidates=candidates,
-        manifest=manifest,
-        starting_equity=starting_equity,
-        fee_rate=fee_rate,
-        slippage_bps=slippage_bps,
-        max_margin_utilization=max_margin_utilization,
-        position_fraction=position_fraction,
-    )
 
     # 3. Load market frames for 15m synchronized timeline
     total_bars_15m = days * 24 * 4  # 96 bars/day * days
@@ -489,6 +480,17 @@ def run_phase_262_simulation(
             evaluated_signals[sym] = evaluator.evaluate(cand, canon1h)
         else:
             evaluated_signals[sym] = evaluator.evaluate(cand, frames_15m[sym])
+
+    harness = Phase262PaperHarness(
+        output_dir=output_dir,
+        candidates=candidates,
+        manifest=manifest,
+        starting_equity=starting_equity,
+        fee_rate=fee_rate,
+        slippage_bps=slippage_bps,
+        max_margin_utilization=max_margin_utilization,
+        position_fraction=position_fraction,
+    )
 
     # Build signal lookup map by (symbol, timestamp)
     signals_by_time: dict[tuple[str, datetime], pd.Series] = {}
@@ -637,7 +639,7 @@ def run_phase_262_simulation(
 
                 sig_row = signals_by_time[(sym, bar_ts)]
                 signal = int(sig_row["signal"])
-                if signal == 0:
+                if signal == 0 or not entry_is_allowed(sig_row):
                     continue
 
                 valid_conviction, conviction = compute_signal_conviction(sig_row, signal)

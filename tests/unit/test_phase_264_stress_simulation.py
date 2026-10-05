@@ -43,6 +43,105 @@ from scripts.run_phase_264_stress_simulation import (  # noqa: E402
 )
 
 
+@pytest.fixture
+def synthetic_track_runner(synthetic_multiasset_candidates):
+    """Real track/accounting runner over fresh identities and in-memory prices only."""
+    start = datetime(2026, 7, 30, tzinfo=UTC)
+
+    def frame(interval, count):
+        prices = [Decimal("100") + Decimal(i) / Decimal("10") for i in range(count)]
+        return pd.DataFrame(
+            {
+                "timestamp": [start + interval * i for i in range(count)],
+                "open": prices,
+                "high": [p + 1 for p in prices],
+                "low": [p - 1 for p in prices],
+                "close": prices,
+                "volume": [Decimal("50")] * count,
+            }
+        )
+
+    frames15 = {s: frame(timedelta(minutes=15), 192) for s in synthetic_multiasset_candidates}
+    frames1h = {"SOLUSDT": frame(timedelta(hours=1), 48)}
+
+    def run(track_id, output_dir):
+        return run_single_phase_264_track(
+            track_spec=TRACK_DEFINITIONS[track_id],
+            output_dir=output_dir,
+            candidates=synthetic_multiasset_candidates,
+            qualification_hashes={s: "c" * 64 for s in synthetic_multiasset_candidates},
+            raw_frames_15m=frames15,
+            raw_frames_1h=frames1h,
+            total_bars_15m=192,
+            start_time=start,
+            days=2,
+        )
+
+    return run
+
+
+def test_true_native_veto_blocks_phase264_entries(tmp_path: Path) -> None:
+    from autonomous_futures.research.feature_signals import CausalFeatureSignalEvaluator
+    from tests.strategy_fixtures import synthetic_rsi_candidate
+
+    candidate = synthetic_rsi_candidate(
+        symbol="BTCUSDT",
+        bundle_hash="a" * 64,
+        dataset_registry_hash="b" * 64,
+        timeframe="15m",
+        vetoes=("rsi >= 0",),
+    )
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    prices = [Decimal("100") + Decimal(i) / Decimal("10") for i in range(96)]
+    frame = pd.DataFrame(
+        {
+            "timestamp": [start + timedelta(minutes=15 * i) for i in range(96)],
+            "open": prices,
+            "high": [p + 1 for p in prices],
+            "low": [p - 1 for p in prices],
+            "close": prices,
+            "volume": [Decimal("50")] * 96,
+        }
+    )
+    evaluated = CausalFeatureSignalEvaluator().evaluate(candidate, frame)
+    assert evaluated["signal"].ne(0).any()
+    assert evaluated["entry_vetoed"].all()
+    result = run_single_phase_264_track(
+        track_spec=TRACK_DEFINITIONS[0],
+        output_dir=tmp_path / "native-veto",
+        candidates={"BTCUSDT": candidate},
+        qualification_hashes={"BTCUSDT": "c" * 64},
+        raw_frames_15m={"BTCUSDT": frame},
+        raw_frames_1h={},
+        total_bars_15m=96,
+        start_time=start,
+        days=1,
+    )
+    assert result.total_trades == 0
+    assert result.final_cash == Decimal("100.00")
+    assert result.cumulative_fees == Decimal("0")
+
+
+def test_legacy_unsupported_veto_preserves_phase264_ledger(tmp_path: Path) -> None:
+    ledger = tmp_path / "tracks/track_0_baseline/paper-ledger.sqlite3"
+    ledger.parent.mkdir(parents=True)
+    ledger.write_bytes(b"retained-legacy-ledger")
+    with pytest.raises(DataQualityError, match="bounded comparisons"):
+        run_phase_264_simulation(output_dir=tmp_path, selected_track="0", days=1)
+    assert ledger.read_bytes() == b"retained-legacy-ledger"
+
+
+@pytest.mark.parametrize("track_id", [3, 4])
+def test_synthetic_remaining_stress_tracks(track_id, tmp_path, synthetic_track_runner) -> None:
+    result = synthetic_track_runner(track_id, tmp_path / f"synthetic-track-{track_id}")
+    assert result.final_cash > Decimal("0")
+    assert result.cash_drift < Decimal("1e-15")
+    assert result.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
+    assert result.scenario_result.min_observed_equity_buffer >= DEFAULT_MIN_RESERVE_BUFFER
+    assert result.positions_reconciled is True
+    assert result.accounting_reconciled is True
+
+
 class TestPhase264ManifestAndConfig:
     """Test Manifest Version 2 compliance and track specifications."""
 
@@ -140,62 +239,50 @@ class TestPhase264AdverseExecutionAndMechanics:
 class TestPhase264SimulationTracks:
     """Test execution of stress tracks in isolated temporary directories."""
 
-    def test_run_phase_264_short_slice_baseline_and_flash_crash(self, tmp_path: Path) -> None:
+    def test_run_phase_264_short_slice_baseline_and_flash_crash(
+        self, tmp_path: Path, synthetic_track_runner
+    ) -> None:
         out_baseline = tmp_path / "baseline_test"
-        res_baseline = run_phase_264_simulation(
-            output_dir=out_baseline,
-            days=2,
-            starting_equity=Decimal("100.00"),
-            selected_track="0",
-        )
-        assert res_baseline.all_tracks_survived is True
-        t0 = res_baseline.track_results["baseline"]
+        res_baseline = synthetic_track_runner(0, out_baseline)
+        assert res_baseline.scenario_result.capital_survived is True
+        t0 = res_baseline
         assert t0.final_cash > Decimal("0")
         assert t0.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
         assert t0.scenario_result.min_observed_equity_buffer >= DEFAULT_MIN_RESERVE_BUFFER
         assert t0.cash_drift < Decimal("1e-15")
         assert (out_baseline / "paper-ledger.sqlite3").is_file()
-        assert (out_baseline / "stress-track-summary.json").is_file()
-        assert (out_baseline / "paper-summary.json").is_file()
+        assert (out_baseline / "paper-lifecycle.sqlite3").is_file()
+        assert (out_baseline / "paper-observations.sqlite3").is_file()
 
-    def test_run_phase_264_short_slice_slippage_and_fee_surge(self, tmp_path: Path) -> None:
+    def test_run_phase_264_short_slice_slippage_and_fee_surge(
+        self, tmp_path: Path, synthetic_track_runner
+    ) -> None:
         out_slip = tmp_path / "slippage_test"
-        res_slip = run_phase_264_simulation(
-            output_dir=out_slip,
-            days=2,
-            starting_equity=Decimal("100.00"),
-            selected_track="2",
-        )
-        t2 = res_slip.track_results["slippage_surge"]
+        res_slip = synthetic_track_runner(2, out_slip)
+        t2 = res_slip
         assert t2.final_cash > Decimal("0")
         assert t2.cash_drift < Decimal("1e-15")
         assert t2.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
 
-    def test_run_phase_264_short_slice_flash_crash(self, tmp_path: Path) -> None:
+    def test_run_phase_264_short_slice_flash_crash(
+        self, tmp_path: Path, synthetic_track_runner
+    ) -> None:
         out_flash = tmp_path / "flash_crash_test"
-        res_flash = run_phase_264_simulation(
-            output_dir=out_flash,
-            days=2,
-            starting_equity=Decimal("100.00"),
-            selected_track="1",
-        )
-        assert res_flash.all_tracks_survived is True
-        t1 = res_flash.track_results["flash_crash"]
+        res_flash = synthetic_track_runner(1, out_flash)
+        assert res_flash.scenario_result.capital_survived is True
+        t1 = res_flash
         assert t1.final_cash > Decimal("0")
         assert t1.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
         assert t1.scenario_result.min_observed_equity_buffer >= DEFAULT_MIN_RESERVE_BUFFER
         assert t1.cash_drift < Decimal("1e-15")
 
-    def test_run_phase_264_short_slice_composite_and_whipsaw(self, tmp_path: Path) -> None:
+    def test_run_phase_264_short_slice_composite_and_whipsaw(
+        self, tmp_path: Path, synthetic_track_runner
+    ) -> None:
         out_comp = tmp_path / "composite_test"
-        res_comp = run_phase_264_simulation(
-            output_dir=out_comp,
-            days=2,
-            starting_equity=Decimal("100.00"),
-            selected_track="5",
-        )
-        assert res_comp.all_tracks_survived is True
-        t5 = res_comp.track_results["composite_crisis"]
+        res_comp = synthetic_track_runner(5, out_comp)
+        assert res_comp.scenario_result.capital_survived is True
+        t5 = res_comp
         assert t5.final_cash > Decimal("0")
         assert t5.cash_drift < Decimal("1e-15")
         assert t5.scenario_result.max_observed_margin_utilization <= DEFAULT_MAX_MARGIN_UTILIZATION
@@ -230,32 +317,28 @@ class TestPhase264SimulationTracks:
         df_single = pd.DataFrame({"timestamp": [t0]})
         assert _infer_interval(df_single, default=timedelta(minutes=5)) == timedelta(minutes=5)
 
-    def test_phase_264_cli_execution(
+    def test_phase_264_cli_denies_unsupported_legacy_veto(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         out_cli = tmp_path / "cli_test"
-        code = main(
-            [
-                "--output-dir",
-                str(out_cli),
-                "--days",
-                "1",
-                "--track",
-                "0",
-                "--json",
-            ]
-        )
-        assert code == 0
-        out = capsys.readouterr().out
-        data = json.loads(out)
-        assert data["phase"] == "phase_264"
-        assert data["registry_version"] >= 2
-        assert data["all_tracks_survived"] is True
-        assert data["zero_balance_drift_verified"] is True
+        with pytest.raises(DataQualityError, match="bounded comparisons"):
+            main(
+                [
+                    "--output-dir",
+                    str(out_cli),
+                    "--days",
+                    "1",
+                    "--track",
+                    "0",
+                    "--json",
+                ]
+            )
+        assert capsys.readouterr().out == ""
+        assert not (out_cli / "paper-summary.json").exists()
 
 
 class TestPhase264PersistedProductionArtifacts:
-    """Validate authoritative persistent artifacts in artifacts/research/phase264/."""
+    """Read-only historical shape checks, not current qualification or readiness authority."""
 
     def test_persisted_databases_and_reports_exist(self) -> None:
         out = DEFAULT_PHASE264_OUTPUT_DIR
@@ -498,20 +581,29 @@ class TestPhase264AdversarialEdgeCases:
                 days=1,
             )
 
-    def test_track_filter_accepts_directory_style_name(self, tmp_path: Path) -> None:
-        res = run_phase_264_simulation(
-            output_dir=tmp_path / "out_dir_track",
-            selected_track="track_0_baseline",
-            days=1,
-        )
-        assert res.all_tracks_survived is True
-        assert len(res.track_results) == 1
-        assert "baseline" in res.track_results
+    def test_track_filter_accepts_directory_style_name(self, tmp_path: Path, monkeypatch) -> None:
+        import scripts.run_phase_264_stress_simulation as cli
 
-    def test_run_single_phase_264_track_enforces_1h_shocked_presence(self, tmp_path: Path) -> None:
-        manifest = read_candidate_registry(DEFAULT_CANDIDATE_REGISTRY_PATH, verify_hash=True)
-        candidates = validate_manifest_candidate_artifacts(manifest)
-        q_hashes = {sym: entry.qualification_hash for sym, entry in manifest.symbols.items()}
+        selected = []
+
+        def stop_before_simulation(*, track_spec, **kwargs):
+            selected.append(track_spec["id"])
+            raise DataQualityError("test-only selected-track stop")
+
+        monkeypatch.setattr(cli, "run_single_phase_264_track", stop_before_simulation)
+        with pytest.raises(DataQualityError, match="test-only selected-track stop"):
+            run_phase_264_simulation(
+                output_dir=tmp_path / "out_dir_track",
+                selected_track="track_0_baseline",
+                days=1,
+            )
+        assert selected == [0]
+
+    def test_run_single_phase_264_track_enforces_1h_shocked_presence(
+        self, tmp_path: Path, synthetic_multiasset_candidates
+    ) -> None:
+        candidates = synthetic_multiasset_candidates
+        q_hashes = {sym: "c" * 64 for sym in candidates}
 
         t0 = datetime(2026, 7, 30, 0, 0, tzinfo=UTC)
         frames_15m = {
@@ -542,14 +634,9 @@ class TestPhase264AdversarialEdgeCases:
             )
 
     def test_run_phase_264_simulation_short_horizon_reports_accurate_maturity(
-        self, tmp_path: Path
+        self, tmp_path: Path, synthetic_track_runner
     ) -> None:
-        res = run_phase_264_simulation(
-            output_dir=tmp_path / "out_short_health",
-            days=2,
-            selected_track="0",
-        )
-        t0 = res.track_results["baseline"]
+        t0 = synthetic_track_runner(0, tmp_path / "out_short_health")
         for _sym, hr in t0.health_reports.items():
             # Horizon is accurately evaluated for 2 days; no slot missing errors
             assert "paper_observation_slot_missing" not in hr.reason_codes

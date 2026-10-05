@@ -118,6 +118,16 @@ def _make_pinned_candidate_artifact() -> CreatorCandidateArtifact:
     return eval_script.materialize_candidate_artifact()
 
 
+def _make_synthetic_candidate_artifact() -> CreatorCandidateArtifact:
+    from tests.strategy_fixtures import synthetic_rsi_candidate
+
+    return synthetic_rsi_candidate(
+        symbol="DOGEUSDT",
+        bundle_hash=PINNED_BUNDLE_HASH,
+        dataset_registry_hash=PINNED_REGISTRY_HASH,
+    )
+
+
 def _make_synthetic_bars(
     start: datetime,
     bars_count: int = 30,
@@ -475,7 +485,7 @@ class TestDataQualityEnforcement:
             CachedEvaluationWindow(spec=spec, frame=frame)
 
     def test_data_quality_bundle_hash_drift(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         drifted_window = _make_oos_window(
             "oos-drift-bundle",
             START_TIME,
@@ -500,7 +510,7 @@ class TestDataQualityEnforcement:
             )
 
     def test_data_quality_dataset_registry_hash_drift(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         drifted_window = _make_oos_window(
             "oos-drift-reg",
             START_TIME,
@@ -525,7 +535,7 @@ class TestDataQualityEnforcement:
             )
 
     def test_data_quality_symbol_universe_mismatch(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         drifted_window = _make_oos_window(
             "oos-drift-symbol",
             START_TIME,
@@ -550,7 +560,7 @@ class TestDataQualityEnforcement:
             )
 
     def test_data_quality_empty_windows_rejected(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         with pytest.raises(DataQualityError, match="requires at least one window"):
             evaluate_cached_oos_walk_forward(
                 candidate,
@@ -579,13 +589,13 @@ class TestDataQualityEnforcement:
             slippage_rate=Decimal("0.0002"),
         )
         res1 = simulate_candidate_window(
-            _make_pinned_candidate_artifact(),
+            _make_synthetic_candidate_artifact(),
             w1.copy_frame(),
             symbol="DOGEUSDT",
             config=config,
         )
         res2 = simulate_candidate_window(
-            _make_pinned_candidate_artifact(),
+            _make_synthetic_candidate_artifact(),
             w2.copy_frame(),
             symbol="DOGEUSDT",
             config=config,
@@ -612,7 +622,7 @@ class TestDataQualityEnforcement:
     def test_data_quality_non_oos_split_rejected(self) -> None:
         w1 = _make_oos_window("oos-1", START_TIME, bars_count=30)
         sim_res = simulate_candidate_window(
-            _make_pinned_candidate_artifact(),
+            _make_synthetic_candidate_artifact(),
             w1.copy_frame(),
             symbol="DOGEUSDT",
             config=TradeSimulationConfig(
@@ -639,7 +649,7 @@ class TestDataQualityEnforcement:
 # ==============================================================================
 class TestSimulationExecutionAndModeling:
     def test_simulate_candidate_window_causal_rsi_signals(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         bars = _make_synthetic_bars(START_TIME, bars_count=50, pattern="dip_and_bounce")
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -653,7 +663,7 @@ class TestSimulationExecutionAndModeling:
         assert result.exchange_access is False
 
     def test_realistic_fee_and_slippage_accounting(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         bars = _make_synthetic_bars(START_TIME, bars_count=50, pattern="dip_and_bounce")
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -670,7 +680,7 @@ class TestSimulationExecutionAndModeling:
         assert trade.net_pnl == trade.gross_pnl - trade.fees
 
     def test_forced_exit_at_window_boundary(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         # Bars that enter right at the end of the window without bounce
         base = [100.0] * 15 + [100.0 - i * 2.5 for i in range(15)]
         bars = pd.DataFrame(
@@ -694,7 +704,7 @@ class TestSimulationExecutionAndModeling:
         assert last_trade.exit_reason == "forced_end_of_window"
 
     def test_exact_ledger_reconciliation(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         bars = _make_synthetic_bars(START_TIME, bars_count=60, pattern="dip_and_bounce")
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -718,7 +728,7 @@ class TestSimulationExecutionAndModeling:
 # ==============================================================================
 class TestWalkForwardAggregationAndDeterministicHashing:
     def test_walk_forward_aggregation_structure_and_metrics(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -739,7 +749,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         assert aggregation.total_trade_count >= 1
 
     def test_walk_forward_aggregation_hash_determinism(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         windows = eval_script.establish_oos_windows(count=2, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -760,7 +770,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         assert len(hash1) == 64
 
     def test_persisted_walk_forward_aggregation_envelope(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         windows = eval_script.establish_oos_windows(count=2, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -786,7 +796,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
             )
 
     def test_write_and_read_walk_forward_aggregation_file(self, tmp_path: Path) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         windows = eval_script.establish_oos_windows(count=2, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -815,7 +825,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
 # ==============================================================================
 class TestQualificationDecisionsAndPolicies:
     def test_qualification_decision_rejects_after_strategy_exit_is_applied(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -852,7 +862,7 @@ class TestQualificationDecisionsAndPolicies:
         assert qual.execution_authority is False
 
     def test_qualification_decision_rejected_excessive_drawdown(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -889,7 +899,7 @@ class TestQualificationDecisionsAndPolicies:
         assert dd_gate.reason_code == "oos_drawdown_above_threshold"
 
     def test_qualification_decision_rejected_insufficient_trades(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -926,7 +936,7 @@ class TestQualificationDecisionsAndPolicies:
         assert trades_gate.reason_code == "oos_trades_below_threshold"
 
     def test_qualification_decision_fails_closed_missing_profit_factor(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         # Single window with 0 losses
         w = _make_oos_window("oos-no-loss", START_TIME, bars_count=50, pattern="dip_and_bounce")
         config = TradeSimulationConfig(
@@ -966,7 +976,7 @@ class TestQualificationDecisionsAndPolicies:
             assert pf_gate.reason_code == "oos_profit_factor_missing"
 
     def test_qualification_artifact_immutable_safety_state(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         windows = eval_script.establish_oos_windows(count=2, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -1002,7 +1012,7 @@ class TestQualificationDecisionsAndPolicies:
         assert qual.source == "walk_forward_oos"
 
     def test_qualification_model_rejects_inconsistent_qualified_decision(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         failed_gate = QualificationGateResult(
             gate_id="oos_trades_min",
             passed=False,
@@ -1031,7 +1041,7 @@ class TestQualificationDecisionsAndPolicies:
 # ==============================================================================
 class TestOfflineSafetyInvariants:
     def test_simulation_rejects_non_cached_data_source(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         window = _make_oos_window("oos-live-src", START_TIME, bars_count=30)
 
         def mock_live_simulator(c: Any, f: Any, w: Any) -> TradeSimulationResult:
@@ -1056,7 +1066,7 @@ class TestOfflineSafetyInvariants:
             )
 
     def test_simulation_rejects_exchange_access(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         window = _make_oos_window("oos-exchange", START_TIME, bars_count=30)
 
         def mock_exchange_simulator(c: Any, f: Any, w: Any) -> TradeSimulationResult:
@@ -1086,7 +1096,7 @@ class TestOfflineSafetyInvariants:
         assert len(binance_keys) == 0
 
     def test_zero_order_placement_invariant(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         window = _make_oos_window("oos-orders", START_TIME, bars_count=30)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -1115,12 +1125,12 @@ class TestScriptExecutionEndToEnd:
         assert "--candidate-path" in output
         assert "--output-dir" in output
 
-    def test_script_cli_end_to_end_run(self, tmp_path: Path) -> None:
+    def test_script_cli_rejects_unsupported_historical_veto(self, tmp_path: Path) -> None:
         out_dir = tmp_path / "artifacts_run"
         cand_path = tmp_path / "candidate.json"
         buf = io.StringIO()
         with redirect_stdout(buf):
-            exit_code = script_main(
+            code = script_main(
                 [
                     "--candidate-path",
                     str(cand_path),
@@ -1132,23 +1142,15 @@ class TestScriptExecutionEndToEnd:
                     "60",
                 ]
             )
-        assert exit_code == 0
-        output = buf.getvalue()
-        summary = json.loads(output)
-        assert summary["candidate_id"] == PINNED_CANDIDATE_ID
-        assert summary["candidate_artifact_hash"] == PINNED_ARTIFACT_HASH
-        assert summary["qualification_decision"] == "rejected"
-        assert summary["safety_state"]["orders"] == 0
-        assert summary["safety_state"]["exchange_access"] is False
-
-        # Verify artifacts persisted to disk and readable by domain loaders
-        assert cand_path.is_file()
-        cand_domain = read_creator_candidate_artifact(cand_path)
-        assert cand_domain.candidate_id == PINNED_CANDIDATE_ID
-        assert cand_domain.artifact_hash == PINNED_ARTIFACT_HASH
-        assert (out_dir / "walk-forward-aggregation.json").is_file()
-        assert (out_dir / "qualification-artifact.json").is_file()
-        assert (out_dir / "evaluation-summary.json").is_file()
+        assert code == 3
+        result = json.loads(buf.getvalue())
+        assert result["error_code"] == "evaluation_data_error"
+        assert "bounded comparisons" in result["message"]
+        candidate = read_creator_candidate_artifact(cand_path)
+        assert candidate.candidate_id == PINNED_CANDIDATE_ID
+        assert candidate.artifact_hash == PINNED_ARTIFACT_HASH
+        assert candidate.strategy.vetoes == ("funding_adverse",)
+        assert not out_dir.exists()
 
     def test_script_cli_missing_arguments_or_bad_paths(self, tmp_path: Path) -> None:
         # Invalid option raises error and exits with code 2
@@ -1163,73 +1165,38 @@ class TestScriptExecutionEndToEnd:
             code = script_main(["--candidate-path", str(bad_cand)])
         assert code == 3
 
-    def test_script_cli_idempotent_execution(self, tmp_path: Path) -> None:
+    def test_script_cli_repeated_denial_preserves_candidate(self, tmp_path: Path) -> None:
         out_dir = tmp_path / "idempotent_run"
         cand_path = tmp_path / "candidate.json"
-
-        # Run 1
+        argv = ["--candidate-path", str(cand_path), "--output-dir", str(out_dir)]
         buf1 = io.StringIO()
         with redirect_stdout(buf1):
-            code1 = script_main(
-                [
-                    "--candidate-path",
-                    str(cand_path),
-                    "--output-dir",
-                    str(out_dir),
-                    "--windows-count",
-                    "3",
-                    "--bars-per-window",
-                    "60",
-                ]
-            )
-        assert code1 == 0
-        summary1 = json.loads(buf1.getvalue())
-
-        # Run 2 against same output directory
+            assert script_main(argv) == 3
+        original = cand_path.read_bytes()
         buf2 = io.StringIO()
         with redirect_stdout(buf2):
-            code2 = script_main(
-                [
-                    "--candidate-path",
-                    str(cand_path),
-                    "--output-dir",
-                    str(out_dir),
-                    "--windows-count",
-                    "3",
-                    "--bars-per-window",
-                    "60",
-                ]
-            )
-        assert code2 == 0
-        summary2 = json.loads(buf2.getvalue())
-
-        # Hashes and decisions are identical
-        assert (
-            summary1["walk_forward_aggregation_hash"] == summary2["walk_forward_aggregation_hash"]
-        )
-        assert summary1["qualification_hash"] == summary2["qualification_hash"]
+            assert script_main(argv) == 3
+        assert cand_path.read_bytes() == original
+        assert json.loads(buf1.getvalue()) == json.loads(buf2.getvalue())
+        assert not out_dir.exists()
 
     def test_script_cli_zero_secret_leakage(self, tmp_path: Path) -> None:
         out_dir = tmp_path / "audit_run"
-        cand_path = tmp_path / "candidate.json"
         buf = io.StringIO()
         with redirect_stdout(buf):
-            script_main(
-                [
-                    "--candidate-path",
-                    str(cand_path),
-                    "--output-dir",
-                    str(out_dir),
-                    "--windows-count",
-                    "2",
-                    "--bars-per-window",
-                    "60",
-                ]
+            assert (
+                script_main(
+                    [
+                        "--candidate-path",
+                        str(tmp_path / "candidate.json"),
+                        "--output-dir",
+                        str(out_dir),
+                    ]
+                )
+                == 3
             )
-        raw_output = buf.getvalue()
-        assert not _SECRET_PATTERN.search(raw_output)
-        summary_file = out_dir / "evaluation-summary.json"
-        assert not _SECRET_PATTERN.search(summary_file.read_text(encoding="utf-8"))
+        assert not _SECRET_PATTERN.search(buf.getvalue())
+        assert not out_dir.exists()
 
 
 # ==============================================================================
@@ -1237,7 +1204,7 @@ class TestScriptExecutionEndToEnd:
 # ==============================================================================
 class TestEdgeCasesAndBoundaryConditions:
     def test_zero_trades_in_evaluation_window(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         window = _make_oos_window("oos-flat", START_TIME, bars_count=40, pattern="flat")
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -1257,7 +1224,7 @@ class TestEdgeCasesAndBoundaryConditions:
         assert agg.pooled_profit_factor is None
 
     def test_entry_on_very_last_bar_of_window(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         # Bar 28 triggers entry, bar 29 closes window
         base = [100.0] * 20 + [100.0 - i * 3.0 for i in range(10)]
         bars = pd.DataFrame(
@@ -1280,7 +1247,7 @@ class TestEdgeCasesAndBoundaryConditions:
             assert res.trades[-1].exit_reason in ("forced_end_of_window", "signal_exit")
 
     def test_high_slippage_and_fee_stress_test(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         bars = _make_synthetic_bars(START_TIME, bars_count=60, pattern="dip_and_bounce")
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -1295,7 +1262,7 @@ class TestEdgeCasesAndBoundaryConditions:
         assert res.final_equity == expected
 
     def test_all_windows_negative_expectancy(self) -> None:
-        candidate = _make_pinned_candidate_artifact()
+        candidate = _make_synthetic_candidate_artifact()
         # Downward trending windows
         w1 = _make_oos_window("oos-down-1", START_TIME, bars_count=40, pattern="trending_down")
         w2 = _make_oos_window(

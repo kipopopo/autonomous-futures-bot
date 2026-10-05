@@ -354,8 +354,8 @@ def test_empirical_opposing_signal_isolation_during_hot_reload(tmp_path: Path) -
     # 3. Simulate closed bar where Candidate B would evaluate to SHORT (signal = -1)
     real_evaluate = engine.signal_evaluator.evaluate
 
-    def selective_evaluate(cand: Any, df: Any) -> Any:
-        evaluated = real_evaluate(cand, df)
+    def selective_evaluate(cand: Any, df: Any, *, exits_only: bool = False) -> Any:
+        evaluated = real_evaluate(cand, df, exits_only=exits_only)
         if cand.candidate_id == cand_b.candidate_id:
             # Candidate B emits opposing SHORT signal (-1)
             evaluated.loc[evaluated.index[-1], "signal"] = -1
@@ -406,8 +406,8 @@ def test_empirical_opposing_signal_isolation_during_hot_reload(tmp_path: Path) -
     assert len(reader.read_closed_trades()) == 0
 
     # 4. Now simulate closed bar where Candidate A's OWN reversal signal triggers (-1)
-    def cand_a_reversal_evaluate(cand: Any, df: Any) -> Any:
-        evaluated = real_evaluate(cand, df)
+    def cand_a_reversal_evaluate(cand: Any, df: Any, *, exits_only: bool = False) -> Any:
+        evaluated = real_evaluate(cand, df, exits_only=exits_only)
         if cand.candidate_id == cand_a.candidate_id:
             # Candidate A's own signal is now -1
             evaluated.loc[evaluated.index[-1], "signal"] = -1
@@ -772,10 +772,10 @@ def test_empirical_resilient_handling_when_candidate_b_malformed_features(tmp_pa
     # Selective failure: Candidate B raises exception on evaluate, Candidate A works normally
     real_eval = engine.signal_evaluator.evaluate
 
-    def flaky_eval(cand: Any, df: Any) -> Any:
+    def flaky_eval(cand: Any, df: Any, *, exits_only: bool = False) -> Any:
         if cand.candidate_id == cand_b.candidate_id:
             raise RuntimeError("CRITICAL: Candidate B feature calculation crash!")
-        return real_eval(cand, df)
+        return real_eval(cand, df, exits_only=exits_only)
 
     bar_time = NOW + timedelta(minutes=5)
     bar = CanonicalBar(

@@ -50,6 +50,9 @@ from autonomous_futures.paper.lifecycle import (  # noqa: E402
     PaperLifecycleTelemetry,
     mark_paper_position,
 )
+from autonomous_futures.paper.live_engine import (  # noqa: E402
+    compute_signal_conviction as compute_signal_conviction,
+)
 from autonomous_futures.paper.observation import (  # noqa: E402
     PaperObservation,
     PaperObservationBinding,
@@ -79,6 +82,7 @@ from autonomous_futures.research.creator_proposals import (  # noqa: E402
 from autonomous_futures.research.feature_signals import (  # noqa: E402
     CausalFeatureSignalEvaluator,
     _parse_expression,
+    entry_is_allowed,
 )
 
 # Authoritative Pinned Contract Constants
@@ -290,66 +294,6 @@ def load_phase_254_candidates(
         loaded[sym] = candidate
 
     return loaded
-
-
-def compute_signal_conviction(
-    row: pd.Series,
-    signal: int,
-    veto_rules: tuple[str, ...] = (),
-) -> tuple[bool, Decimal]:
-    """Computes multi-indicator conviction score in [0.5, 1.0].
-
-    Derived from multi-indicator confluence:
-    - Base confidence: 0.50 (for satisfying all entry conditions)
-    - ADX strength: up to +0.25 (for strong trend adx > 20)
-    - RSI momentum alignment: up to +0.15 (distance from 50)
-    - EMA slope confirmation: +0.05
-    - Regime trend confirmation: +0.05
-    """
-    adx_val = Decimal(str(row["adx"]))
-    for veto in veto_rules:
-        if "adx <" in veto:
-            threshold = Decimal(veto.split("<")[1].strip())
-            if adx_val < threshold:
-                return False, Decimal("0")
-
-    if signal == 0:
-        return False, Decimal("0")
-
-    conviction = Decimal("0.50")
-
-    # 1. ADX trend strength bonus
-    if adx_val > Decimal("20"):
-        adx_bonus = min(Decimal("0.25"), (adx_val - Decimal("20")) / Decimal("60"))
-        conviction += adx_bonus
-
-    # 2. RSI momentum alignment bonus
-    rsi_val = Decimal(str(row["rsi"]))
-    if signal == 1 and rsi_val > Decimal("50"):
-        rsi_bonus = min(
-            Decimal("0.15"), ((rsi_val - Decimal("50")) / Decimal("50")) * Decimal("0.15")
-        )
-        conviction += rsi_bonus
-    elif signal == -1 and rsi_val < Decimal("50"):
-        rsi_bonus = min(
-            Decimal("0.15"), ((Decimal("50") - rsi_val) / Decimal("50")) * Decimal("0.15")
-        )
-        conviction += rsi_bonus
-
-    # 3. EMA slope conviction bonus
-    ema_slope_val = Decimal(str(row["ema_slope"]))
-    if (signal == 1 and ema_slope_val > Decimal("0")) or (
-        signal == -1 and ema_slope_val < Decimal("0")
-    ):
-        conviction += Decimal("0.05")
-
-    # 4. Regime trend alignment bonus
-    regime_val = Decimal(str(row["regime_trend"]))
-    if (signal == 1 and regime_val > Decimal("0")) or (signal == -1 and regime_val < Decimal("0")):
-        conviction += Decimal("0.05")
-
-    final_conviction = min(Decimal("1.00"), max(Decimal("0.50"), conviction))
-    return True, final_conviction
 
 
 def calculate_dynamic_leverage(conviction: Decimal) -> Decimal:
@@ -655,15 +599,6 @@ def run_phase_254_simulation(
     candidates = load_phase_254_candidates(candidates_dir)
 
     # 3. Initialize harness and isolated storage engines
-    harness = Phase254PaperHarness(
-        output_dir=output_dir,
-        candidates=candidates,
-        starting_equity=starting_equity,
-        fee_rate=fee_rate,
-        slippage_bps=slippage_bps,
-        max_margin_utilization=max_margin_utilization,
-        position_fraction=position_fraction,
-    )
 
     # 4. Load and align contiguous 5m bars without lookahead
     evaluator = CausalFeatureSignalEvaluator()
@@ -682,6 +617,16 @@ def run_phase_254_simulation(
     for sym in candidates:
         if (evaluated_frames[sym]["timestamp"] != evaluated_frames[first_sym]["timestamp"]).any():
             raise DataQualityError(f"Timestamp skew detected between {first_sym} and {sym}")
+
+    harness = Phase254PaperHarness(
+        output_dir=output_dir,
+        candidates=candidates,
+        starting_equity=starting_equity,
+        fee_rate=fee_rate,
+        slippage_bps=slippage_bps,
+        max_margin_utilization=max_margin_utilization,
+        position_fraction=position_fraction,
+    )
 
     # 5. Multi-asset sequential bar simulation loop
     active_trades: dict[str, dict[str, Any]] = {}
@@ -817,7 +762,7 @@ def run_phase_254_simulation(
                     continue
                 row = evaluated_frames[sym].iloc[idx]
                 signal = int(row["signal"])
-                if signal == 0:
+                if signal == 0 or not entry_is_allowed(row):
                     continue
 
                 valid_conviction, conviction = compute_signal_conviction(

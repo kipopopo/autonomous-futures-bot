@@ -223,7 +223,7 @@ class DeterministicOfflineCreator:
             "features": features,
             "entry": entry,
             "exit": exit,
-            "vetoes": ["testing_only_no_promotion"],
+            "vetoes": [f"{features[0]['name']} > 0 and {features[0]['name']} < 0"],
             "risk": {
                 "position_fraction": Decimal("0.10"),
                 "stop_atr_multiplier": Decimal("2.0"),

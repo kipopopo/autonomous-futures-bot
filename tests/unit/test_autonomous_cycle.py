@@ -364,7 +364,7 @@ def test_autonomous_cycle_rejected_qualification_preserves_active_candidate(tmp_
                 "features": [{"name": "rsi", "lookback": 14, "shift": 1}],
                 "entry": {"long": "rsi <= 10", "short": "rsi >= 90"},
                 "exit": {"long": "rsi >= 50", "short": "rsi <= 50"},
-                "vetoes": ["testing_only_no_promotion"],
+                "vetoes": ["rsi > 0 and rsi < 0"],
                 "risk": {
                     "position_fraction": Decimal("0.1"),
                     "stop_atr_multiplier": Decimal("2.0"),

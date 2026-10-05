@@ -228,6 +228,30 @@ def test_protective_stop_wins_when_stop_and_target_cross_same_candle() -> None:
     assert result.final_equity == Decimal("98")
 
 
+@pytest.mark.parametrize("exit_kind", ["reversal", "explicit", "stop"])
+def test_entry_veto_does_not_change_position_closure(exit_kind: str) -> None:
+    frame = _risk_frame(
+        (0, 0, 0, 0, 1, -1 if exit_kind == "reversal" else 0),
+        highs=("101",) * 6,
+        lows=("99",) * 5 + (("95",) if exit_kind == "stop" else ("99",)),
+    )
+    if exit_kind == "explicit":
+        frame["long_exit_condition"] = (False,) * 5 + (True,)
+    baseline = simulate_cached_signals(frame, symbol="BTCUSDT", config=_risk_config())
+    frame["entry_vetoed"] = (False,) * 5 + (True,)
+    actual = simulate_cached_signals(frame, symbol="BTCUSDT", config=_risk_config())
+    assert actual == baseline
+    assert actual.trades[0].exit_reason != "forced_end_of_window"
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), "invalid", 2, None])
+def test_invalid_entry_veto_flag_fails_before_simulation(invalid: object) -> None:
+    frame = _signal_frame((0, 1, 0))
+    frame["entry_vetoed"] = invalid
+    with pytest.raises(DataQualityError):
+        simulate_cached_signals(frame, symbol="BTCUSDT", config=_config())
+
+
 def test_stop_loss_honors_adverse_opening_gap_and_slippage() -> None:
     frame = pd.DataFrame(
         {

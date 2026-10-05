@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -46,13 +47,10 @@ def _parse_expression(
         match = _COMPARISON.fullmatch(clause)
         if match is None:
             raise DataQualityError("signal expression must use bounded comparisons")
-        clauses.append(
-            (
-                match.group("feature"),
-                match.group("operator"),
-                float(match.group("value")),
-            )
-        )
+        threshold = float(match.group("value"))
+        if not math.isfinite(threshold):
+            raise DataQualityError("signal comparison threshold must be finite")
+        clauses.append((match.group("feature"), match.group("operator"), threshold))
     connectors = tuple(str(part) for part in parts[1::2])
     return tuple(clauses), connectors
 
@@ -242,7 +240,9 @@ def materialize_causal_features(
 class CausalFeatureSignalEvaluator:
     """Compute a bounded feature set and fresh-state signals from cached OHLC bars."""
 
-    def evaluate(self, candidate: CreatorCandidateArtifact, frame: pd.DataFrame) -> pd.DataFrame:
+    def evaluate(
+        self, candidate: CreatorCandidateArtifact, frame: pd.DataFrame, *, exits_only: bool = False
+    ) -> pd.DataFrame:
         result = materialize_causal_features(candidate, frame)
         feature_names = tuple(feature.name for feature in candidate.strategy.features)
 
@@ -283,6 +283,13 @@ class CausalFeatureSignalEvaluator:
         result["signal"] = signal
         result["long_exit_condition"] = long_exit_condition
         result["short_exit_condition"] = short_exit_condition
+        result["entry_vetoed"] = (
+            True
+            if exits_only
+            else evaluate_entry_vetoes(
+                result, candidate.strategy.vetoes, declared_features=feature_names
+            )
+        )
         return result
 
     @staticmethod
@@ -301,4 +308,36 @@ class CausalFeatureSignalEvaluator:
         return condition.astype(bool)
 
 
-__all__ = ["CausalFeatureSignalEvaluator", "SUPPORTED_FEATURES", "materialize_causal_features"]
+def entry_is_allowed(row: pd.Series) -> bool:
+    """An evaluated entry requires an explicit false boolean veto flag."""
+    value = row.get("entry_vetoed")
+    return bool(pd.api.types.is_bool(value)) and not bool(value)
+
+
+def evaluate_entry_vetoes(
+    frame: pd.DataFrame, vetoes: Sequence[str], *, declared_features: Sequence[str]
+) -> pd.Series:
+    """Any true or unavailable veto blocks entries, never exits or protective closure."""
+    blocked = pd.Series(False, index=frame.index, dtype="bool")
+    for expression in vetoes:
+        clauses, connectors = _parse_expression(expression)
+        names = tuple(dict.fromkeys(clause[0] for clause in clauses))
+        if not set(names).issubset(declared_features) or not set(names).issubset(frame.columns):
+            raise DataQualityError("veto feature is not declared or available")
+        if not set(names).issubset(SUPPORTED_FEATURES):
+            raise DataQualityError("veto feature is not supported")
+        values = frame[list(names)].apply(pd.to_numeric, errors="coerce")
+        finite = values.apply(lambda column: column.map(math.isfinite)).all(axis=1)
+        blocked |= ~finite | CausalFeatureSignalEvaluator._condition_series(
+            values, clauses, connectors
+        )
+    return blocked
+
+
+__all__ = [
+    "CausalFeatureSignalEvaluator",
+    "SUPPORTED_FEATURES",
+    "entry_is_allowed",
+    "evaluate_entry_vetoes",
+    "materialize_causal_features",
+]

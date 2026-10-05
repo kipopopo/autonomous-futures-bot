@@ -47,7 +47,7 @@ def _candidate():
             features=(FeatureRef(name="returns", lookback=3, shift=1),),
             entry=EntryExit(long="returns > 0", short="returns < 0"),
             exit=EntryExit(long="returns < 0", short="returns > 0"),
-            vetoes=("regime_trend == 0",),
+            vetoes=("returns > 0 and returns < 0",),
         ),
         bundle_hash=BUNDLE_HASH,
         dataset_registry_hash=DATASET_HASH,

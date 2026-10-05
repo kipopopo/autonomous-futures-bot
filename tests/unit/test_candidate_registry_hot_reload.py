@@ -560,10 +560,10 @@ def test_resilient_exit_evaluation_when_new_candidate_fails(tmp_path: Path) -> N
     # Mock signal_evaluator so Candidate B raises an error, but Candidate A evaluates cleanly
     real_evaluate = engine.signal_evaluator.evaluate
 
-    def selective_evaluate(cand, df):
+    def selective_evaluate(cand, df, *, exits_only=False):
         if cand.candidate_id == cand_b.candidate_id:
             raise RuntimeError("Candidate B feature calculation failure")
-        return real_evaluate(cand, df)
+        return real_evaluate(cand, df, exits_only=exits_only)
 
     test_bar = CanonicalBar(
         symbol="BTCUSDT",

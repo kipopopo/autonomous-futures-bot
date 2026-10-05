@@ -67,6 +67,9 @@ from autonomous_futures.paper.lifecycle import (  # noqa: E402
     PaperLifecycleTelemetry,
     mark_paper_position,
 )
+from autonomous_futures.paper.live_engine import (  # noqa: E402
+    compute_signal_conviction as compute_signal_conviction,
+)
 from autonomous_futures.paper.observation import (  # noqa: E402
     PaperObservation,
     PaperObservationBinding,
@@ -99,6 +102,7 @@ from autonomous_futures.research.creator_proposals import (  # noqa: E402
 from autonomous_futures.research.feature_signals import (  # noqa: E402
     CausalFeatureSignalEvaluator,
     _parse_expression,
+    entry_is_allowed,
 )
 
 # Authoritative Pinned Contract Constants
@@ -315,60 +319,6 @@ def load_phase_255_candidates(
         loaded[sym] = candidate
 
     return loaded
-
-
-def compute_signal_conviction(
-    row: pd.Series,
-    signal: int,
-    veto_rules: tuple[str, ...] = (),
-) -> tuple[bool, Decimal]:
-    """Computes multi-indicator conviction score in [0.5, 1.0]."""
-    adx_val = Decimal(str(row["adx"]))
-    for veto in veto_rules:
-        if "adx <" in veto:
-            threshold = Decimal(veto.split("<")[1].strip())
-            if adx_val < threshold:
-                return False, Decimal("0")
-
-    if signal == 0:
-        return False, Decimal("0")
-
-    conviction = Decimal("0.50")
-
-    # 1. ADX trend strength bonus
-    if adx_val > Decimal("20"):
-        adx_bonus = min(Decimal("0.25"), (adx_val - Decimal("20")) / Decimal("60"))
-        conviction += adx_bonus
-
-    # 2. RSI momentum alignment bonus
-    rsi_val = Decimal(str(row["rsi"]))
-    if signal == 1 and rsi_val > Decimal("50"):
-        rsi_bonus = min(
-            Decimal("0.15"),
-            ((rsi_val - Decimal("50")) / Decimal("50")) * Decimal("0.15"),
-        )
-        conviction += rsi_bonus
-    elif signal == -1 and rsi_val < Decimal("50"):
-        rsi_bonus = min(
-            Decimal("0.15"),
-            ((Decimal("50") - rsi_val) / Decimal("50")) * Decimal("0.15"),
-        )
-        conviction += rsi_bonus
-
-    # 3. EMA slope conviction bonus
-    ema_slope_val = Decimal(str(row["ema_slope"]))
-    if (signal == 1 and ema_slope_val > Decimal("0")) or (
-        signal == -1 and ema_slope_val < Decimal("0")
-    ):
-        conviction += Decimal("0.05")
-
-    # 4. Regime trend alignment bonus
-    regime_val = Decimal(str(row["regime_trend"]))
-    if (signal == 1 and regime_val > Decimal("0")) or (signal == -1 and regime_val < Decimal("0")):
-        conviction += Decimal("0.05")
-
-    final_conviction = min(Decimal("1.00"), max(Decimal("0.50"), conviction))
-    return True, final_conviction
 
 
 def evaluate_strategy_exit(
@@ -698,17 +648,6 @@ def run_single_stress_track(
         else CircuitBreakerConfig()
     )
 
-    harness = Phase255StressHarness(
-        output_dir=output_dir,
-        candidates=candidates,
-        starting_equity=starting_equity,
-        fee_rate=fee_rate,
-        slippage_bps=slippage_bps,
-        max_margin_utilization=DEFAULT_MAX_MARGIN_UTILIZATION,
-        position_fraction=DEFAULT_POSITION_FRACTION,
-        circuit_config=circuit_config,
-    )
-
     # 1. Apply deterministic shock to market data
     shocked_frames = apply_track_shocks(raw_market_frames, track_spec)
 
@@ -720,6 +659,17 @@ def run_single_stress_track(
     for sym, cand in candidates.items():
         evaluated_frames[sym] = evaluator.evaluate(cand, shocked_frames[sym])
         atr_series_by_symbol[sym] = compute_atr_series(shocked_frames[sym], lookback=14)
+
+    harness = Phase255StressHarness(
+        output_dir=output_dir,
+        candidates=candidates,
+        starting_equity=starting_equity,
+        fee_rate=fee_rate,
+        slippage_bps=slippage_bps,
+        max_margin_utilization=DEFAULT_MAX_MARGIN_UTILIZATION,
+        position_fraction=DEFAULT_POSITION_FRACTION,
+        circuit_config=circuit_config,
+    )
 
     # 3. Synchronized multi-asset bar simulation loop
     first_sym = next(iter(candidates))
@@ -987,7 +937,7 @@ def run_single_stress_track(
                     continue
                 row = evaluated_frames[sym].iloc[idx]
                 signal = int(row["signal"])
-                if signal == 0:
+                if signal == 0 or not entry_is_allowed(row):
                     continue
 
                 valid_conviction, conviction = compute_signal_conviction(

@@ -70,6 +70,7 @@ from autonomous_futures.research.creator_artifacts import (  # noqa: E402
 )
 from autonomous_futures.research.feature_signals import (  # noqa: E402
     CausalFeatureSignalEvaluator,
+    entry_is_allowed,
 )
 from autonomous_futures.research.qualification_artifacts import (  # noqa: E402
     CreatorCandidateQualificationArtifact,
@@ -221,6 +222,19 @@ def run_paper_simulation(
             f"got {qualification.qualification_hash}"
         )
 
+    # 4. Load or generate sequential 5m historical bars
+    start_time = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    if data_path is not None and data_path.is_file():
+        if data_path.suffix == ".parquet":
+            raw_df = pd.read_parquet(data_path)
+        else:
+            raw_df = pd.read_csv(data_path)
+        bars_df = canonicalize_bars(raw_df, interval=timedelta(minutes=5))
+    else:
+        bars_df = generate_deterministic_5m_bars(start=start_time, days=days)
+
+    evaluated = CausalFeatureSignalEvaluator().evaluate(candidate, bars_df)
+
     # 3. Setup isolated output directories and SQLite storage
     output_dir.mkdir(parents=True, exist_ok=True)
     ledger_db_path = output_dir / "paper-ledger.sqlite3"
@@ -244,19 +258,6 @@ def run_paper_simulation(
         qualification_decision=qualification.decision,
         zero_oos_liquidations=True,
     )
-
-    # 4. Load or generate sequential 5m historical bars
-    start_time = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
-    if data_path is not None and data_path.is_file():
-        if data_path.suffix == ".parquet":
-            raw_df = pd.read_parquet(data_path)
-        else:
-            raw_df = pd.read_csv(data_path)
-        bars_df = canonicalize_bars(raw_df, interval=timedelta(minutes=5))
-    else:
-        bars_df = generate_deterministic_5m_bars(start=start_time, days=days)
-
-    evaluated = CausalFeatureSignalEvaluator().evaluate(candidate, bars_df)
 
     # 5. Deterministic offline paper simulation loop
     previous_peak_equity = starting_equity
@@ -328,7 +329,7 @@ def run_paper_simulation(
                 active_trade = None
 
         # B. Entry signal evaluation
-        if active_trade is None and not is_terminal and signal != 0:
+        if active_trade is None and not is_terminal and signal != 0 and entry_is_allowed(row):
             entry_side: Literal["LONG", "SHORT"] = "LONG" if signal == 1 else "SHORT"
             trade_count += 1
             trade_id = f"paper-trade-{trade_count:04d}"
@@ -475,11 +476,15 @@ def run_paper_simulation(
 
     # Compute artifact hashes for manifest
     artifact_hashes: dict[str, str] = {
-        "paper-ledger.sqlite3": compute_file_sha256(ledger_db_path),
-        "paper-lifecycle.sqlite3": compute_file_sha256(lifecycle_db_path),
-        "paper-observations.sqlite3": compute_file_sha256(observation_db_path),
-        "paper-health-report.json": compute_file_sha256(health_report_path),
-        "paper-cohort-readiness-report.json": compute_file_sha256(cohort_report_path),
+        path.name: compute_file_sha256(path)
+        for path in (
+            ledger_db_path,
+            lifecycle_db_path,
+            observation_db_path,
+            health_report_path,
+            cohort_report_path,
+        )
+        if path.is_file()
     }
 
     summary_payload: dict[str, Any] = {

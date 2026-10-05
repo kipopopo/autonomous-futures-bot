@@ -32,7 +32,7 @@ def test_v2_candidate_risk_profile_controls_cached_position_size() -> None:
             features=(FeatureRef(name="returns", lookback=1, shift=1),),
             entry=EntryExit(long="returns > 0", short="returns < 0"),
             exit=EntryExit(long="returns < 0", short="returns > 0"),
-            vetoes=("testing_only_no_promotion",),
+            vetoes=("returns > 0 and returns < 0",),
             risk={
                 "position_fraction": Decimal("0.25"),
                 "stop_atr_multiplier": Decimal("1"),

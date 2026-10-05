@@ -280,7 +280,7 @@ def test_isolated_sqlite_stores_creation_and_persistence(tmp_path: Path) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_deterministic_simulation_loop_execution(tmp_path: Path) -> None:
+def test_deterministic_simulation_loop_execution(tmp_path: Path, synthetic_phase251_inputs) -> None:
     output_dir = tmp_path / "paper_phase251"
     result = run_paper_simulation(
         output_dir=output_dir,
@@ -292,8 +292,8 @@ def test_deterministic_simulation_loop_execution(tmp_path: Path) -> None:
     )
 
     # Candidate binding
-    assert result.candidate_id == PINNED_CANDIDATE_ID
-    assert result.candidate_artifact_hash == PINNED_ARTIFACT_HASH
+    assert result.candidate_id == synthetic_phase251_inputs.candidate_id
+    assert result.candidate_artifact_hash == synthetic_phase251_inputs.artifact_hash
 
     # Execution metrics
     assert result.total_bars == 2017
@@ -336,7 +336,7 @@ def test_deterministic_simulation_loop_execution(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_accounting_balance_reconciliation(tmp_path: Path) -> None:
+def test_accounting_balance_reconciliation(tmp_path: Path, synthetic_phase251_inputs) -> None:
     output_dir = tmp_path / "accounting_test"
     result = run_paper_simulation(
         output_dir=output_dir,
@@ -375,7 +375,7 @@ def test_accounting_balance_reconciliation(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_reconcile_paper_positions_zero_drift(tmp_path: Path) -> None:
+def test_reconcile_paper_positions_zero_drift(tmp_path: Path, synthetic_phase251_inputs) -> None:
     output_dir = tmp_path / "recon_test"
     run_paper_simulation(output_dir=output_dir, days=7)
 
@@ -399,7 +399,9 @@ def test_reconcile_paper_positions_zero_drift(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_paper_health_and_cohort_readiness_reporting(tmp_path: Path) -> None:
+def test_paper_health_and_cohort_readiness_reporting(
+    tmp_path: Path, synthetic_phase251_inputs
+) -> None:
     output_dir = tmp_path / "health_cohort_test"
     run_paper_simulation(output_dir=output_dir, days=7)
 
@@ -409,7 +411,7 @@ def test_paper_health_and_cohort_readiness_reporting(tmp_path: Path) -> None:
     health_data = json.loads(health_path.read_text(encoding="utf-8"))
     cohort_data = json.loads(cohort_path.read_text(encoding="utf-8"))
 
-    assert health_data["candidate_id"] == PINNED_CANDIDATE_ID
+    assert health_data["candidate_id"] == synthetic_phase251_inputs.candidate_id
     assert health_data["health_status"] == "healthy"
     assert health_data["maturity_status"] == "mature"
     assert health_data["accounting_complete"] is True
@@ -437,7 +439,9 @@ def test_paper_health_and_cohort_readiness_reporting(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_offline_safety_invariants_and_zero_secret_leakage(tmp_path: Path) -> None:
+def test_offline_safety_invariants_and_zero_secret_leakage(
+    tmp_path: Path, synthetic_phase251_inputs
+) -> None:
     output_dir = tmp_path / "safety_test"
     run_paper_simulation(output_dir=output_dir, days=7)
 
@@ -571,21 +575,44 @@ def test_simulation_edge_cases_duplicate_open_and_unqualified_symbol(
 # ---------------------------------------------------------------------------
 
 
-def test_cli_main_execution(tmp_path: Path) -> None:
+@pytest.mark.parametrize("synthetic_phase251_inputs", [("rsi >= 0",)], indirect=True)
+def test_synthetic_market_veto_blocks_paper_entries(tmp_path, synthetic_phase251_inputs) -> None:
+    result = run_paper_simulation(output_dir=tmp_path / "vetoed", days=1)
+    assert result.total_trades == 0
+    assert result.final_cash == result.starting_equity
+    assert "paper-ledger.sqlite3" not in result.artifact_hashes
+    assert "paper-lifecycle.sqlite3" not in result.artifact_hashes
+
+
+def test_legacy_veto_denial_preserves_retained_ledger(tmp_path: Path) -> None:
+    from autonomous_futures.data.parquet import DataQualityError
+
+    output_dir = tmp_path / "retained"
+    output_dir.mkdir()
+    ledger_path = output_dir / "paper-ledger.sqlite3"
+    ledger_path.write_bytes(b"retained-ledger-do-not-recreate")
+    with pytest.raises(DataQualityError, match="bounded comparisons"):
+        run_paper_simulation(output_dir=output_dir, days=1)
+    assert ledger_path.read_bytes() == b"retained-ledger-do-not-recreate"
+
+
+def test_cli_rejects_unsupported_historical_veto(tmp_path: Path) -> None:
+    from autonomous_futures.data.parquet import DataQualityError
+
     output_dir = tmp_path / "cli_test_out"
-    exit_code = main(
-        [
-            "--output-dir",
-            str(output_dir),
-            "--days",
-            "7",
-            "--starting-equity",
-            "10000.00",
-            "--quantity",
-            "1000.0",
-        ]
-    )
-    assert exit_code == 0
-    assert (output_dir / "paper-simulation-summary.json").is_file()
-    assert (output_dir / "paper-health-report.json").is_file()
-    assert (output_dir / "paper-cohort-readiness-report.json").is_file()
+    with pytest.raises(DataQualityError, match="bounded comparisons"):
+        main(
+            [
+                "--output-dir",
+                str(output_dir),
+                "--days",
+                "7",
+                "--starting-equity",
+                "10000.00",
+                "--quantity",
+                "1000.0",
+            ]
+        )
+    assert not (output_dir / "paper-simulation-summary.json").exists()
+    assert not (output_dir / "paper-health-report.json").exists()
+    assert not (output_dir / "paper-cohort-readiness-report.json").exists()

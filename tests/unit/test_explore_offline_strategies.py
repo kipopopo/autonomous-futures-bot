@@ -23,6 +23,24 @@ from scripts.explore_offline_strategies import (  # noqa: E402
 cli_main = main
 
 
+@pytest.fixture
+def synthetic_catalog(monkeypatch):
+    import scripts.explore_offline_strategies as cli
+    from tests.strategy_fixtures import synthetic_rsi_candidate
+
+    def catalog(symbol, *, timeframe="5m"):
+        return (
+            synthetic_rsi_candidate(
+                symbol=symbol,
+                timeframe=timeframe,
+                bundle_hash=cli.DEFAULT_BUNDLE_HASH,
+                dataset_registry_hash=cli.DEFAULT_REGISTRY_HASH,
+            ),
+        )
+
+    monkeypatch.setattr(cli, "generate_candidate_catalog", catalog)
+
+
 def test_forbidden_credential_flags_rejected() -> None:
     """Verify that any credential flag triggers immediate rejection."""
     assert _check_forbidden_credential_flags(["--symbols", "BTCUSDT", "--api-key=secret"]) is True
@@ -80,7 +98,7 @@ def test_load_and_slice_windows(tmp_path: Path) -> None:
     assert windows[1].spec.time_end == windows[2].spec.time_start
 
 
-def test_run_strategy_exploration_end_to_end(tmp_path: Path) -> None:
+def test_run_strategy_exploration_end_to_end(tmp_path: Path, synthetic_catalog) -> None:
     """Verify full offline strategy exploration runner and artifact generation."""
     parquet_dir = REPO_ROOT / "research" / "immutable-data" / "5m" / "canonical"
     if not (parquet_dir / "BTCUSDT-5m.parquet").is_file():
@@ -96,7 +114,7 @@ def test_run_strategy_exploration_end_to_end(tmp_path: Path) -> None:
     )
     assert results["status"] == "completed"
     assert results["symbols_evaluated"] == ["BTCUSDT"]
-    assert results["total_candidates"] >= 6
+    assert results["total_candidates"] == 1
     assert (out_dir / "exploration_summary.json").is_file()
 
     # Read back and verify summary JSON
@@ -105,7 +123,9 @@ def test_run_strategy_exploration_end_to_end(tmp_path: Path) -> None:
     assert len(saved["leaderboard"]) == results["total_candidates"]
 
 
-def test_cli_runner_json_output(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+def test_cli_runner_json_output(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, synthetic_catalog
+) -> None:
     """Verify CLI main entrypoint outputs valid JSON when --json is passed."""
     parquet_dir = REPO_ROOT / "research" / "immutable-data" / "5m" / "canonical"
     if not (parquet_dir / "BTCUSDT-5m.parquet").is_file():
@@ -130,7 +150,7 @@ def test_cli_runner_json_output(capsys: pytest.CaptureFixture[str], tmp_path: Pa
     captured = capsys.readouterr()
     report = json.loads(captured.out)
     assert report["status"] == "completed"
-    assert report["total_candidates"] >= 6
+    assert report["total_candidates"] == 1
 
 
 def test_candidate_catalog_timeframes() -> None:
@@ -177,7 +197,7 @@ def test_load_and_slice_windows_15m_and_1h() -> None:
         assert windows[0].spec.time_end == windows[1].spec.time_start
 
 
-def test_run_strategy_exploration_15m_timeframe(tmp_path: Path) -> None:
+def test_run_strategy_exploration_15m_timeframe(tmp_path: Path, synthetic_catalog) -> None:
     """Verify 15m offline exploration executes and outputs results."""
     p_15m_dir = REPO_ROOT / "research" / "immutable-data" / "15m" / "canonical"
     if not (p_15m_dir / "ETHUSDT-15m.parquet").is_file():
@@ -194,5 +214,20 @@ def test_run_strategy_exploration_15m_timeframe(tmp_path: Path) -> None:
     )
     assert results["status"] == "completed"
     assert results["timeframe"] == "15m"
-    assert results["total_candidates"] >= 8
+    assert results["total_candidates"] == 1
     assert (out_dir / "exploration_summary.json").is_file()
+
+
+def test_original_catalog_opaque_veto_fails_closed() -> None:
+    import pandas as pd
+
+    from autonomous_futures.data.parquet import DataQualityError
+    from autonomous_futures.research.feature_signals import evaluate_entry_vetoes
+
+    for candidate in generate_candidate_catalog("BTCUSDT"):
+        with pytest.raises(DataQualityError, match="bounded comparisons"):
+            evaluate_entry_vetoes(
+                pd.DataFrame(index=[0]),
+                candidate.strategy.vetoes,
+                declared_features=tuple(feature.name for feature in candidate.strategy.features),
+            )

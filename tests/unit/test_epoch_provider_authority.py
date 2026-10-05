@@ -319,6 +319,8 @@ def test_epoch_google_cli_reserves_before_persistence_without_legacy_bypass(
             response["strategy"]["risk"] = {
                 key: float(value) for key, value in response["strategy"]["risk"].items()
             }
+            feature = response["strategy"]["features"][0]["name"]
+            response["strategy"]["vetoes"] = [f"{feature} > 0 and {feature} < 0"]
             if fault == "permit_after_creator":
                 permit_file.unlink()
             if fault == "qualification_after_creator":

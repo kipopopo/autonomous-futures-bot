@@ -133,10 +133,11 @@ def test_shared_margin_account_lifecycle() -> None:
     assert account.cash == Decimal("104.916")
 
 
-def test_run_phase_262_simulation_short_slice(tmp_path: Path) -> None:
+def test_run_phase_262_simulation_short_slice(tmp_path: Path, synthetic_paper_registry) -> None:
     output_dir = tmp_path / "phase262_test"
     result = run_phase_262_simulation(
         output_dir=output_dir,
+        registry_path=synthetic_paper_registry,
         days=1,
         starting_equity=Decimal("100.00"),
     )
@@ -169,9 +170,21 @@ def test_run_phase_262_simulation_short_slice(tmp_path: Path) -> None:
     assert result.candidate_summaries["SOLUSDT"]["timeframe"] == "1h"
 
 
-def test_phase_262_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_phase_262_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], synthetic_paper_registry
+) -> None:
     output_dir = tmp_path / "cli_test"
-    code = main(["--output-dir", str(output_dir), "--days", "1", "--json"])
+    code = main(
+        [
+            "--output-dir",
+            str(output_dir),
+            "--registry-path",
+            str(synthetic_paper_registry),
+            "--days",
+            "1",
+            "--json",
+        ]
+    )
     assert code == 0
 
     out = capsys.readouterr().out
@@ -182,3 +195,13 @@ def test_phase_262_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> No
     assert data["portfolio_summary"]["zero_balance_drift"] is True
     assert "candidates" in data
     assert len(data["candidates"]) == 3
+
+
+def test_legacy_unsupported_veto_preserves_phase262_ledger(tmp_path: Path) -> None:
+    from autonomous_futures.data.parquet import DataQualityError
+
+    ledger = tmp_path / "paper-ledger.sqlite3"
+    ledger.write_bytes(b"retained-legacy-ledger")
+    with pytest.raises(DataQualityError, match="bounded comparisons"):
+        run_phase_262_simulation(output_dir=tmp_path, days=1)
+    assert ledger.read_bytes() == b"retained-legacy-ledger"

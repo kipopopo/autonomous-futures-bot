@@ -169,7 +169,13 @@ class TestCausalIndicatorDegenerateSeries:
 
     @pytest.fixture
     def candidate(self):
-        return read_creator_candidate_artifact(CANDIDATE_PATH)
+        from tests.strategy_fixtures import synthetic_rsi_candidate
+
+        return synthetic_rsi_candidate(
+            symbol="DOGEUSDT",
+            bundle_hash="a" * 64,
+            dataset_registry_hash="b" * 64,
+        )
 
     @pytest.fixture
     def evaluator(self):
@@ -449,6 +455,7 @@ class TestMaturityEvaluation:
 # ===========================================================================
 
 
+@pytest.mark.usefixtures("synthetic_phase251_inputs")
 class TestTerminalBoundaryLiquidationAndCashReconciliation:
     """Stress-test boundary liquidation, entry suppression, and cash reconciliation."""
 

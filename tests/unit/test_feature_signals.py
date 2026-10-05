@@ -30,6 +30,7 @@ def _candidate(
     short_expression: str = "returns < 0",
     exit_long_expression: str | None = None,
     exit_short_expression: str | None = None,
+    vetoes: tuple[str, ...] | None = None,
 ):
     strategy = StrategySpec(
         dsl_version=1,
@@ -44,7 +45,10 @@ def _candidate(
             long=exit_long_expression or f"{feature_names[0]} < 0",
             short=exit_short_expression or f"{feature_names[0]} > 0",
         ),
-        vetoes=("regime_trend == 0",),
+        # A declared, non-operative market condition for synthetic fixtures only.
+        vetoes=vetoes
+        if vetoes is not None
+        else (f"{feature_names[0]} > 0 and {feature_names[0]} < 0",),
     )
     return build_creator_candidate_artifact(
         candidate_id="cand-feature-signal-001",
@@ -368,6 +372,146 @@ def test_expression_feature_must_be_declared() -> None:
 
     with pytest.raises(DataQualityError, match="not declared"):
         CausalFeatureSignalEvaluator().evaluate(candidate, _frame())
+
+
+def test_candidate_vetoes_block_cached_entries() -> None:
+    candidate = _candidate(vetoes=("returns > 0", "returns < 0"))
+    config = TradeSimulationConfig(
+        starting_equity=Decimal("100"),
+        position_fraction=Decimal("0.1"),
+        taker_fee_rate=Decimal("0.0005"),
+        slippage_rate=Decimal("0.0001"),
+    )
+    source = _frame()
+    before = source.copy(deep=True)
+    result = simulate_candidate_window(candidate, source, symbol="BTCUSDT", config=config)
+    assert result.trades == ()
+    assert result.final_equity == config.starting_equity
+    pd.testing.assert_frame_equal(source, before)
+
+
+@pytest.mark.parametrize(
+    ("row", "rules", "blocked"),
+    [
+        ({"returns": 0.01}, ("returns > 0",), True),
+        ({"returns": -0.01}, ("returns > 0",), False),
+        ({"returns": 0.01}, ("returns > 0 and returns < 0",), False),
+        ({"returns": 0.01}, ("returns > 0 or returns < 0",), True),
+        ({"returns": 0.01}, ("returns < 0", "returns > 0"), True),
+        ({"returns": float("nan")}, ("returns > 0",), True),
+        ({"returns": float("inf")}, ("returns > 0",), True),
+        ({"returns": "invalid"}, ("returns > 0",), True),
+        ({}, ("adx < 10",), True),
+        ({"adx": 25}, ("adx < 20",), False),
+        ({"adx": 25}, ("testing_only_no_promotion",), True),
+    ],
+)
+def test_paper_conviction_uses_shared_veto_semantics(
+    row: dict[str, object], rules: tuple[str, ...], blocked: bool
+) -> None:
+    from autonomous_futures.paper.live_engine import compute_signal_conviction
+
+    valid, conviction = compute_signal_conviction(pd.Series(row), signal=1, veto_rules=rules)
+    assert valid is not blocked
+    assert (conviction == Decimal("0")) is blocked
+
+
+@pytest.mark.parametrize("value", [True, None, pd.NA, float("nan"), 0, "false"])
+def test_entry_gate_rejects_non_false_boolean_values(value) -> None:
+    from autonomous_futures.research.feature_signals import entry_is_allowed
+
+    assert entry_is_allowed(pd.Series({"entry_vetoed": value})) is False
+    assert entry_is_allowed(pd.Series(dtype=object)) is False
+
+
+def test_entry_gate_accepts_only_explicit_false_boolean() -> None:
+    from autonomous_futures.research.feature_signals import entry_is_allowed
+
+    row = pd.DataFrame({"entry_vetoed": [False]}).iloc[0]
+    assert entry_is_allowed(row) is True
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "scripts.run_phase_254_paper_simulation",
+        "scripts.run_phase_255_stress_simulation",
+    ],
+)
+@pytest.mark.parametrize("value", [0.01, float("nan"), float("inf"), "invalid"])
+def test_offline_conviction_uses_non_adx_veto(module_name, value) -> None:
+    from importlib import import_module
+
+    row = pd.Series(
+        {"adx": 25.0, "rsi": 55.0, "ema_slope": 1.0, "regime_trend": 1.0, "returns": value}
+    )
+    assert import_module(module_name).compute_signal_conviction(
+        row,
+        signal=1,
+        veto_rules=("returns > 0",),
+    ) == (False, Decimal("0"))
+
+
+@pytest.mark.parametrize(
+    "phase, ledger_relative",
+    [
+        (254, "paper-ledger.sqlite3"),
+        (255, "tracks/track_0_baseline/paper-ledger.sqlite3"),
+    ],
+)
+def test_failed_feature_preflight_preserves_paper_ledger(
+    phase, ledger_relative, tmp_path, monkeypatch
+) -> None:
+    from importlib import import_module
+
+    def deny(*args, **kwargs):
+        raise DataQualityError("synthetic feature preflight denied")
+
+    module = import_module(
+        f"scripts.run_phase_{phase}_"
+        + ("paper_simulation" if phase == 254 else "stress_simulation")
+    )
+    ledger = tmp_path / ledger_relative
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_bytes(b"retained-preflight-ledger")
+    monkeypatch.setattr(CausalFeatureSignalEvaluator, "evaluate", deny)
+    kwargs = {"selected_track": "0"} if phase == 255 else {"days": 1}
+    with pytest.raises(DataQualityError, match="synthetic feature preflight denied"):
+        getattr(module, f"run_phase_{phase}_simulation")(
+            output_dir=tmp_path,
+            total_bars=288,
+            **kwargs,
+        )
+    assert ledger.read_bytes() == b"retained-preflight-ledger"
+
+
+def test_exits_only_still_evaluates_with_invalid_legacy_veto() -> None:
+    evaluator = CausalFeatureSignalEvaluator()
+    invalid = _candidate(vetoes=("testing_only_no_promotion",))
+    valid = _candidate()
+    with pytest.raises(DataQualityError, match="bounded comparisons"):
+        evaluator.evaluate(invalid, _frame())
+    observed = evaluator.evaluate(invalid, _frame(), exits_only=True)
+    expected = evaluator.evaluate(valid, _frame())
+    pd.testing.assert_series_equal(observed["signal"], expected["signal"])
+    pd.testing.assert_series_equal(observed["long_exit_condition"], expected["long_exit_condition"])
+    pd.testing.assert_series_equal(
+        observed["short_exit_condition"], expected["short_exit_condition"]
+    )
+    assert observed["entry_vetoed"].all()
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "testing_only_no_promotion",
+        "adx < 20",
+        "returns > " + "9" * 400,
+    ],
+)
+def test_invalid_candidate_veto_fails_closed(expression: str) -> None:
+    with pytest.raises(DataQualityError):
+        CausalFeatureSignalEvaluator().evaluate(_candidate(vetoes=(expression,)), _frame())
 
 
 def test_unimplemented_approved_feature_is_rejected() -> None:

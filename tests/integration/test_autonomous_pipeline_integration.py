@@ -88,7 +88,7 @@ def _build_candidate(
         features=(FeatureRef(name="returns", lookback=3, shift=1),),
         entry=EntryExit(long="returns > 0.001", short="returns < -0.001"),
         exit=EntryExit(long="returns < 0.0", short="returns > 0.0"),
-        vetoes=("testing_only_no_promotion",),
+        vetoes=("returns > 0 and returns < 0",),
         risk=CandidateSimulationRisk(
             position_fraction=Decimal("0.1"),
             stop_atr_multiplier=Decimal(stop_atr),
@@ -168,7 +168,7 @@ def test_autonomous_pipeline_integration_real_data(tmp_path: Path):
                 "features": [{"name": "returns", "lookback": 3, "shift": 1}],
                 "entry": {"long": "returns > 0.001", "short": "returns < -0.001"},
                 "exit": {"long": "returns < 0.0", "short": "returns > 0.0"},
-                "vetoes": ["testing_only_no_promotion"],
+                "vetoes": ["returns > 0 and returns < 0"],
                 "risk": {
                     "position_fraction": Decimal("0.10"),
                     "stop_atr_multiplier": Decimal("2.0"),
@@ -349,7 +349,7 @@ def test_autonomous_cycle_protects_open_positions_against_mutation(tmp_path: Pat
                 "features": [{"name": "returns", "lookback": 3, "shift": 1}],
                 "entry": {"long": "returns > 0.001", "short": "returns < -0.001"},
                 "exit": {"long": "returns < 0.0", "short": "returns > 0.0"},
-                "vetoes": ["testing_only_no_promotion"],
+                "vetoes": ["returns > 0 and returns < 0"],
                 "risk": {
                     "position_fraction": Decimal("0.10"),
                     "stop_atr_multiplier": Decimal("2.0"),

@@ -66,6 +66,7 @@ from autonomous_futures.research.walk_forward import (
     walk_forward_aggregation_hash,
     write_walk_forward_aggregation,
 )
+from tests.strategy_fixtures import synthetic_rsi_candidate
 
 
 def _load_script_module(name: str) -> Any:
@@ -97,7 +98,11 @@ _SECRET_PATTERN = re.compile(
 
 
 def _make_candidate() -> CreatorCandidateArtifact:
-    return eval_script.materialize_candidate_artifact()
+    return synthetic_rsi_candidate(
+        symbol="DOGEUSDT",
+        bundle_hash=PINNED_BUNDLE_HASH,
+        dataset_registry_hash=PINNED_REGISTRY_HASH,
+    )
 
 
 def _make_bars(
@@ -936,9 +941,12 @@ class TestAdversarialScriptCLIResilienceAndSecretSanitization:
         assert data["error_code"] == "evaluation_data_error"
         assert "candidate_id mismatch" in data["message"]
 
-    def test_cli_artifact_immutability_conflict_exits_code_3(self, tmp_path: Path) -> None:
+    def test_cli_unsupported_legacy_veto_preserves_existing_outputs(self, tmp_path: Path) -> None:
         out_dir = tmp_path / "immut_test"
         cand_path = tmp_path / "cand.json"
+        out_dir.mkdir()
+        sentinel = out_dir / "walk-forward-aggregation.json"
+        sentinel.write_bytes(b"retained-original-output")
         code1 = script_main(
             [
                 "--output-dir",
@@ -951,7 +959,7 @@ class TestAdversarialScriptCLIResilienceAndSecretSanitization:
                 "30",
             ]
         )
-        assert code1 == 0
+        assert code1 == 3
 
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -970,7 +978,13 @@ class TestAdversarialScriptCLIResilienceAndSecretSanitization:
         assert code2 == 3
         data = json.loads(buf.getvalue())
         assert data["error_code"] == "evaluation_data_error"
-        assert "immutable" in data["message"]
+        assert "bounded comparisons" in data["message"]
+        assert sentinel.read_bytes() == b"retained-original-output"
+        assert not (out_dir / "qualification-artifact.json").exists()
+        assert (
+            eval_script.load_or_materialize_candidate(cand_path).artifact_hash
+            == PINNED_ARTIFACT_HASH
+        )
 
     def test_cli_secret_sanitization_under_simulated_leak(self) -> None:
         hostile_msg = f"Hostile crash with {CANARY_SECRET} and {CANARY_BEARER}"
@@ -1003,11 +1017,8 @@ class TestAdversarialScriptCLIResilienceAndSecretSanitization:
                     "30",
                 ]
             )
-        assert code == 0
+        assert code == 3
         summary = json.loads(buf.getvalue())
-        safety = summary["safety_state"]
-        assert safety["orders"] == 0
-        assert safety["exchange_access"] is False
-        assert safety["execution_authority"] is False
-        assert safety["promotion_state"] == "unpromoted"
-        assert safety["paper_activation"] is False
+        assert summary["error_code"] == "evaluation_data_error"
+        assert "bounded comparisons" in summary["message"]
+        assert not out_dir.exists()

@@ -263,7 +263,7 @@ def _build_test_candidate(
         features=(FeatureRef(name="rsi", lookback=14, shift=1),),
         entry=EntryExit(long="rsi <= 35", short="rsi >= 70"),
         exit=EntryExit(long="rsi >= 55", short="rsi <= 50"),
-        vetoes=("testing_only_no_promotion",),
+        vetoes=("rsi > 0 and rsi < 0",),
         risk=CandidateSimulationRisk(
             position_fraction=Decimal("0.1"),
             stop_atr_multiplier=Decimal(stop_mult),

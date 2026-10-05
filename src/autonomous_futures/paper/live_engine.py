@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 import pandas as pd
 from pydantic import ValidationError
 
+from autonomous_futures.data.parquet import DataQualityError
 from autonomous_futures.domain.contracts import (
     PaperExecutionRequest,
 )
@@ -82,6 +83,8 @@ from autonomous_futures.research.creator_epoch import CreatorEpochCheckpoint
 from autonomous_futures.research.feature_signals import (
     CausalFeatureSignalEvaluator,
     _parse_expression,
+    entry_is_allowed,
+    evaluate_entry_vetoes,
 )
 from autonomous_futures.research.qualification_artifacts import (
     CreatorCandidateQualificationArtifact,
@@ -138,17 +141,20 @@ def compute_signal_conviction(
     if signal == 0:
         return False, Decimal("0")
 
+    try:
+        vetoed = evaluate_entry_vetoes(
+            pd.DataFrame([row]),
+            veto_rules,
+            declared_features=tuple(str(name) for name in row.index),
+        )
+    except DataQualityError:
+        return False, Decimal("0")
+    if bool(vetoed.iloc[0]):
+        return False, Decimal("0")
+
     adx_val = (
         Decimal(str(row["adx"])) if "adx" in row and not pd.isna(row["adx"]) else Decimal("20.0")
     )
-    for veto in veto_rules:
-        if "adx <" in veto:
-            try:
-                threshold = Decimal(veto.split("<")[1].strip())
-                if adx_val < threshold:
-                    return False, Decimal("0")
-            except IndexError, ValueError:
-                pass
 
     conviction = Decimal("0.50")
 
@@ -1123,7 +1129,9 @@ class LivePaperEngine:
                 self._mark_active_position(trade, bar.close, bar.close_time)
                 return
             try:
-                trade_evaluated_df = self.signal_evaluator.evaluate(exit_candidate, trade_df)
+                trade_evaluated_df = self.signal_evaluator.evaluate(
+                    exit_candidate, trade_df, exits_only=True
+                )
                 trade_row = trade_evaluated_df.iloc[-1]
                 trade_signal = int(trade_row.get("signal", 0))
             except Exception as exc:
@@ -1163,7 +1171,7 @@ class LivePaperEngine:
         signal = int(last_row.get("signal", 0))
 
         # No active trade: evaluate new entry signal
-        if signal != 0:
+        if signal != 0 and entry_is_allowed(last_row):
             valid_conv, conviction = compute_signal_conviction(
                 last_row, signal=signal, veto_rules=cand.strategy.vetoes
             )
