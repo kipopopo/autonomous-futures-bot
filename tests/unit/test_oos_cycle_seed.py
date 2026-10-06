@@ -16,6 +16,7 @@ from autonomous_futures.research.qualification_artifacts import (
 )
 from autonomous_futures.research.walk_forward import read_walk_forward_aggregation
 from autonomous_futures.research.window_evidence import read_window_simulation_evidence
+from tests.strategy_fixtures import with_synthetic_verified_funding
 from tests.unit.test_autonomous_cycle import _make_cached_window
 from tests.unit.test_autonomous_research_loop import _write_rejected_seed_artifacts
 
@@ -29,16 +30,19 @@ def test_rejected_oos_seed_runs_research_only_without_creating_a_paper_runtime(
     original = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
     baseline = _make_cached_window()
     windows = tuple(
-        CachedEvaluationWindow(
-            spec=baseline.spec.model_copy(
-                update={
-                    "window_id": f"window-{index:03d}",
-                    "time_start": baseline.spec.time_start + timedelta(days=index),
-                    "time_end": baseline.spec.time_end + timedelta(days=index),
-                }
-            ),
-            frame=baseline.copy_frame().assign(
-                timestamp=baseline.frame["timestamp"] + timedelta(days=index)
+        with_synthetic_verified_funding(
+            CachedEvaluationWindow(
+                spec=baseline.spec.model_copy(
+                    update={
+                        "window_id": f"window-{index:03d}",
+                        "time_start": baseline.spec.time_start + timedelta(days=index),
+                        "time_end": baseline.spec.time_end + timedelta(days=index),
+                        "funding_artifact_hash": None,
+                    }
+                ),
+                frame=baseline.copy_frame().assign(
+                    timestamp=baseline.frame["timestamp"] + timedelta(days=index)
+                ),
             ),
         )
         for index in range(3)

@@ -27,6 +27,11 @@ def build_public_url(path: str, params: dict[str, object]) -> str:
     return f"{BASE}{path}?{urllib.parse.urlencode(params)}"
 
 
+class _RejectRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: object, **kwargs: object) -> None:
+        return None
+
+
 def _as_int(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, str)):
         raise TypeError(f"Expected integer-like Binance value, got {type(value).__name__}")
@@ -38,7 +43,8 @@ def public_get(path: str, params: dict[str, object]) -> object:
         build_public_url(path, params),
         headers={"User-Agent": "AutonomousFuturesResearch/1.0"},
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    opener = urllib.request.build_opener(_RejectRedirectHandler())
+    with opener.open(request, timeout=30) as response:
         return json.load(response)
 
 

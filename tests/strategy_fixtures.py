@@ -1,13 +1,18 @@
 """Fresh test-only strategies; never replacements for pinned historical evidence."""
 
 from datetime import UTC, datetime
+from hashlib import sha256
 
+import pandas as pd
+
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.contracts import (
     EntryExit,
     FeatureRef,
     StrategySpec,
     StrategyUniverse,
 )
+from autonomous_futures.research.cached_evaluation import CachedEvaluationWindow
 from autonomous_futures.research.creator_artifacts import (
     CreatorCandidateArtifact,
     build_creator_candidate_artifact,
@@ -47,4 +52,34 @@ def synthetic_rsi_candidate(
         creator_run_id="creator-synthetic-veto-accounting",
         research_seed=1,
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+
+def with_synthetic_verified_funding(
+    window: CachedEvaluationWindow,
+) -> CachedEvaluationWindow:
+    """Attach an explicit test-only funding slice for deterministic pipeline fixtures."""
+    identity = (
+        f"test-only:{window.spec.window_id}:{window.spec.symbol}:"
+        f"{window.spec.time_start.isoformat()}:{window.spec.time_end.isoformat()}"
+    )
+    manifest_hash = sha256(f"manifest:{identity}".encode()).hexdigest()
+    artifact_sha256 = sha256(f"artifact:{identity}".encode()).hexdigest()
+    spec = window.spec.model_copy(update={"funding_artifact_hash": manifest_hash})
+    funding_slice = VerifiedFundingSlice(
+        symbol=spec.symbol,
+        time_start=spec.time_start,
+        time_end=spec.time_end,
+        bundle_hash=spec.bundle_hash,
+        dataset_registry_hash=spec.dataset_registry_hash,
+        manifest_hash=manifest_hash,
+        artifact_sha256=artifact_sha256,
+        _events=pd.DataFrame(
+            columns=("symbol", "funding_time", "funding_rate", "funding_mark_price")
+        ),
+    )
+    return CachedEvaluationWindow(
+        spec=spec,
+        frame=window.copy_frame(),
+        funding_slice=funding_slice,
     )

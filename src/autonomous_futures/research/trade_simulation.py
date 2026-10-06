@@ -163,11 +163,11 @@ class _OpenPosition:
     entry_notional: Decimal
     entry_fee: Decimal
     entry_slippage_cost: Decimal
-    funding_payment: Decimal
     stop_price: Decimal | None
     target_price: Decimal | None
     trailing_stop_price: Decimal | None
     watermark: Decimal
+    funding_payment: Decimal = Decimal("0")
 
 
 def _decimal(value: object, *, field: str) -> Decimal:

@@ -28,6 +28,7 @@ from autonomous_futures.research.creator_qualification import (
 )
 from autonomous_futures.research.qualification_artifacts import WalkForwardQualificationPolicy
 from autonomous_futures.research.trade_simulation import EquityPoint, TradeSimulationResult
+from tests.strategy_fixtures import with_synthetic_verified_funding
 
 HASH = "a" * 64
 START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -59,7 +60,7 @@ def _candidate():
 
 def _window(candidate) -> CachedEvaluationWindow:
     timestamps = pd.date_range(START, periods=2, freq="5min", tz="UTC")
-    return CachedEvaluationWindow(
+    window = CachedEvaluationWindow(
         spec=CachedEvaluationWindowSpec(
             window_id="doge-1",
             symbol="DOGEUSDT",
@@ -78,16 +79,19 @@ def _window(candidate) -> CachedEvaluationWindow:
             }
         ),
     )
+    return with_synthetic_verified_funding(window)
 
 
 def _flat_result(candidate, frame: pd.DataFrame, window: CachedEvaluationWindow):
     timestamp = frame["timestamp"].iloc[-1].to_pydatetime()
     return TradeSimulationResult(
+        simulation_version=3,
         symbol=window.spec.symbol,
         starting_equity=Decimal("100"),
         final_equity=Decimal("100"),
         total_fees=Decimal("0"),
         total_slippage_cost=Decimal("0"),
+        funding_artifact_hash=window.spec.funding_artifact_hash,
         equity_curve=(EquityPoint(timestamp=timestamp, equity=Decimal("100")),),
     )
 

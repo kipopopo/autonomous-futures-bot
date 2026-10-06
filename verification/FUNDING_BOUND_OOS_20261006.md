@@ -8,13 +8,12 @@ Autonomous-base synthetic windows now fail closed before research outputs are cr
 
 ## Verification
 
-- Related locked regression set: **511 passed in 51.09s**.
-- After adding the verified offline-exploration loader integration, the integration/exploration subset passed: **13 passed in 6.88s**.
-- Ruff: passed; **719 files** already formatted.
-- Native and Linux-targeted mypy: passed, **359 source files** each.
-- `uv lock --check`, changed-file `compileall`, and `git diff --check`: passed.
-- Temporary-catalog integration tests exercised the autonomous-cycle and Phase 250 production loaders with synthetic, explicitly test-only artifacts. They prove plumbing and hash/path checks, not real-market provenance or strategy quality.
-- Full pytest suite and exact-head GitHub Actions have not yet been run for this working tree.
+- Earlier related locked regression sets passed (**511 tests in 51.09s**; verified exploration-loader subset **13 in 6.88s**). They were not a full-suite result.
+- Exact-head Actions for `5faeec63dc604642db8cffd34e4feb5b6d61e3b5` failed: **34 failed, 5,110 passed, 1 skipped, 2 warnings in 925.78s**. Failures exposed synthetic catalogs with unavailable funding references, legacy qualification fixtures without v2 funding bindings, and an `_OpenPosition` constructor compatibility regression.
+- Follow-up fixes use complete persisted **synthetic-only** catalog components in CLI/scheduler fixtures, bind v2 qualification fixtures, retain the prior default for `funding_payment`, and block HTTP redirects in the unsigned public transport.
+- After those fixes, the affected integration/CLI/scheduler/challenger/provenance set passed **38 tests in 184.90s**; affected unit/data/funding/qualification/registration set passed **50 tests in 7.32s**.
+- Ruff passed and **714 files** are formatted; native/Linux mypy passed for **359 source files**; `uv lock --check`, changed-file `py_compile`, added-line secret scan, and `git diff --check` passed. Windows full-tree `compileall` could not create `__pycache__` entries for pre-existing overlong `research_lab` module/test filenames; the exact-SHA Linux CI compile gate remains authoritative.
+- The temporary catalog proves loader plumbing and hash/path checks only—not genuine market provenance or strategy quality. A replacement full exact-SHA Actions run is still required; no full-suite success is claimed.
 
 ## Data and safety boundary
 
@@ -24,4 +23,4 @@ No candidate was promoted or admitted. Testnet/live authority and orders remain 
 
 ## Pending publication
 
-This report describes the local verification state before publication. Exact commit SHA and the exact-SHA Actions result must be recorded after push; no full-suite or CI success is claimed here.
+The follow-up fixes are local and uncommitted at this report revision. Record their commit SHA, remote ref, final-tree checks, and replacement exact-SHA Actions result after publication; do not carry forward the failed Actions status as a pass.

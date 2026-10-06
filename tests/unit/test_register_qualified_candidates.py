@@ -108,7 +108,7 @@ def test_register_prequalified_synthetic_candidates(
     assert set(artifacts.keys()) == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
 
 
-def test_register_qualified_candidates_rejects_unqualified(
+def test_register_qualified_candidates_fails_closed_without_verified_funding(
     tmp_path: Path, synthetic_registration_inputs
 ) -> None:
     targets, cand_dir, qual_dir = synthetic_registration_inputs
@@ -128,7 +128,7 @@ def test_register_qualified_candidates_rejects_unqualified(
         minimum_average_return_pct=Decimal("0.0"),
     )
 
-    with pytest.raises(DomainViolation, match="failed qualification"):
+    with pytest.raises(DomainViolation, match="cached funding events"):
         register_qualified_candidates(
             targets[:1],
             registry_path=reg_path,
@@ -162,13 +162,13 @@ def test_cli_check_only_and_json(
 
 
 @pytest.mark.parametrize("target", DEFAULT_QUALIFIED_TARGETS, ids=lambda target: target["symbol"])
-def test_legacy_registration_denies_opaque_veto_without_replacing_registry(
+def test_legacy_registration_fails_closed_without_verified_funding(
     tmp_path: Path, synthetic_paper_registry: Path, target
 ) -> None:
     registry_bytes = synthetic_paper_registry.read_bytes()
     cand_dir = tmp_path / "legacy-candidates"
     qual_dir = tmp_path / "legacy-qualifications"
-    with pytest.raises(DataQualityError, match="signal expression must use bounded comparisons"):
+    with pytest.raises(DataQualityError, match="cached funding events"):
         register_qualified_candidates(
             (target,),
             registry_path=synthetic_paper_registry,
@@ -198,7 +198,7 @@ def test_cli_legacy_registration_denies_without_publication(
     assert code == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "signal expression must use bounded comparisons" in captured.err
+    assert "cached funding events" in captured.err
     assert not reg_path.exists()
     assert not tuple((tmp_path / "legacy-candidates").iterdir())
     assert not tuple((tmp_path / "legacy-qualifications").iterdir())

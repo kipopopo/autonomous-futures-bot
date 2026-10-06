@@ -214,3 +214,44 @@ def test_public_collector_has_5m_15m_contract_and_no_auth_headers() -> None:
     assert fully_closed_end_ms(10 * 60 * 60 * 1000 + 7 * 60 * 1000 + 12 * 1000, 300_000) == (
         10 * 60 * 60 * 1000 + 5 * 60 * 1000 - 1
     )
+
+
+def test_public_get_rejects_redirect_without_following(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.error
+    import urllib.request
+
+    from autonomous_futures.data import public_collector
+
+    requests: list[urllib.request.Request] = []
+
+    def build_opener(*handlers: urllib.request.BaseHandler):
+        assert any(
+            isinstance(handler, urllib.request.HTTPRedirectHandler)
+            and handler.redirect_request(None, None, 302, "Found", {}, "https://evil.invalid")
+            is None
+            for handler in handlers
+        )
+
+        class Opener:
+            def open(self, request: urllib.request.Request, timeout: float):
+                requests.append(request)
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    302,
+                    "redirect blocked",
+                    {"Location": "https://evil.invalid/fapi/v1/klines"},
+                    None,
+                )
+
+        return Opener()
+
+    def urlopen_must_not_be_used(*args: object, **kwargs: object) -> object:
+        pytest.fail("public transport must install its redirect-blocking opener")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen_must_not_be_used)
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
+    with pytest.raises(urllib.error.HTTPError, match="redirect blocked"):
+        public_collector.public_get("/fapi/v1/klines", {"symbol": "BTCUSDT"})
+
+    assert len(requests) == 1
+    assert requests[0].full_url.startswith("https://fapi.binance.com/fapi/v1/klines?")

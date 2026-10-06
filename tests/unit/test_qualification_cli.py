@@ -26,6 +26,7 @@ from autonomous_futures.research.walk_forward import (
 )
 
 START = datetime(2026, 8, 8, 12, tzinfo=UTC)
+SYNTHETIC_FUNDING_HASH = "f" * 64
 
 
 def _candidate():
@@ -81,6 +82,7 @@ def _window(window_id: str, offset: int, pnl: str) -> WalkForwardWindowMetrics:
         window_id=window_id,
         symbol="BTCUSDT",
         split="oos",
+        funding_artifact_hash=SYNTHETIC_FUNDING_HASH,
         window_start=start,
         window_end=start + timedelta(minutes=10),
         metrics=metrics,
@@ -98,6 +100,7 @@ def _write_fixture(tmp_path):
         (_window("fold-1", 0, "5"), _window("fold-2", 20, "-1")),
         required_symbols=("BTCUSDT",),
         minimum_windows=2,
+        aggregation_version=2,
     )
     aggregation_ref = "cand-cli-a.json"
     write_walk_forward_aggregation(aggregation_root / aggregation_ref, aggregation)
