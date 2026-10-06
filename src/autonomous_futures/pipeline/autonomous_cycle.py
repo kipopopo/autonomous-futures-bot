@@ -214,6 +214,15 @@ def execute_autonomous_cycle(
         or prior_feedback.dataset_registry_hash != config.dataset_registry_hash
     ):
         raise DataQualityError("prior failure feedback does not match cycle bundle scope")
+    if any(
+        window.funding_events is None
+        or window.spec.funding_artifact_hash is None
+        or window.funding_slice is None
+        for window in windows
+    ):
+        raise DataQualityError(
+            "autonomous qualification requires verified cached funding artifact slices"
+        )
 
     if research_plan is not None:
         expected_forbidden = tuple(sorted(forbidden_ids))
@@ -389,6 +398,7 @@ def execute_autonomous_cycle(
         effective_simulator = simulator
     else:
         sim_config = TradeSimulationConfig(
+            funding_mode="settled",
             starting_equity=Decimal("100.00"),
             position_fraction=Decimal("0.10"),
             taker_fee_rate=Decimal("0.0005"),
@@ -405,6 +415,8 @@ def execute_autonomous_cycle(
                 frame,
                 symbol=w.spec.symbol,
                 config=sim_config,
+                funding_events=w.copy_funding_events(),
+                funding_artifact_hash=w.spec.funding_artifact_hash,
             )
 
     simulations: dict[tuple[str, str], TradeSimulationResult] = {}

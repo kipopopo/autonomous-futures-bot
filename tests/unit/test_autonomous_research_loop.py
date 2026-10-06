@@ -52,7 +52,6 @@ from autonomous_futures.research.autonomy_contracts import (
     ResearchPlanner,
     ResearchPlanRequest,
     build_failure_memory_entry,
-    read_failure_memory_entry,
     write_failure_memory_entry,
 )
 from autonomous_futures.research.creator_artifacts import (
@@ -525,6 +524,8 @@ def test_cli_runner_preflight_and_dry_run(capsys: pytest.CaptureFixture[str]) ->
     assert report["symbol"] == "BTCUSDT"
     assert report["dry_run"] is True
     assert report["initial_feedback_available"] is False
+    assert report["funding_provenance"] == "not_loaded"
+    assert report["qualification_ready"] is False
     assert report["feedback_seed_candidate"] is None
 
 
@@ -604,12 +605,10 @@ def test_cli_rejects_unbound_feedback_file_before_creating_outputs(
     assert "--feedback-file is unsupported" in capsys.readouterr().err
 
 
-def test_cli_seeds_from_persisted_candidate_and_rejected_qualification(
+def test_cli_rejects_synthetic_windows_before_creating_outputs(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    candidate_path, qualification_path, candidate, qualification = _write_rejected_seed_artifacts(
-        tmp_path
-    )
+    candidate_path, qualification_path, _, _ = _write_rejected_seed_artifacts(tmp_path)
     artifact_root = tmp_path / "verified-seed-run"
 
     exit_code = cli_main(
@@ -634,20 +633,12 @@ def test_cli_seeds_from_persisted_candidate_and_rejected_qualification(
         ]
     )
 
-    assert exit_code == 0, capsys.readouterr().err
-    result = read_autonomous_base_result(artifact_root / "base-result.json")
-    memories = tuple(
-        read_failure_memory_entry(artifact_root / "failure-memory" / f"failure-{memory_hash}.json")
-        for memory_hash in result.failure_memory_entry_hashes
-    )
-    seed_memory = next(entry for entry in memories if entry.source_type == "seed_feedback")
-
-    assert seed_memory.candidate_id == candidate.candidate_id
-    assert seed_memory.candidate_artifact_hash == candidate.artifact_hash
-    assert seed_memory.qualification_hash == qualification.qualification_hash
+    assert exit_code == 1
+    assert not artifact_root.exists()
+    assert "verified cached funding artifact slices are required" in capsys.readouterr().err
 
 
-def test_scheduled_offline_research_runs_existing_learner_planner_cycle(
+def test_scheduled_offline_research_rejects_synthetic_windows_before_learning(
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -736,21 +727,19 @@ def test_scheduled_offline_research_runs_existing_learner_planner_cycle(
     )
     scheduler = scheduler_module.AutonomousSchedulerDaemon(args)
 
-    assert scheduler._execute_cycle("interval") == 0
-    assert stages == ["learner", "planner", "cycle"]
+    assert scheduler._execute_cycle("interval") != 0
+    assert stages == []
     assert len(commands) == 1
     assert commands[0][commands[0].index("--bundle-path") + 1] == str(args.bundle_path.resolve())
     assert commands[0][commands[0].index("--registry-path") + 1] == str(
         args.registry_path.resolve()
     )
-    result_path = Path(commands[0][commands[0].index("--artifact-root") + 1]) / "base-result.json"
-    result = read_autonomous_base_result(result_path)
-    assert result.cycles_executed == 1
-    assert len(result.learning_hashes) == len(result.plan_hashes) == 1
-    assert result.paper_activation is result.execution_authority is result.exchange_access is False
+    artifact_root = Path(commands[0][commands[0].index("--artifact-root") + 1])
+    assert not list(artifact_root.rglob("base-result.json"))
+    assert not list(artifact_root.rglob("cycle-*.json"))
     assert scheduler.admitted_candidates_count == 0
     assert scheduler.last_cycle_result is not None
-    assert scheduler.last_cycle_result.status == f"offline_base_{result.status}"
+    assert scheduler.last_cycle_result.status == "failed"
     assert scheduler.last_cycle_result.admitted is False
 
 
@@ -1040,10 +1029,10 @@ def test_cli_runner_fails_closed_when_cached_parquet_is_missing(
     assert "canonical cached parquet" in capsys.readouterr().err.lower()
 
 
-def test_cli_runner_executes_offline_cycle_end_to_end(
+def test_cli_runner_rejects_synthetic_windows_before_creating_outputs(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Verify CLI main executes offline bounded cycles and outputs structured report."""
+    """Synthetic-only data cannot enter qualification or create run artifacts."""
     candidate_path, qualification_path, _, _ = _write_rejected_seed_artifacts(tmp_path)
     exit_code = cli_main(
         [
@@ -1064,13 +1053,9 @@ def test_cli_runner_executes_offline_cycle_end_to_end(
             str(tmp_path / "artifacts"),
         ]
     )
-    assert exit_code == 0
-    captured = capsys.readouterr()
-    report = json.loads(captured.out)
-    assert report["symbol"] == "BTCUSDT"
-    assert report["cycles_executed"] == 1
-    assert len(report["cycle_ids"]) == 1
-    assert (tmp_path / "artifacts" / "base-result.json").is_file()
+    assert exit_code == 1
+    assert not (tmp_path / "artifacts").exists()
+    assert "verified cached funding artifact slices are required" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("synthetic_windows", [False, True])
@@ -1120,22 +1105,9 @@ def test_offline_base_real_process_enforces_inputs_and_idempotent_resume(
         assert "canonical cached parquet file is unavailable" in first.stderr
         assert not output.exists()
         return
-    assert first.returncode == 0, first.stderr
-    result = read_autonomous_base_result(output / "base-result.json")
-    assert result.cycles_executed == 1
-    assert len(result.learning_hashes) == len(result.plan_hashes) == len(result.cycle_ids) == 1
-    assert result.paper_activation is result.execution_authority is result.exchange_access is False
-    before = {
-        path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()
-    }
-
-    resumed = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
-    assert resumed.returncode == 0, resumed.stderr
-    assert json.loads(resumed.stdout) == json.loads(first.stdout)
-    assert read_autonomous_base_result(output / "base-result.json") == result
-    assert {
-        path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()
-    } == before
+    assert first.returncode == 1
+    assert "verified cached funding artifact slices are required" in first.stderr
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("input_fault", [None, "missing", "tampered"])
@@ -1146,7 +1118,10 @@ def test_scheduler_real_child_uses_bound_cached_input(
     import os
     import subprocess
 
+    import pandas as pd
+
     from autonomous_futures.data.bundle import build_dataset_bundle, write_dataset_bundle
+    from autonomous_futures.data.derivatives_artifacts import write_funding_artifact
     from autonomous_futures.data.manifest import build_manifest, describe_data_file, write_manifest
     from autonomous_futures.data.parquet import write_canonical_parquet
     from autonomous_futures.data.registry import (
@@ -1174,6 +1149,29 @@ def test_scheduler_real_child_uses_bound_cached_input(
         dependency_lock_hash="test-only",
     )
     write_manifest(data_root / "manifest.json", manifest)
+    funding_ref = "canonical/BTCUSDT-funding.parquet"
+    funding_manifest_ref = "manifests/BTCUSDT-funding.json"
+    funding_start = start - timedelta(hours=8)
+    funding_end = end + timedelta(hours=8)
+    funding_manifest = write_funding_artifact(
+        pd.DataFrame(
+            {
+                "symbol": ["BTCUSDT"],
+                "funding_time": [pd.Timestamp(start + timedelta(minutes=5))],
+                "funding_rate": [Decimal("0.0001")],
+                "funding_mark_price": [Decimal("60000")],
+            }
+        ),
+        data_root / funding_ref,
+        data_root / funding_manifest_ref,
+        artifact_ref=funding_ref,
+        symbol="BTCUSDT",
+        time_start=funding_start,
+        time_end=funding_end,
+        created_at=NOW,
+        code_version="synthetic-process-fixture",
+        dependency_lock_hash="test-only",
+    )
     entries = tuple(
         DatasetRegistryEntry(
             kind=kind,
@@ -1217,15 +1215,6 @@ def test_scheduler_real_child_uses_bound_cached_input(
                 "/fapi/v1/markPriceKlines",
             ),
             (
-                "funding_rate",
-                None,
-                start - timedelta(hours=8),
-                end,
-                HASH_A,
-                "unavailable-funding.json",
-                "/fapi/v1/fundingRate",
-            ),
-            (
                 "exchange_filters",
                 None,
                 None,
@@ -1236,6 +1225,20 @@ def test_scheduler_real_child_uses_bound_cached_input(
             ),
         )
     )
+    funding_entry = DatasetRegistryEntry(
+        kind="funding_rate",
+        symbols=("BTCUSDT",),
+        interval=None,
+        time_start=funding_start,
+        time_end=funding_end,
+        observed_at=NOW,
+        schema_version="funding_rate-v1",
+        content_hash=funding_manifest.manifest_hash,
+        artifact_ref=funding_manifest_ref,
+        endpoint_path="/fapi/v1/fundingRate",
+        provenance=("unsigned", "synthetic_process_fixture"),
+    )
+    entries = (*entries, funding_entry)
     registry = build_dataset_registry(entries, created_at=NOW)
     registry_path = data_root / "registry" / "dataset-registry.json"
     write_dataset_registry(registry_path, registry)

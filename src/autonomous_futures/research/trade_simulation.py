@@ -31,6 +31,7 @@ def _net_decimal(values: tuple[Decimal, ...]) -> Decimal:
 class TradeSimulationConfig(DomainModel):
     """Deterministic unlevered research costs and protective risk for one window."""
 
+    funding_mode: Literal["settled", "legacy_optional"] = "legacy_optional"
     starting_equity: StrictPositiveDecimal
     position_fraction: FractionDecimal = Field(strict=True, gt=Decimal("0"), le=Decimal("1"))
     taker_fee_rate: StrictNonNegativeDecimal = Field(le=Decimal("1"))
@@ -73,6 +74,7 @@ class SimulatedTrade(DomainModel):
     fees: StrictNonNegativeDecimal
     slippage_cost: StrictNonNegativeDecimal
     gross_pnl: Decimal
+    funding_payment: Decimal = Decimal("0")
     net_pnl: Decimal
     exit_reason: Literal[
         "signal_exit",
@@ -89,7 +91,7 @@ class SimulatedTrade(DomainModel):
             raise ValueError("trade timestamps must be timezone-aware UTC")
         return value.astimezone(UTC)
 
-    @field_validator("gross_pnl", "net_pnl")
+    @field_validator("gross_pnl", "funding_payment", "net_pnl")
     @classmethod
     def pnl_is_finite(cls, value: Decimal) -> Decimal:
         if not value.is_finite():
@@ -102,18 +104,20 @@ class SimulatedTrade(DomainModel):
             raise ValueError("trade exit must not precede entry")
         if self.fees != self.entry_fee + self.exit_fee:
             raise ValueError("trade fees must equal entry plus exit fees")
-        if self.net_pnl != self.gross_pnl - self.fees:
-            raise ValueError("trade net P&L must include fees")
+        if self.net_pnl != self.gross_pnl - self.fees - self.funding_payment:
+            raise ValueError("trade net P&L must include fees and funding")
         return self
 
 
 class TradeSimulationResult(DomainModel):
-    simulation_version: Literal[2] = 2
+    simulation_version: Literal[2, 3] = 2
     symbol: str = Field(pattern=r"^[A-Z0-9]+$")
     starting_equity: StrictPositiveDecimal
     final_equity: StrictNonNegativeDecimal
     total_fees: StrictNonNegativeDecimal
     total_slippage_cost: StrictNonNegativeDecimal
+    total_funding_payment: Decimal = Decimal("0")
+    funding_artifact_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     trades: tuple[SimulatedTrade, ...] = ()
     equity_curve: tuple[EquityPoint, ...] = Field(min_length=1)
     data_source: Literal["cached_only"] = "cached_only"
@@ -121,6 +125,14 @@ class TradeSimulationResult(DomainModel):
 
     @model_validator(mode="after")
     def validate_result_accounting(self) -> TradeSimulationResult:
+        if not self.total_funding_payment.is_finite():
+            raise ValueError("total funding payment must be finite")
+        if self.simulation_version == 2 and self.total_funding_payment != 0:
+            raise ValueError("version 2 simulation cannot include funding payments")
+        if self.simulation_version == 2 and self.funding_artifact_hash is not None:
+            raise ValueError("version 2 simulation cannot bind a funding artifact")
+        if self.simulation_version == 3 and self.funding_artifact_hash is None:
+            raise ValueError("version 3 simulation requires a funding artifact manifest hash")
         if self.equity_curve[-1].equity != self.final_equity:
             raise ValueError("final equity must equal the last equity-curve point")
         expected_final_equity = self.starting_equity + _net_decimal(
@@ -134,6 +146,10 @@ class TradeSimulationResult(DomainModel):
             tuple(trade.slippage_cost for trade in self.trades)
         ):
             raise ValueError("total slippage must equal the trade ledger")
+        if self.total_funding_payment != _sum_decimal(
+            tuple(trade.funding_payment for trade in self.trades)
+        ):
+            raise ValueError("total funding payment must equal the trade ledger")
         return self
 
 
@@ -147,6 +163,7 @@ class _OpenPosition:
     entry_notional: Decimal
     entry_fee: Decimal
     entry_slippage_cost: Decimal
+    funding_payment: Decimal
     stop_price: Decimal | None
     target_price: Decimal | None
     trailing_stop_price: Decimal | None
@@ -172,6 +189,52 @@ def _binary_decimal(value: object, *, field: str) -> Decimal:
     if converted not in (Decimal("0"), Decimal("1")):
         raise DataQualityError(f"simulation condition must be 0 or 1: {field}")
     return converted
+
+
+def _funding_events_by_time(
+    funding_events: pd.DataFrame | None,
+    *,
+    symbol: str,
+    bar_timestamps: tuple[datetime, ...],
+    interval: timedelta,
+) -> dict[datetime, tuple[Decimal, Decimal]] | None:
+    if funding_events is None:
+        return None
+    required = {"symbol", "funding_time", "funding_rate", "funding_mark_price"}
+    missing = sorted(required.difference(funding_events.columns))
+    if missing:
+        raise DataQualityError("funding frame is missing columns: " + ", ".join(missing))
+
+    allowed_timestamps = set(bar_timestamps)
+    end_exclusive = bar_timestamps[-1] + interval
+    events: dict[datetime, tuple[Decimal, Decimal]] = {}
+    previous_timestamp: datetime | None = None
+    columns = ("symbol", "funding_time", "funding_rate", "funding_mark_price")
+    for row in funding_events.loc[:, columns].to_dict(orient="records"):
+        if row["symbol"] != symbol:
+            raise DataQualityError("funding symbol does not match simulation symbol")
+        try:
+            timestamp = pd.Timestamp(row["funding_time"])
+        except (TypeError, ValueError) as exc:
+            raise DataQualityError("funding timestamp is invalid") from exc
+        if timestamp.tzinfo is None or timestamp.utcoffset() != UTC.utcoffset(
+            timestamp.to_pydatetime()
+        ):
+            raise DataQualityError("funding timestamp must be timezone-aware UTC")
+        funding_time = timestamp.to_pydatetime()
+        if previous_timestamp is not None and funding_time <= previous_timestamp:
+            raise DataQualityError("funding timestamps must be unique and strictly increasing")
+        if funding_time not in allowed_timestamps or funding_time >= end_exclusive:
+            raise DataQualityError(
+                "funding timestamp must align to a bar inside the simulation window"
+            )
+        rate = _decimal(row["funding_rate"], field="funding_rate")
+        mark_price = _decimal(row["funding_mark_price"], field="funding_mark_price")
+        if mark_price <= 0:
+            raise DataQualityError("funding mark price must be positive")
+        events[funding_time] = (rate, mark_price)
+        previous_timestamp = funding_time
+    return events
 
 
 def _atr_values(
@@ -296,7 +359,8 @@ def _close_position(
         fees=fees,
         slippage_cost=position.entry_slippage_cost + exit_slippage_cost,
         gross_pnl=gross_pnl,
-        net_pnl=gross_pnl - fees,
+        funding_payment=position.funding_payment,
+        net_pnl=gross_pnl - fees - position.funding_payment,
         exit_reason=reason,
     )
     return trade, gross_pnl - exit_fee
@@ -308,10 +372,24 @@ def simulate_cached_signals(
     symbol: str,
     config: TradeSimulationConfig,
     interval: timedelta = timedelta(minutes=5),
+    funding_events: pd.DataFrame | None = None,
+    funding_artifact_hash: str | None = None,
 ) -> TradeSimulationResult:
-    """Simulate cached signals with open fills and a deterministic final close."""
+    """Simulate cached signals; version 3 settles any supplied funding events."""
     if not re.fullmatch(r"[A-Z0-9]+", symbol):
         raise DataQualityError("simulation symbol must be uppercase alphanumeric")
+    if config.funding_mode == "settled" and funding_events is None:
+        raise DataQualityError(
+            "settled funding mode requires events and a derivative manifest hash"
+        )
+    if funding_events is not None and funding_artifact_hash is None:
+        raise DataQualityError("funding events require an exact derivative manifest hash")
+    if funding_events is None and funding_artifact_hash is not None:
+        raise DataQualityError("a derivative manifest hash requires its funding events")
+    if funding_events is not None and (
+        funding_artifact_hash is None or not re.fullmatch(r"[0-9a-f]{64}", funding_artifact_hash)
+    ):
+        raise DataQualityError("funding events require an exact SHA-256 derivative manifest hash")
     required_columns = {"timestamp", "open", "high", "low", "close", "signal"}
     missing = sorted(required_columns.difference(frame.columns))
     if missing:
@@ -361,6 +439,13 @@ def simulate_cached_signals(
             )
         )
 
+    funding_by_time = _funding_events_by_time(
+        funding_events,
+        symbol=symbol,
+        bar_timestamps=tuple(row[0] for row in parsed_rows),
+        interval=interval,
+    )
+
     protections_enabled = (
         config.stop_atr_multiplier > 0
         or config.take_profit_atr_multiplier > 0
@@ -388,6 +473,13 @@ def simulate_cached_signals(
     ) in enumerate(parsed_rows):
         signal = int(signal_decimal)
         closed_this_bar = False
+        if position is not None and funding_by_time is not None and timestamp in funding_by_time:
+            funding_rate, funding_mark_price = funding_by_time[timestamp]
+            payment = position.quantity * funding_mark_price * funding_rate
+            if position.side == "SHORT":
+                payment = -payment
+            cash -= payment
+            position = replace(position, funding_payment=position.funding_payment + payment)
         if position is not None:
             position = replace(
                 position,
@@ -499,6 +591,7 @@ def simulate_cached_signals(
                     entry_notional=entry_notional,
                     entry_fee=entry_fee,
                     entry_slippage_cost=quantity * raw_open * config.slippage_rate,
+                    funding_payment=Decimal("0"),
                     stop_price=stop_price,
                     target_price=target_price,
                     trailing_stop_price=trailing_stop_price,
@@ -543,7 +636,7 @@ def simulate_cached_signals(
 
     final_timestamp, _, _, _, final_close, _, _, _ = parsed_rows[-1]
     if position is not None:
-        final_close_timestamp = final_timestamp + timedelta(minutes=5) - timedelta(milliseconds=1)
+        final_close_timestamp = final_timestamp + interval - timedelta(milliseconds=1)
         trade, cash_delta = _close_position(
             position,
             symbol=symbol,
@@ -556,12 +649,10 @@ def simulate_cached_signals(
         trades.append(trade)
         cash += cash_delta
         equity_points.append(EquityPoint(timestamp=final_close_timestamp, equity=cash))
-    elif equity_points[-1].timestamp != (
-        final_timestamp + timedelta(minutes=5) - timedelta(milliseconds=1)
-    ):
+    elif equity_points[-1].timestamp != (final_timestamp + interval - timedelta(milliseconds=1)):
         equity_points.append(
             EquityPoint(
-                timestamp=final_timestamp + timedelta(minutes=5) - timedelta(milliseconds=1),
+                timestamp=final_timestamp + interval - timedelta(milliseconds=1),
                 equity=cash,
             )
         )
@@ -574,11 +665,14 @@ def simulate_cached_signals(
     equity_points[-1] = EquityPoint(timestamp=equity_points[-1].timestamp, equity=cash)
 
     return TradeSimulationResult(
+        simulation_version=3 if funding_events is not None else 2,
         symbol=symbol,
         starting_equity=config.starting_equity,
         final_equity=cash,
         total_fees=_sum_decimal(tuple(trade.fees for trade in trades)),
         total_slippage_cost=_sum_decimal(tuple(trade.slippage_cost for trade in trades)),
+        total_funding_payment=_sum_decimal(tuple(trade.funding_payment for trade in trades)),
+        funding_artifact_hash=funding_artifact_hash,
         trades=tuple(trades),
         equity_curve=tuple(equity_points),
     )

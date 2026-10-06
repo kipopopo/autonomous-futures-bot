@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 
+from autonomous_futures.data.parquet import DataQualityError
 from autonomous_futures.domain.contracts import (
     EntryExit,
     FeatureRef,
@@ -29,6 +30,7 @@ from autonomous_futures.research.walk_forward import (
 )
 
 START = datetime(2026, 8, 7, 12, tzinfo=UTC)
+FUNDING_HASH = "c" * 64
 
 
 def _candidate():
@@ -64,6 +66,7 @@ def _window(window_id: str, offset: int, pnl_text: str, drawdown: str = "2"):
         window_id=window_id,
         symbol="BTCUSDT",
         split="oos",
+        funding_artifact_hash=FUNDING_HASH,
         window_start=start,
         window_end=start + timedelta(minutes=10),
         metrics=TradePerformanceMetrics(
@@ -93,6 +96,7 @@ def _aggregation(*, drawdown: str = "2"):
         (_window("fold-1", 0, "5", drawdown), _window("fold-2", 4, "-1", drawdown)),
         required_symbols=("BTCUSDT",),
         minimum_windows=2,
+        aggregation_version=2,
     )
 
 
@@ -142,6 +146,33 @@ def test_persisted_flow_writes_qualified_artifact_without_mutating_candidate(tmp
     assert read_walk_forward_aggregation(aggregation_path).aggregation == aggregation
     assert artifact.promotion_state == "unpromoted"
     assert artifact.execution_authority is False
+
+
+def test_persisted_flow_rejects_legacy_aggregation_without_funding_binding(tmp_path) -> None:
+    _, aggregation, candidate_path, _, qualification_path = _persist_inputs(tmp_path)
+    legacy_windows = tuple(
+        window.model_copy(update={"funding_artifact_hash": None}) for window in aggregation.windows
+    )
+    legacy_aggregation = aggregate_walk_forward_metrics(
+        legacy_windows,
+        required_symbols=aggregation.required_symbols,
+        minimum_windows=2,
+    )
+    legacy_path = tmp_path / "legacy" / "aggregation.json"
+    write_walk_forward_aggregation(legacy_path, legacy_aggregation)
+
+    with pytest.raises(DataQualityError, match="funding"):
+        qualify_persisted_candidate(
+            candidate_artifact_path=candidate_path,
+            aggregation_path=legacy_path,
+            qualification_artifact_path=qualification_path,
+            policy=_policy(),
+            evaluator_run_id="persisted-oos-run-001",
+            evaluator_version="persisted-oos-v1",
+            evaluated_at=START,
+        )
+
+    assert not qualification_path.exists()
 
 
 def test_persisted_flow_preserves_rejected_evidence_and_is_idempotent(tmp_path) -> None:

@@ -26,10 +26,19 @@ def simulate_candidate_window(
     *,
     symbol: str,
     config: TradeSimulationConfig,
+    funding_events: pd.DataFrame | None = None,
+    funding_artifact_hash: str | None = None,
 ) -> TradeSimulationResult:
     """Simulate one candidate against an explicit cached window."""
     if symbol not in candidate.strategy.universe.symbols:
         raise DataQualityError("simulation symbol is not present in candidate universe")
+    if config.funding_mode == "settled" and (
+        funding_events is None or funding_artifact_hash is None
+    ):
+        raise DataQualityError(
+            "candidate qualification requires cached funding events and their "
+            "derivative manifest hash"
+        )
     signals = CausalFeatureSignalEvaluator().evaluate(candidate, frame)
     risk = candidate.strategy.risk
     if risk is not None:
@@ -43,8 +52,21 @@ def simulate_candidate_window(
         )
     interval = _timeframe_to_timedelta(candidate.strategy.universe.timeframe)
     if interval == timedelta(minutes=5):
-        return simulate_cached_signals(signals, symbol=symbol, config=config)
-    return simulate_cached_signals(signals, symbol=symbol, config=config, interval=interval)
+        return simulate_cached_signals(
+            signals,
+            symbol=symbol,
+            config=config,
+            funding_events=funding_events,
+            funding_artifact_hash=funding_artifact_hash,
+        )
+    return simulate_cached_signals(
+        signals,
+        symbol=symbol,
+        config=config,
+        interval=interval,
+        funding_events=funding_events,
+        funding_artifact_hash=funding_artifact_hash,
+    )
 
 
 __all__ = ["simulate_candidate_window"]

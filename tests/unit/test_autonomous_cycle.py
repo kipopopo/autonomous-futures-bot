@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.contracts import (
     CandidateSimulationRisk,
     EntryExit,
@@ -48,6 +49,7 @@ from autonomous_futures.research.window_evidence import read_window_simulation_e
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
+FUNDING_HASH = "c" * 64
 NOW = datetime(2026, 9, 8, 14, 0, tzinfo=UTC)
 
 
@@ -109,10 +111,25 @@ def _make_cached_window(symbol: str = "BTCUSDT") -> CachedEvaluationWindow:
         symbol=symbol,
         bundle_hash=HASH_A,
         dataset_registry_hash=HASH_B,
+        funding_artifact_hash=FUNDING_HASH,
         time_start=datetime(2026, 1, 1, tzinfo=UTC),
         time_end=datetime(2026, 1, 1, 8, 20, tzinfo=UTC),
     )
-    return CachedEvaluationWindow(spec=spec, frame=df)
+    funding = pd.DataFrame(columns=("symbol", "funding_time", "funding_rate", "funding_mark_price"))
+    return CachedEvaluationWindow(
+        spec=spec,
+        frame=df,
+        funding_slice=VerifiedFundingSlice(
+            symbol=symbol,
+            time_start=spec.time_start,
+            time_end=spec.time_end,
+            bundle_hash=HASH_A,
+            dataset_registry_hash=HASH_B,
+            manifest_hash=FUNDING_HASH,
+            artifact_sha256="d" * 64,
+            _events=funding,
+        ),
+    )
 
 
 def _policy(
@@ -254,6 +271,8 @@ def test_autonomous_cycle_successful_end_to_end(tmp_path: Path):
             exit_reason="stop_loss",
         )
         return TradeSimulationResult(
+            simulation_version=3,
+            funding_artifact_hash=w.spec.funding_artifact_hash,
             symbol=w.spec.symbol,
             starting_equity=Decimal("100.00"),
             final_equity=Decimal("104.80"),
@@ -619,6 +638,8 @@ def test_autonomous_cycle_idempotency_and_repeat_execution(tmp_path: Path):
             exit_reason="stop_loss",
         )
         return TradeSimulationResult(
+            simulation_version=3,
+            funding_artifact_hash=w.spec.funding_artifact_hash,
             symbol=w.spec.symbol,
             starting_equity=Decimal("100.00"),
             final_equity=Decimal("104.80"),

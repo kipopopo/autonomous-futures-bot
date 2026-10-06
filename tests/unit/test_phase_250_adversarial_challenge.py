@@ -31,6 +31,7 @@ from pydantic import ValidationError
 
 from autonomous_futures.creator_staging_probe import assert_offline_safety_invariants
 from autonomous_futures.data.parquet import DataQualityError
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.research.cached_evaluation import (
     CachedEvaluationWindow,
@@ -89,6 +90,7 @@ PINNED_CREATOR_RUN_ID: str = eval_script.PINNED_CREATOR_RUN_ID
 PINNED_RESEARCH_SEED: int = eval_script.PINNED_RESEARCH_SEED
 PINNED_CREATED_AT: datetime = eval_script.PINNED_CREATED_AT
 START_TIME: datetime = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+SYNTHETIC_FUNDING_HASH = "d" * 64
 
 CANARY_SECRET = "AIzaSyDTESTINGSECRETKEY012345678901234"
 CANARY_BEARER = "ya29.a0AfH6SMADVERSARIAL_BEARER_TOKEN_VALUE"
@@ -102,6 +104,36 @@ def _make_candidate() -> CreatorCandidateArtifact:
         symbol="DOGEUSDT",
         bundle_hash=PINNED_BUNDLE_HASH,
         dataset_registry_hash=PINNED_REGISTRY_HASH,
+    )
+
+
+def _with_synthetic_funding(window: CachedEvaluationWindow) -> CachedEvaluationWindow:
+    funding = pd.DataFrame(columns=("symbol", "funding_time", "funding_rate", "funding_mark_price"))
+    spec = window.spec.model_copy(update={"funding_artifact_hash": SYNTHETIC_FUNDING_HASH})
+    return CachedEvaluationWindow(
+        spec=spec,
+        frame=window.copy_frame(),
+        funding_slice=VerifiedFundingSlice(
+            symbol=spec.symbol,
+            time_start=spec.time_start,
+            time_end=spec.time_end,
+            bundle_hash=spec.bundle_hash,
+            dataset_registry_hash=spec.dataset_registry_hash,
+            manifest_hash=SYNTHETIC_FUNDING_HASH,
+            artifact_sha256="e" * 64,
+            _events=funding,
+        ),
+    )
+
+
+def _simulate_with_synthetic_funding(candidate, frame, window, config):
+    return simulate_candidate_window(
+        candidate,
+        frame,
+        symbol=window.spec.symbol,
+        config=config,
+        funding_events=window.copy_funding_events(),
+        funding_artifact_hash=window.spec.funding_artifact_hash,
     )
 
 
@@ -195,7 +227,10 @@ class TestAdversarialExtremeFeesAndBankruptcy:
 
     def test_50_percent_taker_fee_produces_severe_drag_and_fails_qualification(self) -> None:
         candidate = _make_candidate()
-        windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
+        windows = tuple(
+            _with_synthetic_funding(window)
+            for window in eval_script.establish_oos_windows(count=3, bars_per_window=60)
+        )
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -205,9 +240,7 @@ class TestAdversarialExtremeFeesAndBankruptcy:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         assert agg.pooled_net_pnl < Decimal("0")
         assert agg.worst_max_drawdown_pct > Decimal("10.0")
@@ -384,9 +417,7 @@ class TestAdversarialWindowScalingAndCounts:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         assert agg.window_count == 1
         assert len(agg.windows) == 1
@@ -408,9 +439,7 @@ class TestAdversarialWindowScalingAndCounts:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         assert agg.window_count == 50
         assert len(agg.windows) == 50
@@ -801,9 +830,7 @@ class TestAdversarialCryptographicHashDrift:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         file_path = tmp_path / "agg-drift.json"
         write_walk_forward_aggregation(file_path, agg)
@@ -819,7 +846,10 @@ class TestAdversarialCryptographicHashDrift:
         self, tmp_path: Path
     ) -> None:
         candidate = _make_candidate()
-        windows = eval_script.establish_oos_windows(count=2, bars_per_window=30)
+        windows = tuple(
+            _with_synthetic_funding(window)
+            for window in eval_script.establish_oos_windows(count=2, bars_per_window=30)
+        )
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -829,9 +859,7 @@ class TestAdversarialCryptographicHashDrift:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         policy = WalkForwardQualificationPolicy(
             policy_id="policy-hash-test",
@@ -978,7 +1006,7 @@ class TestAdversarialScriptCLIResilienceAndSecretSanitization:
         assert code2 == 3
         data = json.loads(buf.getvalue())
         assert data["error_code"] == "evaluation_data_error"
-        assert "bounded comparisons" in data["message"]
+        assert "market data missing" in data["message"].lower()
         assert sentinel.read_bytes() == b"retained-original-output"
         assert not (out_dir / "qualification-artifact.json").exists()
         assert (
@@ -1020,5 +1048,5 @@ class TestAdversarialScriptCLIResilienceAndSecretSanitization:
         assert code == 3
         summary = json.loads(buf.getvalue())
         assert summary["error_code"] == "evaluation_data_error"
-        assert "bounded comparisons" in summary["message"]
+        assert "market data missing" in summary["message"].lower()
         assert not out_dir.exists()

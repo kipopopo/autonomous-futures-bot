@@ -27,14 +27,20 @@ if str(_SRC_DIR) not in sys.path:
 
 import pandas as pd  # noqa: E402
 
+from autonomous_futures.api.artifacts import verify_cached_kline_provenance  # noqa: E402
 from autonomous_futures.creator_staging_probe import (  # noqa: E402
     assert_offline_safety_invariants,
 )
-from autonomous_futures.data.parquet import DataQualityError, canonicalize_bars  # noqa: E402
+from autonomous_futures.data.parquet import (  # noqa: E402
+    DataQualityError,
+    canonicalize_bars,
+    read_canonical_parquet,
+)
 from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.research.cached_evaluation import (  # noqa: E402
     CachedEvaluationWindow,
     CachedEvaluationWindowSpec,
+    load_verified_cached_evaluation_window,
 )
 from autonomous_futures.research.cached_oos_walk_forward import (  # noqa: E402
     evaluate_cached_oos_walk_forward,
@@ -347,6 +353,80 @@ def establish_sequential_oos_windows(
     return tuple(windows)
 
 
+def load_verified_sequential_oos_windows(
+    *,
+    symbol: str,
+    bundle_hash: str,
+    dataset_registry_hash: str,
+    count: int = 3,
+    bars_per_window: int = 60,
+    start: datetime = datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+    data_dir: Path = Path("research/immutable-data/5m/canonical"),
+    dataset_root: Path = Path("research/immutable-data"),
+    bundle_path: Path | None = None,
+    registry_path: Path | None = None,
+) -> tuple[CachedEvaluationWindow, ...]:
+    """Load only catalog-verified market windows and their bound funding slices."""
+    if count < 1 or bars_per_window < 25:
+        raise DataQualityError("verified OOS window bounds are invalid")
+    if start.tzinfo is None or start.utcoffset() != UTC.utcoffset(start):
+        raise DataQualityError("verified OOS start must be timezone-aware UTC")
+    start = start.astimezone(UTC)
+    parquet_path = data_dir / f"{symbol}-5m.parquet"
+    if not parquet_path.is_file():
+        raise FileNotFoundError(f"Canonical market data missing: {parquet_path}")
+    selected_bundle_path = bundle_path or dataset_root / "bundle.json"
+    selected_registry_path = registry_path or dataset_root / "registry.json"
+    verify_cached_kline_provenance(
+        parquet_path,
+        dataset_root=dataset_root,
+        bundle_path=selected_bundle_path,
+        registry_path=selected_registry_path,
+        symbol=symbol,
+        interval="5m",
+        bundle_hash=bundle_hash,
+        dataset_registry_hash=dataset_registry_hash,
+    )
+    full_frame = read_canonical_parquet(parquet_path, interval=timedelta(minutes=5))
+    total_bars = count * bars_per_window
+    end = start + timedelta(minutes=5 * total_bars)
+    timestamps = pd.DatetimeIndex(full_frame["timestamp"])
+    selected = full_frame.loc[
+        (timestamps >= pd.Timestamp(start)) & (timestamps < pd.Timestamp(end))
+    ].reset_index(drop=True)
+    if len(selected) != total_bars:
+        raise DataQualityError(
+            f"Incomplete verified OOS data for {symbol}: expected {total_bars} bars, "
+            f"found {len(selected)}"
+        )
+
+    windows: list[CachedEvaluationWindow] = []
+    for index in range(count):
+        sub_frame = (
+            selected.iloc[index * bars_per_window : (index + 1) * bars_per_window]
+            .copy()
+            .reset_index(drop=True)
+        )
+        time_start = sub_frame["timestamp"].iloc[0].to_pydatetime()
+        time_end = sub_frame["timestamp"].iloc[-1].to_pydatetime() + timedelta(minutes=5)
+        windows.append(
+            load_verified_cached_evaluation_window(
+                window_id=f"oos-window-{index + 1:03d}",
+                symbol=symbol,
+                bundle_hash=bundle_hash,
+                dataset_registry_hash=dataset_registry_hash,
+                time_start=time_start,
+                time_end=time_end,
+                timeframe="5m",
+                frame=sub_frame,
+                artifact_root=dataset_root,
+                bundle_path=selected_bundle_path,
+                registry_path=selected_registry_path,
+            )
+        )
+    return tuple(windows)
+
+
 def calculate_trade_sharpe_ratio(trades: Sequence[SimulatedTrade]) -> float:
     """Compute deterministic sample Sharpe ratio from trade returns."""
     if len(trades) < 2:
@@ -520,9 +600,8 @@ def run_evaluation(
     results_by_symbol: dict[str, tuple[WalkForwardAggregation, str, float]] = {}
     persisted_files: dict[str, str] = {}
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-
     sim_config = TradeSimulationConfig(
+        funding_mode="settled",
         starting_equity=args.starting_equity,
         position_fraction=args.position_fraction,
         taker_fee_rate=args.taker_fee_rate,
@@ -531,21 +610,38 @@ def run_evaluation(
 
     # 2. Iterate through target assets in deterministic order
     symbols_to_run = getattr(args, "symbols", None) or ("BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT")
+    evaluation_inputs: dict[
+        str, tuple[CreatorCandidateArtifact, tuple[CachedEvaluationWindow, ...]]
+    ] = {}
     for sym in symbols_to_run:
         target = PINNED_TARGETS[sym]
-
-        # Load & cryptographically verify candidate
         candidate = load_and_verify_candidate(target, candidates_dir=args.candidates_dir)
-
-        # Establish sequential OOS evaluation windows
-        windows = establish_sequential_oos_windows(
+        windows = load_verified_sequential_oos_windows(
             symbol=sym,
             count=args.windows_count,
             bars_per_window=args.bars_per_window,
             bundle_hash=candidate.bundle_hash,
             dataset_registry_hash=candidate.dataset_registry_hash,
             data_dir=args.data_dir,
+            dataset_root=getattr(args, "dataset_root", Path("research/immutable-data")),
+            bundle_path=getattr(args, "bundle_path", None),
+            registry_path=getattr(args, "registry_path", None),
         )
+        if not windows or any(
+            window.funding_events is None
+            or window.spec.funding_artifact_hash is None
+            or window.funding_slice is None
+            for window in windows
+        ):
+            raise DataQualityError(
+                "cached OOS evaluation requires verified funding artifact slices"
+            )
+        evaluation_inputs[sym] = (candidate, windows)
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    for sym in symbols_to_run:
+        candidate, windows = evaluation_inputs[sym]
 
         # Collect trades for Sharpe ratio calculation
         collected_trades: list[SimulatedTrade] = []
@@ -559,7 +655,14 @@ def run_evaluation(
                 frame: pd.DataFrame,
                 w: CachedEvaluationWindow,
             ) -> Any:
-                res = simulate_candidate_window(c, frame, symbol=w.spec.symbol, config=config)
+                res = simulate_candidate_window(
+                    c,
+                    frame,
+                    symbol=w.spec.symbol,
+                    config=config,
+                    funding_events=w.copy_funding_events(),
+                    funding_artifact_hash=w.spec.funding_artifact_hash,
+                )
                 target_trades.extend(res.trades)
                 return res
 
@@ -657,6 +760,14 @@ def _parser() -> argparse.ArgumentParser:
         help="Directory holding canonical 5m Parquet market data",
     )
     parser.add_argument(
+        "--dataset-root",
+        type=Path,
+        default=Path("research/immutable-data"),
+        help="Root containing the verified bundle, registry, and data artifacts",
+    )
+    parser.add_argument("--bundle-path", type=Path, default=None)
+    parser.add_argument("--registry-path", type=Path, default=None)
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("artifacts/research/phase253"),
@@ -722,7 +833,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         summary = run_evaluation(args)
     except (ValueError, DataQualityError, DomainViolation, FileNotFoundError) as exc:
-        sanitized = _sanitize_error_text(str(exc))
+        sanitized = _sanitize_error_text(str(exc)) or "verified market-data input unavailable"
         del exc
         print(json.dumps({"error_code": "evaluation_data_error", "message": sanitized}))
         return 3

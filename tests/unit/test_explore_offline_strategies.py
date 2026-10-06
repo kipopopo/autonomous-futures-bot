@@ -98,35 +98,28 @@ def test_load_and_slice_windows(tmp_path: Path) -> None:
     assert windows[1].spec.time_end == windows[2].spec.time_start
 
 
-def test_run_strategy_exploration_end_to_end(tmp_path: Path, synthetic_catalog) -> None:
-    """Verify full offline strategy exploration runner and artifact generation."""
+def test_run_strategy_exploration_blocks_unverified_local_catalog(tmp_path: Path) -> None:
+    """Cached bars without verified funding cannot produce qualification output."""
+    from autonomous_futures.data.parquet import DataQualityError
+
     parquet_dir = REPO_ROOT / "research" / "immutable-data" / "5m" / "canonical"
     if not (parquet_dir / "BTCUSDT-5m.parquet").is_file():
         pytest.skip("Canonical BTCUSDT parquet not found")
 
     out_dir = tmp_path / "exploration_out"
-    results = run_strategy_exploration(
-        symbols=["BTCUSDT"],
-        parquet_dir=parquet_dir,
-        windows_count=2,
-        bars_per_window=50,
-        output_dir=out_dir,
-    )
-    assert results["status"] == "completed"
-    assert results["symbols_evaluated"] == ["BTCUSDT"]
-    assert results["total_candidates"] == 1
-    assert (out_dir / "exploration_summary.json").is_file()
-
-    # Read back and verify summary JSON
-    saved = json.loads((out_dir / "exploration_summary.json").read_text(encoding="utf-8"))
-    assert saved["total_candidates"] == results["total_candidates"]
-    assert len(saved["leaderboard"]) == results["total_candidates"]
+    with pytest.raises(DataQualityError, match="verified market-data catalog is unavailable"):
+        run_strategy_exploration(
+            symbols=["BTCUSDT"],
+            parquet_dir=parquet_dir,
+            windows_count=2,
+            bars_per_window=50,
+            output_dir=out_dir,
+        )
+    assert not out_dir.exists()
 
 
-def test_cli_runner_json_output(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path, synthetic_catalog
-) -> None:
-    """Verify CLI main entrypoint outputs valid JSON when --json is passed."""
+def test_cli_runner_json_output(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    """CLI reports unavailable rather than success for unverified bars."""
     parquet_dir = REPO_ROOT / "research" / "immutable-data" / "5m" / "canonical"
     if not (parquet_dir / "BTCUSDT-5m.parquet").is_file():
         pytest.skip("Canonical BTCUSDT parquet not found")
@@ -146,11 +139,12 @@ def test_cli_runner_json_output(
             "--json",
         ]
     )
-    assert exit_code == 0
+    assert exit_code == 3
     captured = capsys.readouterr()
     report = json.loads(captured.out)
-    assert report["status"] == "completed"
-    assert report["total_candidates"] == 1
+    assert report["status"] == "UNAVAILABLE"
+    assert report["error_code"] == "verified_data_unavailable"
+    assert not (tmp_path / "exploration_summary.json").exists()
 
 
 def test_candidate_catalog_timeframes() -> None:
@@ -197,25 +191,25 @@ def test_load_and_slice_windows_15m_and_1h() -> None:
         assert windows[0].spec.time_end == windows[1].spec.time_start
 
 
-def test_run_strategy_exploration_15m_timeframe(tmp_path: Path, synthetic_catalog) -> None:
-    """Verify 15m offline exploration executes and outputs results."""
+def test_run_strategy_exploration_15m_blocks_unverified_local_catalog(tmp_path: Path) -> None:
+    """15m cached bars also require verified funding evidence."""
+    from autonomous_futures.data.parquet import DataQualityError
+
     p_15m_dir = REPO_ROOT / "research" / "immutable-data" / "15m" / "canonical"
     if not (p_15m_dir / "ETHUSDT-15m.parquet").is_file():
         pytest.skip("Canonical ETHUSDT 15m parquet not found")
 
     out_dir = tmp_path / "exploration_15m"
-    results = run_strategy_exploration(
-        symbols=["ETHUSDT"],
-        parquet_dir=p_15m_dir,
-        timeframe="15m",
-        windows_count=2,
-        bars_per_window=40,
-        output_dir=out_dir,
-    )
-    assert results["status"] == "completed"
-    assert results["timeframe"] == "15m"
-    assert results["total_candidates"] == 1
-    assert (out_dir / "exploration_summary.json").is_file()
+    with pytest.raises(DataQualityError, match="verified market-data catalog is unavailable"):
+        run_strategy_exploration(
+            symbols=["ETHUSDT"],
+            parquet_dir=p_15m_dir,
+            timeframe="15m",
+            windows_count=2,
+            bars_per_window=40,
+            output_dir=out_dir,
+        )
+    assert not out_dir.exists()
 
 
 def test_original_catalog_opaque_veto_fails_closed() -> None:
@@ -231,3 +225,74 @@ def test_original_catalog_opaque_veto_fails_closed() -> None:
                 candidate.strategy.vetoes,
                 declared_features=tuple(feature.name for feature in candidate.strategy.features),
             )
+
+
+def test_exploration_rejects_missing_requested_market_data_before_output(tmp_path: Path) -> None:
+    output_dir = tmp_path / "unavailable-exploration"
+
+    with pytest.raises(FileNotFoundError, match="market data missing"):
+        run_strategy_exploration(
+            symbols=("BTCUSDT",),
+            parquet_dir=tmp_path / "empty-data",
+            output_dir=output_dir,
+        )
+
+    assert not output_dir.exists()
+
+
+def test_exploration_rejects_unverified_cached_bars_before_candidate_evaluation(
+    tmp_path: Path,
+) -> None:
+    import pandas as pd
+
+    from autonomous_futures.data.parquet import DataQualityError, write_canonical_parquet
+
+    start = pd.Timestamp("2026-08-07T00:00:00Z")
+    frame = pd.DataFrame(
+        {
+            "timestamp": [start + pd.Timedelta(minutes=5 * index) for index in range(25)],
+            "open": [100.0] * 25,
+            "high": [101.0] * 25,
+            "low": [99.0] * 25,
+            "close": [100.0] * 25,
+        }
+    )
+    parquet_dir = tmp_path / "canonical"
+    parquet_dir.mkdir()
+    write_canonical_parquet(
+        frame,
+        parquet_dir / "BTCUSDT-5m.parquet",
+        interval=pd.Timedelta(minutes=5).to_pytimedelta(),
+    )
+    output_dir = tmp_path / "unverified-exploration"
+
+    with pytest.raises(DataQualityError, match="verified market-data catalog is unavailable"):
+        run_strategy_exploration(
+            symbols=("BTCUSDT",),
+            parquet_dir=parquet_dir,
+            windows_count=1,
+            bars_per_window=25,
+            output_dir=output_dir,
+        )
+
+    assert not output_dir.exists()
+
+
+def test_exploration_cli_reports_missing_verified_data_without_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output_dir = tmp_path / "cli-unavailable"
+    exit_code = cli_main(
+        [
+            "--symbols",
+            "BTCUSDT",
+            "--parquet-dir",
+            str(tmp_path / "empty-data"),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 3
+    assert "market data missing" in capsys.readouterr().err.lower()
+    assert not output_dir.exists()

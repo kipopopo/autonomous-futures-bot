@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from hashlib import sha256
 
 import pandas as pd
 import pytest
 from pydantic import ValidationError
 
 from autonomous_futures.data.parquet import DataQualityError
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.contracts import (
     EntryExit,
     FeatureRef,
@@ -19,6 +22,7 @@ from autonomous_futures.research.cached_evaluation import (
     CachedEvaluationWindowSpec,
     CachedOnlyEvaluatorAdapter,
     CachedWindowEvaluation,
+    _evaluation_content_hash,
 )
 from autonomous_futures.research.creator_artifacts import build_creator_candidate_artifact
 from autonomous_futures.research.qualification_artifacts import (
@@ -77,6 +81,143 @@ def _window(window_id: str, start: datetime, *, bundle_hash: str = BUNDLE_HASH):
         time_end=start + timedelta(minutes=15),
     )
     return CachedEvaluationWindow(spec=spec, frame=_frame(start))
+
+
+def test_cached_window_binds_and_copies_its_verified_funding_slice() -> None:
+    funding_hash = "c" * 64
+    spec = CachedEvaluationWindowSpec(
+        window_id="window-funding-01",
+        symbol="BTCUSDT",
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=DATASET_REGISTRY_HASH,
+        funding_artifact_hash=funding_hash,
+        time_start=START,
+        time_end=START + timedelta(minutes=15),
+    )
+    funding = pd.DataFrame(
+        {
+            "symbol": ["BTCUSDT"],
+            "funding_time": [START + timedelta(minutes=5)],
+            "funding_rate": [Decimal("0.001")],
+            "funding_mark_price": [Decimal("100")],
+        }
+    )
+
+    window = CachedEvaluationWindow(
+        spec=spec,
+        frame=_frame(START),
+        funding_slice=VerifiedFundingSlice(
+            symbol="BTCUSDT",
+            time_start=START,
+            time_end=START + timedelta(minutes=15),
+            bundle_hash=BUNDLE_HASH,
+            dataset_registry_hash=DATASET_REGISTRY_HASH,
+            manifest_hash=funding_hash,
+            artifact_sha256="d" * 64,
+            _events=funding,
+        ),
+    )
+    isolated = window.copy_funding_events()
+    isolated.loc[0, "funding_rate"] = Decimal("9")
+    exposed = window.funding_events
+    assert exposed is not None
+    exposed.loc[0, "funding_rate"] = Decimal("8")
+    exposed_frame = window.frame
+    exposed_frame.loc[0, "close"] = Decimal("999")
+
+    assert window.spec.funding_artifact_hash == funding_hash
+    assert window.funding_events is not None
+    assert window.funding_events.loc[0, "funding_rate"] == Decimal("0.001")
+    assert window.copy_frame().loc[0, "close"] == Decimal("100.5")
+
+
+def test_cached_window_rejects_verified_funding_from_another_catalog() -> None:
+    funding_hash = "c" * 64
+    spec = CachedEvaluationWindowSpec(
+        window_id="window-funding-catalog-mismatch",
+        symbol="BTCUSDT",
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=DATASET_REGISTRY_HASH,
+        funding_artifact_hash=funding_hash,
+        time_start=START,
+        time_end=START + timedelta(minutes=15),
+    )
+    empty_funding = pd.DataFrame(
+        columns=("symbol", "funding_time", "funding_rate", "funding_mark_price")
+    )
+    foreign_slice = VerifiedFundingSlice(
+        symbol=spec.symbol,
+        time_start=spec.time_start,
+        time_end=spec.time_end,
+        bundle_hash="f" * 64,
+        dataset_registry_hash=DATASET_REGISTRY_HASH,
+        manifest_hash=funding_hash,
+        artifact_sha256="d" * 64,
+        _events=empty_funding,
+    )
+
+    with pytest.raises(DataQualityError, match="verified funding slice"):
+        CachedEvaluationWindow(spec=spec, frame=_frame(START), funding_slice=foreign_slice)
+
+
+def test_cached_evaluation_run_hash_binds_verified_funding_manifest() -> None:
+    funding_hash = "c" * 64
+    spec = CachedEvaluationWindowSpec(
+        window_id="window-bound-01",
+        symbol="BTCUSDT",
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=DATASET_REGISTRY_HASH,
+        funding_artifact_hash=funding_hash,
+        time_start=START,
+        time_end=START + timedelta(minutes=15),
+    )
+    empty_funding = pd.DataFrame(
+        columns=("symbol", "funding_time", "funding_rate", "funding_mark_price")
+    )
+    window = CachedEvaluationWindow(
+        spec=spec,
+        frame=_frame(START),
+        funding_slice=VerifiedFundingSlice(
+            symbol=spec.symbol,
+            time_start=spec.time_start,
+            time_end=spec.time_end,
+            bundle_hash=spec.bundle_hash,
+            dataset_registry_hash=spec.dataset_registry_hash,
+            manifest_hash=funding_hash,
+            artifact_sha256="d" * 64,
+            _events=empty_funding,
+        ),
+    )
+    adapter = CachedOnlyEvaluatorAdapter(
+        candidate=_candidate(),
+        evaluator_run_id="evaluator-run-funding-001",
+        evaluator_version="cached-evaluator-v1",
+        evaluator=lambda _candidate, _frame, current: _result(current),
+    )
+
+    run = adapter.evaluate((window,), evaluated_at=START)
+
+    assert run.evaluation_version == 2
+    assert run.windows[0].funding_artifact_hash == funding_hash
+
+
+def test_legacy_cached_evaluation_hash_omits_new_funding_binding_field() -> None:
+    window = _window("legacy-window", START)
+    run = CachedOnlyEvaluatorAdapter(
+        candidate=_candidate(),
+        evaluator_run_id="evaluator-run-legacy-001",
+        evaluator_version="cached-evaluator-v1",
+        evaluator=lambda _candidate, _frame, current: _result(current),
+    ).evaluate((window,), evaluated_at=START)
+    payload = run.model_dump(mode="json", exclude={"evaluated_at", "evaluation_hash"})
+    for window_payload in payload["windows"]:
+        window_payload.pop("funding_artifact_hash", None)
+    expected = sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    assert run.evaluation_version == 1
+    assert _evaluation_content_hash(run) == expected
 
 
 def _result(window: CachedEvaluationWindow) -> CachedWindowEvaluation:

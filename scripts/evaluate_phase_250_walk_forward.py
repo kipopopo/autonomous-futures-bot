@@ -23,10 +23,11 @@ if str(_SRC_DIR) not in sys.path:
 
 import pandas as pd  # noqa: E402
 
+from autonomous_futures.api.artifacts import verify_cached_kline_provenance  # noqa: E402
 from autonomous_futures.creator_staging_probe import (  # noqa: E402
     assert_offline_safety_invariants,
 )
-from autonomous_futures.data.parquet import DataQualityError  # noqa: E402
+from autonomous_futures.data.parquet import DataQualityError, read_canonical_parquet  # noqa: E402
 from autonomous_futures.domain.contracts import (  # noqa: E402
     EntryExit,
     FeatureRef,
@@ -37,6 +38,7 @@ from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.research.cached_evaluation import (  # noqa: E402
     CachedEvaluationWindow,
     CachedEvaluationWindowSpec,
+    load_verified_cached_evaluation_window,
 )
 from autonomous_futures.research.cached_oos_walk_forward import (  # noqa: E402
     evaluate_cached_oos_walk_forward,
@@ -274,6 +276,80 @@ def establish_oos_windows(
     return tuple(windows)
 
 
+def load_verified_oos_windows(
+    *,
+    symbol: str,
+    bundle_hash: str,
+    dataset_registry_hash: str,
+    count: int,
+    bars_per_window: int,
+    start: datetime,
+    data_dir: Path,
+    dataset_root: Path,
+    bundle_path: Path | None = None,
+    registry_path: Path | None = None,
+) -> tuple[CachedEvaluationWindow, ...]:
+    """Load only catalog-verified 5m bars and immutable funding slices."""
+    if count < 1 or bars_per_window < 25:
+        raise DataQualityError("verified OOS window bounds are invalid")
+    if start.tzinfo is None or start.utcoffset() != UTC.utcoffset(start):
+        raise DataQualityError("verified OOS start must be timezone-aware UTC")
+    start = start.astimezone(UTC)
+    parquet_path = data_dir / f"{symbol}-5m.parquet"
+    if not parquet_path.is_file():
+        raise FileNotFoundError(f"Canonical market data missing: {parquet_path}")
+    selected_bundle_path = bundle_path or dataset_root / "bundle.json"
+    selected_registry_path = registry_path or dataset_root / "registry.json"
+    verify_cached_kline_provenance(
+        parquet_path,
+        dataset_root=dataset_root,
+        bundle_path=selected_bundle_path,
+        registry_path=selected_registry_path,
+        symbol=symbol,
+        interval="5m",
+        bundle_hash=bundle_hash,
+        dataset_registry_hash=dataset_registry_hash,
+    )
+    full_frame = read_canonical_parquet(parquet_path, interval=timedelta(minutes=5))
+    expected_rows = count * bars_per_window
+    end = start + timedelta(minutes=5 * expected_rows)
+    timestamps = pd.DatetimeIndex(full_frame["timestamp"])
+    selected = full_frame.loc[
+        (timestamps >= pd.Timestamp(start)) & (timestamps < pd.Timestamp(end))
+    ].reset_index(drop=True)
+    if len(selected) != expected_rows:
+        raise DataQualityError(
+            f"Incomplete verified OOS data for {symbol}: expected {expected_rows} bars, "
+            f"found {len(selected)}"
+        )
+
+    windows: list[CachedEvaluationWindow] = []
+    for index in range(count):
+        sub_frame = (
+            selected.iloc[index * bars_per_window : (index + 1) * bars_per_window]
+            .copy()
+            .reset_index(drop=True)
+        )
+        time_start = sub_frame["timestamp"].iloc[0].to_pydatetime()
+        time_end = sub_frame["timestamp"].iloc[-1].to_pydatetime() + timedelta(minutes=5)
+        windows.append(
+            load_verified_cached_evaluation_window(
+                window_id=f"phase250-window-{index + 1:03d}",
+                symbol=symbol,
+                bundle_hash=bundle_hash,
+                dataset_registry_hash=dataset_registry_hash,
+                time_start=time_start,
+                time_end=time_end,
+                timeframe="5m",
+                frame=sub_frame,
+                artifact_root=dataset_root,
+                bundle_path=selected_bundle_path,
+                registry_path=selected_registry_path,
+            )
+        )
+    return tuple(windows)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Standard Offline Walk-Forward Evaluation & Qualification Runner (Phase 250)."
@@ -289,6 +365,25 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("artifacts/research/phase250"),
         help="Output directory for generated evaluation artifacts",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("research/immutable-data/5m/canonical"),
+        help="Directory containing canonical 5m market Parquet",
+    )
+    parser.add_argument(
+        "--dataset-root",
+        type=Path,
+        default=Path("research/immutable-data"),
+        help="Root containing the verified bundle, registry, and data artifacts",
+    )
+    parser.add_argument("--bundle-path", type=Path, default=None)
+    parser.add_argument("--registry-path", type=Path, default=None)
+    parser.add_argument(
+        "--start",
+        default="2026-01-01T00:00:00+00:00",
+        help="UTC start time of the first cached OOS window",
     )
     parser.add_argument(
         "--windows-count",
@@ -356,33 +451,51 @@ def run_evaluation(args: argparse.Namespace) -> dict[str, Any]:
     """Execute complete Phase 250 walk-forward evaluation and artifact generation."""
     # 1. Enforce strict offline safety invariants
     assert_offline_safety_invariants()
-
-    # 2. Load or materialize candidate strategy artifact
-    candidate = load_or_materialize_candidate(args.candidate_path)
-
-    # 3. Establish sequential non-overlapping OOS evaluation windows
-    windows = establish_oos_windows(
-        count=args.windows_count,
-        bars_per_window=args.bars_per_window,
-        bundle_hash=candidate.bundle_hash,
-        dataset_registry_hash=candidate.dataset_registry_hash,
-        symbol=candidate.strategy.universe.symbols[0],
-    )
-
-    # 4. Configure simulation parameters
+    if args.windows_count < 1:
+        raise DataQualityError("cached OOS evaluation requires at least one window")
+    if args.bars_per_window < 25:
+        raise DataQualityError("bars_count must be at least 25")
     sim_config = TradeSimulationConfig(
+        funding_mode="settled",
         starting_equity=args.starting_equity,
         position_fraction=args.position_fraction,
         taker_fee_rate=args.taker_fee_rate,
         slippage_rate=args.slippage_rate,
     )
 
-    # 5. Execute walk-forward simulation across sequential OOS windows
+    # 2. Load or materialize candidate strategy artifact
+    candidate = load_or_materialize_candidate(args.candidate_path)
+
+    # 3. Load only catalog-verified, funding-bound OOS evaluation windows
+    start_value = getattr(args, "start", "2026-01-01T00:00:00+00:00")
+    if isinstance(start_value, datetime):
+        start = start_value
+    else:
+        start = datetime.fromisoformat(start_value)
+    windows = load_verified_oos_windows(
+        symbol=candidate.strategy.universe.symbols[0],
+        bundle_hash=candidate.bundle_hash,
+        dataset_registry_hash=candidate.dataset_registry_hash,
+        count=args.windows_count,
+        bars_per_window=args.bars_per_window,
+        start=start,
+        data_dir=getattr(args, "data_dir", Path("research/immutable-data/5m/canonical")),
+        dataset_root=getattr(args, "dataset_root", Path("research/immutable-data")),
+        bundle_path=getattr(args, "bundle_path", None),
+        registry_path=getattr(args, "registry_path", None),
+    )
+
+    # 4. Execute walk-forward simulation across sequential OOS windows
     aggregation: WalkForwardAggregation = evaluate_cached_oos_walk_forward(
         candidate,
         windows,
         simulator=lambda c, frame, w: simulate_candidate_window(
-            c, frame, symbol=w.spec.symbol, config=sim_config
+            c,
+            frame,
+            symbol=w.spec.symbol,
+            config=sim_config,
+            funding_events=w.copy_funding_events(),
+            funding_artifact_hash=w.spec.funding_artifact_hash,
         ),
     )
 
@@ -486,7 +599,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         summary = run_evaluation(args)
-    except (ValueError, DataQualityError, DomainViolation) as exc:
+    except (ValueError, DataQualityError, DomainViolation, FileNotFoundError) as exc:
         sanitized = _sanitize_error_text(str(exc))
         del exc
         print(json.dumps({"error_code": "evaluation_data_error", "message": sanitized}))

@@ -4,7 +4,9 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pandas as pd
+import pytest
 
+from autonomous_futures.data.parquet import DataQualityError
 from autonomous_futures.domain.contracts import (
     EntryExit,
     FeatureRef,
@@ -46,7 +48,7 @@ def test_v2_candidate_risk_profile_controls_cached_position_size() -> None:
         research_seed=1,
         created_at=START,
     )
-    prices = ("100", "100", "101", "102", "103")
+    prices = ("100", "100", "101", "102", "103", "104", "105", "106", "107", "108")
     frame = pd.DataFrame(
         {
             "timestamp": [START + timedelta(minutes=5 * index) for index in range(len(prices))],
@@ -57,18 +59,37 @@ def test_v2_candidate_risk_profile_controls_cached_position_size() -> None:
         }
     )
 
+    funding = pd.DataFrame(
+        {
+            "symbol": ["BTCUSDT"] * 9,
+            "funding_time": [START + timedelta(minutes=5 * index) for index in range(1, 10)],
+            "funding_rate": [Decimal("0.001")] * 9,
+            "funding_mark_price": [Decimal("100")] * 9,
+        }
+    )
+
+    config = TradeSimulationConfig(
+        funding_mode="settled",
+        starting_equity=Decimal("100"),
+        position_fraction=Decimal("1"),
+        taker_fee_rate=Decimal("0"),
+        slippage_rate=Decimal("0"),
+        atr_lookback=1,
+    )
+    with pytest.raises(DataQualityError, match="funding"):
+        simulate_candidate_window(candidate, frame, symbol="BTCUSDT", config=config)
+
     result = simulate_candidate_window(
         candidate,
         frame,
         symbol="BTCUSDT",
-        config=TradeSimulationConfig(
-            starting_equity=Decimal("100"),
-            position_fraction=Decimal("1"),
-            taker_fee_rate=Decimal("0"),
-            slippage_rate=Decimal("0"),
-            atr_lookback=1,
-        ),
+        config=config,
+        funding_events=funding,
+        funding_artifact_hash=HASH,
     )
 
     assert result.trades[0].entry_notional == Decimal("25")
+    assert result.simulation_version == 3
+    assert result.funding_artifact_hash == HASH
+    assert result.total_funding_payment > 0
     assert result.exchange_access is False

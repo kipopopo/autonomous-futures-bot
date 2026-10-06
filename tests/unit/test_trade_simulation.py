@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Literal
 
 import pandas as pd
 import pytest
@@ -37,8 +38,14 @@ def _signal_frame(
     )
 
 
-def _config(*, slippage: str = "0", fee: str = "0.0004") -> TradeSimulationConfig:
+def _config(
+    *,
+    slippage: str = "0",
+    fee: str = "0.0004",
+    funding_mode: Literal["settled", "legacy_optional"] = "legacy_optional",
+) -> TradeSimulationConfig:
     return TradeSimulationConfig(
+        funding_mode=funding_mode,
         starting_equity=Decimal("100"),
         position_fraction=Decimal("1"),
         taker_fee_rate=Decimal(fee),
@@ -68,6 +75,7 @@ def _risk_frame(
 
 def _risk_config() -> TradeSimulationConfig:
     return TradeSimulationConfig(
+        funding_mode="legacy_optional",
         starting_equity=Decimal("100"),
         position_fraction=Decimal("1"),
         taker_fee_rate=Decimal("0"),
@@ -80,6 +88,7 @@ def _risk_config() -> TradeSimulationConfig:
 
 def _trailing_config() -> TradeSimulationConfig:
     return TradeSimulationConfig(
+        funding_mode="legacy_optional",
         starting_equity=Decimal("100"),
         position_fraction=Decimal("1"),
         taker_fee_rate=Decimal("0"),
@@ -107,6 +116,173 @@ def test_constant_price_round_trip_charges_both_fees_and_forces_final_close(sign
     assert result.total_slippage_cost == Decimal("0")
     assert result.final_equity == Decimal("99.9200")
     assert result.equity_curve[-1].equity == result.final_equity
+
+
+def test_long_position_settles_signed_funding_into_trade_and_equity() -> None:
+    frame = _signal_frame((0, 1, 0, 0), opens=("100",) * 4, closes=("100",) * 4)
+    funding = pd.DataFrame(
+        {
+            "symbol": ["BTCUSDT"],
+            "funding_time": [START + timedelta(minutes=10)],
+            "funding_rate": [Decimal("0.001")],
+            "funding_mark_price": [Decimal("100")],
+        }
+    )
+
+    result = simulate_cached_signals(
+        frame,
+        symbol="BTCUSDT",
+        config=_config(),
+        funding_events=funding,
+        funding_artifact_hash="a" * 64,
+    )
+
+    assert len(result.trades) == 1
+    assert result.trades[0].funding_payment == Decimal("0.100")
+    assert result.trades[0].net_pnl == Decimal("-0.1800")
+    assert result.total_funding_payment == Decimal("0.100")
+    assert result.final_equity == Decimal("99.8200")
+    assert result.simulation_version == 3
+
+
+def test_funding_accounting_requires_the_exact_derivative_manifest_hash() -> None:
+    frame = _signal_frame((0, 1, 0, 0), opens=("100",) * 4, closes=("100",) * 4)
+    funding = pd.DataFrame(
+        {
+            "symbol": ["BTCUSDT"],
+            "funding_time": [START + timedelta(minutes=10)],
+            "funding_rate": [Decimal("0.001")],
+            "funding_mark_price": [Decimal("100")],
+        }
+    )
+
+    with pytest.raises(DataQualityError, match="manifest hash"):
+        simulate_cached_signals(frame, symbol="BTCUSDT", config=_config(), funding_events=funding)
+
+
+def test_settled_research_simulation_requires_bound_funding_data() -> None:
+    config = TradeSimulationConfig(
+        funding_mode="settled",
+        starting_equity=Decimal("100"),
+        position_fraction=Decimal("1"),
+        taker_fee_rate=Decimal("0"),
+        slippage_rate=Decimal("0"),
+    )
+
+    with pytest.raises(DataQualityError, match="funding"):
+        simulate_cached_signals(_signal_frame((0, 1, 0)), symbol="BTCUSDT", config=config)
+
+
+def test_short_position_receives_positive_funding_and_entry_bar_settlement_is_excluded() -> None:
+    frame = _signal_frame((0, -1, 0, 0), opens=("100",) * 4, closes=("100",) * 4)
+    settlement = pd.DataFrame(
+        {
+            "symbol": ["BTCUSDT"],
+            "funding_time": [START + timedelta(minutes=10)],
+            "funding_rate": [Decimal("0.001")],
+            "funding_mark_price": [Decimal("100")],
+        }
+    )
+    at_entry = settlement.assign(funding_time=[START + timedelta(minutes=5)])
+
+    received = simulate_cached_signals(
+        frame,
+        symbol="BTCUSDT",
+        config=_config(),
+        funding_events=settlement,
+        funding_artifact_hash="a" * 64,
+    )
+    excluded = simulate_cached_signals(
+        frame,
+        symbol="BTCUSDT",
+        config=_config(),
+        funding_events=at_entry,
+        funding_artifact_hash="a" * 64,
+    )
+
+    assert received.trades[0].funding_payment == Decimal("-0.100")
+    assert received.trades[0].net_pnl == Decimal("0.0200")
+    assert received.total_funding_payment == Decimal("-0.100")
+    assert received.final_equity == Decimal("100.0200")
+    assert excluded.trades[0].funding_payment == 0
+    assert excluded.total_funding_payment == 0
+    assert excluded.final_equity == Decimal("99.9200")
+
+
+def test_funding_settlement_occurs_before_same_bar_position_exit() -> None:
+    frame = _signal_frame((0, 1, 0, -1), opens=("100",) * 4, closes=("100",) * 4)
+    funding = pd.DataFrame(
+        {
+            "symbol": ["BTCUSDT"],
+            "funding_time": [START + timedelta(minutes=15)],
+            "funding_rate": [Decimal("0.001")],
+            "funding_mark_price": [Decimal("100")],
+        }
+    )
+
+    result = simulate_cached_signals(
+        frame,
+        symbol="BTCUSDT",
+        config=_config(),
+        funding_events=funding,
+        funding_artifact_hash="a" * 64,
+    )
+
+    assert result.trades[0].exit_reason == "signal_exit"
+    assert result.trades[0].funding_payment == Decimal("0.100")
+    assert result.trades[0].exit_timestamp == START + timedelta(minutes=15)
+    assert result.final_equity == Decimal("99.8200")
+
+
+@pytest.mark.parametrize(
+    "funding, message",
+    [
+        (
+            pd.DataFrame(
+                {
+                    "symbol": ["BTCUSDT"],
+                    "funding_time": [START + timedelta(minutes=11)],
+                    "funding_rate": [Decimal("0.001")],
+                    "funding_mark_price": [Decimal("100")],
+                }
+            ),
+            "align",
+        ),
+        (
+            pd.DataFrame(
+                {
+                    "symbol": ["BTCUSDT", "BTCUSDT"],
+                    "funding_time": [START + timedelta(minutes=10)] * 2,
+                    "funding_rate": [Decimal("0.001")] * 2,
+                    "funding_mark_price": [Decimal("100")] * 2,
+                }
+            ),
+            "strictly increasing",
+        ),
+        (
+            pd.DataFrame(
+                {
+                    "symbol": ["ETHUSDT"],
+                    "funding_time": [START + timedelta(minutes=10)],
+                    "funding_rate": [Decimal("0.001")],
+                    "funding_mark_price": [Decimal("100")],
+                }
+            ),
+            "symbol",
+        ),
+    ],
+)
+def test_invalid_funding_events_fail_closed(funding: pd.DataFrame, message: str) -> None:
+    frame = _signal_frame((0, 1, 0, 0), opens=("100",) * 4, closes=("100",) * 4)
+
+    with pytest.raises(DataQualityError, match=message):
+        simulate_cached_signals(
+            frame,
+            symbol="BTCUSDT",
+            config=_config(),
+            funding_events=funding,
+            funding_artifact_hash="a" * 64,
+        )
 
 
 def test_opposite_signal_closes_at_current_open_without_same_candle_reverse() -> None:
@@ -181,6 +357,22 @@ def test_invalid_signal_or_missing_signal_is_rejected() -> None:
     missing = _signal_frame((0, 1, 0)).drop(columns=["signal"])
     with pytest.raises(DataQualityError, match="signal"):
         simulate_cached_signals(missing, symbol="BTCUSDT", config=_config())
+
+
+def test_non_five_minute_simulation_closes_at_its_actual_final_bar_boundary() -> None:
+    frame = _signal_frame((0, 1, 0), opens=("100",) * 3, closes=("100",) * 3)
+    frame["timestamp"] = [START + timedelta(minutes=15 * index) for index in range(3)]
+
+    result = simulate_cached_signals(
+        frame,
+        symbol="BTCUSDT",
+        config=_config(fee="0"),
+        interval=timedelta(minutes=15),
+    )
+
+    expected_close = START + timedelta(minutes=45) - timedelta(milliseconds=1)
+    assert result.trades[0].exit_timestamp == expected_close
+    assert result.equity_curve[-1].timestamp == expected_close
 
 
 def test_simulation_config_rejects_unsafe_costs_and_bad_symbol() -> None:
@@ -264,6 +456,7 @@ def test_stop_loss_honors_adverse_opening_gap_and_slippage() -> None:
         }
     )
     config = TradeSimulationConfig(
+        funding_mode="legacy_optional",
         starting_equity=Decimal("100"),
         position_fraction=Decimal("1"),
         taker_fee_rate=Decimal("0"),

@@ -5,7 +5,10 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
+from autonomous_futures.data.parquet import DataQualityError
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.research.cached_evaluation import (
     CachedEvaluationWindow,
     CachedEvaluationWindowSpec,
@@ -17,6 +20,7 @@ from autonomous_futures.research.trade_simulation import (
 )
 
 _HASH = "a" * 64
+_FUNDING_HASH = "b" * 64
 
 
 def _window(window_id: str, symbol: str, start: datetime) -> CachedEvaluationWindow:
@@ -30,16 +34,30 @@ def _window(window_id: str, symbol: str, start: datetime) -> CachedEvaluationWin
             "close": [100.5, 101.5],
         }
     )
+    spec = CachedEvaluationWindowSpec(
+        window_id=window_id,
+        symbol=symbol,
+        bundle_hash=_HASH,
+        dataset_registry_hash=_HASH,
+        funding_artifact_hash=_FUNDING_HASH,
+        time_start=start,
+        time_end=start + timedelta(minutes=10),
+    )
+    funding = pd.DataFrame(columns=("symbol", "funding_time", "funding_rate", "funding_mark_price"))
+    funding_slice = VerifiedFundingSlice(
+        symbol=symbol,
+        time_start=start,
+        time_end=start + timedelta(minutes=10),
+        bundle_hash=_HASH,
+        dataset_registry_hash=_HASH,
+        manifest_hash=_FUNDING_HASH,
+        artifact_sha256="c" * 64,
+        _events=funding,
+    )
     return CachedEvaluationWindow(
-        spec=CachedEvaluationWindowSpec(
-            window_id=window_id,
-            symbol=symbol,
-            bundle_hash=_HASH,
-            dataset_registry_hash=_HASH,
-            time_start=start,
-            time_end=start + timedelta(minutes=10),
-        ),
+        spec=spec,
         frame=frame,
+        funding_slice=funding_slice,
     )
 
 
@@ -54,10 +72,16 @@ def _candidate() -> SimpleNamespace:
 
 
 def _flat_result(
-    candidate: object, frame: pd.DataFrame, window: CachedEvaluationWindow
+    candidate: object,
+    frame: pd.DataFrame,
+    window: CachedEvaluationWindow,
+    *,
+    legacy: bool = False,
 ) -> TradeSimulationResult:
     timestamp = frame["timestamp"].iloc[-1].to_pydatetime()
     return TradeSimulationResult(
+        simulation_version=(2 if legacy or window.spec.funding_artifact_hash is None else 3),
+        funding_artifact_hash=None if legacy else window.spec.funding_artifact_hash,
         symbol=window.spec.symbol,
         starting_equity=Decimal("100"),
         final_equity=Decimal("100"),
@@ -80,6 +104,42 @@ def test_cached_windows_become_deterministic_oos_aggregation() -> None:
     assert aggregation.total_trade_count == 0
     assert aggregation.data_source == "cached_only"
     assert aggregation.exchange_access is False
+    assert aggregation.aggregation_version == 2
+    assert {window.funding_artifact_hash for window in aggregation.windows} == {
+        item.spec.funding_artifact_hash
+        for item in (_window("btc-1", "BTCUSDT", start), _window("eth-1", "ETHUSDT", start))
+    }
+
+
+def test_walk_forward_rejects_legacy_simulation_without_funding_binding() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    window = _window("btc-legacy", "BTCUSDT", start)
+
+    with pytest.raises(DataQualityError, match="funding"):
+        evaluate_cached_oos_walk_forward(
+            _candidate(),
+            (window, _window("eth-legacy", "ETHUSDT", start)),
+            simulator=lambda candidate, frame, current: _flat_result(
+                candidate, frame, current, legacy=True
+            ),
+        )
+
+
+def test_walk_forward_rejects_self_asserted_funding_hash_without_verified_slice() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    source = _window("btc-unverified", "BTCUSDT", start)
+    unverified = CachedEvaluationWindow(
+        spec=source.spec,
+        frame=source.copy_frame(),
+        funding_events=source.copy_funding_events(),
+    )
+
+    with pytest.raises(DataQualityError, match="verified funding artifact slice"):
+        evaluate_cached_oos_walk_forward(
+            _candidate(),
+            (unverified, _window("eth-unverified", "ETHUSDT", start)),
+            simulator=_flat_result,
+        )
 
 
 def test_cached_windows_reject_candidate_hash_drift() -> None:

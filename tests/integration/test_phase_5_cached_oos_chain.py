@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.contracts import (
     EntryExit,
     FeatureRef,
@@ -65,6 +66,7 @@ def _window() -> CachedEvaluationWindow:
             symbol="BTCUSDT",
             bundle_hash=BUNDLE_HASH,
             dataset_registry_hash=DATASET_HASH,
+            funding_artifact_hash="c" * 64,
             time_start=START,
             time_end=START + timedelta(minutes=5 * len(closes)),
         ),
@@ -76,6 +78,18 @@ def _window() -> CachedEvaluationWindow:
                 "low": [value - Decimal("1") for value in closes],
                 "close": closes,
             }
+        ),
+        funding_slice=VerifiedFundingSlice(
+            symbol="BTCUSDT",
+            time_start=START,
+            time_end=START + timedelta(minutes=5 * len(closes)),
+            bundle_hash=BUNDLE_HASH,
+            dataset_registry_hash=DATASET_HASH,
+            manifest_hash="c" * 64,
+            artifact_sha256="d" * 64,
+            _events=pd.DataFrame(
+                columns=("symbol", "funding_time", "funding_rate", "funding_mark_price")
+            ),
         ),
     )
 
@@ -95,7 +109,12 @@ def test_persisted_candidate_runs_cached_oos_and_persists_aggregation(tmp_path: 
         candidate,
         (_window(),),
         simulator=lambda item, frame, window: simulate_candidate_window(
-            item, frame, symbol=window.spec.symbol, config=config
+            item,
+            frame,
+            symbol=window.spec.symbol,
+            config=config,
+            funding_events=window.copy_funding_events(),
+            funding_artifact_hash=window.spec.funding_artifact_hash,
         ),
     )
     aggregation_path = tmp_path / "aggregations" / "cand-oos-chain-001.json"

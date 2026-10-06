@@ -915,6 +915,8 @@ def make_autonomous_cycle_runner(
     simulator: CachedSimulator | None = None,
 ) -> BaseCycleRunner:
     """Adapt the existing bounded cycle to the offline base without paper access."""
+    if any(window.funding_slice is None for window in windows):
+        raise DataQualityError("autonomous base requires verified cached funding artifact slices")
 
     def run_cycle(request: AutonomousBaseCycleRequest) -> AutonomousBaseCycleExecution:
         config = AutonomousCycleConfig(

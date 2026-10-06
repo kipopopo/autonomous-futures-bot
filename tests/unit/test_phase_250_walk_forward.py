@@ -32,6 +32,7 @@ from pydantic import ValidationError
 
 from autonomous_futures.creator_staging_probe import assert_offline_safety_invariants
 from autonomous_futures.data.parquet import DataQualityError
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.contracts import (
     EntryExit,
     FeatureRef,
@@ -125,6 +126,50 @@ def _make_synthetic_candidate_artifact() -> CreatorCandidateArtifact:
         symbol="DOGEUSDT",
         bundle_hash=PINNED_BUNDLE_HASH,
         dataset_registry_hash=PINNED_REGISTRY_HASH,
+    )
+
+
+SYNTHETIC_FUNDING_HASH = "d" * 64
+
+
+def _with_synthetic_funding(window: CachedEvaluationWindow) -> CachedEvaluationWindow:
+    funding = pd.DataFrame(columns=("symbol", "funding_time", "funding_rate", "funding_mark_price"))
+    spec = window.spec.model_copy(update={"funding_artifact_hash": SYNTHETIC_FUNDING_HASH})
+    return CachedEvaluationWindow(
+        spec=spec,
+        frame=window.copy_frame(),
+        funding_slice=VerifiedFundingSlice(
+            symbol=spec.symbol,
+            time_start=spec.time_start,
+            time_end=spec.time_end,
+            bundle_hash=spec.bundle_hash,
+            dataset_registry_hash=spec.dataset_registry_hash,
+            manifest_hash=SYNTHETIC_FUNDING_HASH,
+            artifact_sha256="e" * 64,
+            _events=funding,
+        ),
+    )
+
+
+def _simulate_with_synthetic_funding(candidate, frame, window, config):
+    return simulate_candidate_window(
+        candidate,
+        frame,
+        symbol=window.spec.symbol,
+        config=config,
+        funding_events=window.copy_funding_events(),
+        funding_artifact_hash=window.spec.funding_artifact_hash,
+    )
+
+
+_RAW_ESTABLISH_OOS_WINDOWS = eval_script.establish_oos_windows
+
+
+def _establish_synthetic_oos_windows(
+    *args: Any, **kwargs: Any
+) -> tuple[CachedEvaluationWindow, ...]:
+    return tuple(
+        _with_synthetic_funding(window) for window in _RAW_ESTABLISH_OOS_WINDOWS(*args, **kwargs)
     )
 
 
@@ -396,7 +441,7 @@ class TestOOSWindowConstructionAndValidation:
         assert window.frame.iloc[0]["close"] == original_val
 
     def test_sequential_non_overlapping_oos_windows_chain(self) -> None:
-        windows = eval_script.establish_oos_windows(count=3, bars_per_window=30)
+        windows = _establish_synthetic_oos_windows(count=3, bars_per_window=30)
         assert len(windows) == 3
         for i in range(len(windows) - 1):
             assert windows[i].spec.time_end == windows[i + 1].spec.time_start
@@ -729,7 +774,7 @@ class TestSimulationExecutionAndModeling:
 class TestWalkForwardAggregationAndDeterministicHashing:
     def test_walk_forward_aggregation_structure_and_metrics(self) -> None:
         candidate = _make_synthetic_candidate_artifact()
-        windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
+        windows = _establish_synthetic_oos_windows(count=3, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -739,9 +784,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         aggregation = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         assert aggregation.window_count == 3
         assert aggregation.data_source == "cached_only"
@@ -750,7 +793,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
 
     def test_walk_forward_aggregation_hash_determinism(self) -> None:
         candidate = _make_synthetic_candidate_artifact()
-        windows = eval_script.establish_oos_windows(count=2, bars_per_window=60)
+        windows = _establish_synthetic_oos_windows(count=2, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -760,9 +803,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         agg1 = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         hash1 = walk_forward_aggregation_hash(agg1)
         hash2 = walk_forward_aggregation_hash(agg1)
@@ -771,7 +812,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
 
     def test_persisted_walk_forward_aggregation_envelope(self) -> None:
         candidate = _make_synthetic_candidate_artifact()
-        windows = eval_script.establish_oos_windows(count=2, bars_per_window=60)
+        windows = _establish_synthetic_oos_windows(count=2, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -781,9 +822,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         envelope = build_persisted_walk_forward_aggregation(agg)
         assert envelope.aggregation_hash == walk_forward_aggregation_hash(agg)
@@ -797,7 +836,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
 
     def test_write_and_read_walk_forward_aggregation_file(self, tmp_path: Path) -> None:
         candidate = _make_synthetic_candidate_artifact()
-        windows = eval_script.establish_oos_windows(count=2, bars_per_window=60)
+        windows = _establish_synthetic_oos_windows(count=2, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -807,9 +846,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         file_path = tmp_path / "walk-forward-aggregation.json"
         write_walk_forward_aggregation(file_path, agg)
@@ -826,7 +863,7 @@ class TestWalkForwardAggregationAndDeterministicHashing:
 class TestQualificationDecisionsAndPolicies:
     def test_qualification_decision_rejects_after_strategy_exit_is_applied(self) -> None:
         candidate = _make_synthetic_candidate_artifact()
-        windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
+        windows = _establish_synthetic_oos_windows(count=3, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -836,9 +873,7 @@ class TestQualificationDecisionsAndPolicies:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         policy = WalkForwardQualificationPolicy(
             policy_id="policy-lenient",
@@ -863,7 +898,7 @@ class TestQualificationDecisionsAndPolicies:
 
     def test_qualification_decision_rejected_excessive_drawdown(self) -> None:
         candidate = _make_synthetic_candidate_artifact()
-        windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
+        windows = _establish_synthetic_oos_windows(count=3, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -873,9 +908,7 @@ class TestQualificationDecisionsAndPolicies:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         policy = WalkForwardQualificationPolicy(
             policy_id="policy-tight-dd",
@@ -900,7 +933,7 @@ class TestQualificationDecisionsAndPolicies:
 
     def test_qualification_decision_rejected_insufficient_trades(self) -> None:
         candidate = _make_synthetic_candidate_artifact()
-        windows = eval_script.establish_oos_windows(count=3, bars_per_window=60)
+        windows = _establish_synthetic_oos_windows(count=3, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -910,9 +943,7 @@ class TestQualificationDecisionsAndPolicies:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         policy = WalkForwardQualificationPolicy(
             policy_id="policy-high-trades",
@@ -938,7 +969,9 @@ class TestQualificationDecisionsAndPolicies:
     def test_qualification_decision_fails_closed_missing_profit_factor(self) -> None:
         candidate = _make_synthetic_candidate_artifact()
         # Single window with 0 losses
-        w = _make_oos_window("oos-no-loss", START_TIME, bars_count=50, pattern="dip_and_bounce")
+        w = _with_synthetic_funding(
+            _make_oos_window("oos-no-loss", START_TIME, bars_count=50, pattern="dip_and_bounce")
+        )
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -948,9 +981,7 @@ class TestQualificationDecisionsAndPolicies:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             (w,),
-            simulator=lambda c, f, win: simulate_candidate_window(
-                c, f, symbol=win.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, win: _simulate_with_synthetic_funding(c, f, win, config),
         )
         if agg.pooled_gross_loss == Decimal("0"):
             assert agg.pooled_profit_factor is None
@@ -977,7 +1008,7 @@ class TestQualificationDecisionsAndPolicies:
 
     def test_qualification_artifact_immutable_safety_state(self) -> None:
         candidate = _make_synthetic_candidate_artifact()
-        windows = eval_script.establish_oos_windows(count=2, bars_per_window=60)
+        windows = _establish_synthetic_oos_windows(count=2, bars_per_window=60)
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
             position_fraction=Decimal("0.1"),
@@ -987,9 +1018,7 @@ class TestQualificationDecisionsAndPolicies:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         policy = WalkForwardQualificationPolicy(
             policy_id="policy-safety",
@@ -1124,8 +1153,9 @@ class TestScriptExecutionEndToEnd:
         assert "Standard Offline Walk-Forward Evaluation & Qualification Runner" in output
         assert "--candidate-path" in output
         assert "--output-dir" in output
+        assert "--dataset-root" in output
 
-    def test_script_cli_rejects_unsupported_historical_veto(self, tmp_path: Path) -> None:
+    def test_script_cli_requires_verified_market_data_before_outputs(self, tmp_path: Path) -> None:
         out_dir = tmp_path / "artifacts_run"
         cand_path = tmp_path / "candidate.json"
         buf = io.StringIO()
@@ -1145,7 +1175,7 @@ class TestScriptExecutionEndToEnd:
         assert code == 3
         result = json.loads(buf.getvalue())
         assert result["error_code"] == "evaluation_data_error"
-        assert "bounded comparisons" in result["message"]
+        assert "market data missing" in result["message"].lower()
         candidate = read_creator_candidate_artifact(cand_path)
         assert candidate.candidate_id == PINNED_CANDIDATE_ID
         assert candidate.artifact_hash == PINNED_ARTIFACT_HASH
@@ -1215,9 +1245,7 @@ class TestEdgeCasesAndBoundaryConditions:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             (window,),
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         assert agg.total_trade_count == 0
         assert agg.pooled_net_pnl == Decimal("0")
@@ -1264,12 +1292,16 @@ class TestEdgeCasesAndBoundaryConditions:
     def test_all_windows_negative_expectancy(self) -> None:
         candidate = _make_synthetic_candidate_artifact()
         # Downward trending windows
-        w1 = _make_oos_window("oos-down-1", START_TIME, bars_count=40, pattern="trending_down")
-        w2 = _make_oos_window(
-            "oos-down-2",
-            START_TIME + timedelta(minutes=200),
-            bars_count=40,
-            pattern="trending_down",
+        w1 = _with_synthetic_funding(
+            _make_oos_window("oos-down-1", START_TIME, bars_count=40, pattern="trending_down")
+        )
+        w2 = _with_synthetic_funding(
+            _make_oos_window(
+                "oos-down-2",
+                START_TIME + timedelta(minutes=200),
+                bars_count=40,
+                pattern="trending_down",
+            )
         )
         config = TradeSimulationConfig(
             starting_equity=Decimal("10000"),
@@ -1280,9 +1312,7 @@ class TestEdgeCasesAndBoundaryConditions:
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             (w1, w2),
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=config
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, config),
         )
         policy = WalkForwardQualificationPolicy(
             policy_id="policy-expectancy",

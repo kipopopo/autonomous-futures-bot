@@ -23,6 +23,7 @@ class WalkForwardWindowMetrics(DomainModel):
     window_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     symbol: str = Field(pattern=r"^[A-Z0-9]+$")
     split: Literal["train", "validation", "oos"] = "oos"
+    funding_artifact_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     window_start: datetime
     window_end: datetime
     metrics: TradePerformanceMetrics
@@ -61,7 +62,7 @@ class WalkForwardSymbolSummary(DomainModel):
 class WalkForwardAggregation(DomainModel):
     """OOS-only deterministic aggregation without qualification decisions."""
 
-    aggregation_version: Literal[1] = 1
+    aggregation_version: Literal[1, 2] = 1
     required_symbols: tuple[str, ...] = Field(min_length=1)
     windows: tuple[WalkForwardWindowMetrics, ...] = Field(min_length=1)
     per_symbol: tuple[WalkForwardSymbolSummary, ...] = Field(min_length=1)
@@ -79,6 +80,15 @@ class WalkForwardAggregation(DomainModel):
 
     @model_validator(mode="after")
     def validate_aggregation_consistency(self) -> WalkForwardAggregation:
+        has_funding_binding = all(
+            window.funding_artifact_hash is not None for window in self.windows
+        )
+        if self.aggregation_version == 2 and not has_funding_binding:
+            raise ValueError("version 2 walk-forward aggregation requires funding bindings")
+        if self.aggregation_version == 1 and any(
+            window.funding_artifact_hash is not None for window in self.windows
+        ):
+            raise ValueError("version 1 walk-forward aggregation cannot include funding bindings")
         if self.required_symbols != tuple(sorted(set(self.required_symbols))):
             raise ValueError("required symbols must be sorted and unique")
         if self.window_count != len(self.windows):
@@ -134,6 +144,7 @@ def aggregate_walk_forward_metrics(
     *,
     required_symbols: Sequence[str],
     minimum_windows: int = 1,
+    aggregation_version: Literal[1, 2] = 1,
 ) -> WalkForwardAggregation:
     """Aggregate explicit OOS windows without mixing splits or fabricating data."""
     symbols = tuple(required_symbols)
@@ -190,6 +201,7 @@ def aggregate_walk_forward_metrics(
     pooled_gross_loss = sum((window.metrics.gross_loss for window in ordered), Decimal("0"))
     pooled_net_pnl = pooled_gross_profit - pooled_gross_loss
     return WalkForwardAggregation(
+        aggregation_version=aggregation_version,
         required_symbols=symbols,
         windows=ordered,
         per_symbol=summaries,
@@ -210,6 +222,9 @@ def aggregate_walk_forward_metrics(
 
 def walk_forward_aggregation_hash(aggregation: WalkForwardAggregation) -> str:
     payload = aggregation.model_dump(mode="json")
+    if aggregation.aggregation_version == 1:
+        for window in payload["windows"]:
+            window.pop("funding_artifact_hash", None)
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return sha256(canonical).hexdigest()
 

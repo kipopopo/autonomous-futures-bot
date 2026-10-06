@@ -103,7 +103,12 @@ class CausalCachedEvaluatorAdapter:
                 context_frames[window_id],
             )
             materialized_windows.append(
-                CachedEvaluationWindow(spec=window.spec, frame=causal_frame)
+                CachedEvaluationWindow(
+                    spec=window.spec,
+                    frame=causal_frame,
+                    funding_events=window.copy_funding_events(),
+                    funding_slice=window.funding_slice,
+                )
             )
         return self.adapter.evaluate(materialized_windows, evaluated_at=evaluated_at)
 

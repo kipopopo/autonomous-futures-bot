@@ -189,3 +189,10 @@ Consumer follow-up verification: the cycle no longer reports adoption rejected b
 > “Credentials, API keys, passwords, private keys, connection strings dan host details tidak boleh dibaca, dipaparkan, dilog atau ditampal.”
 
 The earlier detailed handoff remains in repository history, but is not an operational checklist or authorization source. Use `verification/INDEPENDENT_PRODUCTION_READINESS.md` and the current source/tests for evidence; re-verify any external state before acting.
+
+## Funding-bound offline research correction — 2026-10-06
+
+- Local implementation now models signed funding settlements and requires a verified, hash-bound funding slice through cached simulation, OOS aggregation, persisted qualification, Phase 250/253/autonomous loaders, and offline exploration. Cached-window frames are defensive copies. Synthetic autonomous-base windows and unverified exploration bars fail closed before qualification outputs.
+- Related locked regressions: **511 passed in 51.09s**; after the verified exploration-loader integration, its focused integration/exploration subset passed **13 in 6.88s**. Ruff passed, 719 files formatted, native/Linux mypy passed for 359 source files, lock check/changed-file compile/diff checks passed. Temporary catalog integration fixtures are synthetic and test plumbing only.
+- Local immutable-data files contain kline Parquet/manifests but no persisted funding/mark-price artifacts or root bundle/registry. Current-market/complete derivative provenance is **UNAVAILABLE**. No exchange/provider request, VPS operation, testnet/live activation or order was made.
+- Full pytest and exact-head Actions remain pending publication. See `verification/FUNDING_BOUND_OOS_20261006.md`; it must be updated with the published SHA and exact Actions result after push. **Project remains NOT PRODUCTION READY.** Research003 remains rejected; no candidate was promoted/admitted. Production/data/legal/account/capital/kill-switch/reconciliation gates remain open.

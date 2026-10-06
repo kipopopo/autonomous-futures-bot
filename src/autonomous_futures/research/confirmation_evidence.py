@@ -127,6 +127,12 @@ def write_confirmation_window_evidence(
     declared_config: TradeSimulationConfig,
 ) -> ConfirmationWindowEvidence:
     candidate, qualification = _verified_sources(candidate, qualification)
+    if (
+        simulation.simulation_version != 3
+        or window.funding_artifact_hash is None
+        or simulation.funding_artifact_hash != window.funding_artifact_hash
+    ):
+        raise DomainViolation("confirmation requires hash-bound funding simulation")
     try:
         provisional = ConfirmationWindowEvidence.model_validate_json(
             json.dumps(

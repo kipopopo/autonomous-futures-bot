@@ -33,6 +33,7 @@ from pydantic import ValidationError
 
 from autonomous_futures.creator_staging_probe import assert_offline_safety_invariants
 from autonomous_futures.data.parquet import DataQualityError, canonicalize_bars
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.errors import DomainViolation
 from autonomous_futures.research.cached_evaluation import (
     CachedEvaluationWindow,
@@ -139,6 +140,108 @@ def _make_sim_config(
         slippage_rate=slippage_rate,
         **kwargs,
     )
+
+
+# ---------------------------------------------------------------------------
+def _with_synthetic_funding(window: CachedEvaluationWindow) -> CachedEvaluationWindow:
+    funding = pd.DataFrame(columns=("symbol", "funding_time", "funding_rate", "funding_mark_price"))
+    spec = window.spec.model_copy(update={"funding_artifact_hash": "d" * 64})
+    return CachedEvaluationWindow(
+        spec=spec,
+        frame=window.copy_frame(),
+        funding_slice=VerifiedFundingSlice(
+            symbol=spec.symbol,
+            time_start=spec.time_start,
+            time_end=spec.time_end,
+            bundle_hash=spec.bundle_hash,
+            dataset_registry_hash=spec.dataset_registry_hash,
+            manifest_hash="d" * 64,
+            artifact_sha256="e" * 64,
+            _events=funding,
+        ),
+    )
+
+
+def _simulate_with_synthetic_funding(candidate, frame, window, config):
+    return simulate_candidate_window(
+        candidate,
+        frame,
+        symbol=window.spec.symbol,
+        config=config,
+        funding_events=window.copy_funding_events(),
+        funding_artifact_hash=window.spec.funding_artifact_hash,
+    )
+
+
+def test_verified_multi_asset_windows_use_provenance_bound_loader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    data_dir = tmp_path / "5m" / "canonical"
+    data_dir.mkdir(parents=True)
+    (data_dir / "BTCUSDT-5m.parquet").write_bytes(b"fixture")
+    frame = _make_test_bars(start, 25)
+    monkeypatch.setattr(
+        eval_script,
+        "verify_cached_kline_provenance",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        eval_script,
+        "read_canonical_parquet",
+        lambda *_args, **_kwargs: frame,
+        raising=False,
+    )
+
+    def verified_factory(**kwargs):
+        spec = CachedEvaluationWindowSpec(
+            window_id=kwargs["window_id"],
+            symbol=kwargs["symbol"],
+            bundle_hash=kwargs["bundle_hash"],
+            dataset_registry_hash=kwargs["dataset_registry_hash"],
+            funding_artifact_hash="d" * 64,
+            time_start=kwargs["time_start"],
+            time_end=kwargs["time_end"],
+        )
+        empty_funding = pd.DataFrame(
+            columns=("symbol", "funding_time", "funding_rate", "funding_mark_price")
+        )
+        return CachedEvaluationWindow(
+            spec=spec,
+            frame=kwargs["frame"],
+            funding_slice=VerifiedFundingSlice(
+                symbol=spec.symbol,
+                time_start=spec.time_start,
+                time_end=spec.time_end,
+                bundle_hash=spec.bundle_hash,
+                dataset_registry_hash=spec.dataset_registry_hash,
+                manifest_hash="d" * 64,
+                artifact_sha256="e" * 64,
+                _events=empty_funding,
+            ),
+        )
+
+    monkeypatch.setattr(
+        eval_script, "load_verified_cached_evaluation_window", verified_factory, raising=False
+    )
+    dataset_root = tmp_path / "dataset"
+    windows = eval_script.load_verified_sequential_oos_windows(
+        symbol="BTCUSDT",
+        count=1,
+        bars_per_window=25,
+        start=start,
+        bundle_hash=PINNED_BUNDLE_HASH,
+        dataset_registry_hash=PINNED_REGISTRY_HASH,
+        data_dir=data_dir,
+        dataset_root=dataset_root,
+        bundle_path=dataset_root / "bundle.json",
+        registry_path=dataset_root / "registry.json",
+    )
+
+    assert len(windows) == 1
+    assert windows[0].funding_slice is not None
+    assert windows[0].spec.funding_artifact_hash == "d" * 64
 
 
 # ---------------------------------------------------------------------------
@@ -396,9 +499,22 @@ class TestCapitalAndDynamicLeverageRiskEnforcement:
 
         orig_sim = cws.simulate_cached_signals
 
-        def _mock_simulate(signals: Any, *, symbol: str, config: TradeSimulationConfig) -> Any:
+        def _mock_simulate(
+            signals: Any,
+            *,
+            symbol: str,
+            config: TradeSimulationConfig,
+            funding_events: pd.DataFrame | None = None,
+            funding_artifact_hash: str | None = None,
+        ) -> Any:
             captured_config.append(config)
-            return orig_sim(signals, symbol=symbol, config=config)
+            return orig_sim(
+                signals,
+                symbol=symbol,
+                config=config,
+                funding_events=funding_events,
+                funding_artifact_hash=funding_artifact_hash,
+            )
 
         monkeypatch.setattr(cws, "simulate_cached_signals", _mock_simulate)
 
@@ -542,15 +658,16 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         cfg = _make_sim_config()
         for sym, target in PINNED_TARGETS.items():
             candidate = eval_script.load_and_verify_candidate(target)
-            windows = eval_script.establish_sequential_oos_windows(
-                symbol=sym, count=3, bars_per_window=60, start=start
+            windows = tuple(
+                _with_synthetic_funding(window)
+                for window in eval_script.establish_sequential_oos_windows(
+                    symbol=sym, count=3, bars_per_window=60, start=start
+                )
             )
             agg = evaluate_cached_oos_walk_forward(
                 candidate,
                 windows,
-                simulator=lambda c, f, w: simulate_candidate_window(
-                    c, f, symbol=w.spec.symbol, config=cfg
-                ),
+                simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, cfg),
             )
             assert agg.window_count == 3
             assert agg.data_source == "cached_only"
@@ -561,22 +678,21 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         start = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
         cfg = _make_sim_config()
         candidate = eval_script.load_and_verify_candidate(PINNED_TARGETS["BTCUSDT"])
-        windows = eval_script.establish_sequential_oos_windows(
-            symbol="BTCUSDT", count=3, bars_per_window=60, start=start
+        windows = tuple(
+            _with_synthetic_funding(window)
+            for window in eval_script.establish_sequential_oos_windows(
+                symbol="BTCUSDT", count=3, bars_per_window=60, start=start
+            )
         )
         agg1 = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=cfg
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, cfg),
         )
         agg2 = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=cfg
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, cfg),
         )
         h1 = walk_forward_aggregation_hash(agg1)
         h2 = walk_forward_aggregation_hash(agg2)
@@ -587,15 +703,16 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         start = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
         cfg = _make_sim_config()
         candidate = eval_script.load_and_verify_candidate(PINNED_TARGETS["BTCUSDT"])
-        windows = eval_script.establish_sequential_oos_windows(
-            symbol="BTCUSDT", count=3, bars_per_window=60, start=start
+        windows = tuple(
+            _with_synthetic_funding(window)
+            for window in eval_script.establish_sequential_oos_windows(
+                symbol="BTCUSDT", count=3, bars_per_window=60, start=start
+            )
         )
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=cfg
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, cfg),
         )
         base_hash = walk_forward_aggregation_hash(agg)
 
@@ -616,15 +733,16 @@ class TestWalkForwardAggregationAndDeterministicHashing:
         start = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
         cfg = _make_sim_config()
         candidate = eval_script.load_and_verify_candidate(PINNED_TARGETS["BTCUSDT"])
-        windows = eval_script.establish_sequential_oos_windows(
-            symbol="BTCUSDT", count=3, bars_per_window=60, start=start
+        windows = tuple(
+            _with_synthetic_funding(window)
+            for window in eval_script.establish_sequential_oos_windows(
+                symbol="BTCUSDT", count=3, bars_per_window=60, start=start
+            )
         )
         agg = evaluate_cached_oos_walk_forward(
             candidate,
             windows,
-            simulator=lambda c, f, w: simulate_candidate_window(
-                c, f, symbol=w.spec.symbol, config=cfg
-            ),
+            simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, cfg),
         )
 
         out_path = tmp_path / "walk-forward-aggregation.json"
@@ -675,15 +793,16 @@ class TestPortfolioComparativeMatrixRankingLogic:
         cfg = _make_sim_config()
         for sym, target in PINNED_TARGETS.items():
             candidate = eval_script.load_and_verify_candidate(target)
-            windows = eval_script.establish_sequential_oos_windows(
-                symbol=sym, count=3, bars_per_window=60, start=start
+            windows = tuple(
+                _with_synthetic_funding(window)
+                for window in eval_script.establish_sequential_oos_windows(
+                    symbol=sym, count=3, bars_per_window=60, start=start
+                )
             )
             agg = evaluate_cached_oos_walk_forward(
                 candidate,
                 windows,
-                simulator=lambda c, f, w: simulate_candidate_window(
-                    c, f, symbol=w.spec.symbol, config=cfg
-                ),
+                simulator=lambda c, f, w: _simulate_with_synthetic_funding(c, f, w, cfg),
             )
             agg_hash = walk_forward_aggregation_hash(agg)
             results[sym] = (agg, agg_hash, 1.5)
@@ -833,32 +952,39 @@ class TestCliRunnerExecutionAndArtifactPersistence:
         assert code == 0
         assert "Phase 253 Multi-Asset Offline Walk-Forward Evaluation" in out.getvalue()
 
-    def test_cli_end_to_end_execution_synthetic_run(self, tmp_path: Path) -> None:
+    def test_cli_missing_verified_input_fails_before_creating_output_root(
+        self, tmp_path: Path
+    ) -> None:
+        output_dir = tmp_path / "missing-verified-input"
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = script_main(
+                ["--output-dir", str(output_dir), "--windows-count", "1", "--bars-per-window", "30"]
+            )
+
+        assert code == 3
+        assert json.loads(out.getvalue())["message"] == "verified market-data input unavailable"
+        assert not output_dir.exists()
+
+    def test_cli_rejects_unverified_synthetic_run_before_persistence(self, tmp_path: Path) -> None:
+        output_dir = tmp_path / "synthetic-run"
         out = io.StringIO()
         with redirect_stdout(out):
             code = script_main(
                 [
                     "--output-dir",
-                    str(tmp_path),
+                    str(output_dir),
                     "--windows-count",
                     "3",
                     "--bars-per-window",
                     "60",
                 ]
             )
-        assert code == 0
-
-        # Assert all 6 artifacts exist
-        expected_artifacts = [
-            "walk-forward-aggregation-BTCUSDT.json",
-            "walk-forward-aggregation-ETHUSDT.json",
-            "walk-forward-aggregation-SOLUSDT.json",
-            "walk-forward-aggregation-DOGEUSDT.json",
-            "portfolio-comparison-matrix.json",
-            "evaluation-summary.json",
-        ]
-        for art_name in expected_artifacts:
-            assert (tmp_path / art_name).is_file(), f"Missing artifact: {art_name}"
+        assert code == 3
+        summary = json.loads(out.getvalue())
+        assert summary["error_code"] == "evaluation_data_error"
+        assert summary["message"] == "verified market-data input unavailable"
+        assert not output_dir.exists()
 
     def test_cli_end_to_end_with_canonical_parquet_data(self) -> None:
         summary_path = Path("artifacts/research/phase253/evaluation-summary.json")
@@ -868,15 +994,20 @@ class TestCliRunnerExecutionAndArtifactPersistence:
         assert set(summary["assets_evaluated"]) == {"BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT"}
 
     def test_cli_idempotent_execution(self, tmp_path: Path) -> None:
+        output_dir = tmp_path / "idempotent"
         out1 = io.StringIO()
         with redirect_stdout(out1):
-            code1 = script_main(["--output-dir", str(tmp_path), "--windows-count", "2"])
-        assert code1 == 0
+            code1 = script_main(["--output-dir", str(output_dir), "--windows-count", "2"])
+        assert code1 == 3
+        assert json.loads(out1.getvalue())["message"] == "verified market-data input unavailable"
+        assert not output_dir.exists()
 
         out2 = io.StringIO()
         with redirect_stdout(out2):
-            code2 = script_main(["--output-dir", str(tmp_path), "--windows-count", "2"])
-        assert code2 == 0
+            code2 = script_main(["--output-dir", str(output_dir), "--windows-count", "2"])
+        assert code2 == 3
+        assert json.loads(out2.getvalue())["message"] == json.loads(out1.getvalue())["message"]
+        assert not output_dir.exists()
 
     def test_cli_error_handling_missing_candidate_or_bad_args(self) -> None:
         # Invalid flag

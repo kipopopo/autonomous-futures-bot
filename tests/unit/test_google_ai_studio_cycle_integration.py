@@ -21,6 +21,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice  # noqa: E402
 from autonomous_futures.domain.contracts import (  # noqa: E402
     CandidateSimulationRisk,
     EntryExit,
@@ -93,6 +94,7 @@ from scripts.run_autonomous_cycle import (  # noqa: E402
 
 MOCK_BUNDLE_HASH = "19a55436cd764071c70f068faf1211fe72e70b1cb7803f06ef643b84687f3816"
 MOCK_REGISTRY_HASH = "583cd7d15cb0a3faf019cb9940f2739578ba9d88d1b62792cb1a9f0a2e8d72bb"
+MOCK_FUNDING_HASH = "a" * 64
 MOCK_TIMESTAMP = datetime(2026, 9, 8, 12, 0, tzinfo=UTC)
 _SECRET_PATTERN = re.compile(
     r"(?i)(AIza[0-9A-Za-z\-_]{20,}|ya29\.[0-9A-Za-z\-_]+|bearer\s+[A-Za-z0-9\-._~+/]+=*)"
@@ -144,6 +146,8 @@ def _mock_fast_simulator(
         exit_reason="stop_loss",
     )
     return TradeSimulationResult(
+        simulation_version=3,
+        funding_artifact_hash=window.spec.funding_artifact_hash,
         symbol=window.spec.symbol,
         starting_equity=Decimal("100.00"),
         final_equity=Decimal("104.80"),
@@ -174,10 +178,25 @@ def _make_mock_window(symbol: str = "BTCUSDT", n_bars: int = 20) -> CachedEvalua
         symbol=symbol,
         bundle_hash=MOCK_BUNDLE_HASH,
         dataset_registry_hash=MOCK_REGISTRY_HASH,
+        funding_artifact_hash=MOCK_FUNDING_HASH,
         time_start=timestamps[0].to_pydatetime(),
         time_end=timestamps[-1].to_pydatetime() + timedelta(minutes=5),
     )
-    return CachedEvaluationWindow(spec=spec, frame=df)
+    funding = pd.DataFrame(columns=("symbol", "funding_time", "funding_rate", "funding_mark_price"))
+    return CachedEvaluationWindow(
+        spec=spec,
+        frame=df,
+        funding_slice=VerifiedFundingSlice(
+            symbol=symbol,
+            time_start=spec.time_start,
+            time_end=spec.time_end,
+            bundle_hash=MOCK_BUNDLE_HASH,
+            dataset_registry_hash=MOCK_REGISTRY_HASH,
+            manifest_hash=MOCK_FUNDING_HASH,
+            artifact_sha256="b" * 64,
+            _events=funding,
+        ),
+    )
 
 
 def _make_candidate(cand_id: str = "cand-001", symbol: str = "BTCUSDT") -> CreatorCandidateArtifact:

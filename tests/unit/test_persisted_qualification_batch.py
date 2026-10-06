@@ -33,6 +33,7 @@ from autonomous_futures.research.walk_forward import (
 )
 
 START = datetime(2026, 8, 8, 12, tzinfo=UTC)
+FUNDING_HASH = "c" * 64
 
 
 def _candidate(candidate_id: str, offset: int):
@@ -68,6 +69,7 @@ def _window(window_id: str, offset: int, pnl_text: str, drawdown: str = "2"):
         window_id=window_id,
         symbol="BTCUSDT",
         split="oos",
+        funding_artifact_hash=FUNDING_HASH,
         window_start=start,
         window_end=start + timedelta(minutes=10),
         metrics=TradePerformanceMetrics(
@@ -97,6 +99,7 @@ def _aggregation(*, drawdown: str = "2"):
         (_window("fold-1", 0, "5", drawdown), _window("fold-2", 4, "-1", drawdown)),
         required_symbols=("BTCUSDT",),
         minimum_windows=2,
+        aggregation_version=2,
     )
 
 

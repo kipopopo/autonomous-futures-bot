@@ -305,6 +305,7 @@ def test_candidate_window_simulation_honors_declared_strategy_exit() -> None:
         _frame(),
         symbol="BTCUSDT",
         config=TradeSimulationConfig(
+            funding_mode="legacy_optional",
             starting_equity=Decimal("100"),
             position_fraction=Decimal("1"),
             taker_fee_rate=Decimal("0"),
@@ -339,6 +340,7 @@ def test_candidate_window_simulation_composes_causal_signals_with_cached_ledger(
         source,
         symbol="BTCUSDT",
         config=TradeSimulationConfig(
+            funding_mode="legacy_optional",
             starting_equity=Decimal("100"),
             position_fraction=Decimal("1"),
             taker_fee_rate=Decimal("0"),
@@ -359,6 +361,7 @@ def test_candidate_window_simulation_rejects_outside_universe_symbol() -> None:
             _frame(),
             symbol="ETHUSDT",
             config=TradeSimulationConfig(
+                funding_mode="legacy_optional",
                 starting_equity=Decimal("100"),
                 position_fraction=Decimal("1"),
                 taker_fee_rate=Decimal("0"),
@@ -377,6 +380,7 @@ def test_expression_feature_must_be_declared() -> None:
 def test_candidate_vetoes_block_cached_entries() -> None:
     candidate = _candidate(vetoes=("returns > 0", "returns < 0"))
     config = TradeSimulationConfig(
+        funding_mode="legacy_optional",
         starting_equity=Decimal("100"),
         position_fraction=Decimal("0.1"),
         taker_fee_rate=Decimal("0.0005"),

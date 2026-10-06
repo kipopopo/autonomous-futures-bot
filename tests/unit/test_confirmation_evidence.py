@@ -4,6 +4,7 @@ import json
 import os
 from datetime import timedelta
 from decimal import Decimal
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,60 @@ def test_cross_scope_window_preserves_original_bindings_and_remains_observation_
         == evidence
     )
     assert tuple(tmp_path.iterdir()) == (path,)
+
+
+def test_legacy_confirmation_without_funding_fields_remains_readable(tmp_path: Path) -> None:
+    candidate, qualification, window, simulation, config = _inputs()
+    legacy_window = window.model_copy(update={"funding_artifact_hash": None})
+    legacy_simulation = simulation.model_copy(
+        update={
+            "simulation_version": 2,
+            "funding_artifact_hash": None,
+            "total_funding_payment": Decimal("0"),
+        }
+    )
+    path = tmp_path / "legacy-confirmation.json"
+    write_confirmation_window_evidence(path, candidate, qualification, window, simulation, config)
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.pop("evidence_hash", None)
+    payload["window"] = legacy_window.model_dump(mode="json")
+    payload["simulation"] = legacy_simulation.model_dump(mode="json")
+    payload["window"].pop("funding_artifact_hash", None)
+    payload["simulation"].pop("total_funding_payment", None)
+    payload["simulation"].pop("funding_artifact_hash", None)
+    for trade in payload["simulation"]["trades"]:
+        trade.pop("funding_payment", None)
+    payload["declared_config"].pop("funding_mode", None)
+    payload["evidence_hash"] = sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = read_confirmation_window_evidence(path, candidate, qualification)
+
+    assert loaded.simulation.simulation_version == 2
+    assert loaded.window.funding_artifact_hash is None
+
+
+def test_new_confirmation_writer_rejects_legacy_simulation(tmp_path: Path) -> None:
+    candidate, qualification, window, simulation, config = _inputs()
+    legacy_window = window.model_copy(update={"funding_artifact_hash": None})
+    legacy_simulation = simulation.model_copy(
+        update={
+            "simulation_version": 2,
+            "funding_artifact_hash": None,
+            "total_funding_payment": Decimal("0"),
+        }
+    )
+    path = tmp_path / "absent" / "confirmation.json"
+
+    with pytest.raises(DomainViolation, match="funding"):
+        write_confirmation_window_evidence(
+            path, candidate, qualification, legacy_window, legacy_simulation, config
+        )
+
+    assert not path.parent.exists()
 
 
 @pytest.mark.parametrize(

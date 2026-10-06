@@ -25,6 +25,7 @@ from autonomous_futures.research.walk_forward import (
 )
 
 START = datetime(2026, 8, 7, 12, tzinfo=UTC)
+FUNDING_HASH = "c" * 64
 
 
 def _candidate(*, symbols: tuple[str, ...] = ("BTCUSDT",)):
@@ -65,6 +66,7 @@ def _window(
         window_id=window_id,
         symbol=symbol,
         split="oos",
+        funding_artifact_hash=FUNDING_HASH,
         window_start=window_start,
         window_end=window_start + timedelta(minutes=10),
         metrics=TradePerformanceMetrics(
@@ -94,6 +96,7 @@ def _aggregation(*, second_pnl: str = "-1", second_drawdown: str = "2"):
         (_window("fold-1", 0, "5"), _window("fold-2", 4, second_pnl, drawdown=second_drawdown)),
         required_symbols=("BTCUSDT",),
         minimum_windows=2,
+        aggregation_version=2,
     )
 
 
@@ -108,6 +111,28 @@ def _policy(**overrides: object) -> WalkForwardQualificationPolicy:
     }
     values.update(overrides)
     return WalkForwardQualificationPolicy(**values)
+
+
+def test_qualification_rejects_legacy_aggregation_without_funding_binding() -> None:
+    source = _aggregation()
+    legacy_windows = tuple(
+        window.model_copy(update={"funding_artifact_hash": None}) for window in source.windows
+    )
+    legacy = aggregate_walk_forward_metrics(
+        legacy_windows,
+        required_symbols=source.required_symbols,
+        minimum_windows=2,
+    )
+
+    with pytest.raises(DataQualityError, match="funding-bound"):
+        build_walk_forward_qualification_artifact(
+            candidate=_candidate(),
+            aggregation=legacy,
+            policy=_policy(),
+            evaluator_run_id="legacy-oos-run",
+            evaluator_version="walk-forward-v1",
+            evaluated_at=START,
+        )
 
 
 def test_strict_oos_qualification_binds_aggregation_and_preserves_safety() -> None:
@@ -196,6 +221,7 @@ def test_strict_oos_qualification_requires_every_symbol_to_pass() -> None:
         ),
         required_symbols=("BTCUSDT", "ETHUSDT"),
         minimum_windows=2,
+        aggregation_version=2,
     )
 
     artifact = build_walk_forward_qualification_artifact(

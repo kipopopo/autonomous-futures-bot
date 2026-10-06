@@ -210,6 +210,10 @@ def build_walk_forward_qualification_artifact(
     evaluated_at: datetime,
 ) -> CreatorCandidateQualificationArtifact:
     """Build strict OOS qualification evidence without changing candidate state."""
+    if aggregation.aggregation_version != 2:
+        raise DataQualityError(
+            "walk-forward qualification requires funding-bound aggregation version 2"
+        )
     if candidate.strategy.universe.symbols != aggregation.required_symbols:
         raise DataQualityError("walk-forward candidate universe does not match aggregation")
 

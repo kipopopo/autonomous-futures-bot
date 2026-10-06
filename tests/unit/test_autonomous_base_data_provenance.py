@@ -10,6 +10,11 @@ import pandas as pd
 import pytest
 
 from autonomous_futures.data.parquet import DataQualityError, write_canonical_parquet
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
+from autonomous_futures.research.cached_evaluation import (
+    CachedEvaluationWindow,
+    CachedEvaluationWindowSpec,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -111,3 +116,150 @@ def test_normal_cycle_accepts_explicit_catalog_paths(tmp_path: Path) -> None:
     assert args.dataset_root == tmp_path
     assert args.bundle_path == tmp_path / "bundle.json"
     assert args.registry_path == tmp_path / "registry.json"
+
+
+def test_normal_cycle_windows_preserve_verified_funding_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.run_autonomous_cycle as cycle_script
+
+    parquet_path = tmp_path / "BTCUSDT-5m.parquet"
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    frame = pd.DataFrame(
+        {
+            "timestamp": [start + timedelta(minutes=5 * i) for i in range(4)],
+            "open": [100, 101, 102, 103],
+            "high": [101, 102, 103, 104],
+            "low": [99, 100, 101, 102],
+            "close": [100, 101, 102, 103],
+        }
+    )
+    write_canonical_parquet(frame, parquet_path, interval=timedelta(minutes=5))
+    monkeypatch.setattr(
+        cycle_script, "verify_cached_kline_provenance", lambda *_args, **_kwargs: None
+    )
+    funding_hash = "c" * 64
+
+    def verified_window_factory(**kwargs):
+        spec = CachedEvaluationWindowSpec(
+            window_id=kwargs["window_id"],
+            symbol=kwargs["symbol"],
+            bundle_hash=kwargs["bundle_hash"],
+            dataset_registry_hash=kwargs["dataset_registry_hash"],
+            funding_artifact_hash=funding_hash,
+            time_start=kwargs["time_start"],
+            time_end=kwargs["time_end"],
+        )
+        funding = pd.DataFrame(
+            columns=("symbol", "funding_time", "funding_rate", "funding_mark_price")
+        )
+        return CachedEvaluationWindow(
+            spec=spec,
+            frame=kwargs["frame"],
+            funding_slice=VerifiedFundingSlice(
+                symbol=spec.symbol,
+                time_start=spec.time_start,
+                time_end=spec.time_end,
+                bundle_hash=spec.bundle_hash,
+                dataset_registry_hash=spec.dataset_registry_hash,
+                manifest_hash=funding_hash,
+                artifact_sha256="d" * 64,
+                _events=funding,
+            ),
+        )
+
+    monkeypatch.setattr(
+        cycle_script,
+        "load_verified_cached_evaluation_window",
+        verified_window_factory,
+        raising=False,
+    )
+    windows = cycle_script.load_and_slice_windows(
+        parquet_path,
+        symbol="BTCUSDT",
+        bundle_hash="a" * 64,
+        dataset_registry_hash="b" * 64,
+        windows_count=1,
+        bars_per_window=4,
+        dataset_root=tmp_path,
+        bundle_path=tmp_path / "bundle.json",
+        registry_path=tmp_path / "registry.json",
+    )
+
+    assert len(windows) == 1
+    assert windows[0].funding_slice is not None
+    assert windows[0].spec.funding_artifact_hash == funding_hash
+
+
+def test_research_base_windows_preserve_verified_funding_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.run_autonomous_base as base_script
+
+    parquet_path = tmp_path / "BTCUSDT-5m.parquet"
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    frame = pd.DataFrame(
+        {
+            "timestamp": [start + timedelta(minutes=5 * i) for i in range(4)],
+            "open": [100, 101, 102, 103],
+            "high": [101, 102, 103, 104],
+            "low": [99, 100, 101, 102],
+            "close": [100, 101, 102, 103],
+        }
+    )
+    write_canonical_parquet(frame, parquet_path, interval=timedelta(minutes=5))
+    monkeypatch.setattr(
+        base_script, "verify_cached_kline_provenance", lambda *_args, **_kwargs: None
+    )
+    funding_hash = "c" * 64
+
+    def verified_window_factory(**kwargs):
+        spec = CachedEvaluationWindowSpec(
+            window_id=kwargs["window_id"],
+            symbol=kwargs["symbol"],
+            bundle_hash=kwargs["bundle_hash"],
+            dataset_registry_hash=kwargs["dataset_registry_hash"],
+            funding_artifact_hash=funding_hash,
+            time_start=kwargs["time_start"],
+            time_end=kwargs["time_end"],
+        )
+        empty_funding = pd.DataFrame(
+            columns=("symbol", "funding_time", "funding_rate", "funding_mark_price")
+        )
+        slice_evidence = VerifiedFundingSlice(
+            symbol=spec.symbol,
+            time_start=spec.time_start,
+            time_end=spec.time_end,
+            bundle_hash=spec.bundle_hash,
+            dataset_registry_hash=spec.dataset_registry_hash,
+            manifest_hash=funding_hash,
+            artifact_sha256="d" * 64,
+            _events=empty_funding,
+        )
+        return CachedEvaluationWindow(
+            spec=spec,
+            frame=kwargs["frame"],
+            funding_slice=slice_evidence,
+        )
+
+    monkeypatch.setattr(
+        base_script,
+        "load_verified_cached_evaluation_window",
+        verified_window_factory,
+        raising=False,
+    )
+    windows = base_script.load_and_slice_windows(
+        parquet_path,
+        symbol="BTCUSDT",
+        bundle_hash="a" * 64,
+        dataset_registry_hash="b" * 64,
+        dataset_root=tmp_path,
+        bundle_path=tmp_path / "bundle.json",
+        registry_path=tmp_path / "registry.json",
+        windows_count=1,
+        bars_per_window=4,
+    )
+
+    assert len(windows) == 1
+    assert windows[0].funding_slice is not None
+    assert windows[0].spec.funding_artifact_hash == funding_hash

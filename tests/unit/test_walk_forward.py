@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -223,3 +224,19 @@ def test_aggregation_writer_cleans_temporary_file_when_publication_fails(
     with pytest.raises(OSError, match="synthetic"):
         write_walk_forward_aggregation(tmp_path / "aggregation.json", aggregation)
     assert not tuple(tmp_path.iterdir())
+
+
+def test_legacy_aggregation_without_funding_fields_remains_readable(tmp_path: Path) -> None:
+    aggregation = aggregate_walk_forward_metrics(
+        (_window("fold-1", "BTCUSDT", 0, "1"),), required_symbols=("BTCUSDT",)
+    )
+    path = tmp_path / "legacy-aggregation.json"
+    write_walk_forward_aggregation(path, aggregation)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["aggregation"]["windows"][0].pop("funding_artifact_hash", None)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = read_walk_forward_aggregation(path)
+
+    assert loaded.aggregation.aggregation_version == 1
+    assert loaded.aggregation.windows[0].funding_artifact_hash is None

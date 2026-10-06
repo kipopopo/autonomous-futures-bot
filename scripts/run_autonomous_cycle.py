@@ -55,7 +55,7 @@ from autonomous_futures.pipeline.autonomous_cycle import (  # noqa: E402
 )
 from autonomous_futures.research.cached_evaluation import (  # noqa: E402
     CachedEvaluationWindow,
-    CachedEvaluationWindowSpec,
+    load_verified_cached_evaluation_window,
 )
 from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     CreatorCandidateArtifact,
@@ -508,15 +508,21 @@ def load_and_slice_windows(
         sub = selected.iloc[start_idx:end_idx].copy().reset_index(drop=True)
         time_start = sub["timestamp"].iloc[0].to_pydatetime()
         time_end = sub["timestamp"].iloc[-1].to_pydatetime() + timedelta(minutes=5)
-        spec = CachedEvaluationWindowSpec(
-            window_id=f"window-{symbol.lower()}-{i + 1:03d}",
-            symbol=symbol,
-            bundle_hash=bundle_hash,
-            dataset_registry_hash=dataset_registry_hash,
-            time_start=time_start,
-            time_end=time_end,
+        windows.append(
+            load_verified_cached_evaluation_window(
+                window_id=f"window-{symbol.lower()}-{i + 1:03d}",
+                symbol=symbol,
+                bundle_hash=bundle_hash,
+                dataset_registry_hash=dataset_registry_hash,
+                time_start=time_start,
+                time_end=time_end,
+                timeframe="5m",
+                frame=sub,
+                artifact_root=dataset_root,
+                bundle_path=bundle_path or dataset_root / "bundle.json",
+                registry_path=registry_path or dataset_root / "registry.json",
+            )
         )
-        windows.append(CachedEvaluationWindow(spec=spec, frame=sub))
     return tuple(windows)
 
 

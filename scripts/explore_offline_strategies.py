@@ -22,6 +22,8 @@ _SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+from autonomous_futures.api.artifacts import verify_cached_kline_provenance  # noqa: E402
+from autonomous_futures.api.catalog import DatasetCatalogIntegrityError  # noqa: E402
 from autonomous_futures.data.parquet import (  # noqa: E402
     DataQualityError,
     read_canonical_parquet,
@@ -33,9 +35,11 @@ from autonomous_futures.domain.contracts import (  # noqa: E402
     StrategySpec,
     StrategyUniverse,
 )
+from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.research.cached_evaluation import (  # noqa: E402
     CachedEvaluationWindow,
     CachedEvaluationWindowSpec,
+    load_verified_cached_evaluation_window,
 )
 from autonomous_futures.research.cached_oos_walk_forward import (  # noqa: E402
     evaluate_cached_oos_walk_forward,
@@ -124,12 +128,39 @@ def load_and_slice_windows(
     dataset_registry_hash: str = DEFAULT_REGISTRY_HASH,
     windows_count: int = 3,
     bars_per_window: int = 288,
+    dataset_root: Path | None = None,
+    bundle_path: Path | None = None,
+    registry_path: Path | None = None,
 ) -> tuple[CachedEvaluationWindow, ...]:
     """Slice canonical Parquet into contiguous historical walk-forward windows."""
     if not parquet_path.is_file():
         raise FileNotFoundError(f"Canonical Parquet file not found: {parquet_path}")
 
     delta = _timeframe_to_timedelta(timeframe)
+    if dataset_root is not None:
+        if timeframe not in ("5m", "15m"):
+            raise DataQualityError("verified exploration supports bundle-backed 5m or 15m bars")
+        selected_bundle_path = bundle_path or dataset_root / "bundle.json"
+        selected_registry_path = registry_path or dataset_root / "registry.json"
+        try:
+            verify_cached_kline_provenance(
+                parquet_path,
+                dataset_root=dataset_root,
+                bundle_path=selected_bundle_path,
+                registry_path=selected_registry_path,
+                symbol=symbol,
+                interval=timeframe,
+                bundle_hash=bundle_hash,
+                dataset_registry_hash=dataset_registry_hash,
+            )
+        except DatasetCatalogIntegrityError as exc:
+            raise DataQualityError("verified market-data catalog is unavailable") from exc
+    elif bundle_path is not None or registry_path is not None:
+        raise DataQualityError("verified exploration requires an explicit dataset root")
+    else:
+        selected_bundle_path = None
+        selected_registry_path = None
+
     df = read_canonical_parquet(parquet_path, interval=delta)
     total_bars = windows_count * bars_per_window
     if len(df) < total_bars:
@@ -155,7 +186,25 @@ def load_and_slice_windows(
             time_end=time_end,
             timeframe=timeframe,  # type: ignore[arg-type]
         )
-        windows.append(CachedEvaluationWindow(spec=spec, frame=sub))
+        if dataset_root is None:
+            windows.append(CachedEvaluationWindow(spec=spec, frame=sub))
+        else:
+            assert selected_bundle_path is not None and selected_registry_path is not None
+            windows.append(
+                load_verified_cached_evaluation_window(
+                    window_id=spec.window_id,
+                    symbol=symbol,
+                    bundle_hash=bundle_hash,
+                    dataset_registry_hash=dataset_registry_hash,
+                    time_start=time_start,
+                    time_end=time_end,
+                    timeframe=timeframe,  # type: ignore[arg-type]
+                    frame=sub,
+                    artifact_root=dataset_root,
+                    bundle_path=selected_bundle_path,
+                    registry_path=selected_registry_path,
+                )
+            )
     return tuple(windows)
 
 
@@ -524,6 +573,7 @@ def evaluate_candidate_offline(
 ) -> tuple[CreatorCandidateQualificationArtifact, dict[str, Any]]:
     """Evaluate one candidate across windows and produce qualification artifact and summary dict."""
     config = simulation_config or TradeSimulationConfig(
+        funding_mode="settled",
         starting_equity=Decimal("100.00"),
         position_fraction=Decimal("0.10"),
         taker_fee_rate=Decimal("0.0004"),
@@ -537,7 +587,14 @@ def evaluate_candidate_offline(
     def _sim(
         c: CreatorCandidateArtifact, f: Any, w: CachedEvaluationWindow
     ) -> TradeSimulationResult:
-        return simulate_candidate_window(c, f, symbol=w.spec.symbol, config=config)
+        return simulate_candidate_window(
+            c,
+            f,
+            symbol=w.spec.symbol,
+            config=config,
+            funding_events=w.copy_funding_events(),
+            funding_artifact_hash=w.spec.funding_artifact_hash,
+        )
 
     aggregation = evaluate_cached_oos_walk_forward(candidate, windows, simulator=_sim)
     now = datetime.now(UTC)
@@ -582,6 +639,11 @@ def run_strategy_exploration(
     bars_per_window: int | None = None,
     policy: WalkForwardQualificationPolicy | None = None,
     output_dir: Path | str | None = None,
+    dataset_root: Path | str = Path("research/immutable-data"),
+    bundle_path: Path | str | None = None,
+    registry_path: Path | str | None = None,
+    bundle_hash: str = DEFAULT_BUNDLE_HASH,
+    dataset_registry_hash: str = DEFAULT_REGISTRY_HASH,
 ) -> dict[str, Any]:
     """Execute complete offline strategy exploration across symbols."""
     pdir = (
@@ -617,16 +679,29 @@ def run_strategy_exploration(
     for symbol in symbols:
         parquet_file = pdir / f"{symbol}-{timeframe}.parquet"
         if not parquet_file.is_file():
-            logger.warning("Parquet data not found for %s at %s, skipping", symbol, parquet_file)
-            continue
+            raise FileNotFoundError(f"Canonical market data missing for {symbol}: {parquet_file}")
 
         windows = load_and_slice_windows(
             parquet_file,
             symbol=symbol,
             timeframe=timeframe,
+            bundle_hash=bundle_hash,
+            dataset_registry_hash=dataset_registry_hash,
             windows_count=windows_count,
             bars_per_window=actual_bars_per_window,
+            dataset_root=Path(dataset_root),
+            bundle_path=Path(bundle_path) if bundle_path is not None else None,
+            registry_path=Path(registry_path) if registry_path is not None else None,
         )
+        if any(
+            window.funding_slice is None
+            or window.spec.funding_artifact_hash is None
+            or window.funding_events is None
+            for window in windows
+        ):
+            raise DataQualityError(
+                "offline strategy exploration requires verified funding artifact slices"
+            )
 
         catalog = generate_candidate_catalog(symbol, timeframe=timeframe)
         for cand in catalog:
@@ -712,6 +787,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Path to canonical parquet directory (default: derived from timeframe)",
     )
     parser.add_argument(
+        "--dataset-root",
+        type=Path,
+        default=Path("research/immutable-data"),
+        help="Root containing the verified bundle, registry, and data artifacts",
+    )
+    parser.add_argument("--bundle-path", type=Path, default=None)
+    parser.add_argument("--registry-path", type=Path, default=None)
+    parser.add_argument("--bundle-hash", default=DEFAULT_BUNDLE_HASH)
+    parser.add_argument("--dataset-registry-hash", default=DEFAULT_REGISTRY_HASH)
+    parser.add_argument(
         "--windows-count",
         type=int,
         default=3,
@@ -775,15 +860,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.output_dir is not None
         else Path(f"data/research/strategy-exploration-{args.timeframe}")
     )
-    results = run_strategy_exploration(
-        symbols=args.symbols,
-        parquet_dir=args.parquet_dir,
-        timeframe=args.timeframe,
-        windows_count=args.windows_count,
-        bars_per_window=args.bars_per_window,
-        policy=policy,
-        output_dir=out_dir,
-    )
+    try:
+        results = run_strategy_exploration(
+            symbols=args.symbols,
+            parquet_dir=args.parquet_dir,
+            timeframe=args.timeframe,
+            windows_count=args.windows_count,
+            bars_per_window=args.bars_per_window,
+            policy=policy,
+            output_dir=out_dir,
+            dataset_root=args.dataset_root,
+            bundle_path=args.bundle_path,
+            registry_path=args.registry_path,
+            bundle_hash=args.bundle_hash,
+            dataset_registry_hash=args.dataset_registry_hash,
+        )
+    except (DataQualityError, DomainViolation, FileNotFoundError, ValueError) as exc:
+        if args.json:
+            sys.stdout.write(
+                json.dumps(
+                    {
+                        "status": "UNAVAILABLE",
+                        "error_code": "verified_data_unavailable",
+                        "message": str(exc),
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+        else:
+            sys.stderr.write(f"ERROR: verified research input unavailable: {exc}\n")
+        return 3
 
     if args.json:
         sys.stdout.write(json.dumps(results, indent=2, sort_keys=True) + "\n")

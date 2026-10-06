@@ -33,6 +33,8 @@ class WindowSimulationEvidence(DomainModel):
     def validate_window_binding(self) -> WindowSimulationEvidence:
         if self.simulation.symbol != self.window.symbol:
             raise ValueError("window simulation symbol mismatch")
+        if self.simulation.funding_artifact_hash != self.window.funding_artifact_hash:
+            raise ValueError("funding artifact hash does not match window funding scope")
         if any(
             not self.window.time_start <= point.timestamp < self.window.time_end
             for point in self.simulation.equity_curve
@@ -50,6 +52,16 @@ class WindowSimulationEvidence(DomainModel):
 
 def _content_hash(evidence: WindowSimulationEvidence) -> str:
     payload = evidence.model_dump(mode="json", exclude={"evidence_hash"})
+    if evidence.window.funding_artifact_hash is None:
+        payload["window"].pop("funding_artifact_hash", None)
+    if evidence.simulation.simulation_version == 2:
+        simulation = payload["simulation"]
+        simulation.pop("total_funding_payment", None)
+        simulation.pop("funding_artifact_hash", None)
+        for trade in simulation["trades"]:
+            trade.pop("funding_payment", None)
+    if "declared_config" in payload:
+        payload["declared_config"].pop("funding_mode", None)
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -78,6 +90,12 @@ def write_window_simulation_evidence(
         or window.timeframe != candidate.strategy.universe.timeframe
     ):
         raise DomainViolation("window simulation candidate scope mismatch")
+    if (
+        simulation.simulation_version != 3
+        or window.funding_artifact_hash is None
+        or simulation.funding_artifact_hash != window.funding_artifact_hash
+    ):
+        raise DomainViolation("new window evidence requires hash-bound funding simulation")
     provisional = WindowSimulationEvidence.model_validate_json(
         json.dumps(
             {

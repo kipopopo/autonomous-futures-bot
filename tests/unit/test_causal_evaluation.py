@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from autonomous_futures.data.parquet import DataQualityError
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.contracts import (
     EntryExit,
     FeatureRef,
@@ -190,6 +191,66 @@ def test_causal_adapter_passes_materialized_frame_to_cached_adapter() -> None:
     assert len(received) == 1
     assert received[0]["context_close"].iloc[:3].isna().all()
     assert received[0]["context_close"].iloc[3] == Decimal("105")
+
+
+def test_causal_adapter_preserves_funding_events_and_manifest_binding() -> None:
+    candidate = _candidate()
+    funding_hash = "c" * 64
+    spec = CachedEvaluationWindowSpec(
+        window_id="window-01",
+        symbol="BTCUSDT",
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=DATASET_REGISTRY_HASH,
+        funding_artifact_hash=funding_hash,
+        time_start=START,
+        time_end=START + timedelta(minutes=30),
+    )
+    funding = pd.DataFrame(
+        {
+            "symbol": ["BTCUSDT"],
+            "funding_time": [START + timedelta(minutes=5)],
+            "funding_rate": [Decimal("0.001")],
+            "funding_mark_price": [Decimal("100")],
+        }
+    )
+    funding_slice = VerifiedFundingSlice(
+        symbol="BTCUSDT",
+        time_start=spec.time_start,
+        time_end=spec.time_end,
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=DATASET_REGISTRY_HASH,
+        manifest_hash=funding_hash,
+        artifact_sha256="d" * 64,
+        _events=funding,
+    )
+    window = CachedEvaluationWindow(
+        spec=spec,
+        frame=_primary_frame(),
+        funding_slice=funding_slice,
+    )
+    received = []
+
+    def evaluator(received_candidate, frame, received_window):
+        received.append((received_window.copy_funding_events(), received_window.funding_slice))
+        return _result(received_window)
+
+    base_adapter = CachedOnlyEvaluatorAdapter(
+        candidate=candidate,
+        evaluator_run_id="evaluator-run-causal-001",
+        evaluator_version="causal-evaluator-v1",
+        evaluator=evaluator,
+    )
+    CausalCachedEvaluatorAdapter(base_adapter).evaluate(
+        (window,),
+        context_frames={"window-01": _context_frame()},
+        evaluated_at=START,
+    )
+
+    assert received[0][0] is not None
+    assert received[0][0].equals(funding)
+    assert received[0][1] is not None
+    assert received[0][1].manifest_hash == funding_hash
+    assert window.spec.funding_artifact_hash == funding_hash
 
 
 def test_causal_adapter_rejects_missing_context_window() -> None:

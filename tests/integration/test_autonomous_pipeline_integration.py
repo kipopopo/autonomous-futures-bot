@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.contracts import (
     CandidateSimulationRisk,
     EntryExit,
@@ -52,13 +53,14 @@ from autonomous_futures.research.qualification_artifacts import (
 PARQUET_PATH = Path("research/immutable-data/5m/canonical/BTCUSDT-5m.parquet")
 BUNDLE_HASH = "e" * 64
 DATASET_HASH = "f" * 64
+SYNTHETIC_FUNDING_HASH = "0" * 64
 EVAL_TIME = datetime(2026, 8, 6, 6, 0, tzinfo=UTC)
 
 
 def _load_real_cached_window(
     symbol: str = "BTCUSDT", num_bars: int = 1000
 ) -> CachedEvaluationWindow:
-    """Load canonical 5m Parquet data and construct an exact CachedEvaluationWindow."""
+    """Use local bars with a synthetic empty funding slice for code-path tests only."""
     assert PARQUET_PATH.exists(), f"Canonical Parquet file missing: {PARQUET_PATH}"
     df = pd.read_parquet(PARQUET_PATH)
     sub = df.iloc[-num_bars:].copy().reset_index(drop=True)
@@ -69,10 +71,22 @@ def _load_real_cached_window(
         symbol=symbol,
         bundle_hash=BUNDLE_HASH,
         dataset_registry_hash=DATASET_HASH,
+        funding_artifact_hash=SYNTHETIC_FUNDING_HASH,
         time_start=time_start,
         time_end=time_end,
     )
-    return CachedEvaluationWindow(spec=spec, frame=sub)
+    funding = pd.DataFrame(columns=("symbol", "funding_time", "funding_rate", "funding_mark_price"))
+    funding_slice = VerifiedFundingSlice(
+        symbol=symbol,
+        time_start=time_start,
+        time_end=time_end,
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=DATASET_HASH,
+        manifest_hash=SYNTHETIC_FUNDING_HASH,
+        artifact_sha256="1" * 64,
+        _events=funding,
+    )
+    return CachedEvaluationWindow(spec=spec, frame=sub, funding_slice=funding_slice)
 
 
 def _build_candidate(

@@ -4,13 +4,21 @@ import json
 import os
 from datetime import timedelta
 from decimal import Decimal
+from hashlib import sha256
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from pydantic import ValidationError
 
 from autonomous_futures.domain.errors import DomainViolation
-from autonomous_futures.research.trade_simulation import EquityPoint, SimulatedTrade
+from autonomous_futures.research.cached_evaluation import CachedEvaluationWindowSpec
+from autonomous_futures.research.trade_simulation import (
+    EquityPoint,
+    SimulatedTrade,
+    TradeSimulationConfig,
+    simulate_cached_signals,
+)
 from autonomous_futures.research.window_evidence import (
     read_window_simulation_evidence,
     write_window_simulation_evidence,
@@ -42,6 +50,52 @@ def test_window_ledger_round_trip_is_bound_immutable_and_hash_verified(tmp_path:
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(DomainViolation, match="hash mismatch"):
         read_window_simulation_evidence(path)
+
+
+def test_v1_window_ledger_without_funding_fields_remains_readable(tmp_path: Path) -> None:
+    candidate = _build_test_candidate("cand-window-evidence")
+    window = _make_cached_window()
+    simulation = _flat_result(candidate, window.copy_frame(), window, legacy=True)
+    window_payload = window.spec.model_dump(mode="json")
+    window_payload.pop("funding_artifact_hash", None)
+    simulation_payload = simulation.model_dump(mode="json")
+    simulation_payload.pop("total_funding_payment", None)
+    simulation_payload.pop("funding_artifact_hash", None)
+    for trade in simulation_payload["trades"]:
+        trade.pop("funding_payment", None)
+    payload = {
+        "evidence_version": 1,
+        "candidate_id": candidate.candidate_id,
+        "candidate_artifact_hash": candidate.artifact_hash,
+        "window": window_payload,
+        "simulation": simulation_payload,
+        "promotion_state": "unpromoted",
+        "execution_authority": False,
+    }
+    payload["evidence_hash"] = sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    path = tmp_path / "legacy-window.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = read_window_simulation_evidence(path)
+
+    assert loaded.simulation.simulation_version == 2
+    assert loaded.simulation.total_funding_payment == 0
+    assert loaded.window.funding_artifact_hash is None
+
+
+def test_new_window_ledger_writer_rejects_legacy_simulation(tmp_path: Path) -> None:
+    candidate = _build_test_candidate("cand-window-evidence")
+    window = _make_cached_window()
+    legacy_spec = window.spec.model_copy(update={"funding_artifact_hash": None})
+    simulation = _flat_result(candidate, window.copy_frame(), window, legacy=True)
+    path = tmp_path / "absent" / "window.json"
+
+    with pytest.raises(DomainViolation, match="funding"):
+        write_window_simulation_evidence(path, candidate, legacy_spec, simulation)
+
+    assert not path.parent.exists()
 
 
 @pytest.mark.parametrize("fault", ["candidate_hash", "bundle", "registry", "timeframe", "symbol"])
@@ -104,6 +158,39 @@ def test_window_evidence_rejects_equity_outside_its_half_open_range(tmp_path: Pa
     with pytest.raises(ValidationError, match="outside window"):
         write_window_simulation_evidence(path, candidate, window.spec, result)
     assert not path.parent.exists()
+
+
+def test_funding_ledger_is_bound_to_the_exact_window_derivative_manifest(tmp_path: Path) -> None:
+    candidate = _build_test_candidate("cand-window-evidence")
+    window = _make_cached_window()
+    frame = window.copy_frame()
+    frame["signal"] = 0
+    funding = pd.DataFrame(columns=("symbol", "funding_time", "funding_rate", "funding_mark_price"))
+    simulation = simulate_cached_signals(
+        frame,
+        symbol=window.spec.symbol,
+        config=TradeSimulationConfig(
+            starting_equity=Decimal("100"),
+            position_fraction=Decimal("0.5"),
+            taker_fee_rate=Decimal("0"),
+            slippage_rate=Decimal("0"),
+        ),
+        funding_events=funding,
+        funding_artifact_hash="b" * 64,
+    )
+
+    absent_path = tmp_path / "absent" / "window.json"
+    with pytest.raises(DomainViolation, match="funding"):
+        write_window_simulation_evidence(absent_path, candidate, window.spec, simulation)
+    assert not absent_path.parent.exists()
+
+    bound_spec = CachedEvaluationWindowSpec.model_validate(
+        window.spec.model_dump() | {"funding_artifact_hash": "b" * 64}
+    )
+    saved = write_window_simulation_evidence(
+        tmp_path / "window.json", candidate, bound_spec, simulation
+    )
+    assert saved.window.funding_artifact_hash == simulation.funding_artifact_hash
 
 
 @pytest.mark.parametrize("fault", ["symbol", "entry", "exit"])

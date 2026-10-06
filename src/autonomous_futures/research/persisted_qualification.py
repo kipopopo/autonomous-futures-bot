@@ -174,6 +174,10 @@ def run_persisted_qualification_batch(
         try:
             aggregation_path = _resolve_batch_reference(aggregation_root, aggregation_reference)
             persisted_aggregation = read_walk_forward_aggregation(aggregation_path)
+            if persisted_aggregation.aggregation.aggregation_version != 2:
+                raise DataQualityError(
+                    "persisted OOS qualification requires funding-bound aggregation version 2"
+                )
             artifact = build_walk_forward_qualification_artifact(
                 candidate=candidate,
                 aggregation=persisted_aggregation.aggregation,
@@ -230,6 +234,10 @@ def qualify_persisted_candidate(
     """Build and persist strict OOS evidence without mutating the candidate."""
     candidate: CreatorCandidateArtifact = read_creator_candidate_artifact(candidate_artifact_path)
     persisted_aggregation = read_walk_forward_aggregation(aggregation_path)
+    if persisted_aggregation.aggregation.aggregation_version != 2:
+        raise DataQualityError(
+            "persisted OOS qualification requires funding-bound aggregation version 2"
+        )
     artifact = build_walk_forward_qualification_artifact(
         candidate=candidate,
         aggregation=persisted_aggregation.aggregation,

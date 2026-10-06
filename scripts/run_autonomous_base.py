@@ -57,6 +57,7 @@ from autonomous_futures.research.autonomy_contracts import (  # noqa: E402
 from autonomous_futures.research.cached_evaluation import (  # noqa: E402
     CachedEvaluationWindow,
     CachedEvaluationWindowSpec,
+    load_verified_cached_evaluation_window,
 )
 from autonomous_futures.research.creator_artifacts import (  # noqa: E402
     read_creator_candidate_artifact,
@@ -280,15 +281,21 @@ def load_and_slice_windows(
         sub = selected.iloc[start_idx:end_idx].copy().reset_index(drop=True)
         time_start = sub["timestamp"].iloc[0].to_pydatetime()
         time_end = sub["timestamp"].iloc[-1].to_pydatetime() + timedelta(minutes=5)
-        spec = CachedEvaluationWindowSpec(
-            window_id=f"window-{symbol.lower()}-{i + 1:03d}",
-            symbol=symbol,
-            bundle_hash=bundle_hash,
-            dataset_registry_hash=dataset_registry_hash,
-            time_start=time_start,
-            time_end=time_end,
+        windows.append(
+            load_verified_cached_evaluation_window(
+                window_id=f"window-{symbol.lower()}-{i + 1:03d}",
+                symbol=symbol,
+                bundle_hash=bundle_hash,
+                dataset_registry_hash=dataset_registry_hash,
+                time_start=time_start,
+                time_end=time_end,
+                timeframe="5m",
+                frame=sub,
+                artifact_root=dataset_root,
+                bundle_path=bundle_path,
+                registry_path=registry_path,
+            )
         )
-        windows.append(CachedEvaluationWindow(spec=spec, frame=sub))
     return tuple(windows)
 
 
@@ -676,6 +683,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "max_cycles": config.max_cycles,
         "provider_mode": "offline_deterministic",
         "provider_calls_enabled": False,
+        "funding_provenance": "not_loaded",
+        "qualification_ready": False,
         "initial_feedback_available": initial_feedback is not None,
         "feedback_seed_source": (
             "paper_ledger"
@@ -742,7 +751,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             bars_count=bars_count,
         )
 
-    artifact_root.mkdir(parents=True, exist_ok=True)
+    if any(window.funding_slice is None for window in windows):
+        sys.stderr.write(
+            "ERROR: verified cached funding artifact slices are required; synthetic windows "
+            "cannot qualify.\n"
+        )
+        return 1
 
     qualification_policy = WalkForwardQualificationPolicy(
         policy_id=args.policy_id,
@@ -759,6 +773,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         creator_transport=DeterministicOfflineCreator(),
         require_flat=False,
     )
+    artifact_root.mkdir(parents=True, exist_ok=True)
 
     base = AutonomousResearchBase(
         config=config,
