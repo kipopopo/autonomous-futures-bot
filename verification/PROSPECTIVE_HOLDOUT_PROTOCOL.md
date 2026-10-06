@@ -1,6 +1,6 @@
 # Prospective confirmation holdout — draft, not execution permission
 
-Status: offline protocol drafted on 2026-10-05. No eligible frozen candidate, acquisition for the declared prospective windows, holdout evaluation, operator-protected preregistration or operational permission exists for this protocol. A separately approved historical public-data attempt for `[2023-01-01T00:00:00Z, 2026-08-06T05:30:00Z)` failed after two GETs and does not satisfy this protocol's future-window acquisition gate. This document does not confer paper/testnet/live authority.
+Status: offline protocol drafted on 2026-10-05. No eligible frozen candidate, acquisition for the declared prospective windows, holdout evaluation, operator-protected preregistration or operational permission exists for this protocol. Two separately approved attempts for the historical range `[2023-01-01T00:00:00Z, 2026-08-06T05:30:00Z)` each stopped after two GETs on an empty funding `markPrice`; neither satisfies this protocol's future-window acquisition gate. This document does not confer paper/testnet/live authority.
 
 ## Existing evidence remains unchanged
 
