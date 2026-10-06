@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from .alignment import MARK_PRICE_COLUMNS, canonicalize_mark_price_klines
-from .backfill import BackfillResult, BackfillWindow, resumable_backfill_klines
+from .backfill import BackfillResult, BackfillWindow, RetryPolicy, resumable_backfill_klines
 from .builder import INTERVAL_MS, KlineInterval
 from .derivatives_artifacts import DerivativesArtifactManifest, write_mark_price_artifact
 
@@ -27,6 +27,7 @@ def collect_mark_price_artifact(
     code_version: str,
     dependency_lock_hash: str,
     checkpoint_path: Path | None = None,
+    retry_policy: RetryPolicy | None = None,
 ) -> DerivativesArtifactManifest:
     """Collect one explicit public mark-price scope into an immutable artifact."""
     interval_ms = INTERVAL_MS[interval]
@@ -41,6 +42,7 @@ def collect_mark_price_artifact(
         requested_end_exclusive=end_ms_exclusive,
         now_ms=now_ms,
         interval_ms=interval_ms,
+        retry_policy=retry_policy,
     )
     canonical = canonicalize_mark_price_klines(
         result.rows,

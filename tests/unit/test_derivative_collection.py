@@ -3,8 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from autonomous_futures.data.backfill import BackfillWindow
+import pytest
+
+from autonomous_futures.data.backfill import BackfillError, BackfillWindow, RetryPolicy
 from autonomous_futures.data.derivative_collection import collect_mark_price_artifact
+from autonomous_futures.data.transport import PublicTransportError
 
 START_MS = 1_754_524_800_000
 END_MS = START_MS + 10 * 60_000
@@ -67,3 +70,31 @@ def test_collect_mark_price_artifact_persists_resumable_public_scope(tmp_path: P
     assert manifest.time_end == datetime.fromtimestamp(END_MS / 1000, UTC)
     assert (tmp_path / "BTCUSDT-mark-5m.parquet").exists()
     assert (tmp_path / "BTCUSDT-mark-5m.json").exists()
+
+
+def test_mark_price_collection_supports_a_single_attempt_policy(tmp_path: Path) -> None:
+    attempts = 0
+
+    def fail_once(_window: BackfillWindow):
+        nonlocal attempts
+        attempts += 1
+        raise PublicTransportError("temporary test error", retryable=True)
+
+    with pytest.raises(BackfillError):
+        collect_mark_price_artifact(
+            fail_once,
+            artifact_path=tmp_path / "BTCUSDT-mark-5m.parquet",
+            manifest_path=tmp_path / "BTCUSDT-mark-5m.json",
+            artifact_ref="BTCUSDT-mark-5m.parquet",
+            symbol="BTCUSDT",
+            interval="5m",
+            start_ms=START_MS,
+            end_ms_exclusive=END_MS,
+            now_ms=END_MS,
+            created_at=datetime(2026, 8, 7, tzinfo=UTC),
+            code_version="test",
+            dependency_lock_hash="test-lock",
+            retry_policy=RetryPolicy(max_attempts=1),
+        )
+
+    assert attempts == 1
