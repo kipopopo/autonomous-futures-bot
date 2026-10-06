@@ -606,6 +606,8 @@ def collect_approved_public_data(
         status_code = getattr(exc, "status_code", None)
         if isinstance(status_code, int):
             failure["http_status"] = status_code
+        if isinstance(exc, DataQualityError):
+            failure["failure_detail"] = " ".join(str(exc).split())[:240]
         _write_json_atomic(audit_path, failure)
         raise
 
@@ -635,7 +637,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    output_root = REPO_ROOT / "research" / "immutable-data" / "approved-public-20261006"
+    output_root = REPO_ROOT / "research" / "immutable-data" / "approved-public-20261006-attempt2"
     try:
         result = collect_approved_public_data(
             output_root,

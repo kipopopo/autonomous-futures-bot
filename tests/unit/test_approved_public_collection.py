@@ -9,6 +9,8 @@ import pytest
 
 from autonomous_futures.api.artifacts import inspect_dataset_artifacts
 from autonomous_futures.api.catalog import load_verified_dataset_catalog
+from autonomous_futures.data.parquet import DataQualityError
+from scripts import collect_approved_public_data as collector_module
 from scripts.collect_approved_public_data import (
     APPROVED_START_MS,
     ApprovedPublicGet,
@@ -53,6 +55,57 @@ def test_script_preflight_runs_directly_from_the_src_layout() -> None:
 
     assert completed.returncode == 0
     assert json.loads(completed.stdout)["network_requests"] == 0
+
+
+def test_execute_cli_preserves_failed_scope_in_a_fresh_attempt_root(monkeypatch, capsys) -> None:
+    output_roots: list[Path] = []
+
+    def stop_before_collection(output_root: Path, **_kwargs: object) -> dict[str, object]:
+        output_roots.append(output_root)
+        raise RuntimeError("test-only preflight stop")
+
+    monkeypatch.setattr(collector_module, "collect_approved_public_data", stop_before_collection)
+
+    assert main(["--execute-approved-scope"]) == 1
+    capsys.readouterr()
+    assert len(output_roots) == 1
+    assert output_roots[0].name == "approved-public-20261006-attempt2"
+    assert not output_roots[0].exists()
+
+
+def test_failure_audit_records_bounded_data_quality_detail_without_retry(tmp_path) -> None:
+    symbol = "BTCUSDT"
+    start_ms = APPROVED_START_MS
+    end_ms = start_ms + 900_000
+    calls: list[str] = []
+
+    def get_json(path: str, _params: dict[str, object]) -> object:
+        calls.append(path)
+        if path == "/fapi/v1/exchangeInfo":
+            payload = _exchange_info_payload()
+            payload["symbols"] = [item for item in payload["symbols"] if item["symbol"] == symbol]
+            return payload
+        raise DataQualityError("funding data rejected\n" + "x" * 500)
+
+    output_root = tmp_path / "data-quality-failure"
+    with pytest.raises(DataQualityError):
+        collect_approved_public_data(
+            output_root,
+            symbols=(symbol,),
+            start_ms=start_ms,
+            end_ms_exclusive=end_ms,
+            now_ms=end_ms,
+            max_requests=5,
+            get_json=get_json,
+            sleep=lambda _seconds: None,
+        )
+
+    audit = json.loads((output_root / "collection-audit.json").read_text(encoding="utf-8"))
+    assert calls == ["/fapi/v1/exchangeInfo", "/fapi/v1/fundingRate"]
+    assert (
+        audit["failure_detail"]
+        == " ".join(str(DataQualityError("funding data rejected\n" + "x" * 500)).split())[:240]
+    )
 
 
 def test_public_get_budget_never_dispatches_beyond_ceiling() -> None:
