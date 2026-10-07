@@ -4,6 +4,8 @@ Status: offline protocol drafted on 2026-10-05. No eligible frozen candidate, ac
 
 Update 2026-10-07: Segment B's complete historical bundle passed verified readback; Segment A failed on the funding fallback gate, leaving the original span incomplete. Funding events 1–16 ms after a bar open required a separately approved v4 containing-bar settlement policy; commit `06271f4ee4152d2c025287e1f64b5bbf6f179c9e` passed exact-SHA Actions `37625908668`. Segment B cannot satisfy the future-window acquisition, frozen-candidate, or preregistration gates above.
 
+Update 2026-10-07 (conditional historical-window audit): The owner approved one research-only cycle on Segment B only if a demonstrably unused window could first be locked. The local read-only audit found prior recorded exposure on 2026-01-01–2026-01-08 (paper simulations), 2026-01-01–2026-01-01T15:00Z (OOS), and 2026-07-01–2026-08-06 (learner training/holdout); protected Creator evaluations used 2026-09-10–2026-09-13, outside Segment B. More importantly, Phase 298 contains three one-window qualification artifacts without window timestamps, so overlap cannot be excluded, and the available records are not a complete exposure inventory. No Segment B interval is therefore certified unused. No provider request, OOS evaluation, extra GET, or remote action was made under the conditional approval. Stop until a complete source-scoped window inventory is available or a later prospective scope is separately approved; do not label an unverified historical interval untouched.
+
 ## Existing evidence remains unchanged
 
 - `cycle-epoch-a1b4e68-001` remains rejected and unadmitted; its spent provider/OOS budget is closed.
