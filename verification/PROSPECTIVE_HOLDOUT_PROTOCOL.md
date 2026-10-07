@@ -2,7 +2,7 @@
 
 Status: offline protocol drafted on 2026-10-05. No eligible frozen candidate, acquisition for the declared prospective windows, holdout evaluation, operator-protected preregistration or operational permission exists for this protocol. The original historical scope remains incomplete: attempts 1–3 and split Segment A failed; Segment B is complete but historical and cannot satisfy this protocol's future-window acquisition gate. This document does not confer paper/testnet/live authority.
 
-Update 2026-10-07: Segment B's complete historical bundle passed verified readback; Segment A failed on the funding fallback gate, leaving the original span incomplete. Funding events 1–16 ms after a bar open required a separately approved v4 containing-bar settlement policy; its code is pending exact-SHA CI. Segment B cannot satisfy the future-window acquisition, frozen-candidate, or preregistration gates above.
+Update 2026-10-07: Segment B's complete historical bundle passed verified readback; Segment A failed on the funding fallback gate, leaving the original span incomplete. Funding events 1–16 ms after a bar open required a separately approved v4 containing-bar settlement policy; commit `06271f4ee4152d2c025287e1f64b5bbf6f179c9e` passed exact-SHA Actions `37625908668`. Segment B cannot satisfy the future-window acquisition, frozen-candidate, or preregistration gates above.
 
 ## Existing evidence remains unchanged
 
