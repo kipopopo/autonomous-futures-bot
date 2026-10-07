@@ -31,3 +31,5 @@ Read-only design review `deleg_caeb18f4` completed: keep the separate scope cont
 ## Remaining gates
 
 The approved historical public-data acquisition was attempted twice; each attempt stopped after two GETs when a funding response had an empty `markPrice`. It does not qualify as prospective holdout data. No eligible frozen candidate, protected preregistration, prospective data acquisition, cross-scope simulator/context adapter, isolation verification or confirmation verdict exists. Do not reuse observed windows as untouched, copy qualification into a foreign scope, rerun spent evaluations, relax gates or activate trading. Continuous protected writer/reader operations, paper/reconciliation evidence and explicit legal/venue/account/capital/secret-manager/kill-switch/live review remain separate. **NOT PRODUCTION READY.**
+
+Update 2026-10-07: one further local-only attempt for the same historical range is explicitly approved, with fallback only to a 5m mark-price candle OPEN at the exact funding timestamp and per-row manifest-hash provenance. This does not create prospective/untouched evidence; exact-SHA CI is required before its single execution.

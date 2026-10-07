@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from argparse import ArgumentParser
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from time import sleep as sleep_seconds
@@ -30,7 +30,14 @@ from autonomous_futures.data.backfill import (  # noqa: E402
 from autonomous_futures.data.builder import INTERVAL_MS  # noqa: E402
 from autonomous_futures.data.bundle import build_dataset_bundle, write_dataset_bundle  # noqa: E402
 from autonomous_futures.data.derivative_collection import collect_mark_price_artifact  # noqa: E402
-from autonomous_futures.data.derivatives_artifacts import write_funding_artifact  # noqa: E402
+from autonomous_futures.data.derivatives_artifacts import (  # noqa: E402
+    FUNDING_PRICE_SOURCE_ENDPOINT,
+    FUNDING_PRICE_SOURCE_MARK_OPEN,
+    read_derivatives_artifact_manifest,
+    read_funding_artifact,
+    read_mark_price_artifact,
+    write_funding_artifact,
+)
 from autonomous_futures.data.exchange_filters import (  # noqa: E402
     build_exchange_filter_snapshot,
     write_exchange_filter_snapshot,
@@ -58,7 +65,7 @@ APPROVED_START_MS = int(datetime(2023, 1, 1, tzinfo=UTC).timestamp() * 1000)
 APPROVED_END_MS_EXCLUSIVE = int(datetime(2026, 8, 6, 5, 30, tzinfo=UTC).timestamp() * 1000)
 MAX_PUBLIC_GETS = 1_800
 RATE_DELAY_SECONDS = 0.3
-CODE_VERSION = "approved-public-data-collector-v1"
+CODE_VERSION = "approved-public-data-collector-v2"
 
 _ENDPOINTS = {
     "/fapi/v1/klines",
@@ -206,6 +213,35 @@ def plan_collection_calls(
     }
 
 
+def _bind_funding_price_provenance(
+    events: Sequence[dict[str, object]],
+    *,
+    mark_price_opens: dict[int, object],
+    mark_manifest_hash: str,
+) -> list[dict[str, object]]:
+    resolved: list[dict[str, object]] = []
+    for raw_event in events:
+        event = dict(raw_event)
+        try:
+            funding_time_ms = int(str(event["fundingTime"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DataQualityError("funding event has an invalid fundingTime") from exc
+        mark_price = event.get("markPrice")
+        if mark_price is None or (isinstance(mark_price, str) and not mark_price.strip()):
+            if funding_time_ms not in mark_price_opens:
+                raise DataQualityError(
+                    "funding markPrice is empty and no exact 5m mark-price candle exists"
+                )
+            event["markPrice"] = str(mark_price_opens[funding_time_ms])
+            event["fundingMarkPriceSource"] = FUNDING_PRICE_SOURCE_MARK_OPEN
+            event["fundingMarkPriceSourceArtifactHash"] = mark_manifest_hash
+        else:
+            event["fundingMarkPriceSource"] = FUNDING_PRICE_SOURCE_ENDPOINT
+            event["fundingMarkPriceSourceArtifactHash"] = None
+        resolved.append(event)
+    return resolved
+
+
 def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
@@ -286,6 +322,7 @@ def collect_approved_public_data(
         "authenticated": False,
         "orders_sent": False,
         "vps_accessed": False,
+        "funding_mark_price_fallback": "exact fundingTime match to 5m markPriceKlines OPEN",
     }
 
     def persist_progress(request_count: int, request_counts: dict[str, int]) -> None:
@@ -318,6 +355,8 @@ def collect_approved_public_data(
     telemetry = TransportTelemetry()
     entries: list[DatasetRegistryEntry] = []
     row_counts: dict[tuple[str, str, str | None], int] = {}
+    mark_price_opens_by_symbol: dict[str, dict[int, object]] = {}
+    mark_manifest_hashes: dict[str, str] = {}
 
     try:
         _write_json_atomic(
@@ -363,6 +402,69 @@ def collect_approved_public_data(
         row_counts[("exchange_filters", "", None)] = len(filter_snapshot.symbols)
 
         for symbol in symbols:
+            artifact_ref = f"mark_price/{symbol}/canonical/{symbol}-mark-5m.parquet"
+            manifest_ref = f"mark_price/{symbol}/manifests/{symbol}-mark-5m.manifest.json"
+            dataset_root = output_root / "mark_price" / symbol
+            mark_manifest = collect_mark_price_artifact(
+                BinancePublicMarkPriceKlineFetcher(
+                    symbol=symbol,
+                    interval="5m",
+                    get_json=budgeted_get,
+                    telemetry=telemetry,
+                ),
+                artifact_path=output_root / artifact_ref,
+                manifest_path=output_root / manifest_ref,
+                artifact_ref=artifact_ref,
+                symbol=symbol,
+                interval="5m",
+                start_ms=start_ms,
+                end_ms_exclusive=end_ms_exclusive,
+                now_ms=observed_now_ms,
+                created_at=datetime.now(UTC),
+                code_version=CODE_VERSION,
+                dependency_lock_hash=dependency_lock_hash,
+                checkpoint_path=dataset_root / "state" / f"{symbol}-mark-5m.checkpoint.json",
+                retry_policy=RetryPolicy(max_attempts=1),
+            )
+            artifact_path = output_root / artifact_ref
+            manifest_path = output_root / manifest_ref
+            verified_manifest = read_derivatives_artifact_manifest(
+                manifest_path,
+                artifact_path=artifact_path,
+            )
+            if verified_manifest != mark_manifest:
+                raise DataQualityError("mark-price artifact readback did not match its manifest")
+            mark_frame = read_mark_price_artifact(
+                artifact_path,
+                symbol=symbol,
+                interval="5m",
+                time_start=mark_manifest.time_start,
+                time_end=mark_manifest.time_end,
+            )
+            mark_price_opens_by_symbol[symbol] = {
+                int(timestamp.value // 1_000_000): open_price
+                for timestamp, open_price in mark_frame.loc[:, ["timestamp", "open"]].itertuples(
+                    index=False, name=None
+                )
+            }
+            mark_manifest_hashes[symbol] = mark_manifest.manifest_hash
+            entries.append(
+                _entry(
+                    kind="mark_price",
+                    symbols=(symbol,),
+                    interval="5m",
+                    time_start=mark_manifest.time_start,
+                    time_end=mark_manifest.time_end,
+                    observed_at=mark_manifest.created_at,
+                    schema_version=mark_manifest.schema_version,
+                    content_hash=mark_manifest.manifest_hash,
+                    artifact_ref=manifest_ref,
+                    endpoint_path="/fapi/v1/markPriceKlines",
+                )
+            )
+            row_counts[("mark_price", symbol, "5m")] = mark_manifest.rows
+
+        for symbol in symbols:
             funding_fetcher = BinancePublicFundingFetcher(
                 symbol=symbol,
                 limit=MAX_BINANCE_FUNDING_LIMIT,
@@ -384,13 +486,18 @@ def collect_approved_public_data(
                     break
                 if len(page) > MAX_BINANCE_FUNDING_LIMIT:
                     raise DataQualityError("funding page exceeded the public endpoint limit")
-                page_frame = canonicalize_funding_rows(
+                resolved_page = _bind_funding_price_provenance(
                     page,
+                    mark_price_opens=mark_price_opens_by_symbol[symbol],
+                    mark_manifest_hash=mark_manifest_hashes[symbol],
+                )
+                page_frame = canonicalize_funding_rows(
+                    resolved_page,
                     symbol=symbol,
                     start_ms=cursor,
                     end_exclusive_ms=end_ms_exclusive,
                 )
-                raw_events.extend(page)
+                raw_events.extend(resolved_page)
                 last_event_ms = int(page_frame["funding_time"].iloc[-1].value // 1_000_000)
                 next_cursor = last_event_ms + 1
                 if next_cursor <= cursor:
@@ -404,6 +511,23 @@ def collect_approved_public_data(
                 start_ms=start_ms,
                 end_exclusive_ms=end_ms_exclusive,
             )
+            provenance_by_time = {
+                int(str(event["fundingTime"])): (
+                    event["fundingMarkPriceSource"],
+                    event["fundingMarkPriceSourceArtifactHash"],
+                )
+                for event in raw_events
+            }
+            funding_provenance = [
+                provenance_by_time[int(timestamp.value // 1_000_000)]
+                for timestamp in funding_frame["funding_time"]
+            ]
+            funding_frame["funding_mark_price_source"] = [
+                source for source, _ in funding_provenance
+            ]
+            funding_frame["funding_mark_price_source_artifact_hash"] = [
+                source_hash for _, source_hash in funding_provenance
+            ]
             artifact_ref = f"funding_rate/{symbol}/canonical/{symbol}-funding.parquet"
             manifest_ref = f"funding_rate/{symbol}/manifests/{symbol}-funding.manifest.json"
             funding_manifest = write_funding_artifact(
@@ -418,6 +542,14 @@ def collect_approved_public_data(
                 code_version=CODE_VERSION,
                 dependency_lock_hash=dependency_lock_hash,
             )
+            funding_readback = read_funding_artifact(
+                output_root / artifact_ref,
+                symbol=symbol,
+                time_start=_utc_datetime(start_ms),
+                time_end=_utc_datetime(end_ms_exclusive),
+            )
+            if len(funding_readback) != funding_manifest.rows:
+                raise DataQualityError("funding artifact row-count readback mismatch")
             entries.append(
                 _entry(
                     kind="funding_rate",
@@ -434,7 +566,7 @@ def collect_approved_public_data(
             )
             row_counts[("funding_rate", symbol, None)] = funding_manifest.rows
 
-        fixed_remaining = plan["klines"] + plan["mark_price"]
+        fixed_remaining = plan["klines"]
         if budgeted_get.request_count + fixed_remaining > max_requests:
             raise RequestBudgetExceeded("funding history used the reserved fixed-page budget")
 
@@ -497,47 +629,6 @@ def collect_approved_public_data(
                     if item.relative_path.endswith(".parquet")
                 )
                 row_counts[("kline", symbol, interval)] = canonical_file.rows
-
-        for symbol in symbols:
-            artifact_ref = f"mark_price/{symbol}/canonical/{symbol}-mark-5m.parquet"
-            manifest_ref = f"mark_price/{symbol}/manifests/{symbol}-mark-5m.manifest.json"
-            dataset_root = output_root / "mark_price" / symbol
-            mark_manifest = collect_mark_price_artifact(
-                BinancePublicMarkPriceKlineFetcher(
-                    symbol=symbol,
-                    interval="5m",
-                    get_json=budgeted_get,
-                    telemetry=telemetry,
-                ),
-                artifact_path=output_root / artifact_ref,
-                manifest_path=output_root / manifest_ref,
-                artifact_ref=artifact_ref,
-                symbol=symbol,
-                interval="5m",
-                start_ms=start_ms,
-                end_ms_exclusive=end_ms_exclusive,
-                now_ms=observed_now_ms,
-                created_at=datetime.now(UTC),
-                code_version=CODE_VERSION,
-                dependency_lock_hash=dependency_lock_hash,
-                checkpoint_path=dataset_root / "state" / f"{symbol}-mark-5m.checkpoint.json",
-                retry_policy=RetryPolicy(max_attempts=1),
-            )
-            entries.append(
-                _entry(
-                    kind="mark_price",
-                    symbols=(symbol,),
-                    interval="5m",
-                    time_start=mark_manifest.time_start,
-                    time_end=mark_manifest.time_end,
-                    observed_at=mark_manifest.created_at,
-                    schema_version=mark_manifest.schema_version,
-                    content_hash=mark_manifest.manifest_hash,
-                    artifact_ref=manifest_ref,
-                    endpoint_path="/fapi/v1/markPriceKlines",
-                )
-            )
-            row_counts[("mark_price", symbol, "5m")] = mark_manifest.rows
 
         registry_created_at = datetime.now(UTC)
         registry = build_dataset_registry(entries, created_at=registry_created_at)
@@ -637,7 +728,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    output_root = REPO_ROOT / "research" / "immutable-data" / "approved-public-20261006-attempt2"
+    output_root = REPO_ROOT / "research" / "immutable-data" / "approved-public-20261006-attempt3"
     try:
         result = collect_approved_public_data(
             output_root,

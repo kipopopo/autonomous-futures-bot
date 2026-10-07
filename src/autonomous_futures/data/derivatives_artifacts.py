@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
@@ -24,11 +25,18 @@ from .manifest import sha256_file
 from .parquet import DataQualityError
 
 DerivativeArtifactKind = Literal["funding_rate", "mark_price"]
+FUNDING_PRICE_SOURCE_ENDPOINT = "funding_rate_response.markPrice"
+FUNDING_PRICE_SOURCE_MARK_OPEN = "mark_price_kline.open"
+FUNDING_PRICE_PROVENANCE_COLUMNS = (
+    "funding_mark_price_source",
+    "funding_mark_price_source_artifact_hash",
+)
 
 _EXPECTED_ENDPOINTS: dict[str, str] = {
     "funding_rate": "/fapi/v1/fundingRate",
     "mark_price": "/fapi/v1/markPriceKlines",
 }
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 class DerivativesArtifactManifest(DomainModel):
@@ -114,6 +122,9 @@ def _canonical_funding_frame(
     missing = sorted(set(FUNDING_COLUMNS).difference(frame.columns))
     if missing:
         raise DataQualityError(f"funding frame is missing columns: {', '.join(missing)}")
+    present_provenance = set(FUNDING_PRICE_PROVENANCE_COLUMNS).intersection(frame.columns)
+    if present_provenance and present_provenance != set(FUNDING_PRICE_PROVENANCE_COLUMNS):
+        raise DataQualityError("funding price provenance columns must be supplied together")
     rows = [
         {
             "symbol": row_symbol,
@@ -125,12 +136,47 @@ def _canonical_funding_frame(
             :, FUNDING_COLUMNS
         ].itertuples(index=False, name=None)
     ]
-    return canonicalize_funding_rows(
+    canonical = canonicalize_funding_rows(
         rows,
         symbol=symbol,
         start_ms=_timestamp_ms(time_start, field="time_start"),
         end_exclusive_ms=_timestamp_ms(time_end, field="time_end"),
     )
+    if not present_provenance:
+        return canonical
+
+    provenance_by_time: dict[int, tuple[str, str | None]] = {}
+    for funding_time, source, source_hash in frame.loc[
+        :, ["funding_time", *FUNDING_PRICE_PROVENANCE_COLUMNS]
+    ].itertuples(index=False, name=None):
+        if not isinstance(source, str):
+            raise DataQualityError("funding mark-price source is required")
+        if source == FUNDING_PRICE_SOURCE_ENDPOINT:
+            if source_hash is not None and (
+                not pd.api.types.is_scalar(source_hash) or not pd.isna(source_hash)
+            ):
+                raise DataQualityError("funding endpoint source must not reference an artifact")
+            normalized_hash = None
+        elif source == FUNDING_PRICE_SOURCE_MARK_OPEN:
+            if not isinstance(source_hash, str) or not _SHA256_PATTERN.fullmatch(source_hash):
+                raise DataQualityError("mark-price fallback source requires an artifact SHA-256")
+            normalized_hash = source_hash
+        else:
+            raise DataQualityError("funding mark-price source is unsupported")
+        funding_time_ms = _timestamp_ms(funding_time, field="funding_time")
+        provenance_by_time[funding_time_ms] = (source, normalized_hash)
+
+    provenance = [
+        provenance_by_time[_timestamp_ms(timestamp, field="funding_time")]
+        for timestamp in canonical["funding_time"]
+    ]
+    canonical["funding_mark_price_source"] = [source for source, _ in provenance]
+    canonical["funding_mark_price_source_artifact_hash"] = pd.Series(
+        [source_hash for _, source_hash in provenance],
+        index=canonical.index,
+        dtype=object,
+    )
+    return canonical
 
 
 def _canonical_mark_frame(
@@ -208,6 +254,7 @@ def _build_manifest(
     artifact_ref: str,
     artifact_path: Path,
     rows: int,
+    schema_version: str,
     created_at: datetime,
     code_version: str,
     dependency_lock_hash: str,
@@ -222,7 +269,7 @@ def _build_manifest(
         artifact_ref=artifact_ref,
         artifact_sha256=sha256_file(artifact_path),
         rows=rows,
-        schema_version=f"derivatives-artifact-v1:{kind}",
+        schema_version=schema_version,
         endpoint_path=_EXPECTED_ENDPOINTS[kind],
         code_version=code_version,
         dependency_lock_hash=dependency_lock_hash,
@@ -283,6 +330,11 @@ def _persist(
         artifact_ref=artifact_ref,
         artifact_path=artifact_path,
         rows=len(canonical),
+        schema_version=(
+            "derivatives-artifact-v2:funding_rate"
+            if kind == "funding_rate" and "funding_mark_price_source" in canonical.columns
+            else f"derivatives-artifact-v1:{kind}"
+        ),
         created_at=created_at,
         code_version=code_version,
         dependency_lock_hash=dependency_lock_hash,

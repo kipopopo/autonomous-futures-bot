@@ -9,9 +9,12 @@ import pandas as pd
 
 from .bundle import DatasetBundle, find_bundle_component, read_dataset_bundle
 from .derivatives_artifacts import (
+    FUNDING_PRICE_PROVENANCE_COLUMNS,
+    FUNDING_PRICE_SOURCE_MARK_OPEN,
     DerivativesArtifactManifest,
     read_derivatives_artifact_manifest,
     read_funding_artifact,
+    read_mark_price_artifact,
 )
 from .parquet import DataQualityError
 from .registry import DatasetRegistry, DatasetRegistryEntry, read_dataset_registry
@@ -52,7 +55,15 @@ class VerifiedFundingSlice:
         missing = sorted(set(_REQUIRED_COLUMNS).difference(self._events.columns))
         if missing:
             raise DataQualityError("verified funding slice is missing required columns")
-        events = self._events.loc[:, _REQUIRED_COLUMNS].copy(deep=True).reset_index(drop=True)
+        provenance = set(FUNDING_PRICE_PROVENANCE_COLUMNS).intersection(self._events.columns)
+        if provenance and provenance != set(FUNDING_PRICE_PROVENANCE_COLUMNS):
+            raise DataQualityError("verified funding slice has incomplete price provenance")
+        columns = (
+            (*_REQUIRED_COLUMNS, *FUNDING_PRICE_PROVENANCE_COLUMNS)
+            if provenance
+            else _REQUIRED_COLUMNS
+        )
+        events = self._events.loc[:, columns].copy(deep=True).reset_index(drop=True)
         timestamps = pd.to_datetime(events["funding_time"], utc=True, errors="raise")
         if not events.empty:
             if not events["symbol"].eq(self.symbol).all():
@@ -120,6 +131,64 @@ def _verify_manifest_binding(
         or manifest.time_end < time_end
     ):
         raise DataQualityError("funding manifest does not cover the requested bundle slice")
+
+
+def _verify_mark_price_fallback(
+    events: pd.DataFrame,
+    *,
+    artifact_root: Path,
+    bundle: DatasetBundle,
+    registry: DatasetRegistry,
+    symbol: str,
+) -> None:
+    if "funding_mark_price_source" not in events.columns:
+        return
+    fallback = events["funding_mark_price_source"].eq(FUNDING_PRICE_SOURCE_MARK_OPEN)
+    if not fallback.any():
+        return
+    component = find_bundle_component(bundle, kind="mark_price", symbol=symbol, interval="5m")
+    if component is None or any(
+        value != component.content_hash
+        for value in events.loc[fallback, "funding_mark_price_source_artifact_hash"]
+    ):
+        raise DataQualityError("funding fallback provenance is not bound to the mark-price bundle")
+    _verify_registry_binding(bundle, registry, component)
+
+    manifest_path = _resolve_artifact(artifact_root, component.artifact_ref)
+    mark_manifest = read_derivatives_artifact_manifest(manifest_path)
+    if (
+        component.symbols != (symbol,)
+        or component.content_hash != mark_manifest.manifest_hash
+        or component.time_start != mark_manifest.time_start
+        or component.time_end != mark_manifest.time_end
+        or mark_manifest.kind != "mark_price"
+        or mark_manifest.symbol != symbol
+        or mark_manifest.interval != "5m"
+    ):
+        raise DataQualityError("mark-price manifest is not bound to the funding fallback source")
+    mark_artifact_path = _resolve_artifact(artifact_root, mark_manifest.artifact_ref)
+    read_derivatives_artifact_manifest(manifest_path, artifact_path=mark_artifact_path)
+    mark_frame = read_mark_price_artifact(
+        mark_artifact_path,
+        symbol=symbol,
+        interval="5m",
+        time_start=mark_manifest.time_start,
+        time_end=mark_manifest.time_end,
+    )
+    opens_by_time = {
+        int(timestamp.value // 1_000_000): open_price
+        for timestamp, open_price in mark_frame.loc[:, ["timestamp", "open"]].itertuples(
+            index=False, name=None
+        )
+    }
+    for funding_time, funding_mark_price in events.loc[
+        fallback, ["funding_time", "funding_mark_price"]
+    ].itertuples(index=False, name=None):
+        timestamp_ms = int(pd.Timestamp(funding_time).value // 1_000_000)
+        if opens_by_time.get(timestamp_ms) != funding_mark_price:
+            raise DataQualityError(
+                "funding fallback price does not match the exact mark-price candle open"
+            )
 
 
 def load_verified_funding_slice(
@@ -199,6 +268,13 @@ def load_verified_funding_slice(
     selected = source_events.loc[
         (event_times >= pd.Timestamp(start)) & (event_times < pd.Timestamp(end))
     ].reset_index(drop=True)
+    _verify_mark_price_fallback(
+        selected,
+        artifact_root=artifact_root,
+        bundle=bundle,
+        registry=registry,
+        symbol=symbol,
+    )
     bar_set = set(bars)
     selected_times = tuple(
         pd.Timestamp(value).to_pydatetime() for value in selected["funding_time"]

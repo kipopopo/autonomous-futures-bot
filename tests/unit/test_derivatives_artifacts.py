@@ -8,6 +8,8 @@ import pandas as pd
 import pytest
 
 from autonomous_futures.data.derivatives_artifacts import (
+    FUNDING_PRICE_SOURCE_ENDPOINT,
+    FUNDING_PRICE_SOURCE_MARK_OPEN,
     DerivativesArtifactManifest,
     read_derivatives_artifact_manifest,
     read_funding_artifact,
@@ -85,6 +87,77 @@ def test_funding_artifact_roundtrips_decimal_values_and_manifest(tmp_path: Path)
     assert (
         read_derivatives_artifact_manifest(manifest_path, artifact_path=artifact_path) == manifest
     )
+
+
+def test_funding_artifact_preserves_row_level_mark_price_provenance(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "canonical" / "BTCUSDT-funding.parquet"
+    manifest_path = tmp_path / "manifests" / "BTCUSDT-funding.json"
+    frame = _funding_frame().copy()
+    frame["funding_mark_price_source"] = [
+        FUNDING_PRICE_SOURCE_ENDPOINT,
+        FUNDING_PRICE_SOURCE_MARK_OPEN,
+    ]
+    frame["funding_mark_price_source_artifact_hash"] = [None, "a" * 64]
+
+    manifest = write_funding_artifact(
+        frame,
+        artifact_path,
+        manifest_path,
+        artifact_ref="canonical/BTCUSDT-funding.parquet",
+        symbol="BTCUSDT",
+        time_start=START,
+        time_end=END,
+        created_at=CREATED,
+        code_version="test",
+        dependency_lock_hash="uv.lock",
+    )
+    restored = read_funding_artifact(
+        artifact_path, symbol="BTCUSDT", time_start=START, time_end=END
+    )
+
+    assert manifest.schema_version == "derivatives-artifact-v2:funding_rate"
+    assert (
+        write_funding_artifact(
+            frame,
+            artifact_path,
+            manifest_path,
+            artifact_ref="canonical/BTCUSDT-funding.parquet",
+            symbol="BTCUSDT",
+            time_start=START,
+            time_end=END,
+            created_at=CREATED,
+            code_version="test",
+            dependency_lock_hash="uv.lock",
+        )
+        == manifest
+    )
+    assert restored["funding_mark_price_source"].tolist() == [
+        FUNDING_PRICE_SOURCE_ENDPOINT,
+        FUNDING_PRICE_SOURCE_MARK_OPEN,
+    ]
+    source_hashes = restored["funding_mark_price_source_artifact_hash"].tolist()
+    assert source_hashes[0] is None
+    assert source_hashes[1] == "a" * 64
+
+
+def test_funding_artifact_rejects_fallback_without_source_manifest_hash(tmp_path: Path) -> None:
+    frame = _funding_frame().iloc[:1].copy()
+    frame["funding_mark_price_source"] = [FUNDING_PRICE_SOURCE_MARK_OPEN]
+    frame["funding_mark_price_source_artifact_hash"] = [None]
+
+    with pytest.raises(DataQualityError, match="requires an artifact SHA-256"):
+        write_funding_artifact(
+            frame,
+            tmp_path / "canonical" / "BTCUSDT-funding.parquet",
+            tmp_path / "manifests" / "BTCUSDT-funding.json",
+            artifact_ref="canonical/BTCUSDT-funding.parquet",
+            symbol="BTCUSDT",
+            time_start=START,
+            time_end=END,
+            created_at=CREATED,
+            code_version="test",
+            dependency_lock_hash="uv.lock",
+        )
 
 
 def test_mark_price_artifact_roundtrips_closed_bars_and_manifest(tmp_path: Path) -> None:

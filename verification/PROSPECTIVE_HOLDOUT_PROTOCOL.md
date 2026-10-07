@@ -2,6 +2,8 @@
 
 Status: offline protocol drafted on 2026-10-05. No eligible frozen candidate, acquisition for the declared prospective windows, holdout evaluation, operator-protected preregistration or operational permission exists for this protocol. Two separately approved attempts for the historical range `[2023-01-01T00:00:00Z, 2026-08-06T05:30:00Z)` each stopped after two GETs on an empty funding `markPrice`; neither satisfies this protocol's future-window acquisition gate. This document does not confer paper/testnet/live authority.
 
+Update 2026-10-07: one third attempt for that same historical range is separately approved with an exact-timestamp 5m mark-price OPEN fallback and row-level source-manifest provenance. Even if completed, it remains historical research data and cannot satisfy the future-window acquisition, frozen-candidate, or preregistration gates above.
+
 ## Existing evidence remains unchanged
 
 - `cycle-epoch-a1b4e68-001` remains rejected and unadmitted; its spent provider/OOS budget is closed.

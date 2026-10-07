@@ -3,12 +3,18 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from autonomous_futures.api.artifacts import inspect_dataset_artifacts
 from autonomous_futures.api.catalog import load_verified_dataset_catalog
+from autonomous_futures.data.derivatives_artifacts import (
+    read_derivatives_artifact_manifest,
+    read_funding_artifact,
+)
 from autonomous_futures.data.parquet import DataQualityError
 from scripts import collect_approved_public_data as collector_module
 from scripts.collect_approved_public_data import (
@@ -44,6 +50,32 @@ def test_default_cli_is_preflight_only(capsys) -> None:
     assert payload["request_plan"]["maximum_total"] == 1_800
 
 
+def test_funding_price_fallback_uses_only_an_exact_mark_open() -> None:
+    funding_time = APPROVED_START_MS + 300_000
+    event = {
+        "symbol": "BTCUSDT",
+        "fundingTime": str(funding_time),
+        "fundingRate": "0.0001",
+        "markPrice": "",
+    }
+
+    resolved = collector_module._bind_funding_price_provenance(
+        [event],
+        mark_price_opens={funding_time: Decimal("100.25")},
+        mark_manifest_hash="a" * 64,
+    )
+
+    assert resolved[0]["markPrice"] == "100.25"
+    assert resolved[0]["fundingMarkPriceSource"] == "mark_price_kline.open"
+    assert resolved[0]["fundingMarkPriceSourceArtifactHash"] == "a" * 64
+    with pytest.raises(DataQualityError, match="exact 5m mark-price candle"):
+        collector_module._bind_funding_price_provenance(
+            [{**event, "fundingTime": str(funding_time + 1)}],
+            mark_price_opens={funding_time: Decimal("100.25")},
+            mark_manifest_hash="a" * 64,
+        )
+
+
 def test_script_preflight_runs_directly_from_the_src_layout() -> None:
     script = Path(__file__).resolve().parents[2] / "scripts/collect_approved_public_data.py"
     completed = subprocess.run(
@@ -69,7 +101,7 @@ def test_execute_cli_preserves_failed_scope_in_a_fresh_attempt_root(monkeypatch,
     assert main(["--execute-approved-scope"]) == 1
     capsys.readouterr()
     assert len(output_roots) == 1
-    assert output_roots[0].name == "approved-public-20261006-attempt2"
+    assert output_roots[0].name == "approved-public-20261006-attempt3"
     assert not output_roots[0].exists()
 
 
@@ -85,7 +117,7 @@ def test_failure_audit_records_bounded_data_quality_detail_without_retry(tmp_pat
             payload = _exchange_info_payload()
             payload["symbols"] = [item for item in payload["symbols"] if item["symbol"] == symbol]
             return payload
-        raise DataQualityError("funding data rejected\n" + "x" * 500)
+        raise DataQualityError("mark-price data rejected\n" + "x" * 500)
 
     output_root = tmp_path / "data-quality-failure"
     with pytest.raises(DataQualityError):
@@ -101,10 +133,10 @@ def test_failure_audit_records_bounded_data_quality_detail_without_retry(tmp_pat
         )
 
     audit = json.loads((output_root / "collection-audit.json").read_text(encoding="utf-8"))
-    assert calls == ["/fapi/v1/exchangeInfo", "/fapi/v1/fundingRate"]
+    assert calls == ["/fapi/v1/exchangeInfo", "/fapi/v1/markPriceKlines"]
     assert (
         audit["failure_detail"]
-        == " ".join(str(DataQualityError("funding data rejected\n" + "x" * 500)).split())[:240]
+        == " ".join(str(DataQualityError("mark-price data rejected\n" + "x" * 500)).split())[:240]
     )
 
 
@@ -216,6 +248,24 @@ def test_funding_pagination_cannot_spend_the_reserved_fixed_page_budget(tmp_path
             payload = _exchange_info_payload()
             payload["symbols"] = [item for item in payload["symbols"] if item["symbol"] == symbol]
             return payload
+        if path == "/fapi/v1/markPriceKlines":
+            return [
+                (
+                    start_ms + offset * 300_000,
+                    "100",
+                    "101",
+                    "99",
+                    "100.5",
+                    "0",
+                    start_ms + (offset + 1) * 300_000 - 1,
+                    "0",
+                    0,
+                    "0",
+                    "0",
+                    "0",
+                )
+                for offset in range(3)
+            ]
         if path == "/fapi/v1/fundingRate":
             return funding_page
         pytest.fail(f"unexpected request after funding budget was exhausted: {path}")
@@ -234,9 +284,13 @@ def test_funding_pagination_cannot_spend_the_reserved_fixed_page_budget(tmp_path
         )
 
     audit = json.loads((output_root / "collection-audit.json").read_text(encoding="utf-8"))
-    assert calls == ["/fapi/v1/exchangeInfo", "/fapi/v1/fundingRate"]
+    assert calls == [
+        "/fapi/v1/exchangeInfo",
+        "/fapi/v1/markPriceKlines",
+        "/fapi/v1/fundingRate",
+    ]
     assert audit["status"] == "failed"
-    assert audit["request_count"] == 2
+    assert audit["request_count"] == 3
     assert not (output_root / "bundle.json").exists()
 
 
@@ -281,7 +335,7 @@ def test_collection_writes_a_verified_synthetic_bundle_without_network(
                     "symbol": symbol,
                     "fundingTime": str(start_ms + 300_000),
                     "fundingRate": "0.0001",
-                    "markPrice": "100",
+                    "markPrice": "",
                 }
             ]
         if path in {"/fapi/v1/klines", "/fapi/v1/markPriceKlines"}:
@@ -310,8 +364,22 @@ def test_collection_writes_a_verified_synthetic_bundle_without_network(
         registry_path=tmp_path / "catalog/registry.json",
     )
     inspections = inspect_dataset_artifacts(tmp_path / "catalog", catalog)
+    mark_manifest = read_derivatives_artifact_manifest(
+        tmp_path / "catalog/mark_price/BTCUSDT/manifests/BTCUSDT-mark-5m.manifest.json"
+    )
+    funding_frame = read_funding_artifact(
+        tmp_path / "catalog/funding_rate/BTCUSDT/canonical/BTCUSDT-funding.parquet",
+        symbol=symbol,
+        time_start=datetime.fromtimestamp(start_ms / 1000, tz=UTC),
+        time_end=datetime.fromtimestamp(end_ms / 1000, tz=UTC),
+    )
     assert result["request_count"] == 5
     assert len(calls) == 5
     assert len(catalog.bundle.components) == 5
     assert len(inspections) == 5
     assert all(item.verified for item in inspections)
+    assert funding_frame["funding_mark_price"].tolist() == [Decimal("100")]
+    assert funding_frame["funding_mark_price_source"].tolist() == ["mark_price_kline.open"]
+    assert funding_frame["funding_mark_price_source_artifact_hash"].tolist() == [
+        mark_manifest.manifest_hash
+    ]

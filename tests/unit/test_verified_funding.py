@@ -12,7 +12,12 @@ from autonomous_futures.data.bundle import (
     read_dataset_bundle,
     write_dataset_bundle,
 )
-from autonomous_futures.data.derivatives_artifacts import write_funding_artifact
+from autonomous_futures.data.derivatives_artifacts import (
+    FUNDING_PRICE_SOURCE_ENDPOINT,
+    FUNDING_PRICE_SOURCE_MARK_OPEN,
+    write_funding_artifact,
+    write_mark_price_artifact,
+)
 from autonomous_futures.data.parquet import DataQualityError
 from autonomous_futures.data.registry import (
     DatasetRegistryEntry,
@@ -59,12 +64,49 @@ def _registry_entry(
     )
 
 
-def _verified_catalog(tmp_path: Path) -> tuple[Path, Path, Path, str]:
+def _verified_catalog(
+    tmp_path: Path,
+    *,
+    fallback_source: bool = False,
+    source_hash_override: str | None = None,
+    funding_price_override: Decimal | None = None,
+) -> tuple[Path, Path, Path, str]:
     artifact_root = tmp_path / "artifacts"
     artifact_path = artifact_root / "canonical" / "funding.parquet"
     manifest_path = artifact_root / "manifests" / "funding.json"
     artifact_start = UTC_START - timedelta(hours=8)
     artifact_end = UTC_END + timedelta(hours=8)
+    mark_manifest = None
+    if fallback_source:
+        mark_frame = pd.DataFrame(
+            {
+                "symbol": [SYMBOL] * 3,
+                "timestamp": pd.date_range(UTC_START, periods=3, freq="5min", tz="UTC"),
+                "open": [Decimal("60000"), Decimal("60050"), Decimal("60100")],
+                "high": [Decimal("60010"), Decimal("60060"), Decimal("60110")],
+                "low": [Decimal("59990"), Decimal("60040"), Decimal("60090")],
+                "close": [Decimal("60005"), Decimal("60055"), Decimal("60105")],
+                "close_time": pd.date_range(
+                    UTC_START + timedelta(minutes=5) - timedelta(milliseconds=1),
+                    periods=3,
+                    freq="5min",
+                    tz="UTC",
+                ),
+            }
+        )
+        mark_manifest = write_mark_price_artifact(
+            mark_frame,
+            artifact_root / "canonical" / "mark.parquet",
+            artifact_root / "manifests" / "mark.json",
+            artifact_ref="canonical/mark.parquet",
+            symbol=SYMBOL,
+            interval="5m",
+            time_start=UTC_START,
+            time_end=UTC_END,
+            created_at=OBSERVED_AT,
+            code_version="synthetic-test",
+            dependency_lock_hash="test-lock-hash",
+        )
     funding_frame = pd.DataFrame(
         {
             "symbol": [SYMBOL, SYMBOL, SYMBOL],
@@ -77,6 +119,20 @@ def _verified_catalog(tmp_path: Path) -> tuple[Path, Path, Path, str]:
             "funding_mark_price": [Decimal("60000"), Decimal("60100"), Decimal("60200")],
         }
     )
+    if fallback_source:
+        assert mark_manifest is not None
+        if funding_price_override is not None:
+            funding_frame.loc[1, "funding_mark_price"] = funding_price_override
+        funding_frame["funding_mark_price_source"] = [
+            FUNDING_PRICE_SOURCE_ENDPOINT,
+            FUNDING_PRICE_SOURCE_MARK_OPEN,
+            FUNDING_PRICE_SOURCE_ENDPOINT,
+        ]
+        funding_frame["funding_mark_price_source_artifact_hash"] = [
+            None,
+            source_hash_override or mark_manifest.manifest_hash,
+            None,
+        ]
     manifest = write_funding_artifact(
         funding_frame,
         artifact_path,
@@ -112,7 +168,7 @@ def _verified_catalog(tmp_path: Path) -> tuple[Path, Path, Path, str]:
             time_start=UTC_START,
             time_end=UTC_END,
             artifact_ref="manifests/mark.json",
-            content_hash="3" * 64,
+            content_hash=mark_manifest.manifest_hash if mark_manifest else "3" * 64,
         ),
         _registry_entry(
             "funding_rate",
@@ -175,6 +231,85 @@ def test_load_verified_funding_slice_binds_manifest_bytes_catalog_and_range(
         pd.Timestamp(UTC_START),
         pd.Timestamp(UTC_START + timedelta(minutes=10)),
     )
+
+
+def test_load_verified_funding_slice_checks_fallback_against_exact_mark_open(
+    tmp_path: Path,
+) -> None:
+    artifact_root, bundle_path, registry_path, _ = _verified_catalog(
+        tmp_path,
+        fallback_source=True,
+    )
+
+    funding_slice = load_verified_funding_slice(
+        artifact_root=artifact_root,
+        bundle_path=bundle_path,
+        registry_path=registry_path,
+        symbol=SYMBOL,
+        time_start=UTC_START,
+        time_end=UTC_END,
+        bar_timestamps=tuple(UTC_START + timedelta(minutes=5 * offset) for offset in range(3)),
+    )
+
+    events = funding_slice.copy_events()
+    assert events["funding_mark_price"].tolist() == [
+        Decimal("60000"),
+        Decimal("60100"),
+    ]
+    assert events["funding_mark_price_source"].tolist() == [
+        FUNDING_PRICE_SOURCE_ENDPOINT,
+        FUNDING_PRICE_SOURCE_MARK_OPEN,
+    ]
+    source_hashes = events["funding_mark_price_source_artifact_hash"].tolist()
+    mark_hash = next(
+        entry.content_hash
+        for entry in read_dataset_registry(registry_path).entries
+        if entry.kind == "mark_price"
+    )
+    assert source_hashes[0] is None
+    assert source_hashes[1] == mark_hash
+
+
+def test_load_verified_funding_slice_rejects_unbound_fallback_source_hash(
+    tmp_path: Path,
+) -> None:
+    artifact_root, bundle_path, registry_path, _ = _verified_catalog(
+        tmp_path,
+        fallback_source=True,
+        source_hash_override="9" * 64,
+    )
+
+    with pytest.raises(DataQualityError, match="fallback provenance"):
+        load_verified_funding_slice(
+            artifact_root=artifact_root,
+            bundle_path=bundle_path,
+            registry_path=registry_path,
+            symbol=SYMBOL,
+            time_start=UTC_START,
+            time_end=UTC_END,
+            bar_timestamps=tuple(UTC_START + timedelta(minutes=5 * offset) for offset in range(3)),
+        )
+
+
+def test_load_verified_funding_slice_rejects_fallback_value_not_matching_mark_open(
+    tmp_path: Path,
+) -> None:
+    artifact_root, bundle_path, registry_path, _ = _verified_catalog(
+        tmp_path,
+        fallback_source=True,
+        funding_price_override=Decimal("99999"),
+    )
+
+    with pytest.raises(DataQualityError, match="does not match the exact mark-price candle open"):
+        load_verified_funding_slice(
+            artifact_root=artifact_root,
+            bundle_path=bundle_path,
+            registry_path=registry_path,
+            symbol=SYMBOL,
+            time_start=UTC_START,
+            time_end=UTC_END,
+            bar_timestamps=tuple(UTC_START + timedelta(minutes=5 * offset) for offset in range(3)),
+        )
 
 
 def test_load_verified_funding_slice_rejects_tampered_artifact_bytes(tmp_path: Path) -> None:
