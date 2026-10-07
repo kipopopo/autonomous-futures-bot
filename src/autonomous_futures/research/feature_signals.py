@@ -8,7 +8,9 @@ from datetime import timedelta
 
 import pandas as pd
 
+from ..data.alignment import funding_event_bar_timestamp
 from ..data.parquet import DataQualityError, canonicalize_bars
+from ..data.verified_funding import VerifiedFundingSlice
 from .creator_artifacts import CreatorCandidateArtifact
 
 SUPPORTED_FEATURES = frozenset(
@@ -26,6 +28,7 @@ SUPPORTED_FEATURES = frozenset(
         "adx",
         "regime_trend",
         "failed_breakout_reentry",
+        "funding_rate",
     }
 )
 _REQUIRED_OHLC = ("open", "high", "low", "close")
@@ -165,6 +168,8 @@ def _feature_series(
         raw = (failed_long.astype(float) - failed_short.astype(float)).where(
             upper.notna() & lower.notna(),
         )
+    elif name == "funding_rate":
+        raise DataQualityError("funding_rate requires a verified funding slice")
     else:
         ema = close.ewm(span=lookback, adjust=False, min_periods=lookback).mean()
         slope = ema.diff()
@@ -197,7 +202,11 @@ def _timeframe_to_timedelta(timeframe: str) -> timedelta:
 
 
 def materialize_causal_features(
-    candidate: CreatorCandidateArtifact, frame: pd.DataFrame
+    candidate: CreatorCandidateArtifact,
+    frame: pd.DataFrame,
+    *,
+    funding_slice: VerifiedFundingSlice | None = None,
+    symbol: str | None = None,
 ) -> pd.DataFrame:
     """Materialize only declared prior-bar features from a cached OHLC frame."""
     missing = sorted(set(_REQUIRED_OHLC).difference(frame.columns))
@@ -216,6 +225,41 @@ def materialize_causal_features(
         raise DataQualityError("candidate features must be unique")
     if unsupported := sorted(set(feature_names).difference(SUPPORTED_FEATURES)):
         raise DataQualityError("feature is not supported: " + ", ".join(unsupported))
+    funding_refs = tuple(ref for ref in feature_refs if ref.name == "funding_rate")
+    funding_rates: pd.Series | None = None
+    if funding_refs:
+        if not isinstance(funding_slice, VerifiedFundingSlice) or symbol is None:
+            raise DataQualityError("funding_rate requires a verified funding slice and symbol")
+        if interval != timedelta(minutes=5):
+            raise DataQualityError("funding_rate is supported only for 5m candidates")
+        if any(ref.lookback != 1 for ref in funding_refs):
+            raise DataQualityError("funding_rate lookback must be 1")
+        bar_timestamps = tuple(
+            timestamp.to_pydatetime() for timestamp in pd.DatetimeIndex(canonical["timestamp"])
+        )
+        if (
+            symbol not in candidate.strategy.universe.symbols
+            or funding_slice.symbol != symbol
+            or funding_slice.bundle_hash != candidate.bundle_hash
+            or funding_slice.dataset_registry_hash != candidate.dataset_registry_hash
+            or funding_slice.time_start != bar_timestamps[0]
+            or funding_slice.time_end != bar_timestamps[-1] + interval
+        ):
+            raise DataQualityError("verified funding slice does not match candidate window")
+        bar_positions = {timestamp: index for index, timestamp in enumerate(bar_timestamps)}
+        rates = [float("nan")] * len(bar_timestamps)
+        for event in funding_slice.copy_events().itertuples(index=False):
+            bar_timestamp = funding_event_bar_timestamp(
+                pd.Timestamp(event.funding_time).to_pydatetime(),
+                bar_timestamps=bar_timestamps,
+                interval=interval,
+            )
+            position = bar_positions[bar_timestamp]
+            rate = float(event.funding_rate)
+            if not math.isfinite(rate) or math.isfinite(rates[position]):
+                raise DataQualityError("funding events must map to unique bars with finite rates")
+            rates[position] = rate
+        funding_rates = pd.Series(rates, index=canonical.index, dtype="float64")
     volume = None
     if {"relative_volume", "vwap_reclaim"}.intersection(feature_names):
         if "volume" not in canonical.columns:
@@ -224,15 +268,19 @@ def materialize_causal_features(
 
     result = canonical.copy(deep=True)
     for feature_ref in feature_refs:
-        result[feature_ref.name] = _feature_series(
-            feature_ref.name,
-            close=close,
-            high=high,
-            low=low,
-            volume=volume,
-            lookback=feature_ref.lookback,
-            shift=feature_ref.shift,
-        )
+        if feature_ref.name == "funding_rate":
+            assert funding_rates is not None
+            result[feature_ref.name] = funding_rates.shift(feature_ref.shift)
+        else:
+            result[feature_ref.name] = _feature_series(
+                feature_ref.name,
+                close=close,
+                high=high,
+                low=low,
+                volume=volume,
+                lookback=feature_ref.lookback,
+                shift=feature_ref.shift,
+            )
     return result
 
 
@@ -241,9 +289,17 @@ class CausalFeatureSignalEvaluator:
     """Compute a bounded feature set and fresh-state signals from cached OHLC bars."""
 
     def evaluate(
-        self, candidate: CreatorCandidateArtifact, frame: pd.DataFrame, *, exits_only: bool = False
+        self,
+        candidate: CreatorCandidateArtifact,
+        frame: pd.DataFrame,
+        *,
+        exits_only: bool = False,
+        funding_slice: VerifiedFundingSlice | None = None,
+        symbol: str | None = None,
     ) -> pd.DataFrame:
-        result = materialize_causal_features(candidate, frame)
+        result = materialize_causal_features(
+            candidate, frame, funding_slice=funding_slice, symbol=symbol
+        )
         feature_names = tuple(feature.name for feature in candidate.strategy.features)
 
         long_clauses, long_connectors = _parse_expression(candidate.strategy.entry.long)

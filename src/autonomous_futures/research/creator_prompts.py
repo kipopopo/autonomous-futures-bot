@@ -27,6 +27,9 @@ _SYSTEM_PROMPT = (
     "volatility_compression_breakout, volume_confirmed_momentum, experimental; "
     f"features must use only {', '.join(sorted(SUPPORTED_FEATURES))}; each feature needs "
     'a positive lookback and shift >= 1; universe must use timeframe="5m" and '
+    "funding_rate is 5m-only, uses lookback=1, maps each verified event to its containing "
+    "candle and appears only after the declared shift; values are null between events and "
+    "must not be forward-filled. "
     'regime_context_timeframe="15m". proposal_id must start with proposal- and '
     "use lowercase letters, digits, and hyphens only; dsl_version must be the integer 2; "
     "features must be a JSON array of objects; feature objects must use keys name, lookback, "

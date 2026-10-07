@@ -417,6 +417,7 @@ def execute_autonomous_cycle(
                 config=sim_config,
                 funding_events=w.copy_funding_events(),
                 funding_artifact_hash=w.spec.funding_artifact_hash,
+                funding_slice=w.funding_slice,
             )
 
     simulations: dict[tuple[str, str], TradeSimulationResult] = {}

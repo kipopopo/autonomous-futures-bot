@@ -151,6 +151,9 @@ def test_creator_prompt_uses_cached_evaluator_feature_capability() -> None:
     assert "relative_volume" in system_prompt
     assert "donchian_breakout" in system_prompt
     assert "rsi" in system_prompt
+    assert "funding_rate" in system_prompt
+    assert "lookback=1" in system_prompt
+    assert "must not be forward-filled" in system_prompt
 
 
 def test_creator_prompt_spells_out_signal_expression_grammar() -> None:

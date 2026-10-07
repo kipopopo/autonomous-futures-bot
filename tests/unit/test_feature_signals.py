@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from autonomous_futures.data.parquet import DataQualityError
+from autonomous_futures.data.verified_funding import VerifiedFundingSlice
 from autonomous_futures.domain.contracts import (
     EntryExit,
     FeatureRef,
@@ -26,6 +27,7 @@ DATASET_REGISTRY_HASH = "b" * 64
 def _candidate(
     *,
     feature_names: tuple[str, ...] = ("returns",),
+    feature_lookback: int = 3,
     long_expression: str = "returns > 0",
     short_expression: str = "returns < 0",
     exit_long_expression: str | None = None,
@@ -39,7 +41,9 @@ def _candidate(
         universe=StrategyUniverse(
             symbols=("BTCUSDT",), timeframe="5m", regime_context_timeframe="15m"
         ),
-        features=tuple(FeatureRef(name=name, lookback=3, shift=1) for name in feature_names),
+        features=tuple(
+            FeatureRef(name=name, lookback=feature_lookback, shift=1) for name in feature_names
+        ),
         entry=EntryExit(long=long_expression, short=short_expression),
         exit=EntryExit(
             long=exit_long_expression or f"{feature_names[0]} < 0",
@@ -654,3 +658,115 @@ def test_vwap_reclaim_requires_volume_and_keeps_zero_vwap_unknown() -> None:
 
     assert result["vwap_reclaim"].isna().all()
     assert not result["signal"].astype(bool).any()
+
+
+def test_funding_rate_feature_uses_verified_events_one_bar_after_containing_bar() -> None:
+    candidate = _candidate(
+        feature_names=("funding_rate",),
+        feature_lookback=1,
+        long_expression="funding_rate < 0",
+        short_expression="funding_rate > 0",
+        exit_long_expression="funding_rate > 0",
+        exit_short_expression="funding_rate < 0",
+    )
+    source = _frame()
+    before = source.copy(deep=True)
+    funding_slice = VerifiedFundingSlice(
+        symbol="BTCUSDT",
+        time_start=START,
+        time_end=START + timedelta(minutes=60),
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=DATASET_REGISTRY_HASH,
+        manifest_hash="c" * 64,
+        artifact_sha256="d" * 64,
+        _events=pd.DataFrame(
+            {
+                "symbol": ["BTCUSDT", "BTCUSDT"],
+                "funding_time": [
+                    START + timedelta(milliseconds=1),
+                    START + timedelta(minutes=10, milliseconds=1),
+                ],
+                "funding_rate": [Decimal("-0.0001"), Decimal("0.0002")],
+                "funding_mark_price": [Decimal("100"), Decimal("102")],
+            }
+        ),
+    )
+
+    result = CausalFeatureSignalEvaluator().evaluate(
+        candidate, source, funding_slice=funding_slice, symbol="BTCUSDT"
+    )
+
+    assert pd.isna(result.loc[0, "funding_rate"])
+    assert result.loc[1, "funding_rate"] == pytest.approx(-0.0001)
+    assert pd.isna(result.loc[2, "funding_rate"])
+    assert result.loc[3, "funding_rate"] == pytest.approx(0.0002)
+    assert result.loc[1, "signal"] == 1
+    assert result.loc[3, "signal"] == -1
+    assert result.loc[[0, 2, 4, 5, 6, 7, 8, 9, 10, 11], "funding_rate"].isna().all()
+    pd.testing.assert_frame_equal(source, before)
+
+
+def test_candidate_simulation_uses_verified_funding_signal_and_settlement() -> None:
+    candidate = _candidate(
+        feature_names=("funding_rate",),
+        feature_lookback=1,
+        long_expression="funding_rate < 0",
+        short_expression="funding_rate > 0",
+        exit_long_expression="funding_rate > 0",
+        exit_short_expression="funding_rate < 0",
+    )
+    funding_slice = VerifiedFundingSlice(
+        symbol="BTCUSDT",
+        time_start=START,
+        time_end=START + timedelta(minutes=60),
+        bundle_hash=BUNDLE_HASH,
+        dataset_registry_hash=DATASET_REGISTRY_HASH,
+        manifest_hash="c" * 64,
+        artifact_sha256="d" * 64,
+        _events=pd.DataFrame(
+            {
+                "symbol": ["BTCUSDT", "BTCUSDT"],
+                "funding_time": [
+                    START + timedelta(milliseconds=1),
+                    START + timedelta(minutes=10, milliseconds=1),
+                ],
+                "funding_rate": [Decimal("-0.0001"), Decimal("0.0002")],
+                "funding_mark_price": [Decimal("100"), Decimal("102")],
+            }
+        ),
+    )
+    config = TradeSimulationConfig(
+        funding_mode="settled",
+        starting_equity=Decimal("100"),
+        position_fraction=Decimal("0.05"),
+        taker_fee_rate=Decimal("0"),
+        slippage_rate=Decimal("0"),
+    )
+
+    result = simulate_candidate_window(
+        candidate,
+        _frame(),
+        symbol="BTCUSDT",
+        config=config,
+        funding_events=funding_slice.copy_events(),
+        funding_artifact_hash=funding_slice.manifest_hash,
+        funding_slice=funding_slice,
+    )
+
+    trade = result.trades[0]
+    assert result.simulation_version == 4
+    assert result.funding_artifact_hash == funding_slice.manifest_hash
+    assert trade.funding_payment == trade.quantity * Decimal("102") * Decimal("0.0002")
+    assert result.total_funding_payment == trade.funding_payment
+
+
+def test_funding_rate_feature_rejects_unverified_event_dataframe() -> None:
+    candidate = _candidate(feature_names=("funding_rate",), feature_lookback=1)
+
+    with pytest.raises(DataQualityError, match="verified funding slice"):
+        CausalFeatureSignalEvaluator().evaluate(
+            candidate,
+            _frame(),
+            funding_slice=pd.DataFrame(),
+            symbol="BTCUSDT",
+        )
