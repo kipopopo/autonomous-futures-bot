@@ -80,7 +80,7 @@ def _flat_result(
 ) -> TradeSimulationResult:
     timestamp = frame["timestamp"].iloc[-1].to_pydatetime()
     return TradeSimulationResult(
-        simulation_version=(2 if legacy or window.spec.funding_artifact_hash is None else 3),
+        simulation_version=(2 if legacy or window.spec.funding_artifact_hash is None else 4),
         funding_artifact_hash=None if legacy else window.spec.funding_artifact_hash,
         symbol=window.spec.symbol,
         starting_equity=Decimal("100"),
@@ -109,6 +109,20 @@ def test_cached_windows_become_deterministic_oos_aggregation() -> None:
         item.spec.funding_artifact_hash
         for item in (_window("btc-1", "BTCUSDT", start), _window("eth-1", "ETHUSDT", start))
     }
+
+
+def test_walk_forward_rejects_funding_simulation_using_v3_settlement_semantics() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def v3_simulator(candidate, frame, window):
+        return _flat_result(candidate, frame, window).model_copy(update={"simulation_version": 3})
+
+    with pytest.raises(DataQualityError, match="simulation version 4"):
+        evaluate_cached_oos_walk_forward(
+            _candidate(),
+            (_window("btc-v3", "BTCUSDT", start), _window("eth-v3", "ETHUSDT", start)),
+            simulator=v3_simulator,
+        )
 
 
 def test_walk_forward_rejects_legacy_simulation_without_funding_binding() -> None:

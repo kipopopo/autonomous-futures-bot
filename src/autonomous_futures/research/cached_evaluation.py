@@ -182,6 +182,7 @@ def load_verified_cached_evaluation_window(
         time_start=time_start,
         time_end=time_end,
         bar_timestamps=bar_timestamps,
+        interval=interval,
         expected_bundle_hash=bundle_hash,
         expected_registry_hash=dataset_registry_hash,
     )

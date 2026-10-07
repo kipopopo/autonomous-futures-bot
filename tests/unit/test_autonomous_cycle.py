@@ -271,7 +271,7 @@ def test_autonomous_cycle_successful_end_to_end(tmp_path: Path):
             exit_reason="stop_loss",
         )
         return TradeSimulationResult(
-            simulation_version=3,
+            simulation_version=4,
             funding_artifact_hash=w.spec.funding_artifact_hash,
             symbol=w.spec.symbol,
             starting_equity=Decimal("100.00"),
@@ -638,7 +638,7 @@ def test_autonomous_cycle_idempotency_and_repeat_execution(tmp_path: Path):
             exit_reason="stop_loss",
         )
         return TradeSimulationResult(
-            simulation_version=3,
+            simulation_version=4,
             funding_artifact_hash=w.spec.funding_artifact_hash,
             symbol=w.spec.symbol,
             starting_equity=Decimal("100.00"),

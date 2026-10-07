@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
@@ -137,6 +138,24 @@ def canonicalize_funding_rows(
     return canonical.reset_index(drop=True).loc[:, FUNDING_COLUMNS]
 
 
+def funding_event_bar_timestamp(
+    funding_time: datetime,
+    *,
+    bar_timestamps: Sequence[datetime],
+    interval: timedelta,
+) -> datetime:
+    """Map a settlement to its containing bar; reject events outside bar coverage."""
+    if not bar_timestamps or interval <= timedelta(0):
+        raise DataQualityError("funding timestamp must align within an evaluation bar")
+    index = bisect_right(bar_timestamps, funding_time) - 1
+    if index < 0:
+        raise DataQualityError("funding timestamp must align within an evaluation bar")
+    bar_timestamp = bar_timestamps[index]
+    if funding_time >= bar_timestamp + interval:
+        raise DataQualityError("funding timestamp must align within an evaluation bar")
+    return bar_timestamp
+
+
 def align_derivatives_to_primary(
     primary: pd.DataFrame,
     *,
@@ -209,4 +228,5 @@ __all__ = [
     "align_derivatives_to_primary",
     "canonicalize_funding_rows",
     "canonicalize_mark_price_klines",
+    "funding_event_bar_timestamp",
 ]

@@ -85,7 +85,7 @@ def _window(candidate) -> CachedEvaluationWindow:
 def _flat_result(candidate, frame: pd.DataFrame, window: CachedEvaluationWindow):
     timestamp = frame["timestamp"].iloc[-1].to_pydatetime()
     return TradeSimulationResult(
-        simulation_version=3,
+        simulation_version=4,
         symbol=window.spec.symbol,
         starting_equity=Decimal("100"),
         final_equity=Decimal("100"),

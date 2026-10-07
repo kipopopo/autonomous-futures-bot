@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
 import pandas as pd
 
+from .alignment import funding_event_bar_timestamp
 from .bundle import DatasetBundle, find_bundle_component, read_dataset_bundle
 from .derivatives_artifacts import (
     FUNDING_PRICE_PROVENANCE_COLUMNS,
@@ -200,6 +201,7 @@ def load_verified_funding_slice(
     time_start: datetime,
     time_end: datetime,
     bar_timestamps: tuple[datetime, ...],
+    interval: timedelta = timedelta(minutes=5),
     expected_bundle_hash: str | None = None,
     expected_registry_hash: str | None = None,
 ) -> VerifiedFundingSlice:
@@ -275,12 +277,11 @@ def load_verified_funding_slice(
         registry=registry,
         symbol=symbol,
     )
-    bar_set = set(bars)
     selected_times = tuple(
         pd.Timestamp(value).to_pydatetime() for value in selected["funding_time"]
     )
-    if any(timestamp not in bar_set for timestamp in selected_times):
-        raise DataQualityError("funding event does not align with an evaluation bar")
+    for timestamp in selected_times:
+        funding_event_bar_timestamp(timestamp, bar_timestamps=bars, interval=interval)
     return VerifiedFundingSlice(
         symbol=symbol,
         time_start=start,

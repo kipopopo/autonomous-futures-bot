@@ -146,7 +146,7 @@ def _mock_fast_simulator(
         exit_reason="stop_loss",
     )
     return TradeSimulationResult(
-        simulation_version=3,
+        simulation_version=4,
         funding_artifact_hash=window.spec.funding_artifact_hash,
         symbol=window.spec.symbol,
         starting_equity=Decimal("100.00"),

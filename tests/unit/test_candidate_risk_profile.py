@@ -89,7 +89,7 @@ def test_v2_candidate_risk_profile_controls_cached_position_size() -> None:
     )
 
     assert result.trades[0].entry_notional == Decimal("25")
-    assert result.simulation_version == 3
+    assert result.simulation_version == 4
     assert result.funding_artifact_hash == HASH
     assert result.total_funding_payment > 0
     assert result.exchange_access is False

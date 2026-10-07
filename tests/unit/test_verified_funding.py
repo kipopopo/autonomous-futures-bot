@@ -70,6 +70,7 @@ def _verified_catalog(
     fallback_source: bool = False,
     source_hash_override: str | None = None,
     funding_price_override: Decimal | None = None,
+    offgrid_event_time: bool = False,
 ) -> tuple[Path, Path, Path, str]:
     artifact_root = tmp_path / "artifacts"
     artifact_path = artifact_root / "canonical" / "funding.parquet"
@@ -112,7 +113,11 @@ def _verified_catalog(
             "symbol": [SYMBOL, SYMBOL, SYMBOL],
             "funding_time": [
                 pd.Timestamp(UTC_START),
-                pd.Timestamp(UTC_START + timedelta(minutes=10)),
+                pd.Timestamp(
+                    UTC_START
+                    + timedelta(minutes=10)
+                    + (timedelta(milliseconds=1) if offgrid_event_time else timedelta())
+                ),
                 pd.Timestamp(UTC_END),
             ],
             "funding_rate": [Decimal("0.0001"), Decimal("-0.0002"), Decimal("0.0003")],
@@ -230,6 +235,30 @@ def test_load_verified_funding_slice_binds_manifest_bytes_catalog_and_range(
     assert tuple(funding_slice.copy_events()["funding_time"]) == (
         pd.Timestamp(UTC_START),
         pd.Timestamp(UTC_START + timedelta(minutes=10)),
+    )
+
+
+def test_load_verified_funding_slice_accepts_event_inside_its_bar_interval(
+    tmp_path: Path,
+) -> None:
+    artifact_root, bundle_path, registry_path, _ = _verified_catalog(
+        tmp_path,
+        offgrid_event_time=True,
+    )
+
+    funding_slice = load_verified_funding_slice(
+        artifact_root=artifact_root,
+        bundle_path=bundle_path,
+        registry_path=registry_path,
+        symbol=SYMBOL,
+        time_start=UTC_START,
+        time_end=UTC_END,
+        bar_timestamps=tuple(UTC_START + timedelta(minutes=5 * offset) for offset in range(3)),
+    )
+
+    assert tuple(funding_slice.copy_events()["funding_time"]) == (
+        pd.Timestamp(UTC_START),
+        pd.Timestamp(UTC_START + timedelta(minutes=10, milliseconds=1)),
     )
 
 

@@ -1,8 +1,8 @@
 # Prospective confirmation holdout — draft, not execution permission
 
-Status: offline protocol drafted on 2026-10-05. No eligible frozen candidate, acquisition for the declared prospective windows, holdout evaluation, operator-protected preregistration or operational permission exists for this protocol. Two separately approved attempts for the historical range `[2023-01-01T00:00:00Z, 2026-08-06T05:30:00Z)` each stopped after two GETs on an empty funding `markPrice`; neither satisfies this protocol's future-window acquisition gate. This document does not confer paper/testnet/live authority.
+Status: offline protocol drafted on 2026-10-05. No eligible frozen candidate, acquisition for the declared prospective windows, holdout evaluation, operator-protected preregistration or operational permission exists for this protocol. The original historical scope remains incomplete: attempts 1–3 and split Segment A failed; Segment B is complete but historical and cannot satisfy this protocol's future-window acquisition gate. This document does not confer paper/testnet/live authority.
 
-Update 2026-10-07: one third attempt for that same historical range is separately approved with an exact-timestamp 5m mark-price OPEN fallback and row-level source-manifest provenance. Even if completed, it remains historical research data and cannot satisfy the future-window acquisition, frozen-candidate, or preregistration gates above.
+Update 2026-10-07: Segment B's complete historical bundle passed verified readback; Segment A failed on the funding fallback gate, leaving the original span incomplete. Funding events 1–16 ms after a bar open required a separately approved v4 containing-bar settlement policy; its code is pending exact-SHA CI. Segment B cannot satisfy the future-window acquisition, frozen-candidate, or preregistration gates above.
 
 ## Existing evidence remains unchanged
 

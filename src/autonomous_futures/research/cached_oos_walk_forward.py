@@ -59,8 +59,8 @@ def evaluate_cached_oos_walk_forward(
         if result.data_source != "cached_only" or result.exchange_access:
             raise DataQualityError("cached OOS simulation must be cached-only")
         if funding_bound:
-            if window.funding_events is None or result.simulation_version != 3:
-                raise DataQualityError("cached OOS funding evidence requires simulation version 3")
+            if window.funding_events is None or result.simulation_version != 4:
+                raise DataQualityError("cached OOS funding evidence requires simulation version 4")
             if result.funding_artifact_hash != spec.funding_artifact_hash:
                 raise DataQualityError(
                     "cached OOS simulation funding binding does not match window"

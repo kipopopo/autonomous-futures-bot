@@ -91,7 +91,7 @@ def write_window_simulation_evidence(
     ):
         raise DomainViolation("window simulation candidate scope mismatch")
     if (
-        simulation.simulation_version != 3
+        simulation.simulation_version != 4
         or window.funding_artifact_hash is None
         or simulation.funding_artifact_hash != window.funding_artifact_hash
     ):

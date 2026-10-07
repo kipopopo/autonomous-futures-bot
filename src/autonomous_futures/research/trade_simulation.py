@@ -9,6 +9,7 @@ from typing import Literal
 import pandas as pd
 from pydantic import Field, field_validator, model_validator
 
+from ..data.alignment import funding_event_bar_timestamp
 from ..data.parquet import DataQualityError, canonicalize_bars
 from ..domain.contracts import DomainModel, StrictNonNegativeDecimal, StrictPositiveDecimal
 
@@ -110,7 +111,7 @@ class SimulatedTrade(DomainModel):
 
 
 class TradeSimulationResult(DomainModel):
-    simulation_version: Literal[2, 3] = 2
+    simulation_version: Literal[2, 3, 4] = 2
     symbol: str = Field(pattern=r"^[A-Z0-9]+$")
     starting_equity: StrictPositiveDecimal
     final_equity: StrictNonNegativeDecimal
@@ -131,8 +132,8 @@ class TradeSimulationResult(DomainModel):
             raise ValueError("version 2 simulation cannot include funding payments")
         if self.simulation_version == 2 and self.funding_artifact_hash is not None:
             raise ValueError("version 2 simulation cannot bind a funding artifact")
-        if self.simulation_version == 3 and self.funding_artifact_hash is None:
-            raise ValueError("version 3 simulation requires a funding artifact manifest hash")
+        if self.simulation_version in (3, 4) and self.funding_artifact_hash is None:
+            raise ValueError("funding simulation requires a funding artifact manifest hash")
         if self.equity_curve[-1].equity != self.final_equity:
             raise ValueError("final equity must equal the last equity-curve point")
         expected_final_equity = self.starting_equity + _net_decimal(
@@ -205,8 +206,6 @@ def _funding_events_by_time(
     if missing:
         raise DataQualityError("funding frame is missing columns: " + ", ".join(missing))
 
-    allowed_timestamps = set(bar_timestamps)
-    end_exclusive = bar_timestamps[-1] + interval
     events: dict[datetime, tuple[Decimal, Decimal]] = {}
     previous_timestamp: datetime | None = None
     columns = ("symbol", "funding_time", "funding_rate", "funding_mark_price")
@@ -224,15 +223,18 @@ def _funding_events_by_time(
         funding_time = timestamp.to_pydatetime()
         if previous_timestamp is not None and funding_time <= previous_timestamp:
             raise DataQualityError("funding timestamps must be unique and strictly increasing")
-        if funding_time not in allowed_timestamps or funding_time >= end_exclusive:
-            raise DataQualityError(
-                "funding timestamp must align to a bar inside the simulation window"
-            )
+        bar_timestamp = funding_event_bar_timestamp(
+            funding_time,
+            bar_timestamps=bar_timestamps,
+            interval=interval,
+        )
+        if bar_timestamp in events:
+            raise DataQualityError("multiple funding events map to the same simulation bar")
         rate = _decimal(row["funding_rate"], field="funding_rate")
         mark_price = _decimal(row["funding_mark_price"], field="funding_mark_price")
         if mark_price <= 0:
             raise DataQualityError("funding mark price must be positive")
-        events[funding_time] = (rate, mark_price)
+        events[bar_timestamp] = (rate, mark_price)
         previous_timestamp = funding_time
     return events
 
@@ -665,7 +667,7 @@ def simulate_cached_signals(
     equity_points[-1] = EquityPoint(timestamp=equity_points[-1].timestamp, equity=cash)
 
     return TradeSimulationResult(
-        simulation_version=3 if funding_events is not None else 2,
+        simulation_version=4 if funding_events is not None else 2,
         symbol=symbol,
         starting_equity=config.starting_equity,
         final_equity=cash,

@@ -97,7 +97,7 @@ def test_cached_window_binds_and_copies_its_verified_funding_slice() -> None:
     funding = pd.DataFrame(
         {
             "symbol": ["BTCUSDT"],
-            "funding_time": [START + timedelta(minutes=5)],
+            "funding_time": [START + timedelta(minutes=5, milliseconds=1)],
             "funding_rate": [Decimal("0.001")],
             "funding_mark_price": [Decimal("100")],
         }

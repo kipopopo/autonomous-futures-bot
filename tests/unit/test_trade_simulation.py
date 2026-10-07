@@ -142,7 +142,30 @@ def test_long_position_settles_signed_funding_into_trade_and_equity() -> None:
     assert result.trades[0].net_pnl == Decimal("-0.1800")
     assert result.total_funding_payment == Decimal("0.100")
     assert result.final_equity == Decimal("99.8200")
-    assert result.simulation_version == 3
+    assert result.simulation_version == 4
+
+
+def test_offgrid_funding_settlement_uses_its_containing_bar() -> None:
+    frame = _signal_frame((0, 1, 0, 0), opens=("100",) * 4, closes=("100",) * 4)
+    funding = pd.DataFrame(
+        {
+            "symbol": ["BTCUSDT"],
+            "funding_time": [START + timedelta(minutes=10, milliseconds=1)],
+            "funding_rate": [Decimal("0.001")],
+            "funding_mark_price": [Decimal("100")],
+        }
+    )
+
+    result = simulate_cached_signals(
+        frame,
+        symbol="BTCUSDT",
+        config=_config(),
+        funding_events=funding,
+        funding_artifact_hash="a" * 64,
+    )
+
+    assert result.trades[0].funding_payment == Decimal("0.100")
+    assert result.simulation_version == 4
 
 
 def test_funding_accounting_requires_the_exact_derivative_manifest_hash() -> None:
@@ -184,6 +207,9 @@ def test_short_position_receives_positive_funding_and_entry_bar_settlement_is_ex
         }
     )
     at_entry = settlement.assign(funding_time=[START + timedelta(minutes=5)])
+    offgrid_at_entry = settlement.assign(
+        funding_time=[START + timedelta(minutes=5, milliseconds=1)]
+    )
 
     received = simulate_cached_signals(
         frame,
@@ -199,6 +225,13 @@ def test_short_position_receives_positive_funding_and_entry_bar_settlement_is_ex
         funding_events=at_entry,
         funding_artifact_hash="a" * 64,
     )
+    offgrid_excluded = simulate_cached_signals(
+        frame,
+        symbol="BTCUSDT",
+        config=_config(),
+        funding_events=offgrid_at_entry,
+        funding_artifact_hash="a" * 64,
+    )
 
     assert received.trades[0].funding_payment == Decimal("-0.100")
     assert received.trades[0].net_pnl == Decimal("0.0200")
@@ -207,6 +240,8 @@ def test_short_position_receives_positive_funding_and_entry_bar_settlement_is_ex
     assert excluded.trades[0].funding_payment == 0
     assert excluded.total_funding_payment == 0
     assert excluded.final_equity == Decimal("99.9200")
+    assert offgrid_excluded.trades[0].funding_payment == 0
+    assert offgrid_excluded.total_funding_payment == 0
 
 
 def test_funding_settlement_occurs_before_same_bar_position_exit() -> None:
@@ -241,7 +276,7 @@ def test_funding_settlement_occurs_before_same_bar_position_exit() -> None:
             pd.DataFrame(
                 {
                     "symbol": ["BTCUSDT"],
-                    "funding_time": [START + timedelta(minutes=11)],
+                    "funding_time": [START + timedelta(minutes=20)],
                     "funding_rate": [Decimal("0.001")],
                     "funding_mark_price": [Decimal("100")],
                 }

@@ -145,7 +145,7 @@ def test_cycle_receipt_cannot_claim_adoption_rejected_by_epoch_runtime(
         )
         equity = Decimal("100") + sum(trade.net_pnl for trade in trades)
         return TradeSimulationResult(
-            simulation_version=3,
+            simulation_version=4,
             funding_artifact_hash=window.spec.funding_artifact_hash,
             symbol=window.spec.symbol,
             starting_equity=Decimal("100"),
