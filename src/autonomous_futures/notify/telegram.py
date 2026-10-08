@@ -389,6 +389,96 @@ def format_trade_closed_alert(event: dict[str, Any]) -> str:
     )
 
 
+def format_order_placed_alert(event: dict[str, Any]) -> str:
+    """Format an Order Placed alert using Telegram MarkdownV2 syntax."""
+    symbol = str(event.get("symbol", "UNKNOWN")).upper()
+    side = str(event.get("side", "BUY")).upper()
+    order_type = str(event.get("order_type", "LIMIT")).upper()
+    price = _price_text(_event_value(event, "price", "sweep_price"))
+    quantity = _decimal_text(
+        _event_value(event, "quantity", "qty"), Decimal("0.00000001"), trim=True
+    )
+    notional = _decimal_text(_event_value(event, "notional_usdt", "notional"), Decimal("0.01"))
+    client_order_id = str(event.get("client_order_id", event.get("order_id", "N/A")))
+    stop_loss = _price_text(_event_value(event, "stop_loss", "sl"))
+    take_profit = _price_text(_event_value(event, "take_profit", "tp"))
+    occurred_at = _myt_text(_event_value(event, "occurred_at", "timestamp_ms"))
+    maker_str = "Maker Limit" if event.get("is_maker", True) else "Taker"
+    return (
+        f"🔵 *ORDER PLACED* \\| {escape_markdown_v2(symbol)}\n"
+        f"─────────────────────────\n"
+        f"• *Side*: {escape_markdown_v2(side)}\n"
+        f"• *Type*: {escape_markdown_v2(order_type)} \\({escape_markdown_v2(maker_str)}\\)\n"
+        f"• *Price*: {escape_markdown_v2(_money_text(price, ''))}\n"
+        f"• *Quantity*: {escape_markdown_v2(quantity)}\n"
+        f"• *Notional*: {escape_markdown_v2(_money_text(notional))}\n"
+        f"• *Stop Loss*: {escape_markdown_v2(_money_text(stop_loss, ''))}\n"
+        f"• *Take Profit*: {escape_markdown_v2(_money_text(take_profit, ''))}\n"
+        f"• *Client Order ID*: `{escape_markdown_v2(client_order_id)}`\n"
+        f"• *Time*: {escape_markdown_v2(occurred_at)}"
+    )
+
+
+def format_tp_sl_realized_alert(event: dict[str, Any]) -> str:
+    """Format a Take Profit / Stop Loss realization alert using Telegram MarkdownV2."""
+    symbol = str(event.get("symbol", "UNKNOWN")).upper()
+    side = str(event.get("side", "BUY")).upper()
+    exit_type = str(event.get("exit_reason", event.get("exit_type", "TAKE_PROFIT"))).upper()
+    icon = "🎯" if "PROFIT" in exit_type else "🛑" if "STOP" in exit_type else "⏳"
+    exit_price = _price_text(_event_value(event, "exit_price", "fill_price", "price"))
+    pnl_val = _finite_decimal(_event_value(event, "realized_pnl", "net_pnl", "pnl"))
+    pnl_str = _decimal_text(
+        abs(Decimal(str(pnl_val))) if pnl_val is not None else None, Decimal("0.0001")
+    )
+    pnl_prefix = "+" if pnl_val is not None and pnl_val >= 0 else "-"
+    fee = _decimal_text(_event_value(event, "fee", "total_fees"), Decimal("0.0001"))
+    hold_duration = str(event.get("hold_duration_bars", event.get("hold_bars", "N/A")))
+    occurred_at = _myt_text(_event_value(event, "occurred_at", "timestamp_ms"))
+    return (
+        f"{icon} *{escape_markdown_v2(exit_type)} REALIZED* \\| {escape_markdown_v2(symbol)}\n"
+        f"─────────────────────────\n"
+        f"• *Side*: {escape_markdown_v2(side)}\n"
+        f"• *Exit Fill*: {escape_markdown_v2(_money_text(exit_price, ''))}\n"
+        f"• *Realized PnL*: {escape_markdown_v2(f'{pnl_prefix}${pnl_str} USDT')}\n"
+        f"• *Fee*: {escape_markdown_v2(_money_text(fee))}\n"
+        f"• *Hold Duration*: {escape_markdown_v2(hold_duration)} bars\n"
+        f"• *Time*: {escape_markdown_v2(occurred_at)}"
+    )
+
+
+def format_daily_pnl_summary_alert(summary: dict[str, Any]) -> str:
+    """Format a Daily Performance Summary alert using Telegram MarkdownV2."""
+    date_str = str(summary.get("session_date", summary.get("date", "TODAY")))
+    realized_pnl = _decimal_text(
+        _event_value(summary, "cumulative_realized_pnl_usdt", "realized_pnl", "net_pnl"),
+        Decimal("0.01"),
+    )
+    pnl_val = _finite_decimal(
+        _event_value(summary, "cumulative_realized_pnl_usdt", "realized_pnl", "net_pnl")
+    )
+    pnl_prefix = "+" if pnl_val is not None and pnl_val >= 0 else "-"
+    icon = "📈" if pnl_val is not None and pnl_val >= 0 else "📉"
+    total_trades = str(summary.get("total_trades", summary.get("trades_count", 0)))
+    win_rate = _decimal_text(_event_value(summary, "win_rate_pct", "win_rate"), Decimal("0.1"))
+    max_dd = _decimal_text(_event_value(summary, "max_drawdown_usdt", "drawdown"), Decimal("0.01"))
+    cash_balance = _decimal_text(_event_value(summary, "cash", "cash_balance"), Decimal("0.01"))
+    equity = _decimal_text(_event_value(summary, "equity", "total_equity"), Decimal("0.01"))
+    drift = _decimal_text(_event_value(summary, "drift"), Decimal("0.000000000000001"))
+    zero_drift = abs(Decimal(str(drift or "0"))) < Decimal("1e-15") if drift else True
+    return (
+        f"{icon} *DAILY PERFORMANCE SUMMARY* \\| {escape_markdown_v2(date_str)}\n"
+        f"─────────────────────────\n"
+        f"• *Net Realized PnL*: {escape_markdown_v2(f'{pnl_prefix}${realized_pnl} USDT')}\n"
+        f"• *Total Trades*: {escape_markdown_v2(total_trades)}\n"
+        f"• *Win Rate*: {escape_markdown_v2(win_rate)}%\n"
+        f"• *Max Drawdown*: {escape_markdown_v2(_money_text(max_dd))}\n"
+        f"• *Cash Balance*: {escape_markdown_v2(_money_text(cash_balance))}\n"
+        f"• *Total Equity*: {escape_markdown_v2(_money_text(equity))}\n"
+        f"• *Zero\\-Drift Status*: `{escape_markdown_v2(str(zero_drift))}`\n"
+        f"• *Balance Drift*: `{escape_markdown_v2(str(drift))} USDT`"
+    )
+
+
 def format_risk_alert(alert_type: str, details: dict[str, Any]) -> str:
     """Format a ⚠️ Risk Alert (Circuit Breaker or Margin Warning) in MarkdownV2."""
     time_str = _myt_text(_event_value(details, "occurred_at"))
@@ -713,7 +803,13 @@ class TelegramNotifierClient:
     def send_alert(self, alert_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Format an alert and dispatch it to the configured chat."""
         alert_lower = alert_type.lower()
-        if alert_lower in ("trade_open", "trade_opened"):
+        if alert_lower in ("order_placed", "order_staged"):
+            text = format_order_placed_alert(payload)
+        elif alert_lower in ("tp_sl_realized", "tp_sl", "take_profit", "stop_loss"):
+            text = format_tp_sl_realized_alert(payload)
+        elif alert_lower in ("daily_pnl_summary", "daily_summary"):
+            text = format_daily_pnl_summary_alert(payload)
+        elif alert_lower in ("trade_open", "trade_opened"):
             text = format_trade_opened_alert(payload)
         elif alert_lower in ("trade_close", "trade_closed"):
             text = format_trade_closed_alert(payload)
@@ -914,7 +1010,13 @@ class AsyncTelegramNotifierClient:
     async def send_alert(self, alert_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Asynchronously format and send an alert."""
         alert_lower = alert_type.lower()
-        if alert_lower in ("trade_open", "trade_opened"):
+        if alert_lower in ("order_placed", "order_staged"):
+            text = format_order_placed_alert(payload)
+        elif alert_lower in ("tp_sl_realized", "tp_sl", "take_profit", "stop_loss"):
+            text = format_tp_sl_realized_alert(payload)
+        elif alert_lower in ("daily_pnl_summary", "daily_summary"):
+            text = format_daily_pnl_summary_alert(payload)
+        elif alert_lower in ("trade_open", "trade_opened"):
             text = format_trade_opened_alert(payload)
         elif alert_lower in ("trade_close", "trade_closed"):
             text = format_trade_closed_alert(payload)

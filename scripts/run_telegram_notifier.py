@@ -48,6 +48,8 @@ class CheckpointState:
         self.last_digest_timestamp: float = 0.0
         self.last_update_id: int = 0
         self.last_daily_report_date: str = ""
+        self.last_production_order_ts: int = 0
+        self.last_production_autopsy_ts: int = 0
         self.load()
 
     def load(self) -> None:
@@ -63,6 +65,8 @@ class CheckpointState:
                 self.last_digest_timestamp = float(data.get("last_digest_timestamp") or 0.0)
                 self.last_update_id = int(data.get("last_update_id") or 0)
                 self.last_daily_report_date = str(data.get("last_daily_report_date") or "")
+                self.last_production_order_ts = int(data.get("last_production_order_ts") or 0)
+                self.last_production_autopsy_ts = int(data.get("last_production_autopsy_ts") or 0)
         except (OSError, ValueError, TypeError) as exc:
             logger.warning("Could not read checkpoint file %s: %s", self.path, exc)
 
@@ -75,6 +79,8 @@ class CheckpointState:
             "last_digest_timestamp": self.last_digest_timestamp,
             "last_update_id": self.last_update_id,
             "last_daily_report_date": self.last_daily_report_date,
+            "last_production_order_ts": self.last_production_order_ts,
+            "last_production_autopsy_ts": self.last_production_autopsy_ts,
             "saved_at_utc": datetime.now(UTC).isoformat(),
         }
         tmp_path = self.path.with_suffix(".tmp")
@@ -230,6 +236,103 @@ class TelegramNotifierDaemon:
             conn.close()
 
         return dispatched_count
+
+    def poll_production_telemetry(self) -> int:
+        """Query production telemetry SQLite for new orders, autopsies, and TP/SL events."""
+        dispatched = 0
+        db_candidates = (
+            "canary-production-telemetry.sqlite3",
+            "canary-lifecycle-telemetry.sqlite3",
+        )
+        for db_name in db_candidates:
+            db_path = self.storage_dir / db_name
+            conn = self._connect_readonly(db_path)
+            if conn is None:
+                continue
+            try:
+                # 1. Poll orders table
+                if self._table_exists(conn, "orders"):
+                    cursor = conn.execute(
+                        """
+                        SELECT order_id, client_order_id, symbol, side, order_type, price,
+                               quantity, notional_usdt, status, fee_usdt,
+                               realized_pnl_usdt, timestamp_ms
+                        FROM orders
+                        WHERE timestamp_ms > ?
+                        ORDER BY timestamp_ms ASC
+                        """,
+                        (self.checkpoint.last_production_order_ts,),
+                    )
+                    for row in cursor.fetchall():
+                        ts = int(row[11])
+                        self.checkpoint.last_production_order_ts = max(
+                            self.checkpoint.last_production_order_ts, ts
+                        )
+                        order_status = str(row[8]).upper()
+                        payload = {
+                            "order_id": row[0],
+                            "client_order_id": row[1],
+                            "symbol": row[2],
+                            "side": row[3],
+                            "order_type": row[4],
+                            "price": row[5],
+                            "quantity": row[6],
+                            "notional_usdt": row[7],
+                            "status": order_status,
+                            "fee": row[9],
+                            "realized_pnl": row[10],
+                            "timestamp_ms": ts,
+                        }
+                        if order_status == "FILLED":
+                            self.client.send_alert("trade_open", payload)
+                        else:
+                            self.client.send_alert("order_placed", payload)
+                        dispatched += 1
+
+                # 2. Poll trade_autopsies table
+                if self._table_exists(conn, "trade_autopsies"):
+                    cursor = conn.execute(
+                        """
+                        SELECT trade_id, symbol, side, entry_price, exit_price, fill_qty,
+                               net_pnl_usdt, fee_cost_usdt, hold_duration_bars, cause, timestamp_ms
+                        FROM trade_autopsies
+                        WHERE timestamp_ms > ?
+                        ORDER BY timestamp_ms ASC
+                        """,
+                        (self.checkpoint.last_production_autopsy_ts,),
+                    )
+                    for row in cursor.fetchall():
+                        ts = int(row[10])
+                        self.checkpoint.last_production_autopsy_ts = max(
+                            self.checkpoint.last_production_autopsy_ts, ts
+                        )
+                        net_pnl = float(row[6])
+                        exit_type = "TAKE_PROFIT" if net_pnl > 0 else "STOP_LOSS"
+                        payload = {
+                            "trade_id": row[0],
+                            "symbol": row[1],
+                            "side": row[2],
+                            "entry_price": row[3],
+                            "exit_price": row[4],
+                            "quantity": row[5],
+                            "realized_pnl": net_pnl,
+                            "fee": row[7],
+                            "hold_duration_bars": row[8],
+                            "cause": row[9],
+                            "exit_type": exit_type,
+                            "timestamp_ms": ts,
+                        }
+                        self.client.send_alert("tp_sl_realized", payload)
+                        dispatched += 1
+
+                if dispatched > 0:
+                    self.checkpoint.save()
+            except sqlite3.Error as exc:
+                logger.debug("Error reading production telemetry from %s: %s", db_name, exc)
+            finally:
+                conn.close()
+
+        return dispatched
 
     def poll_circuit_breaker_and_margin(self) -> None:
         """Check daemon health for circuit breaker transitions and margin utilization."""
@@ -607,6 +710,7 @@ class TelegramNotifierDaemon:
     def run_single_cycle(self) -> None:
         """Run a single execution cycle (for --once flag or loop iteration)."""
         self.poll_new_ledger_events()
+        self.poll_production_telemetry()
         self.poll_circuit_breaker_and_margin()
         self.poll_periodic_digest()
         self.poll_daily_performance_report()

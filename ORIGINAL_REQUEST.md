@@ -3094,3 +3094,68 @@ Provide detailed architectural verification checklist and state transition analy
 
 
 
+
+
+## 2026-10-08T15:04:38Z
+
+Implement Phase 310: Real Autonomous Trading Engine, Binance Futures Live/Testnet Gateway Bridge, Macro Liquidity Scalper, and Self-Learning Autopsy Closure for Autonomous Futures Bot.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: demo
+
+## Project Description
+Transform the Autonomous Futures Bot into an end-to-end profitable, self-driving trading system by replacing simulated matching with real Binance Futures Testnet (transitioning to Live) REST and WebSocket order execution, implementing the verified 15m Macro-Confluence Liquidity Dip Scalper across SOLUSDT and ETHUSDT, closing the continuous trade-autopsy self-learning loop, and deploying the 24/7 daemon to the Kainode Linux VPS with real-time Telegram trade alerts.
+
+## Requirements
+
+### R1. Real Binance Futures Order Dispatch & Gateway Bridge
+Upgrade `TestnetOrderDispatchBridge` and `SelfDrivingTradingEngine` from mock simulation (`_simulate_fill`) to authentic Binance Futures network execution:
+- Dual-mode gateway supporting Binance Futures Testnet (`https://testnet.binancefuture.com`) with seamless toggle to Live (`https://fapi.binance.com`).
+- Authenticated signed REST endpoints: `POST /fapi/v1/order` (LIMIT / MARKET / STOP_MARKET), `GET /fapi/v1/positionRisk` (real-time position & unrealized PnL sync), `GET /fapi/v1/account` (equity & margin balance sync), and `DELETE /fapi/v1/order` (cancel order).
+- WebSocket user data stream: automatic `listenKey` creation, 30-minute keepalive loop (`PUT /fapi/v1/listenKey`), and real-time ingestion of `ORDER_TRADE_UPDATE` and `ACCOUNT_UPDATE` events.
+- Strict HMAC-SHA256 signature generation, monotonic nonce management, clock drift compensation ($|\Delta t| \le 1000\text{ ms}$), and idempotent client order IDs (`c=canary-p310-{sym}-{ts}-{uuid}`).
+
+### R2. High-Expectancy Macro Liquidity Sweep Scalper Engine
+Deploy the empirically verified 15m Macro-Confluence Liquidity Dip Scalper into the active strategy registry:
+- **Macro Trend Filter**: Gated on Bitcoin 1h/4h regime alignment (Longs allowed only when BTC 1h/4h EMA 50 > EMA 200).
+- **Entry Trigger**: Detect volume-backed liquidity capitulation dips (Price $> 2.5\times$ ATR below 20 EMA, volume $> 2.2\times$ 20 SMA, RSI 14 $< 26$).
+- **Trade Structuring & Fee Elimination**:
+  - Place Maker Limit Orders at the sweep price (0.02% maker fee) to eliminate high taker fee drag.
+  - Strict Stop Loss at $1.2\times$ ATR below entry.
+  - Dynamic Take Profit at $2.0\times$ ATR above entry (Risk:Reward ratio 1.66:1).
+  - Time-based decay stop: auto-exit after 8 bars (2 hours) if momentum stalls.
+
+### R3. Closed-Loop Self-Learning & Strategy Autopsy Feedback
+Connect the Phase 306 `StrategyAutopsyEngine` and `ContinuousSelfLearningDaemon` to actual live/testnet trade executions:
+- Ingest real execution fills, realized PnL, slippage, and hold durations into SQLite (`canary-lifecycle-telemetry.sqlite3`) and JSONL event logs.
+- Perform automated trade autopsies decomposing outcomes into timing error, adverse selection, and net edge.
+- Classify candidate health dynamically (`ELITE`, `HEALTHY`, `DEGRADED`).
+- Trigger automatic fail-closed pauses if observed drawdown exceeds the 3.00 USDT daily risk ceiling.
+
+### R4. Continuous 24/7 VPS Deployment & Telegram Telemetry
+Package and configure the continuous runner for 24/7 background execution on the Kainode Linux VPS (`147.79.18.15`):
+- Configure systemd user service `autonomous-futures-trader.service` with auto-restart on network interruptions.
+- Real-time Telegram alerts via `scripts/run_telegram_notifier.py` on order placement, fill confirmation, TP/SL realization, and daily PnL summaries.
+- Maintain continuous double-entry zero-drift balance invariant ($|\Delta| = 0.00\text{ USDT} < 10^{-15}\text{ USDT}$) reconciling local ledger with real Binance account equity.
+- Enforce strict micro-capital boundaries: child order cap $\le 5.00$ USDT, aggregate exposure $\le 25.00$ USDT, liquid cash reserve $\ge 75.0\%$.
+
+## Acceptance Criteria
+
+### Exchange Connectivity & Gateway Integrity
+- [ ] Gateway establishes verified REST & WebSocket connections to Binance Futures Testnet using configured API credentials.
+- [ ] Placing an order submits a real authenticated `POST /fapi/v1/order` and receives a valid Binance `orderId` and status response.
+- [ ] Position and balance queries accurately match live exchange state with zero sequence drift.
+
+### Strategy Execution & Micro-Capital Governance
+- [ ] Strategy evaluator processes live 15m ticks, identifies valid liquidity sweeps, and enforces the BTC macro trend gate.
+- [ ] Child orders strictly respect the $\le 5.00$ USDT notional cap with Binance `MIN_NOTIONAL` precision step-up compliance.
+- [ ] Risk interlocks instantaneously block new order generation if Hawkes spectral radius $\rho \ge 1.0$, gateway latency $> 500\text{ ms}$, or aggregate exposure exceeds 25.00 USDT.
+
+### Autopsy Feedback & Ledger Reconciliation
+- [ ] Completed trades trigger the autopsy pipeline and produce cryptographically hashed audit records.
+- [ ] Double-entry ledger reconciliation holds $|\text{drift}| < 10^{-15}\text{ USDT}$ across all live state transitions.
+
+### VPS Operations & Telegram Notifications
+- [ ] `autonomous-futures-trader.service` runs active/healthy on Kainode VPS under `systemd --user`.
+- [ ] Telegram bot successfully sends notifications for trade entry, exit, and daily performance summary to the designated chat ID.
+- [ ] FastAPI Mission Control endpoints and Cloudflare web dashboard accurately reflect live exchange metrics.

@@ -1,0 +1,32 @@
+[Unit]
+Description=Autonomous Futures Bot Phase 310 Continuous Self-Driving Trader Daemon
+After=network-online.target
+Wants=network-online.target
+Documentation=file:///opt/autonomous-futures-bot/README.md
+
+[Service]
+Type=simple
+User=afbot
+Group=afbot
+WorkingDirectory=/opt/autonomous-futures-bot
+Environment=PYTHONPATH=/opt/autonomous-futures-bot/src
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/autonomous-futures-bot/.env
+ExecStart=/opt/autonomous-futures-bot/.venv/bin/python scripts/run_phase_310_real_autonomous_trading.py --storage-dir /opt/autonomous-futures-bot/artifacts/research/phase310 --starting-capital 100.00 --symbols SOLUSDT,ETHUSDT,BTCUSDT
+Restart=always
+RestartSec=5s
+TimeoutStopSec=30s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/autonomous-futures-bot/artifacts/
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CPUQuota=300%
+MemoryMax=4G
+
+[Install]
+WantedBy=multi-user.target default.target
