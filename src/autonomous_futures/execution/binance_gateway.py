@@ -135,7 +135,9 @@ class BinanceFuturesGateway:
         self.api_secret = (
             api_secret
             or os.environ.get("BINANCE_API_SECRET")
+            or os.environ.get("BINANCE_SECRET_KEY")
             or os.environ.get("BINANCE_TESTNET_API_SECRET")
+            or os.environ.get("BINANCE_TESTNET_SECRET_KEY")
             or "mock-p310-secret-canary"
         )
 
