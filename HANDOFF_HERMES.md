@@ -1,4 +1,6 @@
-# Autonomous Futures Bot — Current Handoff
+# Autonomous Futures Bot — Historical Hermes Handoff
+
+> **Ownership transfer, 2026-10-08:** The owner requested that the entire project return to Antigravity. Read [ANTIGRAVITY_HANDOFF.md](ANTIGRAVITY_HANDOFF.md) for the current takeover, source `7fc698b0564b8e7981e416a941a8e5952b413bd8`, verified Actions `37642230850` (5,169 passed / 1 skipped / 2 warnings), funding v4/feature and data status, approved isolated fresh-epoch route, retained evidence, unfinished outcomes and approval boundaries. Hermes development stops; Antigravity is the next sole writer. This file preserves chronology, not current permission or runtime health. Later sections may describe prerequisites subsequently resolved; the canonical handoff supersedes those statuses without rewriting historical evidence. Project remains NOT COMPLETE / NOT PRODUCTION READY; no deployment, restart, provider call or order is part of the transfer.
 
 **Status as of 2026-10-06 (MYT): NOT PRODUCTION READY.** This document supersedes the older handoff that described Phase 309 as a live production launch. Those historical claims are not current operational evidence; the subsequent independent audit found simulator-backed paths and missing live-readiness foundations. No existing service was activated/restarted and no order was performed by this update; the explicitly approved temporary research unit completed and was collected.
 

@@ -1,4 +1,8 @@
-# Autonomous Futures Bot — handoff to Antigravity
+# Autonomous Futures Bot — historical Antigravity handoff
+
+> **Current takeover, 2026-10-08:** Read [ANTIGRAVITY_HANDOFF.md](ANTIGRAVITY_HANDOFF.md), the single canonical full-project transfer. Antigravity is the next sole writer; Hermes development stops. The source/CI, provider/epoch route, data/evidence custody, unfinished outcomes and approvals there supersede this September snapshot. No service/provider/trading authority or automatically launched Antigravity job follows from the transfer.
+
+**Archive only:** Everything below preserves the older handoff's chronology. Its pinned-candidate startup path, release/provider/runtime facts and next-action instructions are historical, not current. Do not execute them without reconciling current source and authority. Keep the original referenced verification evidence intact.
 
 ## 1. Product mandate — read first
 
