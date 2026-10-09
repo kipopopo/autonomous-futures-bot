@@ -19,11 +19,35 @@ import urllib.parse
 import uuid
 from collections.abc import Awaitable, Callable
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+from pathlib import Path
 from typing import Any, cast
 
 import httpx
 
 logger = logging.getLogger("autonomous_futures.execution.binance_gateway")
+
+
+def _load_dotenv_fallback() -> None:
+    """Loads environment variables from .env if present and not already loaded."""
+    candidates = [
+        Path("/opt/autonomous-futures-bot/.env"),
+        Path(".env"),
+        Path(__file__).resolve().parents[3] / ".env",
+    ]
+    for p in candidates:
+        if p.is_file():
+            try:
+                with open(p, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k_clean = k.strip()
+                            if k_clean not in os.environ:
+                                os.environ[k_clean] = v.strip().strip('"').strip("'")
+            except OSError:
+                pass
+            break
 
 # Endpoint URLs
 BINANCE_TESTNET_REST_BASE = "https://testnet.binancefuture.com"
@@ -118,6 +142,9 @@ class BinanceFuturesGateway:
         mock_transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
         offline_mode: bool = False,
     ) -> None:
+        # Ensure .env is loaded if running outside systemd
+        _load_dotenv_fallback()
+
         # Resolve testnet configuration from argument or environment
         if testnet is not None:
             self.testnet = testnet
