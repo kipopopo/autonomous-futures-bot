@@ -514,29 +514,29 @@ function App() {
   const isProductionPage = page === 'production' || page === 'production-launch'
 
   return (
-    <div className="app-shell bg-base-100 text-base-content min-h-screen">
+    <div className="app-shell bg-transparent text-white min-h-screen">
       {/* Mobile Top Header (< 768px) */}
-      <div className="md:hidden flex items-center justify-between p-3.5 bg-base-200/90 backdrop-blur-md border-b border-base-300 sticky top-0 z-30">
+      <div className="md:hidden flex items-center justify-between p-3.5 bg-[#090b10]/90 backdrop-blur-xl border-b border-white/[0.06] sticky top-0 z-30">
         <div className="flex items-center gap-2.5">
           <div className="brand-mark w-8 h-8 text-xs font-bold" aria-hidden="true">AF</div>
           <div>
-            <strong className="text-xs font-bold text-base-content block leading-tight">
+            <strong className="text-xs font-bold text-white block leading-tight">
               Autonomous Futures
             </strong>
-            <span className="text-[10px] text-base-content/60 font-mono">
+            <span className="text-[10px] text-zinc-400 font-mono">
               Trading Mission Control
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="badge badge-success badge-xs py-1 px-2 font-mono font-semibold">
+          <span className="badge badge-success badge-xs py-1 px-2 font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
             ACTIVE 24/7
           </span>
           <button
             type="button"
             onClick={() => setIsMobileDrawerOpen(!isMobileDrawerOpen)}
-            className="btn btn-xs btn-ghost btn-circle text-base-content"
+            className="btn btn-xs btn-ghost btn-circle text-white/70 hover:text-white"
             aria-label="Toggle navigation menu"
           >
             {isMobileDrawerOpen ? <X size={18} /> : <Menu size={18} />}
@@ -546,12 +546,12 @@ function App() {
 
       {/* Mobile Slide-down Drawer Menu */}
       {isMobileDrawerOpen && (
-        <div className="md:hidden p-4 bg-base-200 border-b border-base-300 space-y-2 z-20 animate-in slide-in-from-top duration-200">
+        <div className="md:hidden p-4 bg-[#090b10]/95 backdrop-blur-2xl border-b border-white/[0.08] space-y-2 z-20 animate-in slide-in-from-top duration-200">
           <a
             href="#overview"
             onClick={() => setIsMobileDrawerOpen(false)}
             className={`block p-2.5 rounded-xl text-xs font-semibold ${
-              isOverviewPage ? 'bg-primary/10 text-primary' : 'text-base-content'
+              isOverviewPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
             }`}
           >
             🚀 Dashboard Utama
@@ -560,7 +560,7 @@ function App() {
             href="#/positions"
             onClick={() => setIsMobileDrawerOpen(false)}
             className={`block p-2.5 rounded-xl text-xs font-semibold ${
-              isPositionsPage ? 'bg-primary/10 text-primary' : 'text-base-content'
+              isPositionsPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
             }`}
           >
             📊 Pasaran &amp; Posisi
@@ -569,7 +569,7 @@ function App() {
             href="#/trades"
             onClick={() => setIsMobileDrawerOpen(false)}
             className={`block p-2.5 rounded-xl text-xs font-semibold ${
-              isTradesPage ? 'bg-primary/10 text-primary' : 'text-base-content'
+              isTradesPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
             }`}
           >
             ⚡ Log Perdagangan
@@ -578,7 +578,7 @@ function App() {
             href="#/safety"
             onClick={() => setIsMobileDrawerOpen(false)}
             className={`block p-2.5 rounded-xl text-xs font-semibold ${
-              isSafetyPage ? 'bg-primary/10 text-primary' : 'text-base-content'
+              isSafetyPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
             }`}
           >
             🛡️ Kawalan Keselamatan
@@ -589,7 +589,7 @@ function App() {
               setIsMobileDrawerOpen(false)
               setIsArchiveDrawerOpen(true)
             }}
-            className="w-full text-left p-2.5 rounded-xl text-xs font-semibold text-primary flex items-center justify-between"
+            className="w-full text-left p-2.5 rounded-xl text-xs font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-between"
           >
             <span>📁 Arkib Penyelidikan (23 Fasa)</span>
             <Archive size={15} />
@@ -598,11 +598,11 @@ function App() {
       )}
 
       {/* Desktop Executive Sidebar */}
-      <aside className="sidebar bg-base-200/90 border-r border-base-300" aria-label="Primary navigation">
+      <aside className="sidebar bg-[#090b10]/80 border-r border-white/[0.06] backdrop-blur-2xl" aria-label="Primary navigation">
         <div className="brand-mark" aria-hidden="true">AF</div>
         <div className="sidebar-brand">
-          <strong className="text-sm font-bold text-base-content">Autonomous<br />Futures</strong>
-          <span className="text-xs text-base-content/60 font-mono">Trading Mission Control</span>
+          <strong className="text-sm font-bold text-white tracking-tight">Autonomous<br />Futures</strong>
+          <span className="text-xs text-zinc-400 font-mono">Trading Mission Control</span>
         </div>
 
         <nav className="flex flex-col gap-1.5">

@@ -213,19 +213,18 @@ export function MarketPositionsCard({ positions }: MarketPositionsCardProps) {
                 </div>
 
                 {/* Visual ATR Bracket Range Bar */}
-                <div className="w-full bg-white/[0.05] rounded-full h-1.5 my-1 relative overflow-hidden border border-white/[0.04]">
-                  <div
-                    className="absolute left-0 top-0 bottom-0 bg-rose-500/60"
-                    style={{ width: '30%' }}
-                  />
-                  <div
-                    className="absolute left-[30%] top-0 bottom-0 bg-cyan-400"
-                    style={{ width: '10%' }}
-                  />
-                  <div
-                    className="absolute right-0 top-0 bottom-0 bg-emerald-500/60"
-                    style={{ width: '60%' }}
-                  />
+                <div className="space-y-1 my-1.5">
+                  <div className="w-full bg-black/40 rounded-full h-2 relative overflow-hidden border border-white/[0.06] p-[1px]">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-rose-500/70 via-cyan-400 to-emerald-500/70"
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400">
+                    <span className="text-rose-400/90 font-medium">SL -1.2x ATR</span>
+                    <span className="text-cyan-400 font-semibold">Harga Semasa</span>
+                    <span className="text-emerald-400/90 font-medium">TP +2.0x ATR</span>
+                  </div>
                 </div>
 
                 {/* Distance Meter Gauge */}
