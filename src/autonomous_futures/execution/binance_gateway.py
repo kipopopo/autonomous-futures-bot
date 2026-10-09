@@ -377,11 +377,30 @@ class BinanceFuturesGateway:
                 for i in range(limit)
             ]
 
-        async with self._get_http_client() as client:
-            resp = await client.get("/fapi/v1/klines", params=params)
-            if resp.status_code != 200:
-                raise BinanceAPIError(resp.status_code, resp.text, status_code=resp.status_code)
-            return cast(list[list[Any]], resp.json())
+        try:
+            async with self._get_http_client() as client:
+                resp = await client.get("/fapi/v1/klines", params=params)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        return cast(list[list[Any]], data)
+        except Exception as net_err:
+            logger.debug(
+                "Primary klines fetch notice for %s: %s; trying live public endpoint",
+                symbol,
+                net_err,
+            )
+
+        # Fallback to mainnet public market data endpoint (standard practice for quants)
+        async with httpx.AsyncClient(base_url=BINANCE_LIVE_REST_BASE, timeout=10.0) as live_client:
+            live_resp = await live_client.get("/fapi/v1/klines", params=params)
+            if live_resp.status_code != 200:
+                raise BinanceAPIError(
+                    live_resp.status_code,
+                    live_resp.text,
+                    status_code=live_resp.status_code,
+                )
+            return cast(list[list[Any]], live_resp.json())
 
     async def get_ticker_price(self, symbol: str) -> Decimal:
         """Fetches latest mark price: GET /fapi/v1/ticker/price."""
@@ -697,7 +716,7 @@ class BinanceFuturesGateway:
 
     async def start_user_data_stream(
         self,
-        callback: Callable[[dict[str, Any]], Awaitable[None]],
+        callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         keepalive_interval_sec: int = 1800,
     ) -> str:
         """Initializes user data stream, spawns keepalive loop, returns listenKey."""
