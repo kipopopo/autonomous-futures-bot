@@ -16,9 +16,11 @@ Supports standard execution mode and `--verify-only` verification mode.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import logging
+import signal
 import sqlite3
 import sys
 from decimal import Decimal
@@ -314,6 +316,17 @@ def main() -> None:
         default="SOLUSDT,ETHUSDT,BTCUSDT",
         help="Comma-separated trading symbols",
     )
+    parser.add_argument(
+        "--test-run",
+        action="store_true",
+        help="Run offline batch simulation and export verification artifacts, then exit",
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=15.0,
+        help="Polling interval in seconds for continuous trading loop (default: 15.0)",
+    )
     args = parser.parse_args()
 
     if args.verify_only:
@@ -322,12 +335,50 @@ def main() -> None:
             sys.exit(1)
         sys.exit(0)
 
-    # Standard execution: run trading session, export artifacts, and verify
-    logger.info("Executing Phase 310 real autonomous trading and Merkle DAG generation...")
-    run_phase_310_execution(args.output_dir)
-    if not verify_phase_310_artifacts(args.output_dir):
-        sys.exit(1)
-    sys.exit(0)
+    if args.test_run:
+        logger.info("Executing Phase 310 offline batch simulation...")
+        run_phase_310_execution(args.output_dir)
+        if not verify_phase_310_artifacts(args.output_dir):
+            sys.exit(1)
+        sys.exit(0)
+
+    # Ensure baseline artifacts exist before starting continuous loop
+    if not (args.output_dir / "production-summary.json").is_file():
+        logger.info("Initializing baseline Phase 310 research artifacts...")
+        run_phase_310_execution(args.output_dir)
+        if not verify_phase_310_artifacts(args.output_dir):
+            sys.exit(1)
+
+    # Start 24/7 continuous trading daemon
+    from autonomous_futures.execution.continuous_trader import ContinuousSelfDrivingTrader
+
+    symbols_list = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    scalper_symbols = [s for s in symbols_list if s != "BTCUSDT"] or ["SOLUSDT", "ETHUSDT"]
+
+    logger.info(
+        "Starting 24/7 Continuous Self-Driving Trader on %s (macro filter: BTCUSDT)...",
+        scalper_symbols,
+    )
+    trader = ContinuousSelfDrivingTrader(
+        storage_dir=args.output_dir,
+        symbols=scalper_symbols,
+        starting_capital_usdt=args.starting_capital,
+        poll_interval_seconds=args.poll_interval,
+    )
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    if sys.platform != "win32":
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, trader.stop)
+
+    try:
+        loop.run_until_complete(trader.start())
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user. Shutting down cleanly...")
+        trader.stop()
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":

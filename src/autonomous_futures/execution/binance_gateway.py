@@ -310,6 +310,69 @@ class BinanceFuturesGateway:
                 )
             return offset
 
+    async def get_klines(
+        self,
+        symbol: str,
+        interval: str = "15m",
+        limit: int = 100,
+        start_time: int | None = None,
+        end_time: int | None = None,
+    ) -> list[list[Any]]:
+        """Fetches public market klines: GET /fapi/v1/klines."""
+        params: dict[str, Any] = {
+            "symbol": symbol.upper(),
+            "interval": interval,
+            "limit": min(limit, 1500),
+        }
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        if self.offline_mode and not self._mock_transport:
+            now_ms = int(time.time() * 1000)
+            interval_ms = 900000 if interval == "15m" else 3600000
+            return [
+                [
+                    now_ms - (limit - i) * interval_ms,
+                    "185.00",
+                    "186.00",
+                    "184.00",
+                    "185.50",
+                    "1000.0",
+                    now_ms - (limit - i - 1) * interval_ms,
+                    "185500.0",
+                    100,
+                    "500.0",
+                    "92750.0",
+                    "0",
+                ]
+                for i in range(limit)
+            ]
+
+        async with self._get_http_client() as client:
+            resp = await client.get("/fapi/v1/klines", params=params)
+            if resp.status_code != 200:
+                raise BinanceAPIError(resp.status_code, resp.text, status_code=resp.status_code)
+            return cast(list[list[Any]], resp.json())
+
+    async def get_ticker_price(self, symbol: str) -> Decimal:
+        """Fetches latest mark price: GET /fapi/v1/ticker/price."""
+        if self.offline_mode and not self._mock_transport:
+            default_prices = {
+                "BTCUSDT": Decimal("95000.00"),
+                "ETHUSDT": Decimal("2750.00"),
+                "SOLUSDT": Decimal("185.00"),
+            }
+            return default_prices.get(symbol.upper(), Decimal("100.00"))
+
+        async with self._get_http_client() as client:
+            resp = await client.get("/fapi/v1/ticker/price", params={"symbol": symbol.upper()})
+            if resp.status_code != 200:
+                raise BinanceAPIError(resp.status_code, resp.text, status_code=resp.status_code)
+            data = resp.json()
+            return Decimal(str(data["price"]))
+
     # =========================================================================
     # Order Dispatch & Management
     # =========================================================================
