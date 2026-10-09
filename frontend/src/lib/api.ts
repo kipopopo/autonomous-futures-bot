@@ -40,8 +40,13 @@ import {
   type CanaryProductionLaunchData,
   type MarkPriceItem,
 } from './canary'
+import {
+  generateSyntheticKlines,
+  type MarketKline,
+} from './chart-indicators'
 
 export { getCanaryPortfolioRebalancing, getCanaryStrategyMining }
+export type { MarketKline }
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
@@ -359,6 +364,86 @@ export async function fetchLiveMarketPrices(): Promise<LiveMarketPricesResponse 
   }
 
   return null
+}
+
+export interface MarketKlinesResponse {
+  symbol: string
+  interval: string
+  source: string
+  timestamp_ms: number
+  count: number
+  candles: MarketKline[]
+}
+
+export async function fetchMarketKlines(
+  symbol: string = 'SOLUSDT',
+  interval: '15m' | '1h' = '15m',
+  limit: number = 100,
+): Promise<MarketKline[]> {
+  // 1. Try local backend market klines endpoint first (5s TTL cache)
+  try {
+    const res = await fetch(
+      `/api/v1/market/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`,
+      { headers: { Accept: 'application/json' } },
+    )
+    if (res.ok) {
+      const data = (await res.json()) as Record<string, unknown> | unknown[]
+      let list: unknown[] | null = null
+
+      if (Array.isArray(data)) {
+        list = data
+      } else if (data && typeof data === 'object') {
+        const candidate = (data as Record<string, unknown>).candles ?? (data as Record<string, unknown>).klines
+        if (Array.isArray(candidate)) {
+          list = candidate
+        }
+      }
+
+      if (list && list.length > 0) {
+        return list.map((item: unknown) => {
+          const k = (item ?? {}) as Record<string, unknown>
+          return {
+            timestamp: Number(k.timestamp ?? k.time),
+            open: Number(k.open),
+            high: Number(k.high),
+            low: Number(k.low),
+            close: Number(k.close),
+            volume: Number(k.volume),
+          }
+        })
+      }
+    }
+  } catch {
+    // Proceed to Tier 2
+  }
+
+  // 2. Direct browser fallback to Binance public futures REST
+  try {
+    const res = await fetch(
+      `https://fapi.binance.com/fapi/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`,
+    )
+    if (res.ok) {
+      const raw = (await res.json()) as unknown
+      if (Array.isArray(raw) && raw.length > 0) {
+        return raw.map((item: unknown) => {
+          const arr = item as Array<number | string>
+          return {
+            timestamp: Math.floor(Number(arr[0]) / 1000),
+            open: Number(arr[1]),
+            high: Number(arr[2]),
+            low: Number(arr[3]),
+            close: Number(arr[4]),
+            volume: Number(arr[5]),
+          }
+        })
+      }
+    }
+  } catch {
+    // Proceed to Tier 3
+  }
+
+  // 3. Fallback deterministic synthetic generator
+  return generateSyntheticKlines(symbol, interval, limit)
 }
 
 export async function fetchCanaryLiveMarket(): Promise<CanaryLiveMarketResponse | null> {

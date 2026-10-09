@@ -5,11 +5,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi import FastAPI
 
 from autonomous_futures.api import create_app
 from autonomous_futures.data.bundle import build_dataset_bundle, write_dataset_bundle
 from autonomous_futures.data.registry import (
+    DatasetKind,
     DatasetRegistryEntry,
     build_dataset_registry,
     write_dataset_registry,
@@ -22,7 +24,7 @@ SYMBOL = "BTCUSDT"
 
 
 def _entry(
-    kind: str,
+    kind: DatasetKind,
     *,
     interval: str | None,
     time_start: datetime | None,
@@ -231,5 +233,98 @@ def test_market_prices_endpoint(tmp_path: Path) -> None:
     assert payload["prices"]["SOLUSDT"] > 0
     assert "btc_macro" in payload
     assert "source" in payload
+
+
+def test_market_klines_endpoint_default(tmp_path: Path) -> None:
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+    )
+    response = _request(app, "GET", "/api/v1/market/klines")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["symbol"] == "SOLUSDT"
+    assert payload["interval"] == "15m"
+    assert "candles" in payload
+    assert len(payload["candles"]) > 0
+    c0 = payload["candles"][0]
+    assert "timestamp" in c0
+    assert "open" in c0
+    assert "high" in c0
+    assert "low" in c0
+    assert "close" in c0
+    assert "volume" in c0
+    assert c0["high"] >= c0["low"]
+
+
+def test_market_klines_endpoint_custom_query(tmp_path: Path) -> None:
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+    )
+    response = _request(app, "GET", "/api/v1/market/klines?symbol=BTCUSDT&interval=1h&limit=50")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["symbol"] == "BTCUSDT"
+    assert payload["interval"] == "1h"
+    assert len(payload["candles"]) == 50
+    assert payload["count"] == 50
+
+
+def test_market_klines_caching_5s_ttl(tmp_path: Path) -> None:
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+    )
+    r1 = _request(app, "GET", "/api/v1/market/klines?symbol=ETHUSDT&interval=15m&limit=10")
+    r2 = _request(app, "GET", "/api/v1/market/klines?symbol=ETHUSDT&interval=15m&limit=10")
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r1.json()["timestamp_ms"] == r2.json()["timestamp_ms"]
+    assert r1.json()["candles"] == r2.json()["candles"]
+
+
+def test_market_klines_offline_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.request
+    from urllib.error import URLError
+
+    def mock_urlopen(*args: object, **kwargs: object) -> object:
+        raise URLError("Network unreachable")
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+    )
+    # Tier 2: Local Parquet cache for known symbol/interval
+    r_parquet = _request(app, "GET", "/api/v1/market/klines?symbol=SOLUSDT&interval=15m&limit=25")
+    assert r_parquet.status_code == 200
+    payload_p = r_parquet.json()
+    assert payload_p["symbol"] == "SOLUSDT"
+    assert len(payload_p["candles"]) == 25
+    assert payload_p["source"] in {"local_parquet_cache", "synthetic_fallback"}
+
+    # Tier 3: Synthetic fallback for symbol with no local parquet
+    r_synth = _request(app, "GET", "/api/v1/market/klines?symbol=XYZUSDT&interval=15m&limit=20")
+    assert r_synth.status_code == 200
+    payload_s = r_synth.json()
+    assert payload_s["symbol"] == "XYZUSDT"
+    assert len(payload_s["candles"]) == 20
+    assert payload_s["source"] == "synthetic_fallback"
+
+
+def test_market_klines_validation_errors(tmp_path: Path) -> None:
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+    )
+    r_bad_interval = _request(app, "GET", "/api/v1/market/klines?interval=99m")
+    assert r_bad_interval.status_code == 422
+    r_bad_limit = _request(app, "GET", "/api/v1/market/klines?limit=5000")
+    assert r_bad_limit.status_code == 422
+    r_bad_limit_zero = _request(app, "GET", "/api/v1/market/klines?limit=0")
+    assert r_bad_limit_zero.status_code == 422
+
 
 

@@ -3302,3 +3302,67 @@ Implement a dedicated CLI harness capable of triggering controlled execution dri
 - [ ] Comprehensive pytest suite covers drill execution, bracket computation, Telegram dispatch, and zero-drift balance invariant with 0 failures.
 - [ ] Running the drill does not crash, stop, or interfere with `autonomous-futures-trader.service` on Kainode VPS.
 - [ ] Static quality gates (`ruff check`, `mypy src`) pass with 0 errors.
+
+
+## 2026-10-09T18:31:48Z
+
+Implement Phase 312: High-Performance Live Interactive Candlestick Charting for Mission Control Dashboard (`https://futures.semua.dev/`), embedding TradingView Lightweight Charts directly into collapsible cards for staged trading pairs (`SOLUSDT`, `ETHUSDT`, `BTCUSDT`), with dynamic 15m & 1h timeframes, EMA 50/200 overlays, volume bars, and visual Take-Profit / Stop-Loss bracket target lines synchronized with bot execution state without disrupting the 24/7 continuous trader daemon.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Live Candlestick & Volume Ingress API (`GET /api/v1/market/klines`)
+- Implement a dedicated, cached (5s TTL) FastAPI endpoint `GET /api/v1/market/klines?symbol={symbol}&interval={15m|1h}&limit={100}` in `src/autonomous_futures/api/app.py`:
+  - Query Binance Futures public klines (`https://fapi.binance.com/fapi/v1/klines`) with automatic fallback to cached market feed telemetry.
+  - Return normalized candlestick data: `timestamp` (Unix seconds), `open`, `high`, `low`, `close`, `volume`.
+- In `frontend/src/lib/api.ts`, implement `fetchMarketKlines()` with resilient browser-side direct fallback to Binance Futures public REST if local API is unreachable.
+
+### R2. Lightweight Charts Integration with Obsidian Dark Theme
+- Integrate `@tradingview/lightweight-charts` (or `lightweight-charts` npm package) into the React frontend.
+- Style the chart canvas to seamlessly blend with the existing minimalist obsidian glassmorphism aesthetic:
+  - Background: transparent / `#0a0f1d` dark container.
+  - Bullish candles: Emerald green (`#10b981`), Bearish candles: Rose red (`#f43f5e`).
+  - Dark gridlines (`rgba(255, 255, 255, 0.04)`), muted time axis, and responsive crosshair tooltips formatting prices in USDT.
+- Support auto-resize (`ResizeObserver`) to smoothly adapt across mobile, tablet, and widescreen desktop layouts.
+
+### R3. Technical Overlays & Visual Bracket Positioning
+- **Trend Overlays**: Compute and render dynamic 50 EMA (cyan line) and 200 EMA (amber line) over the candlestick series.
+- **Volume Histogram**: Render lower volume histogram with matching bull/bear color coding.
+- **Visual Bracket Target Lines**: When a pair has an active position or drill order, render horizontal price lines across the chart:
+  - Entry Price: Solid sky-blue / amber line with label badge.
+  - Take-Profit Target: Emerald green dashed line with `+2.0x ATR` percentage distance badge.
+  - Stop-Loss Target: Rose red dashed line with `-1.2x ATR` risk boundary badge.
+
+### R4. Sleek Collapsible Drawer UI on Executive Dashboard
+- Enhance the Live Market Watch & Active Positions section on the Executive Dashboard (`frontend/src/components/mission-control/`):
+  - Add an intuitive **"📈 Carta Interaktif"** toggle button on each pair card (`SOLUSDT`, `ETHUSDT`, `BTCUSDT`).
+  - When expanded, reveal a polished chart container with:
+    - Timeframe toggle tabs: **`15m`** (default for scalper) and **`1h`** (macro trend).
+    - Current OHLC badge and 24h high/low markers.
+    - Quick indicator toggle pills (EMA 50, EMA 200, Volume).
+
+### R5. Quality Gates, Testing & VPS Deployment
+- Update Vitest frontend test suite to verify chart mounting, timeframe switching, and fallback rendering with 0 failures.
+- Update pytest suite to cover `GET /api/v1/market/klines` endpoint.
+- Verify `npm run build` compiles with 0 TypeScript/lint errors.
+- Deploy built bundle to `/opt/autonomous-futures-bot/frontend/dist` on Kainode VPS (`147.79.18.15`) and verify live serving at `https://futures.semua.dev/` with zero daemon disruption.
+
+## Acceptance Criteria
+
+### Backend Kline Ingress & API
+- [ ] `GET /api/v1/market/klines?symbol=SOLUSDT&interval=15m` returns HTTP 200 with structured OHLCV candlestick records.
+- [ ] Ingress handles API rate limits gracefully with in-memory caching and browser fallback.
+
+### Frontend Interactive Charting
+- [ ] Expanding the chart drawer for `SOLUSDT`, `ETHUSDT`, or `BTCUSDT` renders a smooth, interactive candlestick chart.
+- [ ] Users can pan, zoom, inspect candle details via crosshair, and toggle between `15m` and `1h` timeframes.
+- [ ] Dynamic EMA 50 & 200 curves and volume bars render cleanly matching obsidian dark theme.
+- [ ] Visual TP and SL price target lines display accurately when a position is present.
+
+### Reliability & Deployment
+- [ ] `npm test --prefix frontend` (Vitest) passes with 100% success rate.
+- [ ] `pytest tests/unit/test_api.py` passes with 100% success rate.
+- [ ] Deployed to Kainode VPS (`147.79.18.15`); `https://futures.semua.dev/` serves the new interactive charting seamlessly.
+- [ ] `autonomous-futures-trader.service` remains running continuously without interruption.

@@ -217,6 +217,92 @@ describe('MarketPositionsCard component', () => {
     expect(html).toContain('190.30')
     expect(html).toContain('181.80')
   })
+
+  it('renders "📈 Carta Interaktif" toggle button with collapsed state by default on each candidate pair card', () => {
+    const html = renderToString(<MarketPositionsCard positions={MOCK_MODEL.positions} />)
+
+    // Button presence on all staged candidate pair cards
+    expect(html).toContain('Carta Interaktif')
+    expect(html).toContain('data-testid="toggle-chart-solusdt"')
+    expect(html).toContain('data-testid="toggle-chart-ethusdt"')
+    expect(html).toContain('data-testid="toggle-chart-btcusdt"')
+
+    // Badges indicate collapsed state by default
+    expect(html).toContain('Dikecilkan')
+    expect(html).toContain('data-testid="toggle-all-charts-button"')
+
+    // Drawer is collapsed by default (not rendered)
+    expect(html).not.toContain('data-testid="chart-drawer-solusdt"')
+    expect(html).not.toContain('data-testid="chart-drawer-ethusdt"')
+    expect(html).not.toContain('data-testid="chart-drawer-btcusdt"')
+  })
+
+  it('renders collapsible chart drawer with timeframe tabs, indicator pills, OHLC badge, and PairCandlestickChart when expanded', () => {
+    const html = renderToString(
+      <MarketPositionsCard positions={MOCK_MODEL.positions} initialExpanded={true} />,
+    )
+
+    // Drawer container rendered for all pairs
+    expect(html).toContain('data-testid="chart-drawer-solusdt"')
+    expect(html).toContain('data-testid="chart-drawer-ethusdt"')
+    expect(html).toContain('data-testid="chart-drawer-btcusdt"')
+    expect(html).toContain('Dibuka')
+
+    // Timeframe pills (15m default scalper, 1h macro trend)
+    expect(html).toContain('data-testid="timeframe-15m-solusdt"')
+    expect(html).toContain('data-testid="timeframe-1h-solusdt"')
+    expect(html).toContain('15m')
+    expect(html).toContain('1h')
+
+    // Quick indicator toggle pills
+    expect(html).toContain('data-testid="indicator-ema50-solusdt"')
+    expect(html).toContain('data-testid="indicator-ema200-solusdt"')
+    expect(html).toContain('data-testid="indicator-volume-solusdt"')
+    expect(html).toContain('EMA 50')
+    expect(html).toContain('EMA 200')
+    expect(html).toContain('Volume')
+
+    // Current OHLC badge and 24h High/Low markers
+    expect(html).toContain('data-testid="ohlc-badge-solusdt"')
+    expect(html).toContain('OHLC')
+    expect(html).toContain('24h High')
+    expect(html).toContain('24h Low')
+
+    // Embedded PairCandlestickChart canvas container
+    expect(html).toContain('data-testid="pair-candlestick-chart-solusdt"')
+    expect(html).toContain('data-testid="pair-candlestick-chart-ethusdt"')
+    expect(html).toContain('data-testid="pair-candlestick-chart-btcusdt"')
+  })
+
+  it('supports selective per-symbol chart drawer expansion', () => {
+    const html = renderToString(
+      <MarketPositionsCard
+        positions={MOCK_MODEL.positions}
+        initialExpanded={{ ETHUSDT: true }}
+      />,
+    )
+
+    // ETHUSDT drawer is expanded
+    expect(html).toContain('data-testid="chart-drawer-ethusdt"')
+    expect(html).toContain('data-testid="pair-candlestick-chart-ethusdt"')
+
+    // SOLUSDT and BTCUSDT remain collapsed
+    expect(html).not.toContain('data-testid="chart-drawer-solusdt"')
+    expect(html).not.toContain('data-testid="chart-drawer-btcusdt"')
+  })
+
+  it('supports defaultInterval prop override for macro trend view', () => {
+    const html = renderToString(
+      <MarketPositionsCard
+        positions={MOCK_MODEL.positions}
+        initialExpanded={true}
+        defaultInterval="1h"
+      />,
+    )
+
+    // PairCandlestickChart receives interval 1h
+    expect(html).toContain('data-interval="1h"')
+  })
 })
 
 describe('StrategyConfluenceRadar component', () => {

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import FastAPI, HTTPException, Query
 
@@ -234,6 +235,24 @@ class RowsResponse(DomainModel):
     row_count: int
     limit: int
     rows: tuple[dict[str, JSONScalar], ...]
+
+
+class CandlestickPoint(DomainModel):
+    timestamp: int
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class MarketKlinesResponse(DomainModel):
+    symbol: str
+    interval: str
+    source: str
+    timestamp_ms: int
+    count: int
+    candles: tuple[CandlestickPoint, ...]
 
 
 def _configured_path(environment_name: str, default: str) -> Path:
@@ -1203,12 +1222,18 @@ def create_app(
 
         now_sec = time.time()
         if live_prices_cache["data"] and (now_sec - live_prices_cache["ts"]) < 5.0:
-            return live_prices_cache["data"]
+            return cast(dict[str, Any], live_prices_cache["data"])
 
         # 1. Attempt live query to Binance Futures ticker
         try:
-            url = "https://fapi.binance.com/fapi/v1/ticker/price?symbols=%5B%22BTCUSDT%22%2C%22ETHUSDT%22%2C%22SOLUSDT%22%5D"
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            url = (
+                "https://fapi.binance.com/fapi/v1/ticker/price"
+                "?symbols=%5B%22BTCUSDT%22%2C%22ETHUSDT%22%2C%22SOLUSDT%22%5D"
+            )
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            )
             with urllib.request.urlopen(req, timeout=2.5) as resp:
                 raw = json.loads(resp.read().decode("utf-8"))
                 if isinstance(raw, list) and len(raw) > 0:
@@ -1293,6 +1318,185 @@ def create_app(
             "source": "fallback_anchor",
         }
 
+    # Live Market Candlestick Klines (Phase 312 R1)
+    live_klines_cache: dict[tuple[str, str, int], tuple[float, MarketKlinesResponse]] = {}
+
+    @app.get("/api/v1/market/klines", response_model=MarketKlinesResponse)
+    def market_klines(
+        symbol: Annotated[str, Query(description="Trading pair symbol")] = "SOLUSDT",
+        interval: Annotated[str, Query(description="Candlestick interval (15m, 1h)")] = "15m",
+        limit: Annotated[int, Query(ge=1, le=1000, description="Candle limit")] = 100,
+    ) -> MarketKlinesResponse:
+        """Provides normalized OHLCV candlestick records with 5s TTL in-memory caching."""
+        import urllib.request
+
+        norm_sym = symbol.strip().upper()
+        if interval not in {"1m", "3m", "5m", "15m", "1h", "4h", "1d"}:
+            raise HTTPException(status_code=422, detail=f"Unsupported interval: {interval}")
+
+        now_sec = time.time()
+        cache_key = (norm_sym, interval, limit)
+        if cache_key in live_klines_cache:
+            cache_ts, cached_res = live_klines_cache[cache_key]
+            if (now_sec - cache_ts) < 5.0:
+                return cached_res
+
+        # 1. Primary: Binance Futures public REST query
+        try:
+            url = (
+                f"https://fapi.binance.com/fapi/v1/klines?"
+                f"symbol={norm_sym}&interval={interval}&limit={limit}"
+            )
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "AutonomousFuturesBot/1.0 (PublicRestClient; Unauth)"},
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                raw = json.loads(resp.read().decode("utf-8"))
+                if isinstance(raw, list) and len(raw) > 0:
+                    candles = [
+                        CandlestickPoint(
+                            timestamp=int(item[0] // 1000),
+                            open=float(item[1]),
+                            high=float(item[2]),
+                            low=float(item[3]),
+                            close=float(item[4]),
+                            volume=float(item[5]),
+                        )
+                        for item in raw
+                    ]
+                    res = MarketKlinesResponse(
+                        symbol=norm_sym,
+                        interval=interval,
+                        source="binance_futures_live",
+                        timestamp_ms=int(now_sec * 1000),
+                        count=len(candles),
+                        candles=tuple(candles),
+                    )
+                    live_klines_cache[cache_key] = (now_sec, res)
+                    return res
+        except Exception:
+            pass
+
+        # 2. Fallback: Local canonical Parquet files
+        try:
+            parquet_candidates = [
+                Path("research/immutable-data")
+                / interval
+                / "canonical"
+                / f"{norm_sym}-{interval}.parquet",
+                Path(__file__).resolve().parents[3]
+                / "research"
+                / "immutable-data"
+                / interval
+                / "canonical"
+                / f"{norm_sym}-{interval}.parquet",
+                Path("research/immutable-data/approved-public-20261007-segment-b/klines")
+                / interval
+                / norm_sym
+                / "canonical"
+                / f"{norm_sym}-{interval}.parquet",
+                Path(__file__).resolve().parents[3]
+                / "research"
+                / "immutable-data"
+                / "approved-public-20261007-segment-b"
+                / "klines"
+                / interval
+                / norm_sym
+                / "canonical"
+                / f"{norm_sym}-{interval}.parquet",
+            ]
+            for ppath in parquet_candidates:
+                if ppath.is_file():
+                    import pandas as pd
+
+                    df = pd.read_parquet(ppath)
+                    required_cols = {"timestamp", "open", "high", "low", "close", "volume"}
+                    if not df.empty and required_cols.issubset(df.columns):
+                        tail_df = df.tail(limit)
+                        p_candles = []
+                        for _, r in tail_df.iterrows():
+                            ts_val = r["timestamp"]
+                            if hasattr(ts_val, "timestamp"):
+                                ts_sec = int(ts_val.timestamp())
+                            elif isinstance(ts_val, (int, float)):
+                                ts_sec = (
+                                    int(ts_val // 1000)
+                                    if ts_val > 10_000_000_000
+                                    else int(ts_val)
+                                )
+                            else:
+                                ts_sec = int(pd.to_datetime(ts_val).timestamp())
+                            p_candles.append(
+                                CandlestickPoint(
+                                    timestamp=ts_sec,
+                                    open=float(r["open"]),
+                                    high=float(r["high"]),
+                                    low=float(r["low"]),
+                                    close=float(r["close"]),
+                                    volume=float(r["volume"]),
+                                )
+                            )
+                        if p_candles:
+                            res = MarketKlinesResponse(
+                                symbol=norm_sym,
+                                interval=interval,
+                                source="local_parquet_cache",
+                                timestamp_ms=int(now_sec * 1000),
+                                count=len(p_candles),
+                                candles=tuple(p_candles),
+                            )
+                            live_klines_cache[cache_key] = (now_sec, res)
+                            return res
+        except Exception:
+            pass
+
+        # 3. Fallback: Deterministic synthetic generator
+        base_prices = {"BTCUSDT": 82600.0, "ETHUSDT": 2500.0, "SOLUSDT": 110.0}
+        base = base_prices.get(norm_sym, 100.0)
+        interval_seconds = {
+            "1m": 60,
+            "3m": 180,
+            "5m": 300,
+            "15m": 900,
+            "1h": 3600,
+            "4h": 14400,
+            "1d": 86400,
+        }
+        step_s = interval_seconds.get(interval, 900)
+        start_s = int(now_sec // step_s) * step_s - (limit - 1) * step_s
+        s_candles = []
+        for i in range(limit):
+            ts = start_s + i * step_s
+            angle = (i % 36) * (2 * math.pi / 36)
+            var = (base * 0.005) * math.sin(angle)
+            c_price = base + var
+            o_price = c_price - (base * 0.001) * math.cos(angle)
+            h_price = max(o_price, c_price) + (base * 0.002)
+            l_price = min(o_price, c_price) - (base * 0.002)
+            vol = 1000.0 + 200.0 * math.sin(angle)
+            s_candles.append(
+                CandlestickPoint(
+                    timestamp=ts,
+                    open=round(o_price, 4),
+                    high=round(h_price, 4),
+                    low=round(l_price, 4),
+                    close=round(c_price, 4),
+                    volume=round(vol, 2),
+                )
+            )
+
+        res = MarketKlinesResponse(
+            symbol=norm_sym,
+            interval=interval,
+            source="synthetic_fallback",
+            timestamp_ms=int(now_sec * 1000),
+            count=len(s_candles),
+            candles=tuple(s_candles),
+        )
+        live_klines_cache[cache_key] = (now_sec, res)
+        return res
+
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
 
@@ -1336,6 +1540,7 @@ __all__ = [
     "CanaryTestnetGatewayResponse",
     "CandidatePromotionItem",
     "CandidateSignalItem",
+    "CandlestickPoint",
     "ComponentsResponse",
     "CreatorRegistryResponse",
     "CreatorQualificationResponse",
@@ -1348,6 +1553,7 @@ __all__ = [
     "LearnerQualificationEvidenceResponse",
     "LearnerTrainingEvidenceResponse",
     "LedgerReconciliationItem",
+    "MarketKlinesResponse",
     "RegistryResponse",
     "RowsResponse",
     "TelemetryBroadcastManager",
