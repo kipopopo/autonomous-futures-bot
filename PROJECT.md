@@ -1,156 +1,122 @@
-# Project: Autonomous Futures Bot — Phase 310
+# Project: Autonomous Futures Bot — Phase 311
 
 ## Architecture
-Phase 310 transitions Autonomous Futures Bot from simulated matching into real exchange execution, deploying the verified 15m Macro-Confluence Liquidity Dip Scalper across SOLUSDT and ETHUSDT, closing the continuous trade-autopsy self-learning loop, enforcing strict double-entry zero-drift solvency and micro-capital bounds, and establishing 24/7 background execution on the Kainode Linux VPS (147.79.18.15) with Telegram trade alerts.
+Phase 311 establishes a dedicated, non-disruptive End-to-End Synthetic Execution Drill & Verification Harness on Binance Futures Testnet for Autonomous Futures Bot. The harness provides an authentic signed micro maker limit order dispatch CLI, automated protective bracket Take-Profit (+2.0x ATR) and Stop-Loss (-1.2x ATR) management, real-time multi-channel Telegram alerts, mathematical double-entry zero-drift balance governance ($|\Delta| < 10^{-15}$ USDT), and cryptographic Merkle DAG telemetry rooted to Phase 310, all operating with zero interference to the running 24/7 daemon on Kainode VPS.
 
 ```
 +-----------------------------------------------------------------------------------+
-|                            External Exchange Boundary                             |
-|  Binance Futures REST API (Dual-Mode: Testnet / Live)   Binance User Data Stream  |
-|  - POST /fapi/v1/order (LIMIT/MARKET/STOP_MARKET)       - listenKey keepalive 30m |
-|  - GET /fapi/v1/positionRisk                            - ORDER_TRADE_UPDATE      |
-|  - GET /fapi/v1/account                                 - ACCOUNT_UPDATE          |
-|  - DELETE /fapi/v1/order                                                          |
+|                        Phase 311 Execution Drill Harness CLI                      |
+|                  scripts/run_testnet_execution_drill.py                           |
+|  - Flags: --symbol, --side, --notional, --dry-run, --cleanup, --verify-only       |
+|  - Micro-Capital Bounds: child <= 5.00 USDT, aggregate <= 25.00, daily loss <= 3.00|
+|  - Precision Quantization: LOT_SIZE (ROUND_DOWN), PRICE_FILTER (ROUND_HALF_UP)    |
+|  - Binance Filter Compliance: MIN_NOTIONAL step-up (+1 step size tolerance)       |
 +------------------------------------------+----------------------------------------+
                                            |
                                            v
 +-----------------------------------------------------------------------------------+
-|                     BinanceFuturesGateway & Dispatch Bridge                       |
-|  - HMAC-SHA256 signature generator       - Clock drift sync (|dt| <= 1000ms)      |
-|  - Monotonic nonce manager               - Idempotent c=canary-p310-{sym}-{ts}-id |
+|                     BinanceFuturesGateway & Drill Engine                          |
+|  - Dual-mode: Testnet (REST https://testnet.binancefuture.com) / Dry-Run Mock     |
+|  - HMAC-SHA256 signature generator & monotonic nonce                              |
+|  - Clock drift sync (|dt| <= 1000ms) & Heartbeat latency (<= 500ms)               |
+|  - Client Order ID Partitioning: canary-p311-drill-{sym[:3]}-{ts} (<= 36 chars)   |
+|  - Methods: create_order, cancel_order, get_order, get_open_orders, positionRisk  |
 +------------------------------------------+----------------------------------------+
                                            |
                                            v
 +-----------------------------------------------------------------------------------+
-|                         MacroLiquidityDipScalper Engine                           |
-|  - BTC 1h/4h EMA 50 > EMA 200 Macro Trend Filter (Gated on market regime)         |
-|  - 15m Entry: Price > 2.5x ATR below 20 EMA, Vol > 2.2x 20 SMA, RSI 14 < 26       |
-|  - Trade Structuring: Maker Limit Order at sweep price (0.02% maker fee)          |
-|  - Risk Bounds: SL 1.2x ATR below, dynamic TP 2.0x ATR above (1.66:1 R:R)         |
-|  - Momentum Decay Stop: Auto-exit after 8 bars (120 mins) if trade stalls         |
+|                    Dynamic Bracket & Position Lifecycle Manager                   |
+|  - Entry Order: Maker Limit (GTC / GTX) at sweep price / best bid                 |
+|  - ATR Engine: 14-period ATR calculated from 15m klines                           |
+|  - Take-Profit Bracket: +2.0x ATR (Limit / TAKE_PROFIT_MARKET, reduceOnly=True)   |
+|  - Stop-Loss Bracket: -1.2x ATR (STOP_MARKET, reduceOnly=True)                    |
+|  - Risk:Reward Ratio: Strict 1.66:1 (2.0 / 1.2 = 1.6667)                          |
+|  - Cleanup Routine: Selective cancel of drill brackets & reduceOnly market flatten|
 +------------------------------------------+----------------------------------------+
                                            |
                                            v
 +-----------------------------------------------------------------------------------+
-|                     CentralizedSolvencyLedger & Risk Interlocks                   |
+|                   CentralizedSolvencyLedger & Zero-Drift Invariant                |
 |  - Double-Entry Invariant: Cash + Margin + UnrealizedPnL == Equity + RealizedPnL   |
-|  - Absolute Drift Tolerance: |drift| < 10^-15 USDT                                |
-|  - Micro-Capital Bounds: <= 5.00 USDT child, <= 25.00 USDT aggregate              |
-|  - Liquid Cash Reserve Floor >= 75.0%                                             |
-|  - Hawkes Supercritical Cascade Cutoff: rho >= 1.0 -> freeze new entries          |
+|  - Absolute Drift Tolerance: |drift| == 0.00 < 10^-15 USDT                        |
+|  - Continuous verification at Order Staging, Fill, Bracket, and Cleanup Flatten   |
 +------------------------------------------+----------------------------------------+
                                            |
                                            v
 +-----------------------------------------------------------------------------------+
-|              Closed-Loop Self-Learning & Strategy Autopsy Feedback                |
-|  - Ingest real execution fills, realized PnL, slippage, hold duration             |
-|  - StrategyAutopsyEngine: deconstruct into timing error, adverse selection, edge  |
-|  - ContinuousSelfLearningDaemon: health classification (ELITE/HEALTHY/DEGRADED)   |
-|  - Circuit Breaker: Fail-closed halt if daily drawdown > 3.00 USDT                |
-|  - Persistence: canary-lifecycle-telemetry.sqlite3 & canary-lifecycle-events.jsonl|
-+------------------------------------------+----------------------------------------+
-                                           |
-                                           v
-+-----------------------------------------------------------------------------------+
-|               24/7 VPS Deployment, Telemetry & Cryptographic Merkle DAG           |
-|  - Kainode VPS (147.79.18.15): autonomous-futures-trader.service systemd unit    |
-|  - Telegram Alerts: scripts/run_telegram_notifier.py (orders, fills, TP/SL, PnL) |
-|  - Merkle DAG Root: Linked to Phase 309 root:                                     |
-|    5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844              |
-|  - Persistent research artifacts in artifacts/research/phase310/                  |
+|                 Telemetry Persistence, Merkle DAG & Telegram Alerting             |
+|  - SQLite: artifacts/research/phase311/canary-lifecycle-telemetry.sqlite3         |
+|  - Audit Log: artifacts/research/phase311/canary-orders.jsonl                     |
+|  - Structured Reports: canary-drill-report.json & drill-summary.json              |
+|  - Merkle Root Chaining: Linked to Phase 310 root:                                |
+|    0004387045399718c6229d1a18fec40399d4baba01b0eecd0ab51c782268dd84              |
+|  - Telegram Alerts: TelegramNotifierClient MarkdownV2 alerts for Entry, Fill,     |
+|    Brackets, and Cleanup Flattening                                               |
+|  - VPS Daemon Non-Interference: NEVER delete listenKey, NEVER delete allOpenOrders|
 +-----------------------------------------------------------------------------------+
 ```
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | Dual-Mode Binance Futures Gateway Bridge | Authenticated REST endpoints (POST /fapi/v1/order, GET /fapi/v1/positionRisk, GET /fapi/v1/account, DELETE /fapi/v1/order) with testnet/live toggle, HMAC-SHA256, monotonic nonce, clock drift compensation (<=1000ms), and idempotent client order IDs | M1 | Survey 1 (R1) |
-| 2 | WebSocket User Data Stream & listenKey Keepalive | Automatic listenKey creation, 30m background keepalive (PUT /fapi/v1/listenKey), real-time ORDER_TRADE_UPDATE and ACCOUNT_UPDATE ingestion | M1 | Survey 1 (R1) |
-| 3 | Macro Trend Filter & Entry Trigger | BTC 1h/4h EMA 50 > EMA 200 macro trend gate; 15m entry trigger (Price > 2.5x ATR below 20 EMA, vol > 2.2x 20 SMA, RSI 14 < 26) on SOLUSDT & ETHUSDT | M2 | Survey 2 (R2) |
-| 4 | Trade Structuring & Momentum Decay Stop | Maker Limit Orders at sweep price (0.02% maker fee); SL 1.2x ATR; TP 2.0x ATR (1.66:1 R:R); 8-bar (120m) time decay stop | M2 | Survey 2 (R2) |
-| 5 | Closed-Loop Strategy Autopsy Feedback | Ingest real fills/PnL/slippage into SQLite & JSONL; StrategyAutopsyEngine decomposition; candidate health classification (ELITE/HEALTHY/DEGRADED) | M3 | Survey 2 (R3) |
-| 6 | Fail-Closed Daily Drawdown Pause | Automatic trading halt and position flattening if daily drawdown breaches 3.00 USDT ceiling | M3 | Survey 2 (R3) |
-| 7 | Double-Entry Solvency & Micro-Capital Bounds | Invariant |drift| < 10^-15 USDT; child slice <= 5.00 USDT; aggregate exposure <= 25.00 USDT; cash reserve >= 75.0% | M4 | Survey 3 (R4) |
-| 8 | Continuous 24/7 VPS Deployment | systemd user service autonomous-futures-trader.service on Kainode VPS (147.79.18.15) with auto-restart on network interruption | M4 | Survey 3 (R4) |
-| 9 | Real-Time Telegram Alerts | scripts/run_telegram_notifier.py alerts on order placement, fill confirmation, TP/SL realization, and daily PnL summaries | M4 | Survey 3 (R4) |
-| 10 | Cryptographic Merkle DAG Chain | Upstream parent root 5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844; 5 research artifacts in artifacts/research/phase310/ | M5 | Survey 3 (Context) |
-| 11 | Observational API & Dashboard | GET /api/v1/canary/autonomous-trading endpoint; React DaisyUI 5.7.42 dashboard component | M5 | Survey 3 (Architecture) |
-| 12 | Opaque-Box E2E Test Suite | 4-tier comprehensive test suite derived from ORIGINAL_REQUEST.md; TEST_READY.md publication | M6 | Survey 3 (Dual Track) |
+| 1 | Testnet Execution Drill CLI Harness | CLI `scripts/run_testnet_execution_drill.py` with `--symbol`, `--side`, `--notional`, `--dry-run`, `--cleanup`/`--auto-close`, `--verify-only` | M3 | R1 |
+| 2 | Binance Exchange Filter Validation & Step-Up | Validate `LOT_SIZE`, `PRICE_FILTER`, `MIN_NOTIONAL` with `ROUND_DOWN` quantization and single step size step-up allowance | M1 | R1 |
+| 3 | Gateway REST Extensions | Implement `get_order`, `get_open_orders`, `cancel_all_orders` (selective), and `TAKE_PROFIT_MARKET` in `BinanceFuturesGateway` | M1 | R2 |
+| 4 | Authentic HMAC-SHA256 Signed Order Dispatch | Authenticated `POST /fapi/v1/order` for Maker Limit entry (`GTC`/`GTX`) with fallback mock simulation | M1 | R2 |
+| 5 | Dynamic ATR-Based Bracket Management | Compute 14-period ATR from 15m klines; submit +2.0x ATR TP and -1.2x ATR SL (1.66:1 R:R) | M1 | R2 |
+| 6 | Deterministic Client Order ID Generation | Format `canary-p311-drill-{sym[:3]}-{ts}` strictly bounded to <= 36 characters | M1 | R2, R3 |
+| 7 | Non-Disruptive Cleanup & Position Flattening | Selectively cancel drill brackets and flatten drill test position without affecting VPS daemon | M1 | R2, R5 |
+| 8 | Multi-Channel Telegram Alerting | Instant MarkdownV2 alerts for order submission, fill confirmation, bracket establishment, and PnL exit | M2 | R3 |
+| 9 | Double-Entry Zero-Drift Ledger Governance | Reconcile `Cash + Margin + Unrealized PnL == Equity + Realized PnL` maintaining $|\Delta| < 10^{-15}$ USDT | M2 | R4 |
+| 10 | Real-Time Telemetry Persistence | Store in SQLite `canary-lifecycle-telemetry.sqlite3`, `canary-orders.jsonl`, and `canary-drill-report.json` | M2 | R4 |
+| 11 | Cryptographic Merkle DAG Chaining | Chain Phase 311 artifacts to Phase 310 upstream root `0004387045399718c6229d1a18fec40399d4baba01b0eecd0ab51c782268dd84` | M2 | R4 |
+| 12 | Micro-Capital & Fail-Closed Guardrails | Child cap <= 5.00 USDT, aggregate exposure <= 25.00 USDT, daily loss ceiling <= 3.00 USDT, heartbeat <= 500 ms, clock skew <= 1000 ms | M3 | R5 |
+| 13 | Kainode VPS Daemon Non-Interference Guarantee | Isolated client order IDs, separate process space, no listenKey deletion, no global order cancellation | M3 | R5 |
+| 14 | 4-Tier Comprehensive E2E Verification Suite | Pytest suite covering CLI flags, bracket math, Telegram dispatch, zero-drift balance, and quality gates | M4 | Acceptance Criteria |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Real Binance Futures Order Dispatch & Gateway Bridge | `src/autonomous_futures/execution/binance_gateway.py`, signed REST, WebSocket user data stream, clock drift, client order IDs | none | DONE |
-| M2 | Macro Liquidity Sweep Scalper Engine | `src/autonomous_futures/strategy/macro_liquidity_scalper.py`, BTC macro filter, SOL/ETH 15m triggers, Maker orders, SL/TP, 8-bar decay stop | M1 | DONE |
-| M3 | Closed-Loop Self-Learning & Strategy Autopsy Feedback | Autopsy pipeline integration, telemetry persistence (`canary-lifecycle-telemetry.sqlite3`), health classification, 3.00 USDT daily drawdown circuit breaker | M2 | DONE |
-| M4 | VPS Deployment, Telegram Telemetry & Solvency Governance | `autonomous-futures-trader.service`, `scripts/run_telegram_notifier.py`, double-entry zero-drift invariant, micro-capital bounds | M1, M2, M3 | DONE |
-| M5 | Cryptographic Merkle DAG Chain & Observational API | `artifacts/research/phase310/`, `scripts/run_phase_310_real_autonomous_trading.py`, FastAPI endpoints, dashboard integration | M4 | DONE |
-| M6 | 100% E2E Verification & Adversarial Hardening | Comprehensive 4-tier test suite passing, TEST_READY.md published, challenger verification, clean forensic audit | M1-M5 | DONE |
+| M1 | Gateway REST Extensions, Bracket Engine & Drill Core | `src/autonomous_futures/execution/binance_gateway.py`, `src/autonomous_futures/feed/execution_drill.py`, exchange filters, dynamic ATR bracket calculations, position cleanup | none | DONE |
+| M2 | Telegram Alerts, Zero-Drift Ledger & Merkle DAG Telemetry | `src/autonomous_futures/notify/telegram.py` alerts, `CentralizedSolvencyLedger` balance governance, SQLite & JSONL persistence, Merkle DAG chaining | M1 | DONE |
+| M3 | Testnet Execution Drill CLI & Guardrails | `scripts/run_testnet_execution_drill.py`, CLI arguments, micro-capital bounds, fail-closed guards, VPS non-interference | M1, M2 | DONE |
+| M4 | Comprehensive E2E Test Suite, Adversarial Hardening & Final Gate | `tests/unit/test_phase_311_execution_drill.py`, `tests/integration/test_phase_311_testnet_harness.py`, 4 tiers of tests, ruff, mypy, audit | M1, M2, M3 | DONE |
 
 ## Interface Contracts
 
-### BinanceFuturesGateway ↔ SelfDrivingTradingEngine
+### BinanceFuturesGateway Extensions
 ```python
 class BinanceFuturesGateway:
-    def __init__(self, api_key: str, api_secret: str, testnet: bool = True): ...
-    async def create_order(self, symbol: str, side: str, order_type: str, quantity: Decimal, price: Optional[Decimal] = None, client_order_id: Optional[str] = None) -> Dict[str, Any]: ...
-    async def cancel_order(self, symbol: str, order_id: Optional[int] = None, client_order_id: Optional[str] = None) -> Dict[str, Any]: ...
-    async def get_position_risk(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]: ...
-    async def get_account_balance(self) -> Dict[str, Any]: ...
-    async def start_user_data_stream(self, callback: Callable[[Dict[str, Any]], Awaitable[None]]) -> str: ...
-    async def keepalive_user_data_stream(self, listen_key: str) -> bool: ...
-    async def close_user_data_stream(self, listen_key: str) -> bool: ...
+    async def get_order(self, symbol: str, order_id: Optional[int] = None, client_order_id: Optional[str] = None) -> Dict[str, Any]: ...
+    async def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]: ...
+    async def cancel_all_open_orders(self, symbol: str) -> Dict[str, Any]: ...
+    def generate_drill_client_order_id(self, symbol: str, ts_ms: Optional[int] = None, role: str = "drill") -> str:
+        """Returns deterministic client order ID <= 36 characters: canary-p311-{role}-{sym[:3]}-{timestamp_ms}."""
 ```
 
-### MacroLiquidityDipScalper ↔ SelfDrivingTradingEngine
+### ExecutionDrillEngine ↔ CLI & Telemetry
 ```python
-class MacroTrendFilter:
-    def evaluate(self, btc_1h_candles: List[Candle], btc_4h_candles: List[Candle]) -> bool:
-        """Returns True iff BTC 1h EMA 50 > EMA 200 AND BTC 4h EMA 50 > EMA 200 (fails closed if <200 bars)."""
-
-class MacroLiquidityDipScalper:
-    def evaluate_15m_bar(self, symbol: str, bar: Candle, history: List[Candle], macro_trend_allowed: bool) -> Optional[ScalperSignal]:
-        """Returns ScalperSignal for allowed symbols (SOLUSDT, ETHUSDT) or None."""
+class ExecutionDrillEngine:
+    def __init__(self, gateway: BinanceFuturesGateway, ledger: DrillSolvencyLedger, storage_dir: Path, config: DrillConfig): ...
+    async def execute_drill(self) -> DrillReport: ...
+    async def cleanup_drill_orders(self, symbol: str, bracket_cids: List[str]) -> Dict[str, Any]: ...
+    def verify_artifacts(self) -> bool: ...
 ```
 
-### StrategyAutopsyEngine ↔ CanaryTelemetry
+### CentralizedSolvencyLedger Balance Invariant
 ```python
-class StrategyAutopsyEngine:
-    def decompose_trade(self, fill_record: RealizedFillRecord) -> TradeAutopsyReport: ...
-    def update_candidate_health(self, candidate_id: str, autopsies: List[TradeAutopsyReport]) -> CandidateHealthStatus:
-        """Returns ELITE, HEALTHY, or DEGRADED (triggering mutation)."""
+# Absolute Zero-Drift Balance Equation:
+# drift = abs((cash + allocated_margin + unrealized_pnl) - (starting_equity + realized_pnl))
+# assert drift < Decimal("1e-15")
 ```
 
 ## Code Layout
-- `src/autonomous_futures/execution/binance_gateway.py`: Binance Futures dual-mode signed REST & WebSocket gateway.
-- `src/autonomous_futures/strategy/macro_liquidity_scalper.py`: Macro trend filter and 15m liquidity sweep scalper.
-- `src/autonomous_futures/execution/self_driving.py`: Integrated self-driving trading engine with live gateway, scalper, solvency ledger, and autopsy loop.
-- `src/autonomous_futures/notify/telegram.py`: Enhanced Telegram notifier with trade event templates.
-- `deploy/systemd/autonomous-futures-trader.service`: Production systemd service unit for Kainode VPS.
-- `scripts/run_telegram_notifier.py`: Telegram notifier daemon runner.
-- `scripts/run_phase_310_real_autonomous_trading.py`: Phase 310 master verification and execution runner.
-- `artifacts/research/phase310/`: Cryptographic Merkle DAG research artifacts bound to parent root `5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844`.
-- `tests/unit/test_phase_310_*.py`: Targeted unit and challenger tests (115 tests).
-- `tests/integration/test_phase_310_*.py`: Opaque-box E2E integration tests (102 tests).
-
-## Phase 311: Executive Trading Mission Control Web Dashboard Overhaul
-- **Overview**: Complete overhaul of the Autonomous Futures Bot web interface (`https://futures.semua.dev/`) from an overwhelming 23-tab research view into a 4-tab executive Trading Mission Control with a collapsible Research Archive drawer preserving all 23 historical phases (250–309).
-- **Frontend Architecture**:
-  - `frontend/src/components/mission-control/types.ts`: Interface models for executive dashboard, KPIs, positions, radar, orders.
-  - `frontend/src/components/mission-control/mission-control-header.tsx` (R1): Header bar with ACTIVE 24/7 pulse, BINANCE TESTNET GATEWAY badge, CIRCUIT: NORMAL state, MYT ticking clock, refresh button.
-  - `frontend/src/components/mission-control/kpi-cards.tsx` (R1): 4 Key Owner KPI Cards (Total equity & cash reserve, Realized PnL & win rate %, Active exposure vs $25 cap, System health & zero-drift $|Δ| < 10^{-15}$).
-  - `frontend/src/components/mission-control/market-positions-card.tsx` (R2): SOLUSDT, ETHUSDT, BTCUSDT staged pairs with mark prices, LONG/SCANNING state, TP/SL dynamic ATR brackets, and 1.66:1 Risk:Reward ratio chip.
-  - `frontend/src/components/mission-control/strategy-confluence-radar.tsx` (R3): BTC 1h/4h EMA 50/200 macro trend filter, 15m scalper checklist (ATR distance, volume surge, RSI 14, 0.02% maker fee), Hawkes hazard gauge ($\rho$) with SVG sparkline.
-  - `frontend/src/components/mission-control/order-feed-table.tsx` (R4): Real-time order execution table with MYT timestamps, maker fee 0.02%, and realized PnL.
-  - `frontend/src/components/mission-control/research-archive-drawer.tsx` (R5): Collapsible drawer organizing all 23 historical phases into 4 groups with hash preservation.
-  - `frontend/src/components/mission-control/executive-dashboard.tsx`: Assembled container component for Tab 1 (Dashboard Utama).
-  - `frontend/src/components/mission-control/adapter.ts`: Data adapter bridging live Canary models into the executive dashboard model.
-  - `frontend/src/components/executive-positions-page.tsx`: Subpage for Tab 2 (Pasaran & Posisi).
-  - `frontend/src/components/executive-trades-page.tsx`: Subpage for Tab 3 (Log Perdagangan).
-  - `frontend/src/components/executive-safety-page.tsx`: Subpage for Tab 4 (Kawalan Keselamatan).
-- **Design & Layout** (R6): DaisyUI 5.7.42 + Tailwind CSS v4 OLED dark theme with responsive mobile navigation (top header, slide-down drawer menu, and bottom navigation bar for viewports < 768px).
-- **Verification & Deployment** (R7):
-  - Vitest automated test suite: 28 test files, 173 tests passing (0 regressions).
-  - Production build: `npm run build` compiled cleanly.
-  - Deployment: Deployed to Kainode VPS (`147.79.18.15`) at `/opt/autonomous-futures-bot/frontend/dist`.
-  - Live Verification: Verified HTTP 200 OK on `https://futures.semua.dev/` serving `index-DEQro7aV.js` and `index-8oSs-Ynt.css`; verified `autonomous-futures-trader.service` and `autonomous-futures-web.service` active.
+- `src/autonomous_futures/execution/binance_gateway.py`: Binance Futures dual-mode REST gateway with query and bracket extensions.
+- `src/autonomous_futures/feed/execution_drill.py`: Core execution drill harness, filter step-up, ATR bracket engine, and position cleanup.
+- `src/autonomous_futures/notifications/__init__.py`: Package compatibility shim redirecting to `autonomous_futures.notify`.
+- `scripts/run_testnet_execution_drill.py`: Dedicated CLI entry point.
+- `artifacts/research/phase311/`: Phase 311 telemetry, JSONL audit logs, drill report, and Merkle root summary.
+- `tests/unit/test_phase_311_execution_drill.py`: Targeted unit and bracket computation tests.
+- `tests/integration/test_phase_311_testnet_harness.py`: Opaque-box E2E integration drill tests (90 tests).
+- `tests/integration/test_phase_311_adversarial_challenge.py`: Adversarial guardrail challenge tests (13 tests).
+- `tests/integration/test_phase_311_empirical_challenger.py`: Empirical solvency stress tests (10 tests).

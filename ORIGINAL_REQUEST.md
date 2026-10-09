@@ -3242,3 +3242,63 @@ Make the default landing page (`/` or `#/`) a high-clarity Executive Dashboard w
 ### Verification & VPS Deployment
 - [ ] Frontend builds cleanly with zero TypeScript or linting errors (`npm run build`).
 - [ ] Deployed to Kainode VPS; `https://futures.semua.dev/` serves the new executive UI seamlessly while the 24/7 trader daemon continues running uninterrupted.
+
+
+## 2026-10-09T12:55:38Z
+
+Implement Phase 311: End-to-End Synthetic Execution Drill & Verification Harness on Binance Futures Testnet for Autonomous Futures Bot, establishing a dedicated, non-disruptive execution drill CLI, authentic signed micro maker limit order dispatch, automated bracket Take-Profit and Stop-Loss management, instant Telegram alert dispatch, and continuous mathematical double-entry zero-drift balance governance without interrupting the running 24/7 daemon.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Dedicated Testnet Execution Drill CLI (`scripts/run_testnet_execution_drill.py`)
+Implement a dedicated CLI harness capable of triggering controlled execution drills on Binance Futures Testnet across staged candidate pairs (`SOLUSDT`, `ETHUSDT`):
+- Support CLI arguments: `--symbol` (default: `SOLUSDT`), `--side` (`BUY` or `SELL`), `--notional` (default: `5.00` USDT, capped at <= 5.00 USDT), `--dry-run` flag, and `--auto-close` or `--cleanup` option.
+- Connect seamlessly to `BinanceGateway` and `TestnetOrderDispatchBridge` without competing with or terminating the 24/7 `autonomous-futures-trader.service` daemon.
+- Validate Binance exchange filters (`LOT_SIZE`, `PRICE_FILTER`, `MIN_NOTIONAL`) with precision `ROUND_DOWN`.
+
+### R2. Authentic Binance Testnet Order Dispatch & Automated Bracket Management
+- Generate authentic HMAC-SHA256 signed REST requests to Binance Futures Testnet (`https://testnet.binancefuture.com`):
+  - Submit entry Maker Limit order (`POST /fapi/v1/order` with `timeInForce: GTC` or `GTX`).
+  - Upon order confirmation/fill, automatically calculate and submit bracket protective orders:
+    - **Take-Profit**: Limit or `TAKE_PROFIT_MARKET` at +2.0x ATR.
+    - **Stop-Loss**: `STOP_MARKET` at -1.2x ATR (Risk:Reward ratio 1.66:1).
+- Provide an automatic or manual `--cleanup` routine to cancel pending test brackets and flatten the test position to return the account to a clean baseline.
+
+### R3. Real-Time Multi-Channel Telegram Alerting
+- Integrate with `TelegramNotifier` (`scripts/run_telegram_notifier.py` / `src/autonomous_futures/notifications/telegram.py`):
+  - Dispatch instant, rich Markdown Telegram notification on test order submission and fill confirmation:
+    - Symbol, Side, Executed Price, Order Notional, Maker Fee (0.02%), and Deterministic Client Order ID (`c=canary-p311-drill-{sym}-{ts}`).
+    - Dynamic Take-Profit and Stop-Loss target prices with percentage distance.
+  - Dispatch exit and PnL notification upon bracket triggering or cleanup flattening.
+
+### R4. Real-Time Telemetry, Zero-Drift Ledger & Dashboard Synchronization
+- Persist execution telemetry into SQLite (`canary-lifecycle-telemetry.sqlite3`) and append structured audit records into `artifacts/research/phase311/canary-orders.jsonl` and `canary-drill-report.json`.
+- Maintain strict real-time double-entry reconciliation across all simulated and live state transitions:
+  $$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+  Enforcing strict absolute tolerance $|\Delta| < 10^{-15}\text{ USDT}$ at every fill, fee deduction, and equity reconciliation snapshot.
+- Ensure the executive Mission Control dashboard (`https://futures.semua.dev/`) reflects the active position and test trade in the recent trade log without cache staleness.
+
+### R5. Strict Micro-Capital & Fail-Closed Guardrails
+- Strictly enforce micro child order sizing (<= 5.00 USDT), aggregate portfolio exposure ceiling (<= 25.00 USDT), and daily loss ceiling (<= 3.00 USDT).
+- Verify gateway heartbeat freshness (<= 500 ms) and clock skew ($|\Delta t| \le 1000$ ms) before order dispatch.
+- Preserve complete operational continuity of the Kainode VPS background trader daemon.
+
+## Acceptance Criteria
+
+### Execution CLI & Gateway Dispatch
+- [ ] `scripts/run_testnet_execution_drill.py --dry-run` executes cleanly, validating credentials, filters, and bracket calculations without submitting orders.
+- [ ] Submitting a live drill order to Binance Futures Testnet returns an authentic HTTP 200 with valid Binance `orderId`, status, and executed price.
+- [ ] Automated Take-Profit (+2.0x ATR) and Stop-Loss (-1.2x ATR) bracket orders are dispatched and confirmed by Binance Testnet.
+
+### Notifications & Telemetry
+- [ ] Telegram notification is successfully delivered to the configured chat with complete trade details (price, size, TP, SL, R:R).
+- [ ] Completed drill run writes cryptographically verified audit records into `artifacts/research/phase311/` linked to upstream Merkle DAG.
+- [ ] Double-entry ledger reconciliation holds $|\Delta| = 0.00\text{ USDT} < 10^{-15}\text{ USDT}$.
+
+### Quality Gates & VPS Non-Interference
+- [ ] Comprehensive pytest suite covers drill execution, bracket computation, Telegram dispatch, and zero-drift balance invariant with 0 failures.
+- [ ] Running the drill does not crash, stop, or interfere with `autonomous-futures-trader.service` on Kainode VPS.
+- [ ] Static quality gates (`ruff check`, `mypy src`) pass with 0 errors.

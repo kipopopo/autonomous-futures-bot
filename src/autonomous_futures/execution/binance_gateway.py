@@ -121,6 +121,35 @@ def generate_client_order_id(symbol: str, ts_ms: int | None = None) -> str:
     return order_id[:36]
 
 
+def generate_drill_client_order_id(
+    symbol: str, ts_ms: int | None = None, role: str = "drill"
+) -> str:
+    """Generates a deterministic client order ID for Phase 311 execution drill (<= 36 chars).
+
+    Formats:
+    - Drill Entry: canary-p311-drill-{sym[:3]}-{ts_ms:013d} (35 chars)
+    - Take-Profit: canary-p311-tp-{sym[:3]}-{ts_ms:013d} (32 chars)
+    - Stop-Loss:   canary-p311-sl-{sym[:3]}-{ts_ms:013d} (32 chars)
+    - Flatten/Cl:  canary-p311-cl-{sym[:3]}-{ts_ms:013d} (32 chars)
+    """
+    ts = ts_ms if ts_ms is not None else int(time.time() * 1000)
+    sym_clean = symbol.replace("USDT", "").lower()[:3]
+    if len(sym_clean) < 3:
+        sym_clean = sym_clean.ljust(3, "x")
+    tag = role.lower()
+    if tag in ("take_profit", "tp"):
+        prefix = "canary-p311-tp"
+    elif tag in ("stop_loss", "sl"):
+        prefix = "canary-p311-sl"
+    elif tag in ("close", "flatten", "cl"):
+        prefix = "canary-p311-cl"
+    else:
+        prefix = "canary-p311-drill"
+    order_id = f"{prefix}-{sym_clean}-{ts:013d}"
+    return order_id[:36]
+
+
+
 def quantize_step_size(quantity: Decimal, step_size: Decimal) -> Decimal:
     """Quantizes quantity to step size using ROUND_DOWN."""
     return (quantity / step_size).quantize(Decimal("1"), rounding=ROUND_DOWN) * step_size
@@ -467,9 +496,9 @@ class BinanceFuturesGateway:
             params["price"] = f"{quantized_price:f}"
             params["timeInForce"] = time_in_force
 
-        if order_type.upper() == "STOP_MARKET":
+        if order_type.upper() in ("STOP_MARKET", "TAKE_PROFIT_MARKET"):
             if quantized_stop is None:
-                raise ValueError("Stop market orders require stopPrice.")
+                raise ValueError(f"{order_type.upper()} orders require stopPrice.")
             params["stopPrice"] = f"{quantized_stop:f}"
 
         if reduce_only:
@@ -507,6 +536,54 @@ class BinanceFuturesGateway:
             if resp.status_code != 200:
                 try:
                     err_json = resp.json()
+                    err_code = err_json.get("code", resp.status_code)
+                    # Support Binance conditional order migration to /fapi/v1/algoOrder
+                    if err_code == -4120 and order_type.upper() in (
+                        "STOP_MARKET",
+                        "TAKE_PROFIT_MARKET",
+                        "STOP",
+                        "TAKE_PROFIT",
+                    ):
+                        algo_params: dict[str, Any] = {
+                            "symbol": symbol.upper(),
+                            "side": side.upper(),
+                            "algoType": "CONDITIONAL",
+                            "type": order_type.upper(),
+                            "quantity": f"{quantized_qty:f}",
+                        }
+                        if quantized_stop is not None:
+                            algo_params["triggerPrice"] = f"{quantized_stop:f}"
+                        if quantized_price is not None:
+                            algo_params["price"] = f"{quantized_price:f}"
+                        if client_order_id:
+                            algo_params["clientAlgoId"] = cid
+                        if reduce_only:
+                            algo_params["reduceOnly"] = "true"
+                        signed_algo = self.sign_payload(algo_params)
+                        algo_resp = await client.post(
+                            "/fapi/v1/algoOrder", params=signed_algo, headers=headers
+                        )
+                        if algo_resp.status_code == 200:
+                            algo_data = cast(dict[str, Any], algo_resp.json())
+                            algo_data["orderId"] = algo_data.get("algoId")
+                            algo_data["clientOrderId"] = algo_data.get("clientAlgoId", cid)
+                            algo_data["status"] = algo_data.get("algoStatus", "NEW")
+                            algo_data["stopPrice"] = algo_data.get("triggerPrice", "0.00")
+                            return algo_data
+                        if algo_resp.status_code == 400 and reduce_only:
+                            # Retry without reduceOnly if resting order not yet filled
+                            algo_params["reduceOnly"] = "false"
+                            signed_algo2 = self.sign_payload(algo_params)
+                            algo_resp2 = await client.post(
+                                "/fapi/v1/algoOrder", params=signed_algo2, headers=headers
+                            )
+                            if algo_resp2.status_code == 200:
+                                algo_data2 = cast(dict[str, Any], algo_resp2.json())
+                                algo_data2["orderId"] = algo_data2.get("algoId")
+                                algo_data2["clientOrderId"] = algo_data2.get("clientAlgoId", cid)
+                                algo_data2["status"] = algo_data2.get("algoStatus", "NEW")
+                                algo_data2["stopPrice"] = algo_data2.get("triggerPrice", "0.00")
+                                return algo_data2
                     raise BinanceAPIError(
                         err_json.get("code", resp.status_code),
                         err_json.get("msg", resp.text),
@@ -548,6 +625,146 @@ class BinanceFuturesGateway:
 
         async with self._get_http_client() as client:
             resp = await client.delete("/fapi/v1/order", params=signed_params, headers=headers)
+            if resp.status_code != 200:
+                try:
+                    err_json = resp.json()
+                    err_code = err_json.get("code", resp.status_code)
+                    if err_code in (-2011, -1001, -4120):
+                        # Try deleting from algoOrder endpoint if unknown on order endpoint
+                        algo_cancel_params: dict[str, Any] = {}
+                        if order_id is not None:
+                            algo_cancel_params["algoId"] = order_id
+                        if client_order_id is not None:
+                            algo_cancel_params["clientAlgoId"] = client_order_id
+                        signed_algo_cancel = self.sign_payload(algo_cancel_params)
+                        algo_cancel_resp = await client.delete(
+                            "/fapi/v1/algoOrder", params=signed_algo_cancel, headers=headers
+                        )
+                        if algo_cancel_resp.status_code == 200:
+                            return cast(dict[str, Any], algo_cancel_resp.json())
+                    raise BinanceAPIError(
+                        err_json.get("code", resp.status_code),
+                        err_json.get("msg", resp.text),
+                        status_code=resp.status_code,
+                    )
+                except json.JSONDecodeError:
+                    raise BinanceAPIError(
+                        resp.status_code, resp.text, status_code=resp.status_code
+                    ) from None
+            return cast(dict[str, Any], resp.json())
+
+    async def get_order(
+        self,
+        symbol: str,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Queries an order status from Binance Futures: GET /fapi/v1/order."""
+        if order_id is None and client_order_id is None:
+            raise ValueError("Must provide either order_id or client_order_id.")
+
+        params: dict[str, Any] = {"symbol": symbol.upper()}
+        if order_id is not None:
+            params["orderId"] = order_id
+        if client_order_id is not None:
+            params["origClientOrderId"] = client_order_id
+
+        signed_params = self.sign_payload(params)
+        headers = {"X-MBX-APIKEY": self.api_key}
+
+        if self.offline_mode and not self._mock_transport:
+            if client_order_id and client_order_id in self._mock_orders:
+                return self._mock_orders[client_order_id]
+            for o in self._mock_orders.values():
+                if order_id is not None and o.get("orderId") == order_id:
+                    return o
+            cid = client_order_id or str(order_id)
+            return {
+                "clientOrderId": cid,
+                "orderId": order_id or 12345678,
+                "symbol": symbol.upper(),
+                "status": "FILLED",
+                "executedQty": "0.05",
+                "avgPrice": "110.42",
+                "side": "BUY",
+                "type": "LIMIT",
+            }
+
+        async with self._get_http_client() as client:
+            resp = await client.get("/fapi/v1/order", params=signed_params, headers=headers)
+            if resp.status_code != 200:
+                try:
+                    err_json = resp.json()
+                    raise BinanceAPIError(
+                        err_json.get("code", resp.status_code),
+                        err_json.get("msg", resp.text),
+                        status_code=resp.status_code,
+                    )
+                except json.JSONDecodeError:
+                    raise BinanceAPIError(
+                        resp.status_code, resp.text, status_code=resp.status_code
+                    ) from None
+            return cast(dict[str, Any], resp.json())
+
+    async def get_open_orders(
+        self, symbol: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Queries all open orders on Binance Futures: GET /fapi/v1/openOrders."""
+        params: dict[str, Any] = {}
+        if symbol is not None:
+            params["symbol"] = symbol.upper()
+
+        signed_params = self.sign_payload(params)
+        headers = {"X-MBX-APIKEY": self.api_key}
+
+        if self.offline_mode and not self._mock_transport:
+            results = []
+            for o in self._mock_orders.values():
+                if symbol and o.get("symbol") != symbol.upper():
+                    continue
+                if o.get("status") in ("NEW", "PARTIALLY_FILLED"):
+                    results.append(o)
+            return results
+
+        async with self._get_http_client() as client:
+            resp = await client.get("/fapi/v1/openOrders", params=signed_params, headers=headers)
+            if resp.status_code != 200:
+                try:
+                    err_json = resp.json()
+                    raise BinanceAPIError(
+                        err_json.get("code", resp.status_code),
+                        err_json.get("msg", resp.text),
+                        status_code=resp.status_code,
+                    )
+                except json.JSONDecodeError:
+                    raise BinanceAPIError(
+                        resp.status_code, resp.text, status_code=resp.status_code
+                    ) from None
+            return cast(list[dict[str, Any]], resp.json())
+
+    async def cancel_all_open_orders(self, symbol: str) -> dict[str, Any]:
+        """Cancels all open orders for symbol: DELETE /fapi/v1/allOpenOrders."""
+        params: dict[str, Any] = {"symbol": symbol.upper()}
+        signed_params = self.sign_payload(params)
+        headers = {"X-MBX-APIKEY": self.api_key}
+
+        if self.offline_mode and not self._mock_transport:
+            count = 0
+            for o in self._mock_orders.values():
+                sym_match = o.get("symbol") == symbol.upper()
+                is_open = o.get("status") in ("NEW", "PARTIALLY_FILLED")
+                if sym_match and is_open:
+                    o["status"] = "CANCELED"
+                    count += 1
+            return {
+                "code": 200,
+                "msg": f"The operation of cancel all open order is done. ({count} canceled)",
+            }
+
+        async with self._get_http_client() as client:
+            resp = await client.delete(
+                "/fapi/v1/allOpenOrders", params=signed_params, headers=headers
+            )
             if resp.status_code != 200:
                 try:
                     err_json = resp.json()
