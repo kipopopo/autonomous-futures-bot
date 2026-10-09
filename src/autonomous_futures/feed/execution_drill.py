@@ -612,10 +612,10 @@ class ExecutionDrillEngine:
             f"• *Notional*: `${escape_markdown_v2(f'{actual_notional:.2f}')} USDT`\n"
             f"• *Maker Fee \\(0\\.02%\\)*: `${escape_markdown_v2(f'{maker_fee:.5f}')} USDT`\n"
             f"• *Client Order ID*: `{escape_markdown_v2(cid)}`\n"
-            f"• *Take Profit \\(+2\\.0x ATR\\)*: "
+            f"• *Take Profit \\(\\+2\\.0x ATR\\)*: "
             f"`${escape_markdown_v2(str(brackets.take_profit_price))}` "
             f"\\(\\+{escape_markdown_v2(f'{brackets.tp_distance_pct:.2f}')}%\\)\n"
-            f"• *Stop Loss \\(-1\\.2x ATR\\)*: "
+            f"• *Stop Loss \\(\\-\\1\\.2x ATR\\)*: "
             f"`${escape_markdown_v2(str(brackets.stop_loss_price))}` "
             f"\\(\\-{escape_markdown_v2(f'{brackets.sl_distance_pct:.2f}')}%\\)\n"
             f"• *Risk:Reward Ratio*: `1\\.66:1`\n"
@@ -637,9 +637,10 @@ class ExecutionDrillEngine:
             f"• *Status*: *{escape_markdown_v2(status)}*\n"
             f"• *Brackets Cancelled*: `{escape_markdown_v2(str(canceled_count))}`\n"
             f"• *Position State*: Flat \\(0\\.00 exposure\\)\n"
-            f"• *Account Invariant*: Reconciled \\(|\\Delta| < 10\\^-15 USDT\\)\n"
+            f"• *Account Invariant*: Reconciled \\(\\|\\Delta\\| \\< 10\\^\\-15 USDT\\)\n"
             f"• *Time*: {escape_markdown_v2(ts_str)}"
         )
+
 
     async def execute_drill(self) -> dict[str, Any]:
         """Executes full Phase 311 execution drill cycle."""
