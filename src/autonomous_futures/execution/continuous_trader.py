@@ -86,7 +86,11 @@ class ContinuousSelfDrivingTrader:
         if not self.telegram_client:
             return
         try:
-            await asyncio.to_thread(self.telegram_client.send_message, text, "MarkdownV2")
+            await asyncio.to_thread(
+                self.telegram_client.send_message,
+                text,
+                parse_mode="MarkdownV2",
+            )
         except Exception as exc:
             logger.warning("Failed to send Telegram alert: %s", exc)
 
