@@ -454,7 +454,7 @@ class BinanceFuturesGateway:
             return cast(dict[str, Any], resp.json())
 
     async def get_position_risk(
-        self, symbol: str | None = None, version: str = "v1"
+        self, symbol: str | None = None, version: str = "v2"
     ) -> list[dict[str, Any]]:
         """Queries real-time positions and unrealized PnL: GET /fapi/{v1|v2}/positionRisk."""
         params: dict[str, Any] = {}
