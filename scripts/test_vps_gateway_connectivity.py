@@ -2,7 +2,13 @@
 
 import asyncio
 import os
+import sys
 from pathlib import Path
+
+# Ensure src is in sys.path
+SRC_DIR = Path(__file__).resolve().parent.parent / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 # Load .env using standard library
 env_path = Path("/opt/autonomous-futures-bot/.env")
@@ -25,14 +31,20 @@ async def main() -> None:
     print("Testnet mode:", gw.testnet)
     print("API Key configured:", bool(gw.api_key and not gw.api_key.startswith("mock-")))
 
-    offset = await gw.sync_server_time()
-    print(f"Server time synchronized. Offset: {offset} ms")
+    server_time = await gw.get_server_time()
+    print(f"Server time: {server_time}")
+    offset = await gw.sync_clock_drift()
+    print(f"Clock drift synchronized. Offset: {offset} ms")
 
     try:
-        acc = await gw.get_account()
+        acc = await gw.get_account_balance()
         wallet_balance = acc.get("totalWalletBalance", "0")
         available_balance = acc.get("availableBalance", "0")
         print(f"Authentication verified! Wallet Balance: {wallet_balance} USDT, Available: {available_balance} USDT")
+
+        positions = await gw.get_position_risk()
+        active_pos = [p for p in positions if float(p.get("positionAmt", 0)) != 0]
+        print(f"Active positions count: {len(active_pos)} (Total tracked: {len(positions)})")
     except Exception as e:
         print("API query exception:", type(e).__name__, str(e))
 
