@@ -14,6 +14,7 @@ Runs continuously on the Kainode Linux VPS (or local development), integrating:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from decimal import Decimal
@@ -31,7 +32,7 @@ from autonomous_futures.notify.telegram import (
     escape_markdown_v2,
     resolve_telegram_credentials,
 )
-from autonomous_futures.strategy.macro_liquidity_scalper import Candle
+from autonomous_futures.strategy.macro_liquidity_scalper import Candle, compute_ema
 
 logger = logging.getLogger("autonomous_futures.execution.continuous_trader")
 
@@ -136,6 +137,8 @@ class ContinuousSelfDrivingTrader:
                 )
                 for r in raw_btc
             ]
+            if self.btc_1h_history and "BTCUSDT" in self.engine.candidates:
+                self.engine.candidates["BTCUSDT"].current_price = self.btc_1h_history[-1].close
         except Exception as exc:
             logger.warning("Failed to fetch BTCUSDT 1h klines: %s", exc)
 
@@ -170,6 +173,18 @@ class ContinuousSelfDrivingTrader:
         if not self.btc_1h_history:
             logger.debug("Waiting for BTC 1h history to populate...")
             return
+
+        # Synchronize BTCUSDT current price and macro EMAs in engine
+        btc_close = self.btc_1h_history[-1].close
+        if "BTCUSDT" in self.engine.candidates:
+            self.engine.candidates["BTCUSDT"].current_price = btc_close
+
+        closes_1h = [c.close for c in self.btc_1h_history]
+        if len(closes_1h) >= 50:
+            e50 = compute_ema(closes_1h, 50)
+            e200 = compute_ema(closes_1h, 200) if len(closes_1h) >= 200 else e50
+            setattr(self.engine, "latest_btc_ema50", float(e50[-1]))
+            setattr(self.engine, "latest_btc_ema200", float(e200[-1]))
 
         # 1. Sync live position risk from exchange
         try:
@@ -272,7 +287,33 @@ class ContinuousSelfDrivingTrader:
                     f"Take Profit: `{order.take_profit}` USDT"
                 )
 
-        # 3. Export telemetry & update Merkle DAG artifacts periodically
+        # 3. Export live-prices.json for fast read-only API access
+        try:
+            prices_payload = {
+                "timestamp_ms": now_ms,
+                "prices": {
+                    sym: float(c.current_price) for sym, c in self.engine.candidates.items()
+                },
+                "btc_macro": {
+                    "current_price": float(self.engine.candidates["BTCUSDT"].current_price)
+                    if "BTCUSDT" in self.engine.candidates
+                    else 82600.0,
+                    "ema50_1h": getattr(self.engine, "latest_btc_ema50", 82800.0),
+                    "ema200_1h": getattr(self.engine, "latest_btc_ema200", 81500.0),
+                    "regime": "BULLISH ALIGNED"
+                    if getattr(self.engine, "latest_btc_ema50", 82800.0)
+                    >= getattr(self.engine, "latest_btc_ema200", 81500.0)
+                    else "BEARISH / SIDEWAYS",
+                },
+                "source": "continuous_trader",
+            }
+            (self.storage_dir / "live-prices.json").write_text(
+                json.dumps(prices_payload, indent=2), encoding="utf-8"
+            )
+        except Exception as lp_err:
+            logger.debug("Could not write live-prices.json: %s", lp_err)
+
+        # 4. Export telemetry & update Merkle DAG artifacts periodically
         self.engine.export_artifacts(self.storage_dir)
 
     async def start(self) -> None:

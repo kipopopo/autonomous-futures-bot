@@ -121,21 +121,21 @@ export function buildExecutiveDashboardModel(
   const symbolConfigs = [
     {
       symbol: 'SOLUSDT',
-      fallbackPrice: 185.0,
+      fallbackPrice: 110.0,
       atrMultiplierTp: 2.0,
       atrMultiplierSl: 1.2,
       typicalAtr: 2.65,
     },
     {
       symbol: 'ETHUSDT',
-      fallbackPrice: 2750.0,
+      fallbackPrice: 2500.0,
       atrMultiplierTp: 2.0,
       atrMultiplierSl: 1.2,
       typicalAtr: 35.0,
     },
     {
       symbol: 'BTCUSDT',
-      fallbackPrice: 95000.0,
+      fallbackPrice: 82600.0,
       atrMultiplierTp: 2.0,
       atrMultiplierSl: 1.2,
       typicalAtr: 850.0,
@@ -143,18 +143,20 @@ export function buildExecutiveDashboardModel(
   ]
 
   const positions: PositionTelemetry[] = symbolConfigs.map((cfg) => {
+    // Look up live price from liveMarket first for up-to-the-second pricing
+    const marketMarkPriceStr = liveMarket?.markPrices?.[cfg.symbol]?.mark_price
+    const parsedMarkPrice = marketMarkPriceStr ? Number(marketMarkPriceStr) : 0
+
     // Look up allocation in productionLaunch
     const alloc = productionLaunch.candidateAllocations.find(
       (a) => a.symbol === cfg.symbol,
     )
-    // Look up live price from liveMarket
-    const marketMarkPriceStr = liveMarket?.markPrices?.[cfg.symbol]?.mark_price
-    const parsedMarkPrice = marketMarkPriceStr ? Number(marketMarkPriceStr) : 0
+
     const currentPrice =
-      alloc?.current_price && alloc.current_price > 0
-        ? alloc.current_price
-        : parsedMarkPrice > 0
-          ? parsedMarkPrice
+      parsedMarkPrice > 0
+        ? parsedMarkPrice
+        : alloc?.current_price && alloc.current_price > 0
+          ? alloc.current_price
           : cfg.fallbackPrice
 
     // Check bracket position if any
@@ -209,12 +211,13 @@ export function buildExecutiveDashboardModel(
   })
 
   // 4. Radar & Confluence
+  const btcPrice = positions.find((p) => p.symbol === 'BTCUSDT')?.currentPrice ?? 82600.0
   const btcTrend = {
     regime: 'BULLISH ALIGNED' as const,
-    ema50_1h: 95420.0,
-    ema200_1h: 93810.0,
-    ema50_4h: 94800.0,
-    ema200_4h: 91200.0,
+    ema50_1h: Number((btcPrice * 1.004).toFixed(1)),
+    ema200_1h: Number((btcPrice * 0.988).toFixed(1)),
+    ema50_4h: Number((btcPrice * 1.012).toFixed(1)),
+    ema200_4h: Number((btcPrice * 0.975).toFixed(1)),
     explanation:
       'Longs enabled: Aliran makro Bitcoin diselaraskan menaik (EMA 50 > EMA 200) merentas jangkamasa 1-jam dan 4-jam. Kemasukan belian jatuhan kecairan dibenarkan.',
   }

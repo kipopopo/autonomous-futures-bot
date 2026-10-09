@@ -464,6 +464,19 @@ function App() {
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
+  // Auto-refresh interval (10 seconds) for continuous live market pricing and telemetry
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void fetchCanaryDashboardData().then((nextCanary) => {
+        if (nextCanary) {
+          setCanaryData(nextCanary)
+          setLastFetchedAt(new Date())
+        }
+      })
+    }, 10000)
+    return () => clearInterval(timer)
+  }, [])
+
   const hasCanary = Boolean(
     canaryData.summary?.verified ||
     canaryData.hawkes?.verified ||

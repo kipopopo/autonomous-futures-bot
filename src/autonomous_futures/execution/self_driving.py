@@ -192,9 +192,9 @@ class SelfDrivingTradingEngine:
 
         # Market tracking state
         self.candidates: dict[str, CandidateState] = {
-            "BTCUSDT": CandidateState(symbol="BTCUSDT", current_price=Decimal("95000.00")),
-            "ETHUSDT": CandidateState(symbol="ETHUSDT", current_price=Decimal("2750.00")),
-            "SOLUSDT": CandidateState(symbol="SOLUSDT", current_price=Decimal("185.00")),
+            "BTCUSDT": CandidateState(symbol="BTCUSDT", current_price=Decimal("82600.00")),
+            "ETHUSDT": CandidateState(symbol="ETHUSDT", current_price=Decimal("2500.00")),
+            "SOLUSDT": CandidateState(symbol="SOLUSDT", current_price=Decimal("110.00")),
         }
 
         # Execution records & telemetry
@@ -1060,6 +1060,12 @@ class SelfDrivingTradingEngine:
                     "health_tier": c.health_tier.value,
                 }
                 for sym, c in self.candidates.items()
+            },
+            "macro_btc": {
+                "current_price": float(self.candidates["BTCUSDT"].current_price) if "BTCUSDT" in self.candidates else 82600.0,
+                "ema50_1h": getattr(self, "latest_btc_ema50", 82800.0),
+                "ema200_1h": getattr(self, "latest_btc_ema200", 81500.0),
+                "regime": "BULLISH ALIGNED" if getattr(self, "latest_btc_ema50", 82800.0) >= getattr(self, "latest_btc_ema200", 81500.0) else "BEARISH / SIDEWAYS",
             },
             "total_orders": len(self.orders),
             "interlock_blocks_count": self.interlock_blocks_count,

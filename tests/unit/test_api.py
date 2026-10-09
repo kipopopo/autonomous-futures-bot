@@ -210,3 +210,26 @@ def test_api_serves_frontend_dist(tmp_path: Path) -> None:
     response = _request(app, "GET", "/")
     assert response.status_code == 200
     assert "Mission Control" in response.text
+
+
+def test_market_prices_endpoint(tmp_path: Path) -> None:
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+    )
+
+    response = _request(app, "GET", "/api/v1/market/prices")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "timestamp_ms" in payload
+    assert "prices" in payload
+    assert "BTCUSDT" in payload["prices"]
+    assert "ETHUSDT" in payload["prices"]
+    assert "SOLUSDT" in payload["prices"]
+    assert payload["prices"]["BTCUSDT"] > 0
+    assert payload["prices"]["ETHUSDT"] > 0
+    assert payload["prices"]["SOLUSDT"] > 0
+    assert "btc_macro" in payload
+    assert "source" in payload
+
+
