@@ -126,20 +126,38 @@ class BinanceFuturesGateway:
             self.testnet = env_testnet in ("1", "true", "yes")
 
         # Resolve credentials with multi-tiered resolution
-        self.api_key = (
-            api_key
-            or os.environ.get("BINANCE_API_KEY")
-            or os.environ.get("BINANCE_TESTNET_API_KEY")
-            or "mock-p310-key-canary"
-        )
-        self.api_secret = (
-            api_secret
-            or os.environ.get("BINANCE_API_SECRET")
-            or os.environ.get("BINANCE_SECRET_KEY")
-            or os.environ.get("BINANCE_TESTNET_API_SECRET")
-            or os.environ.get("BINANCE_TESTNET_SECRET_KEY")
-            or "mock-p310-secret-canary"
-        )
+        if self.testnet:
+            raw_key = (
+                api_key
+                or os.environ.get("BINANCE_TESTNET_API_KEY")
+                or os.environ.get("BINANCE_API_KEY")
+                or "mock-p310-key-canary"
+            )
+            raw_secret = (
+                api_secret
+                or os.environ.get("BINANCE_TESTNET_SECRET_KEY")
+                or os.environ.get("BINANCE_TESTNET_API_SECRET")
+                or os.environ.get("BINANCE_API_SECRET")
+                or os.environ.get("BINANCE_SECRET_KEY")
+                or "mock-p310-secret-canary"
+            )
+        else:
+            raw_key = (
+                api_key
+                or os.environ.get("BINANCE_API_KEY")
+                or os.environ.get("BINANCE_TESTNET_API_KEY")
+                or "mock-p310-key-canary"
+            )
+            raw_secret = (
+                api_secret
+                or os.environ.get("BINANCE_API_SECRET")
+                or os.environ.get("BINANCE_SECRET_KEY")
+                or os.environ.get("BINANCE_TESTNET_API_SECRET")
+                or os.environ.get("BINANCE_TESTNET_SECRET_KEY")
+                or "mock-p310-secret-canary"
+            )
+        self.api_key = raw_key.strip().strip('"').strip("'")
+        self.api_secret = raw_secret.strip().strip('"').strip("'")
 
         self.rest_base = BINANCE_TESTNET_REST_BASE if self.testnet else BINANCE_LIVE_REST_BASE
         self.ws_base = BINANCE_TESTNET_WS_BASE if self.testnet else BINANCE_LIVE_WS_BASE
