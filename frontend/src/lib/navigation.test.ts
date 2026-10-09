@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
-import { pageFromHash } from './navigation'
+import { pageFromHash, isArchivePage } from './navigation'
 
 describe('pageFromHash', () => {
-  it('routes the supported pages', () => {
+  it('routes the 4 primary executive pages', () => {
+    expect(pageFromHash('#/')).toBe('overview')
+    expect(pageFromHash('#overview')).toBe('overview')
+    expect(pageFromHash('#/overview')).toBe('overview')
+    expect(pageFromHash('#/dashboard')).toBe('overview')
+    expect(pageFromHash('#positions')).toBe('positions')
+    expect(pageFromHash('#/positions')).toBe('positions')
+    expect(pageFromHash('#trades')).toBe('trades')
+    expect(pageFromHash('#/trades')).toBe('trades')
+    expect(pageFromHash('#safety')).toBe('safety')
+    expect(pageFromHash('#/safety')).toBe('safety')
+  })
+
+  it('routes the historical research canary pages with full backward compatibility', () => {
     expect(pageFromHash('#/creator')).toBe('creator')
     expect(pageFromHash('#creator')).toBe('creator')
     expect(pageFromHash('#/market')).toBe('market')
@@ -12,6 +25,7 @@ describe('pageFromHash', () => {
     expect(pageFromHash('#learner')).toBe('learner')
     expect(pageFromHash('#/microstructure')).toBe('microstructure')
     expect(pageFromHash('#microstructure')).toBe('microstructure')
+    expect(pageFromHash('#/hawkes')).toBe('microstructure')
     expect(pageFromHash('#/risk')).toBe('risk')
     expect(pageFromHash('#risk')).toBe('risk')
     expect(pageFromHash('#/accounting')).toBe('accounting')
@@ -24,11 +38,28 @@ describe('pageFromHash', () => {
     expect(pageFromHash('#mining')).toBe('mining')
     expect(pageFromHash('#/strategy-mining')).toBe('mining')
     expect(pageFromHash('#strategy-mining')).toBe('mining')
+    expect(pageFromHash('#/brackets')).toBe('brackets')
+    expect(pageFromHash('#/kill-switch')).toBe('kill-switch')
+    expect(pageFromHash('#/production-launch')).toBe('production-launch')
   })
 
   it('falls back to Overview for unsupported or empty hashes', () => {
     expect(pageFromHash('')).toBe('overview')
     expect(pageFromHash('#/unsupported')).toBe('overview')
     expect(pageFromHash('#')).toBe('overview')
+  })
+
+  it('correctly classifies archive pages vs primary executive pages', () => {
+    expect(isArchivePage('overview')).toBe(false)
+    expect(isArchivePage('positions')).toBe(false)
+    expect(isArchivePage('trades')).toBe(false)
+    expect(isArchivePage('safety')).toBe(false)
+
+    expect(isArchivePage('creator')).toBe(true)
+    expect(isArchivePage('learner')).toBe(true)
+    expect(isArchivePage('microstructure')).toBe(true)
+    expect(isArchivePage('brackets')).toBe(true)
+    expect(isArchivePage('kill-switch')).toBe(true)
+    expect(isArchivePage('production-launch')).toBe(true)
   })
 })

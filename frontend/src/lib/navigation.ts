@@ -1,5 +1,10 @@
 export type DashboardPage =
+  // 4 Primary Executive Navigation Pages
   | 'overview'
+  | 'positions'
+  | 'trades'
+  | 'safety'
+  // 23 Historical Research Canary Pages
   | 'creator'
   | 'learner'
   | 'microstructure'
@@ -26,9 +31,25 @@ export type DashboardPage =
 
 export function pageFromHash(hash: string): DashboardPage {
   const normalized = hash.replace(/^#\/?/, '')
+
+  // 4 Primary Executive Pages
+  if (normalized === '' || normalized === 'overview' || normalized === 'dashboard') {
+    return 'overview'
+  }
+  if (normalized === 'positions') {
+    return 'positions'
+  }
+  if (normalized === 'trades') {
+    return 'trades'
+  }
+  if (normalized === 'safety') {
+    return 'safety'
+  }
+
+  // Historical Canary Pages (Full backwards compatibility)
   if (normalized === 'creator') return 'creator'
   if (normalized === 'learner') return 'learner'
-  if (normalized === 'microstructure') return 'microstructure'
+  if (normalized === 'microstructure' || normalized === 'hawkes') return 'microstructure'
   if (normalized === 'risk') return 'risk'
   if (normalized === 'accounting') return 'accounting'
   if (normalized === 'market' || normalized === 'live-market') return 'market'
@@ -39,14 +60,19 @@ export function pageFromHash(hash: string): DashboardPage {
   if (normalized === 'mining' || normalized === 'strategy-mining') return 'mining'
   if (normalized === 'portfolio' || normalized === 'portfolio-rebalancing' || normalized === 'rebalancing') return 'portfolio'
   if (normalized === 'testnet' || normalized === 'testnet-gateway' || normalized === 'gateway') return 'testnet'
-  if (normalized === 'brackets' || normalized === 'bracket-positions' || normalized === 'positions') return 'brackets'
+  if (normalized === 'brackets' || normalized === 'bracket-positions') return 'brackets'
   if (normalized === 'guard' || normalized === 'execution-guard' || normalized === 'slippage') return 'guard'
   if (normalized === 'orchestrator' || normalized === 'pipeline' || normalized === 'shadow') return 'orchestrator'
   if (normalized === 'calibration' || normalized === 'regime' || normalized === 'parameter-adaptation') return 'calibration'
   if (normalized === 'ensemble' || normalized === 'alpha-ensemble' || normalized === 'meta-policy') return 'ensemble'
   if (normalized === 'evolution' || normalized === 'auto-evolution' || normalized === 'autopsy') return 'evolution'
   if (normalized === 'testnet-bridge' || normalized === 'bridge') return 'testnet-bridge'
-  if (normalized === 'kill-switch' || normalized === 'safety' || normalized === 'governance') return 'kill-switch'
+  if (normalized === 'kill-switch' || normalized === 'governance') return 'kill-switch'
   if (normalized === 'production' || normalized === 'production-launch' || normalized === 'self-driving') return 'production-launch'
+
   return 'overview'
+}
+
+export function isArchivePage(page: DashboardPage): boolean {
+  return page !== 'overview' && page !== 'positions' && page !== 'trades' && page !== 'safety'
 }

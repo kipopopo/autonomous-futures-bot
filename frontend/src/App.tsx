@@ -1,31 +1,27 @@
 import { Component, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { LucideIcon } from 'lucide-react'
 import {
-  Activity,
   AlertTriangle,
-  Bot as BotIcon,
+  Archive,
+  ArrowLeft,
   CheckCircle2,
   Clock3,
-  DatabaseZap,
-  Flame,
-  Layers,
   LockKeyhole,
+  Menu,
   Radio,
+  Receipt,
   RefreshCw,
-  Scale,
-  ShieldAlert,
   ShieldCheck,
-  TrendingUp,
+  X,
   Zap,
-  Dna,
-  PieChart,
-  Shield,
-  Target,
-  Cpu,
-  Sliders,
-  Sparkles,
-  Network,
+  type LucideIcon,
 } from 'lucide-react'
+
+import { ExecutiveDashboard } from '@/components/mission-control/executive-dashboard'
+import { buildExecutiveDashboardModel } from '@/components/mission-control/adapter'
+import { ExecutivePositionsPage } from '@/components/executive-positions-page'
+import { ExecutiveTradesPage } from '@/components/executive-trades-page'
+import { ExecutiveSafetyPage } from '@/components/executive-safety-page'
+import { ResearchArchiveDrawer } from '@/components/mission-control/research-archive-drawer'
 
 import { AccountingPage } from '@/components/accounting-page'
 import { CreatorPage } from '@/components/creator-page'
@@ -33,7 +29,6 @@ import { ExecutionPage } from '@/components/execution-page'
 import { LearnerPage } from '@/components/learner-page'
 import { LifecyclePage } from '@/components/lifecycle-page'
 import { LiveMarketPage } from '@/components/live-market-page'
-import { MagicCard } from '@/components/magic-card'
 import { MicrostructurePage } from '@/components/microstructure-page'
 import { RiskPage } from '@/components/risk-page'
 import { StrategyActivationPage } from '@/components/strategy-activation-page'
@@ -80,11 +75,10 @@ import { buildLearnerModel } from '@/lib/learner'
 import { buildQualificationModel } from '@/lib/qualification'
 import {
   buildOverviewModel,
-  type ComponentInspection,
   type DashboardApiData,
   type OverviewModel,
 } from '@/lib/dashboard'
-import { pageFromHash, type DashboardPage } from '@/lib/navigation'
+import { pageFromHash, isArchivePage, type DashboardPage } from '@/lib/navigation'
 import './App.css'
 
 const EMPTY_API_DATA: DashboardApiData = {
@@ -133,21 +127,6 @@ function formatMyt(value: string | Date | null): string {
     timeZone: 'Asia/Kuala_Lumpur',
     timeZoneName: 'short',
   }).format(date)
-}
-
-function shortHash(value: string | null): string {
-  if (!value) return '—'
-  return `${value.slice(0, 12)}…${value.slice(-8)}`
-}
-
-function componentLabel(component: ComponentInspection): string {
-  if (component.kind === 'kline' && component.interval) {
-    return `${component.interval} kline`
-  }
-  if (component.kind === 'mark_price') return 'Mark price'
-  if (component.kind === 'funding_rate') return 'Funding rate'
-  if (component.kind === 'exchange_filters') return 'Exchange filters'
-  return component.kind
 }
 
 function statusFor(state: LoadState, model: OverviewModel, hasCanary: boolean): {
@@ -272,84 +251,6 @@ function SafetyRail({
   )
 }
 
-function IdentityCard({ model }: { model: OverviewModel }) {
-  return (
-    <MagicCard className="identity-card" gradientFrom="#61d7e5" gradientTo="#19778a">
-      <div className="identity-content">
-        <div className="identity-heading">
-          <div className="icon-tile" aria-hidden="true">
-            <DatabaseZap size={20} />
-          </div>
-          <div>
-            <p className="eyebrow">Verified dataset identity</p>
-            <h2>Immutable research foundation</h2>
-          </div>
-        </div>
-        <div className="identity-grid">
-          <div>
-            <span className="field-label">Bundle hash</span>
-            <code title={model.bundleHash ?? undefined}>{shortHash(model.bundleHash)}</code>
-          </div>
-          <div>
-            <span className="field-label">Registry hash</span>
-            <code title={model.registryHash ?? undefined}>{shortHash(model.registryHash)}</code>
-          </div>
-          <div>
-            <span className="field-label">Primary window</span>
-            <span>{formatMyt(model.timeStart)} → {formatMyt(model.timeEnd)}</span>
-          </div>
-          <div>
-            <span className="field-label">Context policy</span>
-            <span>{model.contextFeaturePolicy ?? '—'}</span>
-          </div>
-        </div>
-      </div>
-    </MagicCard>
-  )
-}
-
-function ComponentInventory({ components }: { components: ComponentInspection[] }) {
-  return (
-    <section className="panel inventory-panel" aria-labelledby="inventory-heading">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">Artifact inspection</p>
-          <h2 id="inventory-heading">Verified component inventory</h2>
-        </div>
-        <span className="section-meta">{components.length} components</span>
-      </div>
-      <div className="inventory-table-wrap">
-        <table className="inventory-table">
-          <caption className="sr-only">Verified dataset component inventory</caption>
-          <thead>
-            <tr>
-              <th scope="col">Component</th>
-              <th scope="col">Symbols</th>
-              <th scope="col">Rows</th>
-              <th scope="col">Schema</th>
-              <th scope="col">Verification</th>
-            </tr>
-          </thead>
-          <tbody>
-            {components.map((component) => (
-              <tr key={`${component.kind}-${component.interval ?? 'event'}-${component.artifact_ref}`}>
-                <td>
-                  <strong>{componentLabel(component)}</strong>
-                  <span className="table-subtext" title={component.artifact_ref}>{component.artifact_ref}</span>
-                </td>
-                <td>{component.symbols.join(', ') || '—'}</td>
-                <td>{component.rows ?? '—'}</td>
-                <td><code>{component.schema_version}</code></td>
-                <td><span className="verified-label"><CheckCircle2 size={14} aria-hidden="true" /> VERIFIED</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  )
-}
-
 function App() {
   const telemetry = useTelemetryWebSocket()
   const [page, setPage] = useState<DashboardPage>(() => (
@@ -432,6 +333,29 @@ function App() {
   const productionLaunchModel = useMemo(
     () => buildProductionLaunchModel(canaryData.productionLaunch ?? null),
     [canaryData.productionLaunch]
+  )
+
+  const [isArchiveDrawerOpen, setIsArchiveDrawerOpen] = useState(false)
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false)
+
+  const executiveModel = useMemo(
+    () =>
+      buildExecutiveDashboardModel(
+        productionLaunchModel,
+        liveMarketModel,
+        bracketPositionsModel,
+        microstructureModel,
+        telemetry,
+        lastFetchedAt,
+      ),
+    [
+      productionLaunchModel,
+      liveMarketModel,
+      bracketPositionsModel,
+      microstructureModel,
+      telemetry,
+      lastFetchedAt,
+    ],
   )
 
   const loadData = useCallback(async () => {
@@ -560,11 +484,12 @@ function App() {
     canaryData.killSwitch?.verified ||
     canaryData.productionLaunch?.verified
   )
-  const status = statusFor(state, model, hasCanary)
-  const symbolList = model.symbols.length > 0
-    ? model.symbols
-    : (canaryData.summary?.candidates ?? [])
   const isOverviewPage = page === 'overview'
+  const isPositionsPage = page === 'positions'
+  const isTradesPage = page === 'trades'
+  const isSafetyPage = page === 'safety'
+  const isArchive = isArchivePage(page)
+
   const isMarketPage = page === 'market'
   const isCreatorPage = page === 'creator'
   const isLearnerPage = page === 'learner'
@@ -587,279 +512,266 @@ function App() {
   const isTestnetBridgePage = page === 'testnet-bridge'
   const isKillSwitchPage = page === 'kill-switch'
   const isProductionPage = page === 'production' || page === 'production-launch'
-  const inventoryVisible = isOverviewPage && state === 'ready' && model.components.length > 0
 
   return (
     <div className="app-shell bg-base-100 text-base-content min-h-screen">
+      {/* Mobile Top Header (< 768px) */}
+      <div className="md:hidden flex items-center justify-between p-3.5 bg-base-200/90 backdrop-blur-md border-b border-base-300 sticky top-0 z-30">
+        <div className="flex items-center gap-2.5">
+          <div className="brand-mark w-8 h-8 text-xs font-bold" aria-hidden="true">AF</div>
+          <div>
+            <strong className="text-xs font-bold text-base-content block leading-tight">
+              Autonomous Futures
+            </strong>
+            <span className="text-[10px] text-base-content/60 font-mono">
+              Trading Mission Control
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="badge badge-success badge-xs py-1 px-2 font-mono font-semibold">
+            ACTIVE 24/7
+          </span>
+          <button
+            type="button"
+            onClick={() => setIsMobileDrawerOpen(!isMobileDrawerOpen)}
+            className="btn btn-xs btn-ghost btn-circle text-base-content"
+            aria-label="Toggle navigation menu"
+          >
+            {isMobileDrawerOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Slide-down Drawer Menu */}
+      {isMobileDrawerOpen && (
+        <div className="md:hidden p-4 bg-base-200 border-b border-base-300 space-y-2 z-20 animate-in slide-in-from-top duration-200">
+          <a
+            href="#overview"
+            onClick={() => setIsMobileDrawerOpen(false)}
+            className={`block p-2.5 rounded-xl text-xs font-semibold ${
+              isOverviewPage ? 'bg-primary/10 text-primary' : 'text-base-content'
+            }`}
+          >
+            🚀 Dashboard Utama
+          </a>
+          <a
+            href="#/positions"
+            onClick={() => setIsMobileDrawerOpen(false)}
+            className={`block p-2.5 rounded-xl text-xs font-semibold ${
+              isPositionsPage ? 'bg-primary/10 text-primary' : 'text-base-content'
+            }`}
+          >
+            📊 Pasaran &amp; Posisi
+          </a>
+          <a
+            href="#/trades"
+            onClick={() => setIsMobileDrawerOpen(false)}
+            className={`block p-2.5 rounded-xl text-xs font-semibold ${
+              isTradesPage ? 'bg-primary/10 text-primary' : 'text-base-content'
+            }`}
+          >
+            ⚡ Log Perdagangan
+          </a>
+          <a
+            href="#/safety"
+            onClick={() => setIsMobileDrawerOpen(false)}
+            className={`block p-2.5 rounded-xl text-xs font-semibold ${
+              isSafetyPage ? 'bg-primary/10 text-primary' : 'text-base-content'
+            }`}
+          >
+            🛡️ Kawalan Keselamatan
+          </a>
+          <button
+            type="button"
+            onClick={() => {
+              setIsMobileDrawerOpen(false)
+              setIsArchiveDrawerOpen(true)
+            }}
+            className="w-full text-left p-2.5 rounded-xl text-xs font-semibold text-primary flex items-center justify-between"
+          >
+            <span>📁 Arkib Penyelidikan (23 Fasa)</span>
+            <Archive size={15} />
+          </button>
+        </div>
+      )}
+
+      {/* Desktop Executive Sidebar */}
       <aside className="sidebar bg-base-200/90 border-r border-base-300" aria-label="Primary navigation">
         <div className="brand-mark" aria-hidden="true">AF</div>
         <div className="sidebar-brand">
           <strong className="text-sm font-bold text-base-content">Autonomous<br />Futures</strong>
-          <span className="text-xs text-base-content/60">Research plane</span>
+          <span className="text-xs text-base-content/60 font-mono">Trading Mission Control</span>
         </div>
-        <nav className="flex flex-col gap-1">
-          <a className={`nav-item ${isOverviewPage ? 'nav-item-active' : ''}`} href="#overview" aria-current={isOverviewPage ? 'page' : undefined}>
-            <DatabaseZap size={17} aria-hidden="true" />
-            <span>Overview</span>
+
+        <nav className="flex flex-col gap-1.5">
+          <a
+            className={`nav-item ${isOverviewPage ? 'nav-item-active' : ''}`}
+            href="#overview"
+            aria-current={isOverviewPage ? 'page' : undefined}
+          >
+            <Zap size={18} className="text-primary" aria-hidden="true" />
+            <span className="font-semibold">🚀 Dashboard Utama</span>
           </a>
-          <a className={`nav-item ${isMarketPage ? 'nav-item-active' : ''}`} href="#/market" aria-current={isMarketPage ? 'page' : undefined}>
-            <Radio size={17} aria-hidden="true" />
-            <span>Live Market</span>
+          <a
+            className={`nav-item ${isPositionsPage ? 'nav-item-active' : ''}`}
+            href="#/positions"
+            aria-current={isPositionsPage ? 'page' : undefined}
+          >
+            <Radio size={18} className="text-cyan-400" aria-hidden="true" />
+            <span className="font-semibold">📊 Pasaran &amp; Posisi</span>
           </a>
-          <a className={`nav-item ${isCreatorPage ? 'nav-item-active' : ''}`} href="#/creator" aria-current={isCreatorPage ? 'page' : undefined}>
-            <BotIcon size={17} aria-hidden="true" />
-            <span>Creator</span>
+          <a
+            className={`nav-item ${isTradesPage ? 'nav-item-active' : ''}`}
+            href="#/trades"
+            aria-current={isTradesPage ? 'page' : undefined}
+          >
+            <Receipt size={18} className="text-emerald-400" aria-hidden="true" />
+            <span className="font-semibold">⚡ Log Perdagangan</span>
           </a>
-          <a className={`nav-item ${isLearnerPage ? 'nav-item-active' : ''}`} href="#/learner" aria-current={isLearnerPage ? 'page' : undefined}>
-            <ShieldCheck size={17} aria-hidden="true" />
-            <span>Learner</span>
+          <a
+            className={`nav-item ${isSafetyPage ? 'nav-item-active' : ''}`}
+            href="#/safety"
+            aria-current={isSafetyPage ? 'page' : undefined}
+          >
+            <ShieldCheck size={18} className="text-emerald-400" aria-hidden="true" />
+            <span className="font-semibold">🛡️ Kawalan Keselamatan</span>
           </a>
-          <a className={`nav-item ${isMicrostructurePage ? 'nav-item-active' : ''}`} href="#/microstructure" aria-current={isMicrostructurePage ? 'page' : undefined}>
-            <Activity size={17} aria-hidden="true" />
-            <span>Microstructure</span>
-          </a>
-          <a className={`nav-item ${isRiskPage ? 'nav-item-active' : ''}`} href="#/risk" aria-current={isRiskPage ? 'page' : undefined}>
-            <ShieldAlert size={17} aria-hidden="true" />
-            <span>Risk Controls</span>
-          </a>
-          <a className={`nav-item ${isAccountingPage ? 'nav-item-active' : ''}`} href="#/accounting" aria-current={isAccountingPage ? 'page' : undefined}>
-            <Scale size={17} aria-hidden="true" />
-            <span>Accounting</span>
-          </a>
-          <a className={`nav-item ${isExecutionPage ? 'nav-item-active' : ''}`} href="#/execution" aria-current={isExecutionPage ? 'page' : undefined}>
-            <Zap size={17} aria-hidden="true" />
-            <span>Paper Execution</span>
-          </a>
-          <a className={`nav-item ${isActivationPage ? 'nav-item-active' : ''}`} href="#/strategy-activation" aria-current={isActivationPage ? 'page' : undefined}>
-            <TrendingUp size={17} aria-hidden="true" />
-            <span>Strategy Activation</span>
-          </a>
-          <a className={`nav-item ${isLifecyclePage ? 'nav-item-active' : ''}`} href="#/lifecycle" aria-current={isLifecyclePage ? 'page' : undefined}>
-            <Layers size={17} aria-hidden="true" />
-            <span>Mission Control</span>
-          </a>
-          <a className={`nav-item ${isStressPage ? 'nav-item-active' : ''}`} href="#/stress" aria-current={isStressPage ? 'page' : undefined}>
-            <Flame size={17} aria-hidden="true" />
-            <span>Stress Resilience</span>
-          </a>
-          <a className={`nav-item ${isMiningPage ? 'nav-item-active' : ''}`} href="#/mining" aria-current={isMiningPage ? 'page' : undefined}>
-            <Dna size={17} aria-hidden="true" />
-            <span>Strategy Mining</span>
-          </a>
-          <a className={`nav-item ${isPortfolioPage ? 'nav-item-active' : ''}`} href="#/portfolio" aria-current={isPortfolioPage ? 'page' : undefined}>
-            <PieChart size={17} aria-hidden="true" />
-            <span>Portfolio Rebalancing</span>
-          </a>
-          <a className={`nav-item ${isTestnetPage ? 'nav-item-active' : ''}`} href="#/testnet" aria-current={isTestnetPage ? 'page' : undefined}>
-            <ShieldCheck size={17} aria-hidden="true" />
-            <span>Testnet Gateway</span>
-          </a>
-          <a className={`nav-item ${isBracketsPage ? 'nav-item-active' : ''}`} href="#/brackets" aria-current={isBracketsPage ? 'page' : undefined}>
-            <Target size={17} aria-hidden="true" />
-            <span>Brackets &amp; Positions</span>
-          </a>
-          <a className={`nav-item ${isGuardPage ? 'nav-item-active' : ''}`} href="#/guard" aria-current={isGuardPage ? 'page' : undefined}>
-            <Shield size={17} aria-hidden="true" />
-            <span>Execution Guard</span>
-          </a>
-          <a className={`nav-item ${isOrchestratorPage ? 'nav-item-active' : ''}`} href="#/orchestrator" aria-current={isOrchestratorPage ? 'page' : undefined}>
-            <Cpu size={17} aria-hidden="true" />
-            <span>Orchestrator</span>
-          </a>
-          <a className={`nav-item ${isCalibrationPage ? 'nav-item-active' : ''}`} href="#/calibration" aria-current={isCalibrationPage ? 'page' : undefined}>
-            <Sliders size={17} aria-hidden="true" />
-            <span>Calibration</span>
-          </a>
-          <a className={`nav-item ${isEnsemblePage ? 'nav-item-active' : ''}`} href="#/ensemble" aria-current={isEnsemblePage ? 'page' : undefined}>
-            <Layers size={17} aria-hidden="true" />
-            <span>Alpha Ensemble</span>
-          </a>
-          <a className={`nav-item ${isEvolutionPage ? 'nav-item-active' : ''}`} href="#/evolution" aria-current={isEvolutionPage ? 'page' : undefined}>
-            <Sparkles size={17} aria-hidden="true" />
-            <span>Auto-Evolution</span>
-          </a>
-          <a className={`nav-item ${isTestnetBridgePage ? 'nav-item-active' : ''}`} href="#/testnet-bridge" aria-current={isTestnetBridgePage ? 'page' : undefined}>
-            <Network size={17} aria-hidden="true" />
-            <span>Testnet Bridge</span>
-          </a>
-          <a className={`nav-item ${isKillSwitchPage ? 'nav-item-active' : ''}`} href="#/kill-switch" aria-current={isKillSwitchPage ? 'page' : undefined}>
-            <ShieldAlert size={17} aria-hidden="true" />
-            <span>Kill Switch</span>
-          </a>
-          <a className={`nav-item ${isProductionPage ? 'nav-item-active' : ''}`} href="#/production-launch" aria-current={isProductionPage ? 'page' : undefined}>
-            <BotIcon size={17} aria-hidden="true" />
-            <span>Production Launch</span>
-          </a>
+
+          {/* Research Archive Trigger */}
+          <div className="pt-3 mt-2 border-t border-base-300/80">
+            <button
+              type="button"
+              onClick={() => setIsArchiveDrawerOpen(true)}
+              className={`nav-item justify-between w-full text-left cursor-pointer ${
+                isArchive ? 'nav-item-active' : ''
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Archive size={17} className="text-primary" aria-hidden="true" />
+                <span className="font-medium">📁 Arkib Penyelidikan</span>
+              </div>
+              <span className="badge badge-xs badge-primary font-mono py-1 px-1.5 font-bold">
+                23 Fasa
+              </span>
+            </button>
+          </div>
         </nav>
+
         <div className="sidebar-footer border-t border-base-300">
-          <span className="sidebar-label">PHASE 309</span>
-          <span className="badge badge-success badge-xs py-2 px-2 font-mono font-semibold">Self-Driving</span>
+          <div className="flex items-center justify-between">
+            <span className="sidebar-label font-mono">PHASE 311</span>
+            <span className="badge badge-success badge-xs py-1.5 px-2 font-mono font-semibold">
+              Mission Control
+            </span>
+          </div>
         </div>
       </aside>
 
       <main className="main-content" id="overview">
-        <header className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-base-300 mb-6">
-          <div>
-            <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
-              Autonomous Futures /{' '}
-              {isProductionPage
-                ? 'Autonomous live production launch & micro-capital self-driving plane'
-                : isKillSwitchPage
-                ? 'Capital safety governance & hardware kill-switch plane'
-                : isTestnetBridgePage
-                ? 'Testnet live API & order dispatch bridge plane'
-                : isEvolutionPage
-                ? 'Continuous self-learning & auto-evolution plane'
-                : isEnsemblePage
-                ? 'Autonomous multi-horizon alpha ensemble & meta-policy plane'
-                : isCalibrationPage
-                ? 'Autonomous self-calibrating parameter adaptation plane'
-                : isOrchestratorPage
-                ? 'Autonomous paper trading orchestrator plane'
-                : isGuardPage
-                ? 'Microstructure adverse selection guard plane'
-                : isBracketsPage
-                ? 'Bracket & position management plane'
-                : isTestnetPage
-                ? 'Testnet gateway plane'
-                : isPortfolioPage
-                ? 'Portfolio risk orchestration plane'
-                : isMiningPage
-                ? 'Strategy mining plane'
-                : isStressPage
-                ? 'Stress resilience plane'
-                : isLifecyclePage
-                ? 'Mission control plane'
-                : isMarketPage
-                ? 'Market plane'
-                : isCreatorPage
-                  ? 'Creator plane'
-                  : isLearnerPage
-                    ? 'Learner plane'
-                    : isMicrostructurePage
-                      ? 'Telemetry plane'
-                      : isRiskPage
-                        ? 'Risk plane'
-                        : isAccountingPage
-                          ? 'Accounting plane'
-                          : isExecutionPage
-                            ? 'Execution plane'
-                            : isActivationPage
-                              ? 'Strategy activation plane'
-                              : 'Data plane'}
-            </p>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
-              {isProductionPage
-                ? 'Canary Production: Autonomous Live Production Launch & Micro-Capital Self-Driving Trading Engine'
-                : isKillSwitchPage
-                ? 'Canary Kill-Switch: Capital Safety Governance, Multi-Signature & Hardware/OS Panic Engine'
-                : isTestnetBridgePage
-                ? 'Canary Testnet Bridge: Live API Integration, Order Dispatch & Solvency Ledger'
-                : isEvolutionPage
-                ? 'Canary Evolution: Strategy Autopsy, Continuous Self-Learning & Auto-Evolution Daemon'
-                : isEnsemblePage
-                ? 'Canary Ensemble: Autonomous Multi-Horizon Alpha Ensemble & Meta-Policy Blending Engine'
-                : isCalibrationPage
-                ? 'Canary Calibration: Self-Calibrating Parameter Adaptation & Online Regime Learning'
-                : isOrchestratorPage
-                ? 'Canary Orchestrator: Closed-Loop Execution & Shadow Longevity Engine'
-                : isGuardPage
-                ? 'Canary Adverse Selection Guard: Toxic Flow Defense & Slippage Attribution'
-                : isBracketsPage
-                ? 'Canary Bracket Orders & Multi-Asset Positions: Trailing SL & Margin Accounting'
-                : isTestnetPage
-                ? 'Canary Testnet Gateway: Multi-Sig Authorization & Pre-Dispatch Filters'
-                : isPortfolioPage
-                ? 'Canary Portfolio Rebalancing: Hawkes Risk-Parity & Cross-Asset Contagion'
-                : isMiningPage
-                ? 'Canary Strategy Mining: Auto-Evolution & OOS Promotion'
-                : isStressPage
-                ? 'Canary Stress Resilience: Fault Injection & Emergency Flattening'
-                : isLifecyclePage
-                ? 'CANARY MISSION CONTROL'
-                : isMarketPage
-                ? 'Live Market Ingress'
-                : isCreatorPage
-                  ? 'Creator'
-                  : isLearnerPage
-                    ? 'Learner'
-                    : isMicrostructurePage
-                      ? 'Microstructure'
-                      : isRiskPage
-                        ? 'Risk Controls'
-                        : isAccountingPage
-                          ? 'Accounting Ledger'
-                          : isExecutionPage
-                            ? 'Paper Execution'
-                            : isActivationPage
-                              ? 'Strategy Activation'
-                              : 'Overview'}
-            </h1>
-            <p className="text-sm text-base-content/60 mt-1">
-              {isProductionPage
-                ? 'Phase 309 Micro-Capital Sizing ($5.00), Dynamic Child Slicing, Zero-Drift Balance & Capital Safety · MYT (GMT+8)'
-                : isKillSwitchPage
-                ? 'Phase 308 Multi-Sig Quorum (2-of-3), 3-Tier Containment & In-Memory Zeroization · MYT (GMT+8)'
-                : isTestnetBridgePage
-                ? 'Phase 307 Authenticated REST/WS Gateway, Exchange Filter Rules & Zero-Drift Balance · MYT (GMT+8)'
-                : isEvolutionPage
-                ? 'Phase 306 Execution Friction Attribution, Dynamic Candidate Health Tiers & Bounded Parameter Mutation · MYT (GMT+8)'
-                : isEnsemblePage
-                ? 'Phase 305 Dynamic Weight Adaptation, Directional Conflict Shading & Multi-Asset Solvency · MYT (GMT+8)'
-                : isCalibrationPage
-                ? 'Phase 304 Online Regime Learning, Dynamic Avellaneda-Stoikov Calibration & Solvency Governance · MYT (GMT+8)'
-                : isOrchestratorPage
-                ? 'Phase 303 Autonomous End-to-End Closed-Loop Paper Trading Orchestrator & Shadow Execution Engine · MYT (GMT+8)'
-                : isGuardPage
-                ? 'Phase 302 Real-Time Toxic Flow Defense, Adverse Selection Guard & Dynamic Microstructure Slippage Attribution · MYT (GMT+8)'
-                : isBracketsPage
-                ? 'Phase 301 Live User Data Stream Ingress, Dynamic Position & Bracket Order Management · MYT (GMT+8)'
-                : isTestnetPage
-                ? 'Phase 300 Dual-Custody Staged Order Authorization Bridge, Latency Attribution & Zero-Drift Balance · MYT (GMT+8)'
-                : isPortfolioPage
-                ? 'Phase 299 Multi-Asset Risk Orchestration, Spillover Mitigation & Convex Optimization · MYT (GMT+8)'
-                : isMiningPage
-                ? 'Phase 298 Quantitative Hypothesis Formulation, OOS Promotion & Live Hot-Reload · MYT (GMT+8)'
-                : isStressPage
-                ? 'Phase 297 Extreme Market Distress, Sub-ms Circuit Breakers & Capital Preservation · MYT (GMT+8)'
-                : isLifecyclePage
-                ? 'Phase 296 24/7 Autonomous Lifecycle Daemon & Multi-Session Longevity · MYT (GMT+8)'
-                : isMarketPage
-                ? 'Public perpetual book depth & trade ingress · MYT (GMT+8)'
-                : isCreatorPage
-                  ? 'Research generation readiness · MYT (GMT+8)'
-                  : isLearnerPage
-                    ? 'Model-learning readiness · MYT (GMT+8)'
-                    : isMicrostructurePage
-                      ? 'Hawkes jump cascades & execution hazard · MYT (GMT+8)'
-                      : isRiskPage
-                        ? 'Stepped exposure & circuit breakers · MYT (GMT+8)'
-                        : isAccountingPage
-                          ? 'Mathematical double-entry zero-drift · MYT (GMT+8)'
-                          : isExecutionPage
-                            ? 'Passive matching simulator & micro child order slicing · MYT (GMT+8)'
-                            : isActivationPage
-                              ? 'Promoted strategy candidates & fail-closed veto interlock · MYT (GMT+8)'
-                              : 'Causal market-data foundation · MYT (GMT+8)'}
-            </p>
+        {/* Archive Notice Bar when visiting historical phase */}
+        {isArchive && (
+          <div className="rounded-2xl bg-base-200/90 border border-primary/30 p-4 mb-6 shadow-md flex flex-wrap items-center justify-between gap-3 font-mono text-xs">
+            <div className="flex items-center gap-2.5 text-base-content">
+              <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                <Archive className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold text-primary block">
+                  📁 Arkib Penyelidikan Sejarah ({page.toUpperCase()})
+                </span>
+                <span className="text-[11px] text-base-content/60">
+                  Paparan fasa kajian terdahulu (Phases 250-309). Semua bukti kriptografi DAG &amp; lejar audit dikekalkan.
+                </span>
+              </div>
+            </div>
+            <a
+              href="#overview"
+              className="btn btn-sm btn-primary rounded-xl gap-1.5 font-semibold text-xs shadow-sm"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Kembali ke Dashboard Utama</span>
+            </a>
           </div>
-          <button
-            className="btn btn-primary btn-sm gap-2 shadow font-semibold"
-            type="button"
-            onClick={() => void loadData()}
-            disabled={state === 'loading'}
-          >
-            <RefreshCw size={15} className={state === 'loading' ? 'animate-spin' : undefined} aria-hidden="true" />
-            <span>{state === 'loading' ? 'Verifying…' : 'Refresh verified data'}</span>
-          </button>
-        </header>
+        )}
 
-        <SafetyRail
-          state={state}
-          model={model}
-          hasCanary={hasCanary}
-          telemetryStatus={telemetry.status}
-        />
+        {/* Page Header (Only for Historical Archive Pages) */}
+        {isArchive && (
+          <header className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-base-300 mb-6">
+            <div>
+              <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
+                Autonomous Futures / Arkib Penyelidikan / {page}
+              </p>
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
+                {isProductionPage
+                  ? 'Canary Production: Live Production Launch & Micro-Capital Self-Driving'
+                  : isKillSwitchPage
+                  ? 'Canary Kill-Switch: Capital Safety Governance & Quorum Panic'
+                  : isTestnetBridgePage
+                  ? 'Canary Testnet Bridge: Live API Integration & Solvency Ledger'
+                  : isEvolutionPage
+                  ? 'Canary Evolution: Strategy Autopsy & Self-Learning Daemon'
+                  : isEnsemblePage
+                  ? 'Canary Ensemble: Multi-Horizon Alpha Blending Engine'
+                  : isCalibrationPage
+                  ? 'Canary Calibration: Self-Calibrating Parameter Adaptation'
+                  : isOrchestratorPage
+                  ? 'Canary Orchestrator: Closed-Loop Paper Trading Orchestrator'
+                  : isGuardPage
+                  ? 'Canary Adverse Selection Guard: Toxic Flow Defense'
+                  : isBracketsPage
+                  ? 'Canary Bracket Orders & Positions: Dynamic Trailing Stops'
+                  : isTestnetPage
+                  ? 'Canary Testnet Gateway: Dual-Custody Pre-Dispatch Filters'
+                  : isPortfolioPage
+                  ? 'Canary Portfolio Rebalancing: Hawkes Risk-Parity Engine'
+                  : isMiningPage
+                  ? 'Canary Strategy Mining: Hypothesis Formulation & OOS'
+                  : isStressPage
+                  ? 'Canary Stress Resilience: Fault Injection & Flattening'
+                  : isLifecyclePage
+                  ? 'Canary Mission Control: 24/7 Lifecycle Daemon'
+                  : isMarketPage
+                  ? 'Live Market Ingress: Public Perpetuals Depth'
+                  : isCreatorPage
+                  ? 'Creator: Quantitative Hypothesis Registry'
+                  : isLearnerPage
+                  ? 'Learner: Model Learning Readiness'
+                  : isMicrostructurePage
+                  ? 'Microstructure: Hawkes Cascades & Execution Hazard'
+                  : isRiskPage
+                  ? 'Risk Controls: Stepped Exposure & Circuit Breakers'
+                  : isAccountingPage
+                  ? 'Accounting Ledger: Double-Entry Mathematical Drift'
+                  : isExecutionPage
+                  ? 'Paper Execution: Passive Matching & Child Slicing'
+                  : isActivationPage
+                  ? 'Strategy Activation: Promoted Candidates & Veto Interlock'
+                  : 'Overview'}
+              </h1>
+            </div>
+            <button
+              className="btn btn-primary btn-sm gap-2 shadow font-semibold"
+              type="button"
+              onClick={() => void loadData()}
+              disabled={state === 'loading'}
+            >
+              <RefreshCw size={15} className={state === 'loading' ? 'animate-spin' : undefined} aria-hidden="true" />
+              <span>{state === 'loading' ? 'Verifying…' : 'Refresh verified data'}</span>
+            </button>
+          </header>
+        )}
+
+        {/* Safety Rail for Archive Pages */}
+        {isArchive && (
+          <SafetyRail
+            state={state}
+            model={model}
+            hasCanary={hasCanary}
+            telemetryStatus={telemetry.status}
+          />
+        )}
 
         {errorMessage && (
           <div className="alert alert-warning shadow-lg mb-6" role="alert">
@@ -871,116 +783,22 @@ function App() {
           </div>
         )}
 
+        {/* Executive Landing Page (Dashboard Utama - R1 to R4) */}
         {isOverviewPage && state === 'ready' && (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-              <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
-                <span className="text-xs uppercase tracking-wider font-semibold opacity-70">System Verification</span>
-                <div className="text-lg font-bold text-success flex items-center gap-2 mt-2">
-                  <CheckCircle2 size={18} /> {status.label}
-                </div>
-                <span className="text-xs opacity-60 mt-2">Autonomous Hawkes &amp; Risk Verified</span>
-              </div>
-              <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
-                <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Staged Universe</span>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {symbolList.length > 0 ? (
-                    symbolList.map((s) => (
-                      <span key={s} className="badge badge-primary badge-outline font-mono text-xs font-semibold py-2 px-2.5">
-                        {s}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="font-mono text-base opacity-70">—</span>
-                  )}
-                </div>
-                <span className="text-xs opacity-60 mt-2">Staged perpetual candidates</span>
-              </div>
-              <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
-                <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Telemetry Phase</span>
-                <div className="text-lg font-mono font-bold uppercase text-base-content mt-2">
-                  {canaryData.summary?.phase || 'Phase 291'}
-                </div>
-                <span className="text-xs opacity-60 mt-2">Hawkes jump arrival cascades</span>
-              </div>
-              <div className="card bg-base-200 border border-base-300 p-4 shadow-sm flex flex-col justify-between">
-                <span className="text-xs uppercase tracking-wider font-semibold opacity-70">Accounting Drift</span>
-                <div className="text-lg font-mono font-bold text-success flex items-center gap-1.5 mt-2">
-                  <Scale size={16} /> |Δ| &lt; 10⁻¹⁵
-                </div>
-                <span className="text-xs opacity-60 mt-2">Zero-drift double-entry balance</span>
-              </div>
-            </div>
-
-            {/* Active Telemetry Canary Card */}
-            <div className="card bg-base-200 border border-base-300 shadow-xl mb-6 overflow-hidden">
-              <div className="card-body p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-primary/10 border border-primary/20 text-primary">
-                      <Activity size={24} />
-                    </div>
-                    <div>
-                      <span className="text-xs font-mono font-semibold uppercase tracking-wider text-primary">
-                        Active Phase 291 Hawkes Telemetry
-                      </span>
-                      <h2 className="text-xl font-bold tracking-tight">Causal Microstructure &amp; Execution Governance</h2>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="badge badge-success gap-1 font-semibold text-xs py-2.5 px-3">
-                      <CheckCircle2 size={13} /> {canaryData.summary?.daemon_status || 'HAWKES_CASCADES_VERIFIED'}
-                    </span>
-                    <span className="badge badge-info gap-1 font-semibold text-xs py-2.5 px-3">
-                      CIRCUIT: {canaryData.summary?.circuit_state || 'NORMAL'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 pt-4">
-                  <div className="bg-base-300/60 p-4 rounded-xl border border-base-300">
-                    <span className="text-xs text-base-content/60 font-mono uppercase font-semibold">Orders Executed</span>
-                    <p className="text-xl font-mono font-bold text-base-content mt-1">
-                      {canaryData.summary?.order_stats?.total_orders_filled ?? 18} / {canaryData.summary?.order_stats?.total_orders_placed ?? 18}
-                    </p>
-                    <span className="text-xs text-success font-medium">100% fill rate (0 slippage)</span>
-                  </div>
-                  <div className="bg-base-300/60 p-4 rounded-xl border border-base-300">
-                    <span className="text-xs text-base-content/60 font-mono uppercase font-semibold">Execution Fees</span>
-                    <p className="text-xl font-mono font-bold text-warning mt-1">
-                      {canaryData.summary?.order_stats?.total_fees_usdt ?? '0.010889'} USDT
-                    </p>
-                    <span className="text-xs text-base-content/60">Passive maker / taker mix</span>
-                  </div>
-                  <div className="bg-base-300/60 p-4 rounded-xl border border-base-300">
-                    <span className="text-xs text-base-content/60 font-mono uppercase font-semibold">Risk Interlocks</span>
-                    <p className="text-xl font-mono font-bold text-base-content mt-1">
-                      {canaryData.summary?.order_stats?.interlock_blocks_count ?? 3} Blocks
-                    </p>
-                    <span className="text-xs text-info font-medium">Exposure ceiling protected</span>
-                  </div>
-                  <div className="bg-base-300/60 p-4 rounded-xl border border-base-300">
-                    <span className="text-xs text-base-content/60 font-mono uppercase font-semibold">Mathematical Drift</span>
-                    <p className="text-xl font-mono font-bold text-success mt-1">
-                      0.00 USDT
-                    </p>
-                    <span className="text-xs text-success font-medium">Zero-drift verified</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {model.bundleHash && <IdentityCard model={model} />}
-          </>
+          <ExecutiveDashboard
+            model={executiveModel}
+            onRefresh={() => void loadData()}
+            isLoading={false}
+          />
         )}
 
         {state === 'loading' && (
           <section className="card bg-base-200 border border-base-300 shadow-xl p-8 text-center my-6" aria-live="polite">
             <div className="flex flex-col items-center justify-center gap-3">
               <span className="loading loading-ring loading-lg text-primary" aria-hidden="true" />
-              <h2 className="text-lg font-bold">Verifying persisted telemetry & DAG proofs</h2>
+              <h2 className="text-lg font-bold">Menyelaras data &amp; telemetri langsung</h2>
               <p className="text-sm text-base-content/70 max-w-md">
-                Querying read-only API endpoints for health status, Hawkes snapshots, risk controls, paper execution, and double-entry accounting ledger.
+                Menghubungkan ke perkhidmatan telemetri read-only bagi status kesihatan, baki lejar catatan bergu, dan isyarat strategi.
               </p>
             </div>
           </section>
@@ -990,13 +808,33 @@ function App() {
           <section className="alert alert-warning shadow-lg my-6" role="status">
             <AlertTriangle size={24} className="text-warning" aria-hidden="true" />
             <div>
-              <h2 className="font-bold text-base">No verified dataset is available for this scope.</h2>
-              <p className="text-sm opacity-80">Refresh after the read-only API and storage root are available. Unverified data remains hidden.</p>
+              <h2 className="font-bold text-base">Tiada set data disahkan tersedia pada masa ini.</h2>
+              <p className="text-sm opacity-80">Segar semula setelah API sedia ada diakses. Data yang belum disahkan kekal tersembunyi demi keselamatan.</p>
             </div>
           </section>
         )}
 
         <ErrorBoundary key={page}>
+          {/* Executive Subpages (R5) */}
+          {isPositionsPage && state === 'ready' && (
+            <ExecutivePositionsPage
+              positions={executiveModel.positions}
+              bracketPositionsModel={bracketPositionsModel}
+              liveMarketModel={liveMarketModel}
+            />
+          )}
+          {isTradesPage && state === 'ready' && (
+            <ExecutiveTradesPage orders={executiveModel.orders} />
+          )}
+          {isSafetyPage && state === 'ready' && (
+            <ExecutiveSafetyPage
+              productionLaunchModel={productionLaunchModel}
+              riskModel={riskModel}
+              killSwitchModel={killSwitchModel}
+            />
+          )}
+
+          {/* Historical Canary Pages (Phases 250-309 Preserved in Full) */}
           {isMarketPage && state === 'ready' && <LiveMarketPage model={liveMarketModel} />}
           {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
           {isLearnerPage && state === 'ready' && <LearnerPage model={learnerModel} />}
@@ -1021,14 +859,73 @@ function App() {
           {isTestnetBridgePage && state === 'ready' && <TestnetBridgePage model={testnetBridgeModel} />}
           {isKillSwitchPage && state === 'ready' && <KillSwitchPage model={killSwitchModel} />}
           {isProductionPage && state === 'ready' && <ProductionLaunchPage model={productionLaunchModel} />}
-          {inventoryVisible && <ComponentInventory components={model.components} />}
         </ErrorBoundary>
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">
-          <span className="text-xs text-base-content/60">Read-only observational surface · PAPER-SAFE</span>
-          <span className="text-xs font-mono text-base-content/60">{lastFetchedAt ? `Fetched ${formatMyt(lastFetchedAt)}` : 'Fetched —'}</span>
+          <span className="text-xs text-base-content/60">Autonomous Futures Bot · Perdagangan Eksekutif 24/7 · PAPER-SAFE</span>
+          <span className="text-xs font-mono text-base-content/60">{lastFetchedAt ? `Diselaraskan ${formatMyt(lastFetchedAt)}` : 'Diselaraskan —'}</span>
         </footer>
       </main>
+
+      {/* Mobile Bottom Navigation Bar (< 768px) */}
+      <nav className="mobile-bottom-nav md:hidden" aria-label="Mobile Navigation">
+        <a
+          href="#overview"
+          className={`flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors ${
+            isOverviewPage ? 'text-primary font-bold' : 'text-base-content/60'
+          }`}
+        >
+          <Zap size={18} />
+          <span>Utama</span>
+        </a>
+        <a
+          href="#/positions"
+          className={`flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors ${
+            isPositionsPage ? 'text-cyan-400 font-bold' : 'text-base-content/60'
+          }`}
+        >
+          <Radio size={18} />
+          <span>Posisi</span>
+        </a>
+        <a
+          href="#/trades"
+          className={`flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors ${
+            isTradesPage ? 'text-emerald-400 font-bold' : 'text-base-content/60'
+          }`}
+        >
+          <Receipt size={18} />
+          <span>Log</span>
+        </a>
+        <a
+          href="#/safety"
+          className={`flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors ${
+            isSafetyPage ? 'text-emerald-400 font-bold' : 'text-base-content/60'
+          }`}
+        >
+          <ShieldCheck size={18} />
+          <span>Keselamatan</span>
+        </a>
+        <button
+          type="button"
+          onClick={() => setIsArchiveDrawerOpen(true)}
+          className={`flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors ${
+            isArchive ? 'text-primary font-bold' : 'text-base-content/60'
+          }`}
+        >
+          <Archive size={18} />
+          <span>Arkib</span>
+        </button>
+      </nav>
+
+      {/* Collapsible Research Archive Drawer/Modal */}
+      <ResearchArchiveDrawer
+        isOpen={isArchiveDrawerOpen}
+        onClose={() => setIsArchiveDrawerOpen(false)}
+        onSelectPhase={(route) => {
+          window.location.hash = route
+          setIsArchiveDrawerOpen(false)
+        }}
+      />
     </div>
   )
 }

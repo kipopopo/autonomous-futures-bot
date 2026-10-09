@@ -3159,3 +3159,86 @@ Package and configure the continuous runner for 24/7 background execution on the
 - [ ] `autonomous-futures-trader.service` runs active/healthy on Kainode VPS under `systemd --user`.
 - [ ] Telegram bot successfully sends notifications for trade entry, exit, and daily performance summary to the designated chat ID.
 - [ ] FastAPI Mission Control endpoints and Cloudflare web dashboard accurately reflect live exchange metrics.
+
+
+## 2026-10-09T05:58:10Z
+
+Redesign, declutter, and elevate the web dashboard at `https://futures.semua.dev/` from an overwhelming 23-tab research panel into an intuitive, elegant, executive Trading Mission Control that allows the owner to immediately understand live bot health, wallet balance, active trades, scalping signals, and risk controls at a single glance.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: demo
+
+## Project Description
+The live dashboard at `https://futures.semua.dev/` is currently crowded and difficult for an owner to interpret because it exposes 23 granular research canary phase tabs, raw cryptographic DAG hashes, and internal experimental tables on the default page. 
+
+This project transforms the dashboard into a world-class, clean, executive Mission Control tailored specifically for the bot owner and trader. The new design puts essential financial and operational information front and center: live account balance, daily & all-time PnL, active positions (with entry, TP, and SL targets), macro strategy confluence (BTC trend & 15m liquidity dip scalper), and fail-safe risk interlocks. Historical research canary pages are neatly tucked into an expandable secondary archive drawer.
+
+## Requirements
+
+### R1. Executive Owner Dashboard (Unified Single-Glance Mission Control)
+Make the default landing page (`/` or `#/`) a high-clarity Executive Dashboard with:
+- **Top Mission Control Bar**:
+  - Live Bot Status Badge (`ACTIVE 24/7`, `BINANCE TESTNET / LIVE GATEWAY`).
+  - Operational Circuit Breaker Status (`NORMAL`, 0 tripwires).
+  - Data Sync Timestamp in Malaysia Time (MYT, GMT+8).
+  - One-click instant refresh button.
+- **4 Key Owner KPI Cards**:
+  1. **Total Balance & Equity**: Current wallet equity (Binance Testnet balance, e.g. `$4,224.12 USDT` or live balance), with breakdown of available cash vs allocated margin.
+  2. **Net Realized PnL & Win Rate**: Total profit in USDT, Win Rate %, and total completed trades.
+  3. **Active Exposure & Capital Sizing**: Current open exposure vs `$25.00 USDT` aggregate cap, and cash reserve % ($\ge 75\%$ cash floor).
+  4. **System Health & Solvency**: Latency/heartbeat freshness, interlock blocks count (0 blocks), and zero-drift balance verification ($|\Delta| < 10^{-15}\text{ USDT}$).
+
+### R2. Live Market Watch & Active Positions Card
+- Clear visual status for staged pairs (`SOLUSDT`, `ETHUSDT`, `BTCUSDT`):
+  - Real-time mark price.
+  - Position state (`LONG`, `SHORT`, or `SCANNING / STANDBY`).
+  - Active trade details: Entry price, position size, margin allocated, current unrealized PnL ($ and %).
+  - Take-Profit target ($2.0\times$ ATR) and Stop-Loss target ($1.2\times$ ATR) with visual risk:reward and distance meters.
+
+### R3. High-Expectancy Strategy & Scalper Confluence Radar
+- **BTC Macro Trend Filter**: Display Bitcoin 1h & 4h EMA 50 vs EMA 200 regime (`BULLISH ALIGNED` / `BEARISH` / `SIDEWAYS`), explaining clearly why the bot is actively scanning for dips or temporarily pausing longs.
+- **15m Macro-Confluence Liquidity Dip Scalper**: Visual checklist showing real-time trigger criteria:
+  - Price distance below 20 EMA ($> 2.5\times$ ATR)
+  - Relative Volume ($> 2.2\times$ 20 SMA)
+  - 14-period RSI oversold threshold ($< 26$)
+- **Microstructure & Hawkes Hazard**: Real-time spectral radius $\rho$ gauge confirming safe, non-toxic market conditions ($\rho < 1.0$).
+
+### R4. Real-Time Order Feed & Execution Log
+- Clean, readable table of recent orders and fills:
+  - Timestamp in MYT (Asia/Kuala_Lumpur).
+  - Symbol & Side (`BUY` / `SELL` maker limit).
+  - Executed Price, Order Notional, Maker Fee (0.02%), and Realized PnL.
+  - Eliminate confusing raw JSON or long hashes from primary view.
+
+### R5. Decluttered Streamlined Navigation & Research Archive
+- Replace the 23 sidebar navigation links with 4 clear primary navigation tabs:
+  1. 🚀 **Dashboard Utama (Executive Overview)** — Single-glance mission control (default).
+  2. 📊 **Pasaran & Posisi (Live Positions & Markets)** — In-depth position and orderbook telemetry.
+  3. ⚡ **Log Perdagangan (Trade History & Executions)** — Full execution log and autopsy attribution.
+  4. 🛡️ **Kawalan Keselamatan (Risk Controls & Solvency)** — Circuit breakers, margin rules, and emergency kill-switch.
+- Consolidate all historical canary pages (Phases 250 through 309) into a collapsed, secondary **"📁 Arkib Penyelidikan (Research Archives)"** drawer/modal so historic audit integrity is preserved without cluttering the primary UI.
+
+### R6. Responsive & Modern Dark UI Design
+- Leverage DaisyUI 5.7.42 + Tailwind CSS dark theme with polished glassmorphism, crisp badges, and intuitive financial color coding (green for profit/safety, amber for warnings, red for hazards).
+- Fully responsive on mobile, tablet, and desktop for on-the-go monitoring.
+
+### R7. Production Build & Kainode VPS Deployment
+- Build optimized production bundle (`npm run build`) in `frontend/dist/`.
+- Deploy updated frontend to `/opt/autonomous-futures-bot/frontend/dist` on Kainode VPS (`147.79.18.15`).
+- Verify live rendering at `https://futures.semua.dev/` returning HTTP 200 with zero console errors.
+
+## Acceptance Criteria
+
+### Executive Overview & Usability
+- [ ] Visiting `https://futures.semua.dev/` immediately displays the clean Executive Owner Dashboard by default.
+- [ ] The owner can instantly see wallet balance, net profit/loss, bot status (`ONLINE 24/7`), and active positions without digging through tabs.
+- [ ] Monitored pairs (`SOLUSDT`, `ETHUSDT`, `BTCUSDT`) show current price, active state, and TP/SL levels.
+- [ ] Strategy Confluence Radar clearly communicates BTC macro trend alignment and 15m scalper conditions.
+
+### Navigation & Decluttering
+- [ ] Primary navigation is streamlined into 4 core sections; the 23 historical canary tabs are collapsed into an expandable Research Archive.
+- [ ] The layout is uncluttered, responsive on both desktop and mobile, with no overlapping UI elements.
+
+### Verification & VPS Deployment
+- [ ] Frontend builds cleanly with zero TypeScript or linting errors (`npm run build`).
+- [ ] Deployed to Kainode VPS; `https://futures.semua.dev/` serves the new executive UI seamlessly while the 24/7 trader daemon continues running uninterrupted.

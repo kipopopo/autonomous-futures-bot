@@ -132,3 +132,25 @@ class StrategyAutopsyEngine:
 - `artifacts/research/phase310/`: Cryptographic Merkle DAG research artifacts bound to parent root `5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844`.
 - `tests/unit/test_phase_310_*.py`: Targeted unit and challenger tests (115 tests).
 - `tests/integration/test_phase_310_*.py`: Opaque-box E2E integration tests (102 tests).
+
+## Phase 311: Executive Trading Mission Control Web Dashboard Overhaul
+- **Overview**: Complete overhaul of the Autonomous Futures Bot web interface (`https://futures.semua.dev/`) from an overwhelming 23-tab research view into a 4-tab executive Trading Mission Control with a collapsible Research Archive drawer preserving all 23 historical phases (250–309).
+- **Frontend Architecture**:
+  - `frontend/src/components/mission-control/types.ts`: Interface models for executive dashboard, KPIs, positions, radar, orders.
+  - `frontend/src/components/mission-control/mission-control-header.tsx` (R1): Header bar with ACTIVE 24/7 pulse, BINANCE TESTNET GATEWAY badge, CIRCUIT: NORMAL state, MYT ticking clock, refresh button.
+  - `frontend/src/components/mission-control/kpi-cards.tsx` (R1): 4 Key Owner KPI Cards (Total equity & cash reserve, Realized PnL & win rate %, Active exposure vs $25 cap, System health & zero-drift $|Δ| < 10^{-15}$).
+  - `frontend/src/components/mission-control/market-positions-card.tsx` (R2): SOLUSDT, ETHUSDT, BTCUSDT staged pairs with mark prices, LONG/SCANNING state, TP/SL dynamic ATR brackets, and 1.66:1 Risk:Reward ratio chip.
+  - `frontend/src/components/mission-control/strategy-confluence-radar.tsx` (R3): BTC 1h/4h EMA 50/200 macro trend filter, 15m scalper checklist (ATR distance, volume surge, RSI 14, 0.02% maker fee), Hawkes hazard gauge ($\rho$) with SVG sparkline.
+  - `frontend/src/components/mission-control/order-feed-table.tsx` (R4): Real-time order execution table with MYT timestamps, maker fee 0.02%, and realized PnL.
+  - `frontend/src/components/mission-control/research-archive-drawer.tsx` (R5): Collapsible drawer organizing all 23 historical phases into 4 groups with hash preservation.
+  - `frontend/src/components/mission-control/executive-dashboard.tsx`: Assembled container component for Tab 1 (Dashboard Utama).
+  - `frontend/src/components/mission-control/adapter.ts`: Data adapter bridging live Canary models into the executive dashboard model.
+  - `frontend/src/components/executive-positions-page.tsx`: Subpage for Tab 2 (Pasaran & Posisi).
+  - `frontend/src/components/executive-trades-page.tsx`: Subpage for Tab 3 (Log Perdagangan).
+  - `frontend/src/components/executive-safety-page.tsx`: Subpage for Tab 4 (Kawalan Keselamatan).
+- **Design & Layout** (R6): DaisyUI 5.7.42 + Tailwind CSS v4 OLED dark theme with responsive mobile navigation (top header, slide-down drawer menu, and bottom navigation bar for viewports < 768px).
+- **Verification & Deployment** (R7):
+  - Vitest automated test suite: 28 test files, 173 tests passing (0 regressions).
+  - Production build: `npm run build` compiled cleanly.
+  - Deployment: Deployed to Kainode VPS (`147.79.18.15`) at `/opt/autonomous-futures-bot/frontend/dist`.
+  - Live Verification: Verified HTTP 200 OK on `https://futures.semua.dev/` serving `index-DEQro7aV.js` and `index-8oSs-Ynt.css`; verified `autonomous-futures-trader.service` and `autonomous-futures-web.service` active.
