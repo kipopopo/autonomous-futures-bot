@@ -29,6 +29,8 @@ logger = logging.getLogger("autonomous_futures.execution.binance_gateway")
 
 def _load_dotenv_fallback() -> None:
     """Loads environment variables from .env if present and not already loaded."""
+    if "PYTEST_CURRENT_TEST" in os.environ or "PYTEST_VERSION" in os.environ:
+        return
     candidates = [
         Path("/opt/autonomous-futures-bot/.env"),
         Path(".env"),

@@ -89,13 +89,14 @@ def test_script_preflight_runs_directly_from_the_src_layout() -> None:
     assert json.loads(completed.stdout)["network_requests"] == 0
 
 
-def test_execute_cli_preserves_failed_scope_in_a_fresh_attempt_root(monkeypatch, capsys) -> None:
+def test_execute_cli_preserves_failed_scope_in_a_fresh_attempt_root(monkeypatch, capsys, tmp_path: Path) -> None:
     output_roots: list[Path] = []
 
     def stop_before_collection(output_root: Path, **_kwargs: object) -> dict[str, object]:
         output_roots.append(output_root)
         raise RuntimeError("test-only preflight stop")
 
+    monkeypatch.setattr(collector_module, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(collector_module, "collect_approved_public_data", stop_before_collection)
 
     assert main(["--execute-approved-scope"]) == 1

@@ -3472,3 +3472,52 @@ Conduct an exhaustive audit of all components across the 5 primary views (Dashbo
 - [ ] Comprehensive pytest backend test suite passes with 100% success rate.
 - [ ] Vitest frontend test suite passes with 100% success rate and zero regressions.
 - [ ] Production bundle deploys to Kainode VPS (`147.79.18.15`); `autonomous-futures-trader.service` (PID 87549) remains running continuously without a single second of downtime.
+
+
+## 2026-10-10T16:12:39Z
+
+Execute Phase 314 Independent Verification & Adversarial Challenge for Autonomous Futures Bot, conducting rigorous independent end-to-end probing of the live web dashboard (`https://futures.semua.dev/`), live FastAPI endpoints, and Kainode Linux VPS trader daemon to guarantee zero synthetic mock leakage, double-entry mathematical solvency ($|\Delta| < 10^{-15}$ USDT), accurate provenance badging, and uninterrupted continuity of the 24/7 background trader daemon (Main PID 87549).
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Live Production API & Network Contract Penetration
+- Query and validate live public and internal endpoints on Kainode VPS (`https://futures.semua.dev/api/v1/market/prices`, `https://futures.semua.dev/api/v1/execution/status`, `https://futures.semua.dev/api/v1/canary/summary`).
+- Verify that `btc_macro` contains authentic EMA 50 & EMA 200 without linear price multipliers.
+- Verify that candidate mark prices synchronize dynamically with Binance Futures USDⓈ-M public ticker (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`).
+- Ensure no phantom positions exist when flat (`position_qty == 0.0`, `allocated_exposure_usdt == 0.0`), and bracket TP/SL target lines are cleanly suppressed (`null` / 0.00).
+
+### R2. Provenance Badging & Truth in Labeling Verification
+- Audit all 5 primary views (`Dashboard Utama`, `Pasaran & Posisi`, `Log Perdagangan`, `Kawalan Keselamatan`, `Pembelajaran & Autopsi`) to confirm explicit source labeling:
+  - `LIVE EXCHANGE` for real-time wallet equity, mark prices, positions, and filled orders.
+  - `DAEMON 24/7` for daemon status, circuit breakers, macro trend filter, and zero-drift proof.
+  - `RESEARCH ARTIFACT / SIMULATION` for historical backtests in the archive drawer.
+- Confirm all timestamps render consistently in Malaysia Time (MYT, GMT+8) with relative time elapsed indicators.
+
+### R3. Double-Entry Solvency & Micro-Capital Governance Proof
+- Verify continuous adherence to the double-entry balance invariant across live and simulated states:
+  $$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+  holding $|\Delta| < 10^{-15}\text{ USDT}$.
+- Verify hard boundaries: micro child order cap $\le \$5.00$, aggregate exposure cap $\le \$25.00$, cash floor $\ge 75.0\%$, intra-day loss limit $\le \$3.00$.
+
+### R4. 24/7 Trader Daemon Zero-Disruption Invariant
+- Verify that `autonomous-futures-trader.service` on Kainode VPS (`147.79.18.15`) has maintained continuous operation without restarting, with Main PID remaining **87549** and zero process crashes.
+
+## Acceptance Criteria
+
+### Live API & Telemetry Verification
+- [ ] Direct HTTPS requests to `https://futures.semua.dev/api/v1/market/prices` return HTTP 200 with authentic live prices and genuine EMA 50/200 values.
+- [ ] `https://futures.semua.dev/api/v1/execution/status` reports exact zero balance drift ($|\Delta| = 0.00 < 10^{-15}\text{ USDT}$) and truthful flat positions (`STANDBY / SCANNING`).
+- [ ] No phantom orders or synthetic multipliers appear anywhere in live API responses.
+
+### UI & Provenance Badging Verification
+- [ ] All 5 views and secondary archive drawer display correct `LIVE EXCHANGE`, `DAEMON 24/7`, and `RESEARCH ARTIFACT / SIMULATION` badges.
+- [ ] Timestamps render in Malaysia Time (MYT, GMT+8) with relative indicators.
+- [ ] Negative realized PnL correctly displays `-$...` without formatting collisions.
+
+### Automated Testing & Daemon Continuity
+- [ ] Vitest test suite passes with 100% success rate (`npm test --prefix frontend`).
+- [ ] Pytest test suite passes all truthfulness and adversarial tests with 100% success rate.
+- [ ] VPS trader daemon (`autonomous-futures-trader.service`) Main PID 87549 continues running uninterrupted with 0 restarts.
