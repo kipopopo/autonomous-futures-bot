@@ -1,10 +1,11 @@
 export type DashboardPage =
-  // 4 Primary Executive Navigation Pages
+  // 5 Primary Executive Navigation Pages
   | 'overview'
   | 'positions'
   | 'trades'
   | 'safety'
-  // 23 Historical Research Canary Pages
+  | 'evolution'
+  // 22 Historical Research Canary Pages
   | 'creator'
   | 'learner'
   | 'microstructure'
@@ -23,7 +24,6 @@ export type DashboardPage =
   | 'orchestrator'
   | 'calibration'
   | 'ensemble'
-  | 'evolution'
   | 'testnet-bridge'
   | 'kill-switch'
   | 'production'
@@ -74,5 +74,11 @@ export function pageFromHash(hash: string): DashboardPage {
 }
 
 export function isArchivePage(page: DashboardPage): boolean {
-  return page !== 'overview' && page !== 'positions' && page !== 'trades' && page !== 'safety'
+  return (
+    page !== 'overview' &&
+    page !== 'positions' &&
+    page !== 'trades' &&
+    page !== 'safety' &&
+    page !== 'evolution'
+  )
 }

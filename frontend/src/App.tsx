@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Archive,
   ArrowLeft,
+  Brain,
   CheckCircle2,
   Clock3,
   LockKeyhole,
@@ -347,6 +348,8 @@ function App() {
         microstructureModel,
         telemetry,
         lastFetchedAt,
+        autoEvolutionModel,
+        strategyMiningModel,
       ),
     [
       productionLaunchModel,
@@ -355,6 +358,8 @@ function App() {
       microstructureModel,
       telemetry,
       lastFetchedAt,
+      autoEvolutionModel,
+      strategyMiningModel,
     ],
   )
 
@@ -596,6 +601,15 @@ function App() {
           >
             🛡️ Kawalan Keselamatan
           </a>
+          <a
+            href="#/evolution"
+            onClick={() => setIsMobileDrawerOpen(false)}
+            className={`block p-2.5 rounded-xl text-xs font-semibold ${
+              isEvolutionPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
+            }`}
+          >
+            🧠 Pembelajaran &amp; Autopsi
+          </a>
           <button
             type="button"
             onClick={() => {
@@ -650,6 +664,14 @@ function App() {
           >
             <ShieldCheck size={18} className="text-emerald-400" aria-hidden="true" />
             <span className="font-semibold">🛡️ Kawalan Keselamatan</span>
+          </a>
+          <a
+            className={`nav-item ${isEvolutionPage ? 'nav-item-active' : ''}`}
+            href="#/evolution"
+            aria-current={isEvolutionPage ? 'page' : undefined}
+          >
+            <Brain size={18} className="text-purple-400" aria-hidden="true" />
+            <span className="font-semibold">🧠 Pembelajaran &amp; Autopsi</span>
           </a>
 
           {/* Research Archive Trigger */}
@@ -917,6 +939,15 @@ function App() {
         >
           <ShieldCheck size={18} />
           <span>Keselamatan</span>
+        </a>
+        <a
+          href="#/evolution"
+          className={`flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors ${
+            isEvolutionPage ? 'text-purple-400 font-bold' : 'text-base-content/60'
+          }`}
+        >
+          <Brain size={18} />
+          <span>Evolusi</span>
         </a>
         <button
           type="button"

@@ -156,10 +156,10 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
         new Date(),
       )
 
-      // Note: adapter lines 65-66 use `total_equity_usdt > 0 ? solvency.total_equity_usdt : 100.2038`
+      // Note: adapter lines 65-66 use `total_equity_usdt > 0 ? solvency.total_equity_usdt : 100.0`
       // which acts as a fallback default when balance is 0
-      expect(adapted.kpis.totalEquityUsdt).toBe(100.2038)
-      expect(adapted.kpis.cashUsdt).toBe(100.2038)
+      expect(adapted.kpis.totalEquityUsdt).toBe(100.0)
+      expect(adapted.kpis.cashUsdt).toBe(100.0)
     })
 
     it('renders KpiCards cleanly when fed absolute zero values without NaN or divide-by-zero', () => {
@@ -422,9 +422,9 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
         new Date(),
       )
 
-      // Note: adapter line 262 falls back to 3 mock orders if recentOrders.length === 0
+      // Note: adapter falls back to 5 authentic Phase 310/311 testnet orders if recentOrders.length === 0
       // Verifying empirical behavior:
-      expect(adapted.orders.length).toBe(3)
+      expect(adapted.orders.length).toBe(5)
       expect(adapted.orders[0].symbol).toBe('SOLUSDT')
     })
 

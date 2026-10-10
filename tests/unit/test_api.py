@@ -327,4 +327,115 @@ def test_market_klines_validation_errors(tmp_path: Path) -> None:
     assert r_bad_limit_zero.status_code == 422
 
 
+def test_execution_status_endpoint_returns_live_state(tmp_path: Path) -> None:
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+    )
+    response = _request(app, "GET", "/api/v1/execution/status")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["verified"] is True
+    assert payload["status"] == "MICRO_CAPITAL_ACTIVE"
+    assert payload["engine_state"] == "MICRO_CAPITAL_ACTIVE"
+    assert payload["aggregate_exposure_usdt"] == 0.0
+
+    # Solvency integrity
+    solvency = payload["solvency"]
+    assert solvency["starting_equity_usdt"] == 100.0
+    assert solvency["cash_usdt"] > 0
+    assert solvency["allocated_margin_usdt"] == 0.0
+    assert solvency["unrealized_pnl_usdt"] == 0.0
+    assert solvency["drift_usdt"] == 0.0
+    assert solvency["zero_balance_drift_verified"] is True
+    assert solvency["cash_reserve_pct"] == 100.0
+    assert solvency["unencumbered_cash_verified"] is True
+
+    # Flat positions across BTC, ETH, SOL
+    positions = payload["positions"]
+    for sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+        assert sym in positions
+        pos = positions[sym]
+        assert pos["symbol"] == sym
+        assert pos["position_qty"] == 0.0
+        assert pos["allocated_exposure_usdt"] == 0.0
+        assert pos["allocated_margin_usdt"] == 0.0
+        assert pos["unrealized_pnl_usdt"] == 0.0
+        assert pos["status"] == "STANDBY / SCANNING"
+        assert pos["state"] == "STANDBY / SCANNING"
+
+    # Authentic order structure
+    orders = payload["recent_orders"]
+    assert len(orders) > 0
+    assert payload["total_orders"] == len(orders)
+
+    client_order_ids = [o["client_order_id"] for o in orders]
+    assert any(cid.startswith("canary-p311-") for cid in client_order_ids)
+    assert any(cid.startswith("canary-p310-") for cid in client_order_ids)
+
+    for o in orders:
+        assert isinstance(o["order_id"], str)
+        assert isinstance(o["client_order_id"], str)
+        assert o["symbol"] in {"SOLUSDT", "ETHUSDT", "BTCUSDT"}
+        assert o["side"] in {"BUY", "SELL"}
+        assert o["price"] >= 0.0
+        assert o["quantity"] >= 0.0
+        assert o["notional_usdt"] >= 0.0
+        assert o["status"] in {"FILLED", "CANCELED", "NEW"}
+        assert o["fee_usdt"] >= 0.0
+        assert o["timestamp_ms"] > 0
+
+    timestamps = [o["timestamp_ms"] for o in orders]
+    assert timestamps == sorted(timestamps, reverse=True)
+
+
+def test_execution_status_fallback_graceful(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    empty_research = tmp_path / "empty_research"
+    empty_research.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("AFBOT_RESEARCH_DIR", str(empty_research))
+
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+        research_dir=empty_research,
+    )
+    response = _request(app, "GET", "/api/v1/execution/status")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["verified"] is True
+    assert payload["status"] == "MICRO_CAPITAL_ACTIVE"
+    assert payload["engine_state"] == "MICRO_CAPITAL_ACTIVE"
+    assert payload["aggregate_exposure_usdt"] == 0.0
+
+    # Solvency fallback
+    solvency = payload["solvency"]
+    assert solvency["starting_equity_usdt"] == 100.0
+    assert solvency["cash_usdt"] == 100.0
+    assert solvency["allocated_margin_usdt"] == 0.0
+    assert solvency["unrealized_pnl_usdt"] == 0.0
+    assert solvency["total_equity_usdt"] == 100.0
+    assert solvency["drift_usdt"] == 0.0
+    assert solvency["zero_balance_drift_verified"] is True
+    assert solvency["cash_reserve_pct"] == 100.0
+    assert solvency["unencumbered_cash_verified"] is True
+
+    # Flat positions fallback
+    positions = payload["positions"]
+    for sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+        assert sym in positions
+        assert positions[sym]["position_qty"] == 0.0
+        assert positions[sym]["allocated_exposure_usdt"] == 0.0
+        assert positions[sym]["status"] == "STANDBY / SCANNING"
+        assert positions[sym]["state"] == "STANDBY / SCANNING"
+
+    # Orders fallback
+    assert payload["recent_orders"] == []
+    assert payload["total_orders"] == 0
+
+
+
 

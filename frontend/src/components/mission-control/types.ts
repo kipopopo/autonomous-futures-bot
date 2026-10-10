@@ -67,6 +67,40 @@ export interface OrderFeedItem {
   status: OrderStatus
 }
 
+export interface QualificationGateItem {
+  id: string
+  name: string
+  thresholdLabel: string
+  actualValueLabel: string
+  passed: boolean
+}
+
+export interface AutopsyAttributionGaugeItem {
+  id: string
+  label: string
+  bps: number
+  thresholdBps: number
+  isOptimal: boolean
+  description: string
+}
+
+export interface StrategyEvolutionRadarData {
+  activeStrategyFamily: string
+  microstructureFilter: string
+  activeCandidateId: string
+  candidateHealthTier: 'ELITE' | 'HEALTHY' | 'DEGRADED' | 'PROBATIONARY'
+  generation: string
+  rollingSharpe: number
+  winRatePct: number
+  maxDrawdownPct: number
+  hawkesResilienceScore: number
+  gates: QualificationGateItem[]
+  allGatesPassed: boolean
+  attributionGauges: AutopsyAttributionGaugeItem[]
+  totalAutopsies: number
+  promotedCandidatesCount: number
+}
+
 export interface ExecutiveDashboardModel {
   botStatus: {
     state: BotState
@@ -99,4 +133,5 @@ export interface ExecutiveDashboardModel {
     hawkesHazard: HawkesHazard
   }
   orders: OrderFeedItem[]
+  evolutionRadar: StrategyEvolutionRadarData
 }

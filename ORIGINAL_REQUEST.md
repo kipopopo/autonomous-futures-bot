@@ -3366,3 +3366,61 @@ Integrity mode: development
 - [ ] `pytest tests/unit/test_api.py` passes with 100% success rate.
 - [ ] Deployed to Kainode VPS (`147.79.18.15`); `https://futures.semua.dev/` serves the new interactive charting seamlessly.
 - [ ] `autonomous-futures-trader.service` remains running continuously without interruption.
+
+
+## 2026-10-10T05:55:06Z
+
+Implement Phase 313: Live Position Telemetry Synchronization and Strategy Evolution Navigation Promotion for Mission Control Dashboard (`https://futures.semua.dev/`), purging historical Phase 309 research artifact fallbacks in favor of truthful live 24/7 daemon telemetry (accurate 0.00 exposure when flat, authentic Phase 310/311 order history), adding an executive "Status Pembelajaran & Autopsi Strategi" radar card to the main dashboard, and promoting the strategy learning engine to the 5th primary navigation tab without interrupting the continuous 24/7 trader daemon.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Live Daemon Telemetry Ingress & Historical Artifact Purge
+- In `src/autonomous_futures/api/app.py`:
+  - Enhance `/api/v1/canary/summary` and/or add dedicated `GET /api/v1/execution/status` that reads directly from the active daemon's live reports in `artifacts/research/phase310/canary-production-report.json`, `phase310/canary-orders.jsonl`, and `phase311/canary-orders.jsonl`.
+  - Expose authentic live state: actual open positions (BTC, ETH, SOL), real unencumbered cash balance ($100.00 USDT starting capital), authentic total exposure ($0.00 USDT when flat), and real recent order events (Phase 310/311 testnet executions with genuine client order IDs, prices, sides, and timestamps).
+- In `frontend/src/components/mission-control/adapter.ts`:
+  - Remove stale fallbacks to Phase 309 research artifacts (`alloc.position_qty` where ETH was short @ 2750 and SOL was long @ 185, and fake 18 trades / 0.2038 PnL).
+  - Prioritize real live positions from the daemon/API: when no position is open, truthfully render `STANDBY / SCANNING (0.00 exposure)` and accurate cash reserve (100.0%).
+  - In Recent Orders / Execution Log: render authentic recent orders from Phase 310 and Phase 311 testnet drills instead of the old `ord-p309-` test records.
+
+### R2. Executive Strategy Learning & Evolution Radar Card on Main Dashboard
+- In `frontend/src/components/mission-control/`:
+  - Create and embed an executive card: **`🧠 Status Pembelajaran & Autopsi Strategi`** (Strategy Evolution Radar) on the Executive Overview (`#overview`).
+  - Render live metrics from Phase 298 (Mining) and Phase 306 (Auto-Evolution):
+    - Active Strategy Family (`15m Macro-Confluence Liquidity Scalper` + `Hawkes Microstructure Filter`).
+    - 5 Walk-Forward Out-of-Sample (OOS) Qualification Gates status badges (Return >= 0%, Drawdown <= 15%, Profit Factor >= 1.05, Trades >= 5, Flash Crash Stress Resilience).
+    - Trade Autopsy Attribution gauges (Timing Error, Adverse Selection, Execution Net Edge).
+    - Candidate Health Tier badge (`ELITE` / `HEALTHY`).
+  - Provide one-click deep-dive navigation pills linking directly to the full interactive `#evolution` and `#mining` views.
+
+### R3. 5th Primary Navigation Tab in Sidebar & Mobile Menu
+- In `frontend/src/App.tsx`:
+  - Add a 5th primary navigation tab in both desktop sidebar and mobile drawer:
+    **`🧠 Pembelajaran & Autopsi`** (`#/evolution`).
+  - Ensure seamless routing and active state highlighting alongside Dashboard Utama, Pasaran & Posisi, Log Perdagangan, and Kawalan Keselamatan.
+
+### R4. Quality Gates, Testing & Non-Disruptive VPS Deployment
+- Update Vitest frontend test suite to cover the new Strategy Evolution Radar card, navigation tab, and adapter truthfulness with 0 failures.
+- Update backend pytest suite to verify live execution telemetry endpoints.
+- Build production bundle (`npm run build`) with 0 TypeScript/lint errors.
+- Deploy to Kainode VPS (`147.79.18.15`) and verify live serving at `https://futures.semua.dev/` while `autonomous-futures-trader.service` continues running uninterrupted.
+
+## Acceptance Criteria
+
+### Telemetry Truthfulness & Order Feed
+- [ ] Visiting `https://futures.semua.dev/` shows truthful live bot position state: `STANDBY / SCANNING (0.00 exposure)` when no position is open, with no phantom ETH short or SOL long.
+- [ ] Recent Orders table renders authentic live Phase 310/311 executions (e.g. `canary-p311-drill-sol-...`) instead of historical `ord-p309-` placeholders.
+- [ ] Wallet metrics accurately reflect current equity ($100.00 USDT starting capital) and 100% cash reserve.
+
+### Strategy Learning Radar & Navigation
+- [ ] Executive Dashboard displays the `🧠 Status Pembelajaran & Autopsi Strategi` card with OOS qualification gates, candidate health tiers, and trade autopsy attribution.
+- [ ] Primary navigation includes the 5th tab `🧠 Pembelajaran & Autopsi` routing seamlessly to `#evolution`.
+- [ ] Clicking deep-dive buttons opens the detailed Strategy Mining and Auto-Evolution panels smoothly.
+
+### Reliability & Deployment
+- [ ] `npm test --prefix frontend` (Vitest) passes with 100% success rate.
+- [ ] `pytest tests/unit/test_api.py` passes with 100% success rate.
+- [ ] Deployed to Kainode VPS (`147.79.18.15`); `autonomous-futures-trader.service` uptime remains uninterrupted.

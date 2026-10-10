@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { pageFromHash, isArchivePage } from './navigation'
 
 describe('pageFromHash', () => {
-  it('routes the 4 primary executive pages', () => {
+  it('routes the 5 primary executive pages', () => {
     expect(pageFromHash('#/')).toBe('overview')
     expect(pageFromHash('#overview')).toBe('overview')
     expect(pageFromHash('#/overview')).toBe('overview')
@@ -14,6 +14,10 @@ describe('pageFromHash', () => {
     expect(pageFromHash('#/trades')).toBe('trades')
     expect(pageFromHash('#safety')).toBe('safety')
     expect(pageFromHash('#/safety')).toBe('safety')
+    expect(pageFromHash('#evolution')).toBe('evolution')
+    expect(pageFromHash('#/evolution')).toBe('evolution')
+    expect(pageFromHash('#/auto-evolution')).toBe('evolution')
+    expect(pageFromHash('#/autopsy')).toBe('evolution')
   })
 
   it('routes the historical research canary pages with full backward compatibility', () => {
@@ -54,6 +58,7 @@ describe('pageFromHash', () => {
     expect(isArchivePage('positions')).toBe(false)
     expect(isArchivePage('trades')).toBe(false)
     expect(isArchivePage('safety')).toBe(false)
+    expect(isArchivePage('evolution')).toBe(false)
 
     expect(isArchivePage('creator')).toBe(true)
     expect(isArchivePage('learner')).toBe(true)

@@ -3,6 +3,7 @@ import { MissionControlHeader } from './mission-control-header'
 import { KpiCards } from './kpi-cards'
 import { MarketPositionsCard } from './market-positions-card'
 import { StrategyConfluenceRadar } from './strategy-confluence-radar'
+import { StrategyEvolutionRadar } from './strategy-evolution-radar'
 import { OrderFeedTable } from './order-feed-table'
 
 export interface ExecutiveDashboardProps {
@@ -37,6 +38,9 @@ export function ExecutiveDashboard({
         scalperCriteria={model.radar.scalperCriteria}
         hawkesHazard={model.radar.hawkesHazard}
       />
+
+      {/* Executive Strategy Learning & Evolution Radar Card */}
+      <StrategyEvolutionRadar evolutionRadar={model.evolutionRadar} />
 
       {/* R4: Clean Real-Time Order Feed & Execution Log */}
       <OrderFeedTable orders={model.orders} />
