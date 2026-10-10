@@ -348,7 +348,7 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
     try:
         return float(val)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return default
 
 
@@ -357,7 +357,7 @@ def _safe_int(val: Any, default: int = 0) -> int:
         return default
     try:
         return int(val)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return default
 
 
@@ -480,12 +480,12 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             if cand.get("current_price") is not None:
                 try:
                     mark_p = float(cand["current_price"])
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     mark_p = None
             if sym == "SOLUSDT" and p311_report.get("mark_price") is not None:
                 try:
                     mark_p = float(p311_report["mark_price"])
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
             positions[sym] = ExecutionPositionItem(
                 symbol=sym,

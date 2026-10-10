@@ -229,7 +229,67 @@ export interface CanaryDashboardData {
   testnetBridge?: CanaryTestnetBridgeData | null
   killSwitch?: CanaryKillSwitchData | null
   productionLaunch?: CanaryProductionLaunchData | null
+  executionStatus?: ExecutionStatusResponse | null
   error: string | null
+}
+
+export interface ExecutionPositionItemData {
+  symbol: string
+  position_qty?: number
+  allocated_exposure_usdt?: number
+  state?: string
+  status?: string
+  entry_price?: number | null
+  mark_price?: number | null
+  unrealized_pnl_usdt?: number
+  allocated_margin_usdt?: number
+  take_profit_price?: number | null
+  stop_loss_price?: number | null
+}
+
+export interface ExecutionOrderItemData {
+  order_id: string
+  client_order_id: string
+  symbol: string
+  side: string
+  order_type: string
+  price: number
+  quantity: number
+  notional_usdt: number
+  status: string
+  fill_price?: number | null
+  fee_usdt?: number
+  realized_pnl_usdt?: number
+  timestamp_ms?: number
+  is_maker?: boolean
+}
+
+export interface ExecutionSolvencyData {
+  starting_equity_usdt?: number
+  cash_usdt?: number
+  allocated_margin_usdt?: number
+  unrealized_pnl_usdt?: number
+  realized_pnl_usdt?: number
+  total_equity_usdt?: number
+  drift_usdt?: number
+  zero_balance_drift_verified?: boolean
+  cash_reserve_pct?: number
+  unencumbered_cash_verified?: boolean
+}
+
+export interface ExecutionStatusResponse {
+  verified: boolean
+  status: string
+  engine_state: string
+  timestamp_ms: number
+  solvency: ExecutionSolvencyData
+  positions: Record<string, ExecutionPositionItemData>
+  candidate_allocations: ExecutionPositionItemData[]
+  aggregate_exposure_usdt: number
+  recent_orders: ExecutionOrderItemData[]
+  total_orders: number
+  interlock_blocks_count: number
+  intra_day_loss_usdt: number
 }
 
 export interface MicrostructureModel {

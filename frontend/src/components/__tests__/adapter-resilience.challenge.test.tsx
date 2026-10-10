@@ -11,6 +11,7 @@ import {
   type LiveMarketModel,
   type DoubleEntrySolvencyItem,
   type CanaryMicroCapitalConfinementItem,
+  type ExecutionStatusResponse,
 } from '@/lib/canary'
 
 describe('Adversarial Challenge: buildExecutiveDashboardModel Edge Cases & Fault Injection', () => {
@@ -493,6 +494,122 @@ describe('Adversarial Challenge: buildExecutiveDashboardModel Edge Cases & Fault
           expect(adapted.positions.length).toBe(3)
         }).not.toThrow()
       }
+    })
+  })
+
+  describe('Dimension 9: Live Execution Status Synchronization & Phase 301 Purging', () => {
+    it('purges historical Phase 301 simulated ETH bracket position and renders SCANNING / STANDBY', () => {
+      const { prodLaunch, liveMarket, microstructure, telemetry } = getCleanBaseModels()
+
+      // Historical Phase 301 fixture with dummy ETH position
+      const stalePhase301Brackets = {
+        ...buildBracketPositionsModel(null),
+        phase: 'phase_301',
+        positions: [
+          {
+            symbol: 'ETHUSDT',
+            side: 'BUY',
+            size: 0.002,
+            entry_price: 2500.0,
+            mark_price: 2600.0,
+            notional_usdt: 5.0,
+            margin_allocated_usdt: 5.0,
+            unrealized_pnl_usdt: 0.2,
+            realized_pnl_usdt: 0.0,
+            liquidation_price_usdt: 0.0,
+            margin_ratio_pct: 10.0,
+            risk_state: 'HEALTHY',
+            brackets_count: 0,
+            last_updated_utc: '2026-09-22T17:37:13Z',
+          },
+        ],
+      }
+
+      const adapted = buildExecutiveDashboardModel(
+        prodLaunch,
+        liveMarket,
+        stalePhase301Brackets,
+        microstructure,
+        telemetry,
+        new Date(),
+      )
+
+      const eth = adapted.positions.find((p) => p.symbol === 'ETHUSDT')
+      expect(eth?.state).toBe('SCANNING / STANDBY')
+      expect(eth?.size).toBe(0.0)
+      expect(eth?.entryPrice).toBe(0.0)
+      expect(eth?.notionalUsdt).toBe(0.0)
+      expect(adapted.kpis.activeExposureUsdt).toBe(0.0)
+    })
+
+    it('prioritizes live executionStatus with 0.00 exposure and authentic testnet orders', () => {
+      const { prodLaunch, liveMarket, bracketPositions, microstructure, telemetry } =
+        getCleanBaseModels()
+
+      const liveExecStatus: ExecutionStatusResponse = {
+        verified: true,
+        status: 'MICRO_CAPITAL_ACTIVE',
+        engine_state: 'MICRO_CAPITAL_ACTIVE',
+        timestamp_ms: Date.now(),
+        solvency: {
+          starting_equity_usdt: 100.0,
+          cash_usdt: 100.0,
+          allocated_margin_usdt: 0.0,
+          unrealized_pnl_usdt: 0.0,
+          realized_pnl_usdt: 0.207,
+          total_equity_usdt: 100.207,
+          drift_usdt: 0.0,
+          zero_balance_drift_verified: true,
+          cash_reserve_pct: 100.0,
+          unencumbered_cash_verified: true,
+        },
+        positions: {
+          BTCUSDT: { symbol: 'BTCUSDT', position_qty: 0.0, allocated_exposure_usdt: 0.0, state: 'STANDBY / SCANNING', mark_price: 82600.0 },
+          ETHUSDT: { symbol: 'ETHUSDT', position_qty: 0.0, allocated_exposure_usdt: 0.0, state: 'STANDBY / SCANNING', mark_price: 2500.0 },
+          SOLUSDT: { symbol: 'SOLUSDT', position_qty: 0.0, allocated_exposure_usdt: 0.0, state: 'STANDBY / SCANNING', mark_price: 185.0 },
+        },
+        candidate_allocations: [],
+        aggregate_exposure_usdt: 0.0,
+        recent_orders: [
+          {
+            order_id: 'ord-drill-1',
+            client_order_id: 'canary-p311-drill-sol-live',
+            symbol: 'SOLUSDT',
+            side: 'BUY',
+            order_type: 'LIMIT',
+            price: 185.0,
+            quantity: 0.03,
+            notional_usdt: 5.55,
+            status: 'FILLED',
+            fill_price: 185.0,
+            fee_usdt: 0.00111,
+            realized_pnl_usdt: 0.0,
+            timestamp_ms: Date.now(),
+            is_maker: true,
+          },
+        ],
+        total_orders: 1,
+        interlock_blocks_count: 0,
+        intra_day_loss_usdt: 0.0,
+      }
+
+      const adapted = buildExecutiveDashboardModel(
+        prodLaunch,
+        liveMarket,
+        bracketPositions,
+        microstructure,
+        telemetry,
+        new Date(),
+        null,
+        null,
+        liveExecStatus,
+      )
+
+      expect(adapted.kpis.activeExposureUsdt).toBe(0.0)
+      expect(adapted.kpis.totalEquityUsdt).toBe(100.207)
+      expect(adapted.kpis.cashUsdt).toBe(100.0)
+      expect(adapted.positions.every((p) => p.state === 'SCANNING / STANDBY')).toBe(true)
+      expect(adapted.orders[0].orderId).toBe('canary-p311-drill-sol-live')
     })
   })
 })

@@ -5,6 +5,7 @@ import type {
   MicrostructureModel,
   AutoEvolutionModel,
   StrategyMiningModel,
+  ExecutionStatusResponse,
 } from '@/lib/canary'
 import type { TelemetryState } from '@/lib/websocket'
 import type {
@@ -43,6 +44,7 @@ export function buildExecutiveDashboardModel(
   lastFetchedAt: Date | null,
   autoEvolution?: AutoEvolutionModel | null,
   strategyMining?: StrategyMiningModel | null,
+  executionStatus?: ExecutionStatusResponse | null,
 ): ExecutiveDashboardModel {
   // 1. Bot & Gateway Status
   const isCircuitNormal =
@@ -63,14 +65,30 @@ export function buildExecutiveDashboardModel(
 
   // 2. KPIs
   const solvency = productionLaunch.solvency
+  const liveSolvency = executionStatus?.solvency
   const confinement = productionLaunch.confinement
 
   // Invariant defaults: clean baseline starting capital ($100.00)
   const totalEquity =
-    solvency.total_equity_usdt > 0 ? solvency.total_equity_usdt : 100.0
-  const cash = solvency.cash_usdt > 0 ? solvency.cash_usdt : totalEquity
-  const allocatedMargin = solvency.allocated_margin_usdt || 0.0
-  const realizedPnl = solvency.realized_pnl_usdt ?? 0.0
+    (liveSolvency?.total_equity_usdt ?? 0) > 0
+      ? liveSolvency!.total_equity_usdt!
+      : solvency.total_equity_usdt > 0
+        ? solvency.total_equity_usdt
+        : 100.0
+  const cash =
+    (liveSolvency?.cash_usdt ?? 0) > 0
+      ? liveSolvency!.cash_usdt!
+      : solvency.cash_usdt > 0
+        ? solvency.cash_usdt
+        : totalEquity
+  const allocatedMargin =
+    liveSolvency?.allocated_margin_usdt ??
+    solvency.allocated_margin_usdt ??
+    0.0
+  const realizedPnl =
+    liveSolvency?.realized_pnl_usdt ??
+    solvency.realized_pnl_usdt ??
+    0.0
 
   // Filter out any stale Phase 309 simulation orders from incoming feeds
   const sanitizedRecentOrders = (productionLaunch.recentOrders || []).filter(
@@ -121,6 +139,14 @@ export function buildExecutiveDashboardModel(
 
   const isStalePhase309 = productionLaunch.phase === 'phase_309'
 
+  // In Phase 301 research artifacts, an ancient dummy ETHUSDT position was simulated (0.002 ETH @ $2500).
+  // Purge historical Phase 301 simulated bracket position artifacts.
+  const isStaleBracketPosition = (p: { symbol: string; size: number; entry_price?: number }) =>
+    bracketPositions?.phase === 'phase_301' &&
+    p.symbol === 'ETHUSDT' &&
+    p.size === 0.002 &&
+    p.entry_price === 2500
+
   const positions: PositionTelemetry[] = symbolConfigs.map((cfg) => {
     // Look up live price from liveMarket first for up-to-the-second pricing
     const marketMarkPriceStr = liveMarket?.markPrices?.[cfg.symbol]?.mark_price
@@ -131,37 +157,48 @@ export function buildExecutiveDashboardModel(
       ? undefined
       : productionLaunch.candidateAllocations.find((a) => a.symbol === cfg.symbol)
 
+    // Check live daemon execution status if available
+    const liveExecPos = executionStatus?.positions?.[cfg.symbol]
+    const hasLiveExecData = Boolean(liveExecPos)
+
     const currentPrice =
       parsedMarkPrice > 0
         ? parsedMarkPrice
-        : alloc?.current_price && alloc.current_price > 0
-          ? alloc.current_price
-          : cfg.fallbackPrice
+        : liveExecPos?.mark_price && liveExecPos.mark_price > 0
+          ? liveExecPos.mark_price
+          : alloc?.current_price && alloc.current_price > 0
+            ? alloc.current_price
+            : cfg.fallbackPrice
 
-    // Check bracket position if any (only active if size > 0)
+    // Check bracket position if any (only active if size > 0 and not stale)
     const bracketPos = bracketPositions?.positions?.find(
-      (p) => p.symbol === cfg.symbol && Math.abs(p.size) > 0,
+      (p) => p.symbol === cfg.symbol && Math.abs(p.size) > 0 && !isStaleBracketPosition(p),
     )
 
-    const hasActivePosition = Boolean(
-      (bracketPos && Math.abs(bracketPos.size) > 0) ||
-      (alloc && alloc.position_qty && Math.abs(alloc.position_qty) > 0),
-    )
+    const hasActivePosition = hasLiveExecData
+      ? Boolean(liveExecPos && liveExecPos.position_qty && Math.abs(liveExecPos.position_qty) > 0)
+      : Boolean(
+          (bracketPos && Math.abs(bracketPos.size) > 0) ||
+          (alloc && alloc.position_qty && Math.abs(alloc.position_qty) > 0),
+        )
 
     const entryPrice = hasActivePosition
-      ? bracketPos?.entry_price || alloc?.entry_price || currentPrice * 0.995
+      ? liveExecPos?.entry_price || bracketPos?.entry_price || alloc?.entry_price || currentPrice * 0.995
       : 0.0
     const size = hasActivePosition
-      ? bracketPos?.size || alloc?.position_qty || 0.0
+      ? liveExecPos?.position_qty || bracketPos?.size || alloc?.position_qty || 0.0
       : 0.0
     const notionalUsdt = hasActivePosition
-      ? bracketPos?.notional_usdt ||
+      ? liveExecPos?.allocated_exposure_usdt ||
+        bracketPos?.notional_usdt ||
         alloc?.allocated_exposure_usdt ||
         (size > 0 ? size * currentPrice : 0.0)
       : 0.0
-    const marginUsdt = hasActivePosition ? (notionalUsdt > 0 ? notionalUsdt : 0.0) : 0.0
+    const marginUsdt = hasActivePosition
+      ? liveExecPos?.allocated_margin_usdt || (notionalUsdt > 0 ? notionalUsdt : 0.0)
+      : 0.0
     const unrealizedPnlUsdt = hasActivePosition
-      ? bracketPos?.unrealized_pnl_usdt || alloc?.unrealized_pnl_usdt || 0.0
+      ? liveExecPos?.unrealized_pnl_usdt || bracketPos?.unrealized_pnl_usdt || alloc?.unrealized_pnl_usdt || 0.0
       : 0.0
     const unrealizedPnlPct =
       hasActivePosition && notionalUsdt > 0
@@ -199,13 +236,16 @@ export function buildExecutiveDashboardModel(
 
   // Truthfully preserve 0.00 exposure when flat
   const activeExposure =
-    productionLaunch.aggregateExposureUsdt !== undefined &&
-    productionLaunch.aggregateExposureUsdt >= 0
-      ? productionLaunch.aggregateExposureUsdt
-      : positions.reduce(
-          (sum, p) => sum + (p.state !== 'SCANNING / STANDBY' ? p.notionalUsdt : 0.0),
-          0.0,
-        )
+    executionStatus?.aggregate_exposure_usdt !== undefined &&
+    executionStatus.aggregate_exposure_usdt >= 0
+      ? executionStatus.aggregate_exposure_usdt
+      : productionLaunch.aggregateExposureUsdt !== undefined &&
+        productionLaunch.aggregateExposureUsdt >= 0
+        ? productionLaunch.aggregateExposureUsdt
+        : positions.reduce(
+            (sum, p) => sum + (p.state !== 'SCANNING / STANDBY' ? p.notionalUsdt : 0.0),
+            0.0,
+          )
 
   const maxExposureCap =
     confinement.max_aggregate_exposure_usdt > 0
@@ -231,7 +271,10 @@ export function buildExecutiveDashboardModel(
         ? (liveMarket?.gatewayHealth?.latency_ms ?? 0)
         : 12.4
 
-  const interlockBlocks = productionLaunch.interlockBlocksCount ?? 0
+  const interlockBlocks =
+    executionStatus?.interlock_blocks_count !== undefined
+      ? executionStatus.interlock_blocks_count
+      : (productionLaunch.interlockBlocksCount ?? 0)
   const balanceDrift = solvency.drift_usdt ?? 0.0
   const isZeroDriftVerified =
     solvency.zero_balance_drift_verified || Math.abs(balanceDrift) < 1e-15
@@ -355,6 +398,8 @@ export function buildExecutiveDashboardModel(
     },
   ]
 
+  const liveRecentOrders = executionStatus?.recent_orders || []
+
   const orders: OrderFeedItem[] =
     sanitizedRecentOrders.length > 0
       ? sanitizedRecentOrders.map((o) => ({
@@ -370,7 +415,21 @@ export function buildExecutiveDashboardModel(
           realizedPnlUsdt: o.realized_pnl_usdt || 0.0,
           status: o.status === 'NEW' || o.status === 'CANCELED' ? o.status : 'FILLED',
         }))
-      : authenticFallbackOrders
+      : liveRecentOrders.length > 0
+        ? liveRecentOrders.map((o) => ({
+            orderId: o.client_order_id || o.order_id,
+            timestampMyt: formatMytDate(o.timestamp_ms || Date.now()),
+            symbol: o.symbol,
+            side: o.side === 'SELL' ? 'SELL' : 'BUY',
+            orderType: o.order_type === 'LIMIT' ? 'LIMIT MAKER' : o.order_type,
+            price: o.fill_price || o.price,
+            quantity: o.quantity,
+            notionalUsdt: o.notional_usdt,
+            makerFeeUsdt: o.fee_usdt || o.notional_usdt * 0.0002,
+            realizedPnlUsdt: o.realized_pnl_usdt || 0.0,
+            status: o.status === 'NEW' || o.status === 'CANCELED' ? o.status : 'FILLED',
+          }))
+        : authenticFallbackOrders
 
   // 5. Strategy Evolution Radar & Autopsy Attribution
   const perf = autoEvolution?.performance

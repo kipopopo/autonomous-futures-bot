@@ -38,6 +38,7 @@ import {
   type CanaryTestnetBridgeData,
   type CanaryKillSwitchData,
   type CanaryProductionLaunchData,
+  type ExecutionStatusResponse,
   type MarkPriceItem,
 } from './canary'
 import {
@@ -693,6 +694,18 @@ export async function fetchCanaryProductionLaunch(): Promise<CanaryProductionLau
   }
 }
 
+export async function fetchExecutionStatus(): Promise<ExecutionStatusResponse | null> {
+  const path = '/api/v1/execution/status'
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (response.status === 404 || response.status === 503) return null
+    if (!response.ok) throw new Error(`GET ${path} failed with HTTP ${response.status}`)
+    return (await response.json()) as ExecutionStatusResponse
+  } catch {
+    return null
+  }
+}
+
 export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let summary: CanarySummaryResponse | null = null
   let hawkes: CanaryHawkesResponse | null = null
@@ -715,6 +728,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   let testnetBridge: CanaryTestnetBridgeData | null = null
   let killSwitch: CanaryKillSwitchData | null = null
   let productionLaunch: CanaryProductionLaunchData | null = null
+  let executionStatus: ExecutionStatusResponse | null = null
   let error: string | null = null
 
   try {
@@ -740,6 +754,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
       fetchCanaryTestnetBridge(),
       fetchCanaryKillSwitch(),
       fetchCanaryProductionLaunch(),
+      fetchExecutionStatus(),
     ])
 
     if (results[0].status === 'fulfilled') summary = results[0].value
@@ -763,6 +778,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     if (results[18].status === 'fulfilled') testnetBridge = results[18].value
     if (results[19].status === 'fulfilled') killSwitch = results[19].value
     if (results[20].status === 'fulfilled') productionLaunch = results[20].value
+    if (results[21].status === 'fulfilled') executionStatus = results[21].value
 
     for (const res of results) {
       if (res.status === 'rejected') {
@@ -796,6 +812,7 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
     testnetBridge,
     killSwitch,
     productionLaunch,
+    executionStatus,
     error,
   }
 }

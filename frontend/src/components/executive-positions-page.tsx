@@ -22,6 +22,10 @@ export function ExecutivePositionsPage({
   liveMarketModel: _liveMarketModel,
 }: ExecutivePositionsPageProps) {
   const activeCount = positions.filter((p) => p.state !== 'SCANNING / STANDBY').length
+  const liveBrackets =
+    bracketPositionsModel.phase === 'phase_301'
+      ? []
+      : bracketPositionsModel.brackets
 
   return (
     <div className="w-full space-y-6">
@@ -181,8 +185,8 @@ export function ExecutivePositionsPage({
                 </tr>
               </thead>
               <tbody>
-                {bracketPositionsModel.brackets.length > 0 ? (
-                  bracketPositionsModel.brackets.map((b) => (
+                {liveBrackets.length > 0 ? (
+                  liveBrackets.map((b) => (
                     <tr key={b.bracket_id} className="hover:bg-white/[0.02] border-b border-white/[0.04]">
                       <td className="font-semibold text-cyan-400">{b.bracket_id}</td>
                       <td>{b.symbol}</td>

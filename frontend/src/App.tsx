@@ -110,6 +110,7 @@ const EMPTY_CANARY_DATA: CanaryDashboardData = {
   testnetBridge: null,
   killSwitch: null,
   productionLaunch: null,
+  executionStatus: null,
   error: null,
 }
 
@@ -350,6 +351,7 @@ function App() {
         lastFetchedAt,
         autoEvolutionModel,
         strategyMiningModel,
+        canaryData.executionStatus ?? null,
       ),
     [
       productionLaunchModel,
@@ -360,6 +362,7 @@ function App() {
       lastFetchedAt,
       autoEvolutionModel,
       strategyMiningModel,
+      canaryData.executionStatus,
     ],
   )
 
