@@ -7,6 +7,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import type { StrategyEvolutionRadarData } from './types'
+import { ProvenanceBadge } from './provenance-badge'
 
 export interface StrategyEvolutionRadarProps {
   evolutionRadar: StrategyEvolutionRadarData
@@ -44,13 +45,14 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
             <Brain className="w-5 h-5 text-purple-400" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
                 🧠 Status Pembelajaran &amp; Autopsi Strategi
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-purple-500/10 border border-purple-500/25 text-purple-300">
                 {generation || 'GEN #2'}
               </span>
+              <ProvenanceBadge source="DAEMON 24/7" />
             </div>
             <p className="text-xs text-zinc-400">
               Kesihatan calon model, 5 pintu kelayakan walk-forward OOS, dan atribusi bedah siasat pelaksanaan
@@ -162,11 +164,14 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
         {/* Panel 2: 5 Walk-Forward OOS Qualification Gates */}
         <div className="glass-card-subtle rounded-xl p-4 flex flex-col justify-between hover:border-purple-500/30 transition-all duration-300">
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                5 Pintu Kelayakan OOS
-              </span>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  5 Pintu Kelayakan OOS
+                </span>
+                <ProvenanceBadge source="RESEARCH ARTIFACT / SIMULATION" />
+              </div>
               <span
                 className={`badge badge-sm font-mono font-bold ${
                   allGatesPassed

@@ -12,6 +12,7 @@ import { useState } from 'react'
 import { PairCandlestickChart } from './pair-candlestick-chart'
 import type { OhlcSummary } from '../../lib/chart-indicators'
 import type { PositionTelemetry } from './types'
+import { ProvenanceBadge } from './provenance-badge'
 
 export interface MarketPositionsCardProps {
   positions: PositionTelemetry[]
@@ -114,13 +115,14 @@ export function MarketPositionsCard({
             <Radio className="w-5 h-5 text-cyan-400 animate-pulse" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
                 Pasaran Langsung &amp; Posisi Aktif
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-cyan-500/10 border border-cyan-500/25 text-cyan-400">
                 SOL · ETH · BTC
               </span>
+              <ProvenanceBadge source="LIVE EXCHANGE" />
             </div>
             <p className="text-xs text-zinc-400">
               Pengawasan harga tanda (mark price), kedudukan terbuka, dan sasaran kurungan TP/SL berpandukan ATR

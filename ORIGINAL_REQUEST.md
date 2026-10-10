@@ -3424,3 +3424,51 @@ Integrity mode: development
 - [ ] `npm test --prefix frontend` (Vitest) passes with 100% success rate.
 - [ ] `pytest tests/unit/test_api.py` passes with 100% success rate.
 - [ ] Deployed to Kainode VPS (`147.79.18.15`); `autonomous-futures-trader.service` uptime remains uninterrupted.
+
+
+## 2026-10-10T13:44:53Z
+
+Implement Phase 314: Comprehensive Web Dashboard Telemetry Audit & Discrepancy Remediation for Autonomous Futures Bot.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Complete Screen-by-Screen Telemetry Inventory & Provenance Classification
+Conduct an exhaustive audit of all components across the 5 primary views (Dashboard Utama, Pasaran & Posisi, Log Perdagangan, Kawalan Keselamatan, Pembelajaran & Autopsi) and the secondary Research Archive drawer:
+- Categorize every visible number, badge, and graph into:
+  1. **Live Exchange Telemetry**: Real data directly fetched from Binance Futures (wallet equity, available cash, mark prices, klines, active order status).
+  2. **Live 24/7 Daemon Telemetry**: Real-time state from the Kainode VPS continuous trader daemon (macro trend EMA 50/200, scalper scanning status, live heartbeat latency, solvency zero-drift).
+  3. **Verified Research / Simulation Artifacts**: Historic immutable canary data (Phases 250-309 backtests, 16 trade autopsies, synthetic stress fault injection).
+- Identify and eliminate any hardcoded mock numbers, phantom positions, stale placeholder fallbacks, or misleading data labels.
+
+### R2. Reconcile Live Wallet, Positions & Trade Feeds with Real Exchange State
+- Synchronize wallet equity and margin metrics against live Binance Futures account state (`GET /fapi/v2/account`, `GET /fapi/v2/positionRisk`).
+- Ensure open positions truthfully show `STANDBY / SCANNING (0.00 exposure)` when flat, or exact live position size, entry price, and unrealized PnL when a trade is active.
+- Verify Recent Orders feed displays genuine Binance Testnet executions (`canary-p310-` and `canary-p311-`), eliminating any stale `ord-p309-` simulation records from primary views.
+
+### R3. Transparent UI Provenance Badging & Truth In Labeling
+- Add clear provenance indicators on UI panels so the owner can instantaneously distinguish live exchange data from historical research simulations (e.g. `LIVE EXCHANGE`, `DAEMON 24/7`, or `CANARY SIMULATION`).
+- Ensure all timestamps across all views consistently display in Malaysia Time (MYT, GMT+8) with clear relative time indicators.
+
+### R4. Comprehensive Audit Report & Automated Verification
+- Generate `AUDIT_TELEMETRY_TRUTHFULNESS.md` documenting every component's data source, update interval, and cryptographic verification formula.
+- Update Vitest frontend test suite and backend pytest suite to verify that no mock or simulated data leaks into live trading views.
+- Deploy all verified fixes to Kainode VPS (`147.79.18.15`) without restarting or interrupting the 24/7 continuous trader daemon (`autonomous-futures-trader.service`, Main PID 87549).
+
+## Acceptance Criteria
+
+### Telemetry Truthfulness & Exchange Alignment
+- [ ] Every financial figure on the dashboard maps 1:1 to an authenticated Binance Futures endpoint or a cryptographically verified research artifact.
+- [ ] Zero phantom positions or hardcoded PnL values exist on any live dashboard view.
+- [ ] Recent Orders table renders only authentic executed Binance Futures orders with verifiable order IDs and timestamps.
+
+### Clarity & Provenance Badging
+- [ ] Every major UI section clearly identifies its data origin (`LIVE EXCHANGE`, `DAEMON 24/7`, or `SIMULATION ARTIFACT`).
+- [ ] Double-entry ledger reconciliation holds exact zero drift ($|\Delta| = 0.00 < 10^{-15}$ USDT) across all views.
+
+### Verification & VPS Deployment
+- [ ] Comprehensive pytest backend test suite passes with 100% success rate.
+- [ ] Vitest frontend test suite passes with 100% success rate and zero regressions.
+- [ ] Production bundle deploys to Kainode VPS (`147.79.18.15`); `autonomous-futures-trader.service` (PID 87549) remains running continuously without a single second of downtime.

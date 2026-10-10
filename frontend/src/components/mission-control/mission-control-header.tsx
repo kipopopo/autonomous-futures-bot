@@ -10,6 +10,7 @@ import {
   Zap,
 } from 'lucide-react'
 import type { ExecutiveDashboardModel } from './types'
+import { ProvenanceBadge } from './provenance-badge'
 
 export interface MissionControlHeaderProps {
   status: ExecutiveDashboardModel['botStatus']
@@ -60,8 +61,9 @@ export function MissionControlHeader({
                   Autonomous Futures
                 </h1>
                 <span className="text-[10px] font-mono font-bold py-0.5 px-2 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/25">
-                  v310.2
+                  v314.0
                 </span>
+                <ProvenanceBadge source="DAEMON 24/7" />
               </div>
               <p className="text-[11px] text-zinc-400 font-mono flex items-center gap-1">
                 <span>15m Macro-Confluence Scalper Engine</span>

@@ -1,96 +1,99 @@
-# Project: Phase 312 — High-Performance Live Interactive Candlestick Charting for Mission Control Dashboard
+# Project: Phase 314 — Comprehensive Web Dashboard Telemetry Audit & Discrepancy Remediation
 
 ## Architecture
-- **Backend**: FastAPI (`src/autonomous_futures/api/app.py`) exposing `GET /api/v1/market/klines?symbol={symbol}&interval={15m|1h}&limit={100}` with 5.0s in-memory TTL caching, querying Binance Futures public REST (`https://fapi.binance.com/fapi/v1/klines`) with fallback to local Parquet archives (`research/immutable-data/`) and deterministic synthetic candles.
-- **Frontend Core**: React 19 + TypeScript + Vite (`frontend/`) integrating `lightweight-charts@5.2.1` using custom Obsidian Dark Theme tokens (`#0a0f1d`, `#10b981`, `#f43f5e`, `#06b6d4`, `#f59e0b`, `#38bdf8`).
-- **Resilient Ingress Client**: `frontend/src/lib/api.ts` implementing `fetchMarketKlines()` with 3-tier fallback (FastAPI -> Binance public REST -> synthetic).
-- **Indicators Engine**: `frontend/src/lib/chart-indicators.ts` calculating EMA 50, EMA 200, volume histogram with `scaleMargins`, and synthetic candles.
-- **UI & Visualization**: `frontend/src/components/mission-control/pair-candlestick-chart.tsx` (chart component) and `frontend/src/components/mission-control/market-positions-card.tsx` (collapsible drawer with "📈 Carta Interaktif" button, timeframe pills 15m/1h, indicator pills, OHLC badge, 24h high/low, and visual TP/SL target lines).
-- **Quality Gates**: Vitest test suite (`npm test --prefix frontend`), Pytest suite (`uv run pytest tests/unit/test_api.py`), static typing (`tsc`, `mypy`), and linter (`ruff`).
-- **Deployment**: Zero-disruption deployment to Kainode VPS (`147.79.18.15`) static directory `/opt/autonomous-futures-bot/frontend/dist` and restart of `autonomous-futures-web.service`, preserving 24/7 continuous trader daemon `autonomous-futures-trader.service`.
+- **Backend Telemetry Ingress**: FastAPI (`src/autonomous_futures/api/app.py`) providing `/api/v1/execution/status`, `/api/v1/market/prices`, `/api/v1/market/klines`, and `/api/v1/canary/summary`. Synchronizes live Binance Futures exchange state (`GET /fapi/v2/account`, `GET /fapi/v2/positionRisk`), live 24/7 daemon state from `artifacts/research/phase310/` and `phase311/`, and historical research artifacts.
+- **Frontend Telemetry Adapter**: `frontend/src/components/mission-control/adapter.ts` transforming backend REST and WebSocket telemetry into typed UI telemetry contracts, enforcing zero mock leakage, truthful flat position states (`STANDBY / SCANNING (0.00 exposure)`), and genuine order executions (`canary-p310-`, `canary-p311-`).
+- **UI Presentation & Provenance Badging**: React 19 + TypeScript + DaisyUI / Tailwind CSS dark theme across 5 primary views (`Dashboard Utama`, `Pasaran & Posisi`, `Log Perdagangan`, `Kawalan Keselamatan`, `Pembelajaran & Autopsi`) and secondary `Arkib Penyelidikan` drawer. Explicit provenance badging (`LIVE EXCHANGE`, `DAEMON 24/7`, `RESEARCH ARTIFACT / SIMULATION`) and consistent Malaysia Time (MYT, GMT+8) relative timestamps.
+- **Cryptographic Solvency & Zero Drift**: Continuous mathematical verification of the double-entry balance invariant ($\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$) holding $|\Delta| = 0.00 < 10^{-15}$ USDT.
+- **Audit Verification & Zero-Disruption VPS Deployment**: Complete documentation in `AUDIT_TELEMETRY_TRUTHFULNESS.md`, comprehensive Vitest & Pytest quality gates, production bundling, and deployment to Kainode VPS (`147.79.18.15`) reloading only `autonomous-futures-web.service` while `autonomous-futures-trader.service` (Main PID 87549) runs uninterrupted.
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | Backend Kline Ingress API | `GET /api/v1/market/klines` with 5s TTL cache and normalized OHLCV output | M1 | Survey / R1 |
-| 2 | Backend Ingress Fallback Cascade | 3-tier fallback (Binance REST -> Parquet -> Synthetic) | M1 | Survey / R1 |
-| 3 | Pytest Coverage for Klines API | Unit tests in `tests/unit/test_api.py` covering cache, params, and offline modes | M1 | Survey / R5 |
-| 4 | Frontend Package Installation | Install `lightweight-charts@^5.2.1` with clean React 19 compatibility | M2 | Survey / R2 |
-| 5 | Indicators Math Module | Pure functions for EMA 50, EMA 200, Volume colors, and Synthetic generation | M2 | Survey / R3 |
-| 6 | Resilient Frontend API Client | `fetchMarketKlines()` with direct browser fallback to Binance public REST | M2 | Survey / R1 |
-| 7 | Unit Tests for Math & Client | Vitest tests in `chart-indicators.test.ts` and `api.test.ts` | M2 | Survey / R5 |
-| 8 | Lightweight Charts Component | `PairCandlestickChart` with Obsidian dark theme, auto-resize, and crosshair | M3 | Survey / R2 |
-| 9 | Trend & Volume Overlays | Dynamic EMA 50 (cyan), EMA 200 (amber), and volume histogram (lower 20%) | M3 | Survey / R3 |
-| 10 | Visual Bracket Price Lines | Horizontal lines for Entry (sky-blue), TP (+2.0x ATR green), SL (-1.2x ATR red) | M3 | Survey / R3 |
-| 11 | Collapsible Chart Drawer UI | "📈 Carta Interaktif" toggle button on each pair card (`SOLUSDT`, `ETHUSDT`, `BTCUSDT`) | M4 | Survey / R4 |
-| 12 | Drawer Header Controls | Timeframe pills (`15m` default, `1h`), indicator pills, OHLC badge, 24h high/low | M4 | Survey / R4 |
-| 13 | Responsive Grid Adaptation | Auto-resize smoothly adapting across mobile, tablet, and desktop | M4 | Survey / R2 |
-| 14 | Component Tests for Mission Control | Vitest tests verifying SSR safety (`renderToString`), drawer toggle, and badges | M4 | Survey / R5 |
-| 15 | Comprehensive Test & Gate Verification | 100% pass rate on Vitest, Pytest, `npm run build`, Ruff, Mypy | M5 | Survey / R5 |
-| 16 | Kainode VPS Deployment | Deploy frontend bundle & sync backend API to Kainode VPS (`147.79.18.15`) | M6 | Survey / R5 |
-| 17 | Continuous Trader Daemon Invariant | Verify zero disruption to `autonomous-futures-trader.service` and live HTTPS serving | M6 | Survey / R5 |
+| 1 | Backend btc_macro Multiplier Elimination | Remove linear price multipliers in `/api/v1/market/prices` in favor of real EMAs or truthful daemon indicators | M1 | Survey / R1, R2 |
+| 2 | Backend Mark Price Real-Time Synchronization | Synchronize BTC/ETH/SOL mark prices in `load_execution_status` with live Binance ticker prices | M1 | Survey / R2 |
+| 3 | Backend Live Exchange Reconciled Feeds | Verify `/api/v1/execution/status` maps wallet, flat positions (0.00 exposure), and genuine orders (`canary-p310/311`) | M1 | Survey / R2 |
+| 4 | Backend Pytest Suite for Telemetry Truthfulness | Unit tests in `tests/unit/test_phase_314_telemetry_truthfulness.py` validating 0 mock leakage and zero-drift invariant | M1 | Survey / R4 |
+| 5 | Frontend Adapter BTC Trend & Scalper Remediation | Remove fake EMA linear multipliers and hardcoded scalper criteria (1.8, 1.4, 38.5) from `adapter.ts` | M2 | Survey / R1, R2 |
+| 6 | Frontend Adapter Bracket Suppression When Flat | Suppress active TP/SL price target lines when position is flat (`STANDBY / SCANNING`) | M2 | Survey / R2 |
+| 7 | Frontend Adapter Fallback Order Sanitization | Replace static `ord-p310-` fallbacks with authentic `canary-p310/311` testnet order representations | M2 | Survey / R2 |
+| 8 | Executive Trades Page Metrics & PnL Fix | Eliminate hardcoded 100% win rate and 0.00 bps slippage; fix `+-` sign bug on negative realized PnL in `executive-trades-page.tsx` | M2 | Survey / R1 |
+| 9 | Executive Safety Page Fallback Purge | Eliminate stale Phase 309 fallbacks (`100.2038`, `0.2038`, `0.0032`) and hardcoded tripwires in `executive-safety-page.tsx` | M2 | Survey / R1 |
+| 10 | Consistent MYT Timestamps & Relative Indicators | Format all dashboard timestamps in Malaysia Time (GMT+8) with relative elapsed time indicators | M2 | Survey / R3 |
+| 11 | Phase 314 App Header / Footer Version Update | Update `App.tsx` sidebar footer badge from Phase 311 to Phase 314 | M2 | Survey / R3 |
+| 12 | Screen-by-Screen UI Provenance Badging | Add `LIVE EXCHANGE`, `DAEMON 24/7`, and `RESEARCH ARTIFACT / SIMULATION` badges to all 5 views | M3 | Survey / R3 |
+| 13 | Truth in Labeling for KPIs & Visualizations | Clear labeling distinguishing live exchange wallet/positions from daemon metrics and research backtests | M3 | Survey / R3 |
+| 14 | Telemetry Truthfulness Audit Report | Author root `AUDIT_TELEMETRY_TRUTHFULNESS.md` with complete inventory, update intervals, and math formulas | M4 | Survey / R4 |
+| 15 | Frontend Vitest Test Suites for Provenance & Zero Mock | Add `telemetry-provenance-badging.test.tsx`, `zero-mock-leakage.challenge.test.tsx`, `adapter-truthfulness-adversarial.test.tsx` | M4 | Survey / R4 |
+| 16 | Production Bundle Compilation | Run `npm run build` in `frontend/` ensuring 0 TypeScript and 0 lint errors | M4 | Survey / R4 |
+| 17 | Kainode VPS Zero-Disruption Deployment | Deploy bundle to `/opt/autonomous-futures-bot/frontend/dist` and reload `autonomous-futures-web.service` on `147.79.18.15` | M4 | Survey / R4 |
+| 18 | Continuous Trader Daemon Invariant Verification | Verify `autonomous-futures-trader.service` (Main PID 87549) continuous runtime with 0s downtime and 0 restarts | M4 | Survey / R4 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Backend Kline Ingress API | Implement `GET /api/v1/market/klines` with 5s TTL cache, fallback, and pytest suite | None | DONE |
-| M2 | Frontend Dependencies & Indicators Math | Install `lightweight-charts@^5.2.1`, implement `chart-indicators.ts` and `fetchMarketKlines()` | None | DONE |
-| M3 | Interactive Candlestick Chart Component | Build `pair-candlestick-chart.tsx` with Obsidian dark theme, EMA 50/200, volume, and brackets | M2 | DONE |
-| M4 | Executive Dashboard Drawer Integration | Integrate chart drawer into `market-positions-card.tsx` with timeframe/indicator pills | M3 | READY |
-| M5 | Quality Gates & E2E Test Suite | Verify Vitest (100%), Pytest (100%), TypeScript, Ruff, and Mypy | M1, M4 | PLANNED |
-| M6 | Production Build & VPS Zero-Disruption Deploy | Build production bundle, deploy to Kainode VPS (`147.79.18.15`), verify live serving | M5 | PLANNED |
+| M1 | Backend Telemetry Remediation & Truthfulness Ingress | Fix `app.py` btc_macro and mark prices; verify zero-drift and order feeds; pytest tests | None | DONE |
+| M2 | Frontend Adapter & Subpage Discrepancy Remediation | Purge fake EMAs/scalper in `adapter.ts`; fix trades page & safety page hardcodes; MYT timestamps | M1 | DONE |
+| M3 | Transparent UI Provenance Badging & Truth in Labeling | Implement provenance badges across all 5 views and secondary archive drawer | M2 | DONE |
+| M4 | Audit Documentation, Test Verification & VPS Deployment | Author `AUDIT_TELEMETRY_TRUTHFULNESS.md`, run Vitest/Pytest suites, deploy to VPS, verify PID 87549 | M3 | DONE |
 
 ## Interface Contracts
-### Backend `GET /api/v1/market/klines`
-- Parameters: `symbol: str = "SOLUSDT"`, `interval: str = "15m"`, `limit: int = 100`
-- Response Schema (`MarketKlinesResponse`):
+### Backend `GET /api/v1/market/prices`
+- Response Schema:
   ```json
   {
-    "symbol": "SOLUSDT",
-    "interval": "15m",
-    "source": "binance_futures_live",
-    "timestamp_ms": 1791570599000,
-    "count": 100,
-    "candles": [
-      {
-        "timestamp": 1791569700,
-        "open": 109.72,
-        "high": 109.79,
-        "low": 109.52,
-        "close": 109.53,
-        "volume": 65965.9
-      }
-    ]
-  }
-  ```
-
-### Frontend `fetchMarketKlines(symbol, interval, limit)`
-- Returns: `Promise<MarketKline[]>` where `MarketKline` has `{ timestamp: number, open: number, high: number, low: number, close: number, volume: number }`.
-- Behavior: Tries `/api/v1/market/klines` -> falls back to `https://fapi.binance.com/fapi/v1/klines` -> falls back to `generateSyntheticKlines()`.
-
-### Chart Component `PairCandlestickChart`
-- Props:
-  ```typescript
-  interface PairCandlestickChartProps {
-    symbol: string
-    interval: '15m' | '1h'
-    activeIndicators: {
-      ema50: boolean
-      ema200: boolean
-      volume: boolean
+    "BTCUSDT": 82790.1,
+    "ETHUSDT": 2450.5,
+    "SOLUSDT": 154.2,
+    "btc_macro": {
+      "ema50_1h": 83120.0,
+      "ema200_1h": 81800.0,
+      "regime": "BULLISH ALIGNED",
+      "source": "binance_futures_live"
     }
-    position?: PositionTelemetry
-    onOhlcUpdate?: (ohlc: { open: number; high: number; low: number; close: number; volume: number; high24h: number; low24h: number } | null) => void
   }
   ```
+
+### Backend `GET /api/v1/execution/status`
+- Response Schema:
+  ```json
+  {
+    "status": "ok",
+    "starting_equity_usdt": 100.0,
+    "current_equity_usdt": 100.0,
+    "unencumbered_cash_usdt": 100.0,
+    "allocated_margin_usdt": 0.0,
+    "unrealized_pnl_usdt": 0.0,
+    "realized_pnl_usdt": 0.0,
+    "aggregate_exposure_usdt": 0.0,
+    "cash_reserve_pct": 100.0,
+    "zero_balance_drift_verified": true,
+    "drift_usdt": 0.0,
+    "positions": {
+      "BTCUSDT": { "symbol": "BTCUSDT", "position_qty": 0.0, "state": "STANDBY / SCANNING" },
+      "ETHUSDT": { "symbol": "ETHUSDT", "position_qty": 0.0, "state": "STANDBY / SCANNING" },
+      "SOLUSDT": { "symbol": "SOLUSDT", "position_qty": 0.0, "state": "STANDBY / SCANNING" }
+    },
+    "recent_orders": [...]
+  }
+  ```
+
+### Frontend Provenance Badging
+- UI Badge Component / Token:
+  - `LIVE EXCHANGE`: Emerald badge (`bg-emerald-500/10 text-emerald-400 border-emerald-500/20`)
+  - `DAEMON 24/7`: Cyan badge (`bg-cyan-500/10 text-cyan-400 border-cyan-500/20`)
+  - `RESEARCH ARTIFACT / SIMULATION`: Purple / Amber badge (`bg-purple-500/10 text-purple-400 border-purple-500/20`)
 
 ## Code Layout
-- `src/autonomous_futures/api/app.py`: Backend FastAPI routes and models
-- `tests/unit/test_api.py`: Backend API test suite
-- `frontend/package.json`: Frontend npm dependencies
-- `frontend/src/lib/chart-indicators.ts`: Pure indicator calculations and synthetic data
-- `frontend/src/lib/chart-indicators.test.ts`: Indicator tests
-- `frontend/src/lib/api.ts`: API client functions
-- `frontend/src/components/mission-control/pair-candlestick-chart.tsx`: TradingView Lightweight Charts canvas component
-- `frontend/src/components/mission-control/market-positions-card.tsx`: Pair cards and interactive chart collapsible drawer
-- `frontend/src/components/__tests__/executive-dashboard.test.tsx`: Mission Control component tests
+- `src/autonomous_futures/api/app.py`: Backend FastAPI routes, price feeds, execution status
+- `tests/unit/test_phase_314_telemetry_truthfulness.py`: Pytest suite for backend telemetry truthfulness
+- `frontend/src/components/mission-control/adapter.ts`: Frontend telemetry adapter and data normalizer
+- `frontend/src/components/executive-trades-page.tsx`: Trade history page and execution log
+- `frontend/src/components/executive-safety-page.tsx`: Safety controls and circuit breaker status
+- `frontend/src/components/mission-control/overview-kpis.tsx`: Executive KPI cards
+- `frontend/src/components/mission-control/market-positions-card.tsx`: Market watch and active positions
+- `frontend/src/components/mission-control/scalper-radar-card.tsx`: Scalper confluence radar
+- `frontend/src/components/mission-control/strategy-evolution-radar.tsx`: Strategy evolution radar
+- `frontend/src/App.tsx`: Main application shell, navigation tabs, and footer badge
+- `AUDIT_TELEMETRY_TRUTHFULNESS.md`: Root telemetry audit report
+- `frontend/src/components/__tests__/`: Vitest test suites

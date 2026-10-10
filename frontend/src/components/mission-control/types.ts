@@ -56,6 +56,7 @@ export interface HawkesHazard {
 export interface OrderFeedItem {
   orderId: string
   timestampMyt: string
+  relativeTime?: string
   symbol: string
   side: OrderSide
   orderType: string

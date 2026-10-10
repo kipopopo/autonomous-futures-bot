@@ -9,6 +9,7 @@ import {
   Zap,
 } from 'lucide-react'
 import type { ExecutiveDashboardModel } from './types'
+import { ProvenanceBadge } from './provenance-badge'
 
 export interface KpiCardsProps {
   kpis: ExecutiveDashboardModel['kpis']
@@ -35,8 +36,11 @@ export function KpiCards({ kpis }: KpiCardsProps) {
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
               Jumlah Ekuiti &amp; Baki
             </span>
-            <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 group-hover:scale-105 transition-transform shadow-[0_0_12px_rgba(6,182,212,0.15)]">
-              <Wallet className="w-4 h-4" />
+            <div className="flex items-center gap-2">
+              <ProvenanceBadge source="LIVE EXCHANGE" />
+              <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 group-hover:scale-105 transition-transform shadow-[0_0_12px_rgba(6,182,212,0.15)]">
+                <Wallet className="w-4 h-4" />
+              </div>
             </div>
           </div>
 
@@ -80,12 +84,15 @@ export function KpiCards({ kpis }: KpiCardsProps) {
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
               Untung Bersih &amp; Kadar Kemenangan
             </span>
-            <div className={`p-2 rounded-xl group-hover:scale-105 transition-transform border ${
-              isPnlPositive
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
-                : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
-            }`}>
-              <TrendingUp className="w-4 h-4" />
+            <div className="flex items-center gap-2">
+              <ProvenanceBadge source="LIVE EXCHANGE" />
+              <div className={`p-2 rounded-xl group-hover:scale-105 transition-transform border ${
+                isPnlPositive
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                  : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+              }`}>
+                <TrendingUp className="w-4 h-4" />
+              </div>
             </div>
           </div>
 
@@ -129,8 +136,11 @@ export function KpiCards({ kpis }: KpiCardsProps) {
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
               Pendedahan Aktif &amp; Had Siling
             </span>
-            <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 group-hover:scale-105 transition-transform shadow-[0_0_12px_rgba(168,85,247,0.15)]">
-              <PieChart className="w-4 h-4" />
+            <div className="flex items-center gap-2">
+              <ProvenanceBadge source="DAEMON 24/7" />
+              <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 group-hover:scale-105 transition-transform shadow-[0_0_12px_rgba(168,85,247,0.15)]">
+                <PieChart className="w-4 h-4" />
+              </div>
             </div>
           </div>
 
@@ -186,8 +196,11 @@ export function KpiCards({ kpis }: KpiCardsProps) {
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
               Kesihatan Sistem &amp; Ketulenan
             </span>
-            <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 group-hover:scale-105 transition-transform shadow-[0_0_12px_rgba(16,185,129,0.15)]">
-              <ShieldCheck className="w-4 h-4" />
+            <div className="flex items-center gap-2">
+              <ProvenanceBadge source="DAEMON 24/7" />
+              <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 group-hover:scale-105 transition-transform shadow-[0_0_12px_rgba(16,185,129,0.15)]">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
             </div>
           </div>
 

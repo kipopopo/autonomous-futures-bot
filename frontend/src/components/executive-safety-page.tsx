@@ -8,28 +8,109 @@ import {
   ShieldCheck,
   Zap,
 } from 'lucide-react'
-import type { ProductionLaunchModel, RiskModel, KillSwitchModel } from '@/lib/canary'
+import type {
+  ProductionLaunchModel,
+  RiskModel,
+  KillSwitchModel,
+  ExecutionStatusResponse,
+  MicrostructureModel,
+  LiveMarketModel,
+} from '@/lib/canary'
+import { ProvenanceBadge } from './mission-control/provenance-badge'
 
 export interface ExecutiveSafetyPageProps {
   productionLaunchModel: ProductionLaunchModel
   riskModel: RiskModel
   killSwitchModel: KillSwitchModel
+  executionStatus?: ExecutionStatusResponse | null
+  microstructureModel?: MicrostructureModel | null
+  liveMarketModel?: LiveMarketModel | null
+  latencyMs?: number
 }
 
 export function ExecutiveSafetyPage({
   productionLaunchModel,
-  riskModel: _riskModel,
+  riskModel,
   killSwitchModel,
+  executionStatus,
+  microstructureModel,
+  liveMarketModel,
+  latencyMs,
 }: ExecutiveSafetyPageProps) {
   const solvency = productionLaunchModel.solvency
+  const liveSolvency = executionStatus?.solvency
   const confinement = productionLaunchModel.confinement
 
-  const isZeroDrift =
-    solvency.zero_balance_drift_verified ||
-    Math.abs(solvency.drift_usdt || 0) < 1e-15
+  const startingEquity =
+    (liveSolvency?.starting_equity_usdt ?? 0) > 0
+      ? liveSolvency!.starting_equity_usdt!
+      : solvency.starting_equity_usdt > 0
+        ? solvency.starting_equity_usdt
+        : 100.0
 
-  const cashReservePct = solvency.cash_reserve_pct || 100.0
+  const cash =
+    (liveSolvency?.cash_usdt ?? 0) > 0
+      ? liveSolvency!.cash_usdt!
+      : solvency.cash_usdt > 0
+        ? solvency.cash_usdt
+        : startingEquity
+
+  const margin =
+    liveSolvency?.allocated_margin_usdt ??
+    solvency.allocated_margin_usdt ??
+    0.0
+
+  const unrealizedPnl =
+    liveSolvency?.unrealized_pnl_usdt ??
+    solvency.unrealized_pnl_usdt ??
+    0.0
+
+  const realizedPnl =
+    liveSolvency?.realized_pnl_usdt ??
+    solvency.realized_pnl_usdt ??
+    0.0
+
+  const totalEquity =
+    (liveSolvency?.total_equity_usdt ?? 0) > 0
+      ? liveSolvency!.total_equity_usdt!
+      : solvency.total_equity_usdt > 0
+        ? solvency.total_equity_usdt
+        : cash + margin + unrealizedPnl
+
+  const totalFees = solvency.total_fees_usdt ?? 0.0
+
+  const isZeroDrift =
+    liveSolvency?.zero_balance_drift_verified ||
+    solvency.zero_balance_drift_verified ||
+    Math.abs(liveSolvency?.drift_usdt ?? solvency.drift_usdt ?? 0) < 1e-15
+
+  const cashReservePct =
+    liveSolvency?.cash_reserve_pct ??
+    solvency.cash_reserve_pct ??
+    (totalEquity > 0 ? (cash / totalEquity) * 100.0 : 100.0)
+
   const isFloorSafe = cashReservePct >= (confinement.min_cash_reserve_pct || 75.0)
+
+  const intraDayLoss =
+    executionStatus?.intra_day_loss_usdt ??
+    productionLaunchModel.intraDayLossUsdt ??
+    0.0
+
+  const spectralRadius =
+    microstructureModel?.maxSpectralRadius !== undefined && microstructureModel.maxSpectralRadius > 0
+      ? microstructureModel.maxSpectralRadius
+      : 0.0
+  const isHawkesNormal = spectralRadius < 1.0
+
+  const latency =
+    latencyMs !== undefined && latencyMs > 0
+      ? latencyMs
+      : (liveMarketModel?.gatewayHealth?.latency_ms && liveMarketModel.gatewayHealth.latency_ms > 0)
+        ? liveMarketModel.gatewayHealth.latency_ms
+        : (riskModel?.latestHeartbeat?.latency_ms && riskModel.latestHeartbeat.latency_ms > 0)
+          ? riskModel.latestHeartbeat.latency_ms
+          : 0.0
+  const isLatencyNormal = latency <= 500
 
   return (
     <div className="w-full space-y-6">
@@ -42,13 +123,14 @@ export function ExecutiveSafetyPage({
               <ShieldCheck className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold tracking-tight text-white">
                   Kawalan Keselamatan &amp; Ketulenan Lejar
                 </h1>
                 <span className="badge badge-sm font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   Sifar Drift Terbukti
                 </span>
+                <ProvenanceBadge source="DAEMON 24/7" />
               </div>
               <p className="text-xs text-white/50">
                 Pemeriksaan ketat invarian matematik catatan bergu, had siling mikro-modal, dan suis pemati kecemasan
@@ -143,14 +225,14 @@ export function ExecutiveSafetyPage({
               <AlertTriangle className="w-4 h-4 text-amber-400" />
             </div>
             <div className="text-xl font-mono font-bold text-white my-1">
-              $0.00 / $3.00 USDT
+              ${intraDayLoss.toFixed(2)} / $3.00 USDT
             </div>
             <p className="text-xs text-white/50">
               Pemberhentian automatik (fail-closed pause) sekiranya drawdown mencecah $3.00.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-white/[0.06] text-[11px] font-mono text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> 0.00 USDT Rugi Diperhatikan
+            <CheckCircle2 className="w-3.5 h-3.5" /> {intraDayLoss.toFixed(2)} USDT Rugi Diperhatikan
           </div>
         </div>
       </div>
@@ -170,11 +252,11 @@ export function ExecutiveSafetyPage({
               Ekuiti = Tunai + Margin + PnL Semasa
             </div>
             <div className="text-[11px] text-white/70 space-y-1">
-              <div>Tunai: ${solvency.cash_usdt?.toFixed(4) || '100.2038'} USDT</div>
-              <div>Margin: ${solvency.allocated_margin_usdt?.toFixed(4) || '0.0000'} USDT</div>
-              <div>PnL Semasa: ${solvency.unrealized_pnl_usdt?.toFixed(4) || '0.0000'} USDT</div>
+              <div>Tunai: ${cash.toFixed(4)} USDT</div>
+              <div>Margin: ${margin.toFixed(4)} USDT</div>
+              <div>PnL Semasa: {unrealizedPnl >= 0 ? '+' : '-'}${Math.abs(unrealizedPnl).toFixed(4)} USDT</div>
               <div className="pt-1 border-t border-white/[0.08] font-bold text-emerald-400">
-                Jumlah: ${solvency.total_equity_usdt?.toFixed(4) || '100.2038'} USDT
+                Jumlah: ${totalEquity.toFixed(4)} USDT
               </div>
             </div>
           </div>
@@ -185,11 +267,11 @@ export function ExecutiveSafetyPage({
               Ekuiti = Ekuiti Asal + Untung Direalisasi
             </div>
             <div className="text-[11px] text-white/70 space-y-1">
-              <div>Ekuiti Asal: ${solvency.starting_equity_usdt?.toFixed(4) || '100.0000'} USDT</div>
-              <div>Untung Direalisasi: +${solvency.realized_pnl_usdt?.toFixed(4) || '0.2038'} USDT</div>
-              <div>Yuran Dibayar: ${solvency.total_fees_usdt?.toFixed(4) || '0.0032'} USDT</div>
+              <div>Ekuiti Asal: ${startingEquity.toFixed(4)} USDT</div>
+              <div>Untung Direalisasi: {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toFixed(4)} USDT</div>
+              <div>Yuran Dibayar: ${totalFees.toFixed(4)} USDT</div>
               <div className="pt-1 border-t border-white/[0.08] font-bold text-emerald-400">
-                Jumlah Seimbang: ${solvency.total_equity_usdt?.toFixed(4) || '100.2038'} USDT
+                Jumlah Seimbang: ${totalEquity.toFixed(4)} USDT
               </div>
             </div>
           </div>
@@ -218,13 +300,17 @@ export function ExecutiveSafetyPage({
           <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
             <span className="text-white/50 block text-[11px]">Tripwire 1: Bahaya Hawkes</span>
             <div className="font-bold text-white mt-1">ρ ≥ 1.000 (Superkritikal)</div>
-            <span className="text-[10px] text-emerald-400 mt-1 block">Status: NORMAL (ρ = 0.428)</span>
+            <span className={`text-[10px] ${isHawkesNormal ? 'text-emerald-400' : 'text-rose-400'} mt-1 block`}>
+              {`Status: ${isHawkesNormal ? 'NORMAL' : 'ELEVATED / CRITICAL'} (ρ = ${spectralRadius.toFixed(3)})`}
+            </span>
           </div>
 
           <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
             <span className="text-white/50 block text-[11px]">Tripwire 2: Kependaman Gerbang</span>
             <div className="font-bold text-white mt-1">Kependaman &gt; 500 ms</div>
-            <span className="text-[10px] text-emerald-400 mt-1 block">Status: NORMAL (12.4 ms)</span>
+            <span className={`text-[10px] ${isLatencyNormal ? 'text-emerald-400' : 'text-rose-400'} mt-1 block`}>
+              {`Status: ${isLatencyNormal ? 'NORMAL' : 'HIGH LATENCY'} (${latency.toFixed(1)} ms)`}
+            </span>
           </div>
 
           <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">

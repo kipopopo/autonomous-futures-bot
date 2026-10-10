@@ -187,7 +187,7 @@ describe('Adversarial Challenge: buildExecutiveDashboardModel Edge Cases & Fault
       // KPIs
       expect(adapted.kpis.activeExposureUsdt).toBe(0.0)
       expect(adapted.kpis.totalTrades).toBe(0)
-      expect(adapted.kpis.winRatePct).toBe(100.0)
+      expect(adapted.kpis.winRatePct).toBe(0.0)
 
       // Positions: all 3 staged pairs must be in SCANNING / STANDBY with 0.0 metrics
       expect(adapted.positions.length).toBe(3)
@@ -200,15 +200,15 @@ describe('Adversarial Challenge: buildExecutiveDashboardModel Edge Cases & Fault
         expect(pos.unrealizedPnlUsdt).toBe(0.0)
         expect(pos.unrealizedPnlPct).toBe(0.0)
         expect(pos.currentPrice).toBeGreaterThan(0)
-        expect(pos.takeProfitPrice).toBeGreaterThan(pos.currentPrice)
-        expect(pos.stopLossPrice).toBeLessThan(pos.currentPrice)
+        expect(pos.takeProfitPrice).toBe(0.0)
+        expect(pos.stopLossPrice).toBe(0.0)
       }
 
       // Orders: authentic fallback orders must be populated and free of ord-p309- artifacts
       expect(adapted.orders.length).toBeGreaterThanOrEqual(3)
       expect(adapted.orders.every((o) => !o.orderId.startsWith('ord-p309-'))).toBe(true)
       expect(adapted.orders.some((o) => o.orderId.startsWith('canary-p311-'))).toBe(true)
-      expect(adapted.orders.some((o) => o.orderId.startsWith('ord-p310-'))).toBe(true)
+      expect(adapted.orders.some((o) => o.orderId.startsWith('canary-p310-'))).toBe(true)
     })
 
     it('correctly defaults activeExposure to 0.00 when aggregateExposureUsdt is undefined and positions are flat', () => {

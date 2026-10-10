@@ -10,6 +10,7 @@ import {
   Zap,
 } from 'lucide-react'
 import type { BtcMacroTrend, HawkesHazard, ScalperCriteria } from './types'
+import { ProvenanceBadge } from './provenance-badge'
 
 export interface StrategyConfluenceRadarProps {
   btcMacroTrend: BtcMacroTrend
@@ -55,13 +56,14 @@ export function StrategyConfluenceRadar({
             <Compass className="w-5 h-5 text-purple-400 animate-spin-slow" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
                 Radar Konfluens Strategi &amp; Skalper 15m
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-purple-500/10 border border-purple-500/25 text-purple-300">
                 Sistem Keputusan
               </span>
+              <ProvenanceBadge source="DAEMON 24/7" />
             </div>
             <p className="text-xs text-zinc-400">
               Penapis aliran makro Bitcoin, senarai semak pencetus jatuhan kecairan 15m, dan tolok bahaya Hawkes

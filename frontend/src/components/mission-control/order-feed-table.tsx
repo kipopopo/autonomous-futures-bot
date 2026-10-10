@@ -8,6 +8,7 @@ import {
   Zap,
 } from 'lucide-react'
 import type { OrderFeedItem } from './types'
+import { ProvenanceBadge } from './provenance-badge'
 
 export interface OrderFeedTableProps {
   orders: OrderFeedItem[]
@@ -33,13 +34,14 @@ export function OrderFeedTable({ orders }: OrderFeedTableProps) {
             <Receipt className="w-5 h-5 text-emerald-400" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
                 Suapan Pesanan &amp; Log Pelaksanaan Langsung
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-300">
                 Maker 0.02%
               </span>
+              <ProvenanceBadge source="LIVE EXCHANGE" />
             </div>
             <p className="text-xs text-zinc-400">
               Pelaksanaan pesanan pasaran had (maker limit) tanpa seretan yuran tinggi, direkodkan mengikut waktu Malaysia (MYT)

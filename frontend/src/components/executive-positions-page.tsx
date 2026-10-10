@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import type { BracketPositionsModel, LiveMarketModel } from '@/lib/canary'
 import type { PositionTelemetry } from './mission-control/types'
+import { ProvenanceBadge } from './mission-control/provenance-badge'
 
 export interface ExecutivePositionsPageProps {
   positions: PositionTelemetry[]
@@ -38,13 +39,14 @@ export function ExecutivePositionsPage({
               <Radio className="w-5 h-5 text-cyan-400 animate-pulse" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold tracking-tight text-white">
                   Pasaran &amp; Posisi Terperinci
                 </h1>
                 <span className="badge badge-sm font-mono font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
                   {activeCount} Terbuka / {positions.length} Dipantau
                 </span>
+                <ProvenanceBadge source="LIVE EXCHANGE" />
               </div>
               <p className="text-xs text-white/50">
                 Pemantauan telemetri kedudukan pasaran abadi Binance Futures, pesanan kurungan ATR, dan kedalaman harga tanda

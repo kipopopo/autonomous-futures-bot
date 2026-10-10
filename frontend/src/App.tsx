@@ -23,6 +23,7 @@ import { ExecutivePositionsPage } from '@/components/executive-positions-page'
 import { ExecutiveTradesPage } from '@/components/executive-trades-page'
 import { ExecutiveSafetyPage } from '@/components/executive-safety-page'
 import { ResearchArchiveDrawer } from '@/components/mission-control/research-archive-drawer'
+import { ProvenanceBadge } from '@/components/mission-control/provenance-badge'
 
 import { AccountingPage } from '@/components/accounting-page'
 import { CreatorPage } from '@/components/creator-page'
@@ -46,7 +47,12 @@ import { EvolutionPage } from '@/components/evolution-page'
 import { TestnetBridgePage } from '@/components/testnet-bridge-page'
 import { KillSwitchPage } from '@/components/kill-switch-page'
 import { ProductionLaunchPage } from '@/components/production-launch-page'
-import { fetchCanaryDashboardData, fetchOverviewData } from '@/lib/api'
+import {
+  fetchCanaryDashboardData,
+  fetchOverviewData,
+  fetchLiveMarketPrices,
+  type LiveMarketPricesResponse,
+} from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
 import {
   buildAccountingModel,
@@ -261,6 +267,7 @@ function App() {
   const [state, setState] = useState<LoadState>('loading')
   const [apiData, setApiData] = useState<DashboardApiData>(EMPTY_API_DATA)
   const [canaryData, setCanaryData] = useState<CanaryDashboardData>(EMPTY_CANARY_DATA)
+  const [liveMarketPrices, setLiveMarketPrices] = useState<LiveMarketPricesResponse | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null)
 
@@ -352,6 +359,7 @@ function App() {
         autoEvolutionModel,
         strategyMiningModel,
         canaryData.executionStatus ?? null,
+        liveMarketPrices?.btc_macro ?? null,
       ),
     [
       productionLaunchModel,
@@ -363,21 +371,25 @@ function App() {
       autoEvolutionModel,
       strategyMiningModel,
       canaryData.executionStatus,
+      liveMarketPrices?.btc_macro,
     ],
   )
 
   const loadData = useCallback(async () => {
     setState('loading')
     setErrorMessage(null)
-    const [overviewResult, canaryResult] = await Promise.allSettled([
+    const [overviewResult, canaryResult, pricesResult] = await Promise.allSettled([
       fetchOverviewData(),
       fetchCanaryDashboardData(),
+      fetchLiveMarketPrices(),
     ])
     const nextOverview = overviewResult.status === 'fulfilled' ? overviewResult.value : EMPTY_API_DATA
     const nextCanary = canaryResult.status === 'fulfilled' ? canaryResult.value : EMPTY_CANARY_DATA
+    const nextPrices = pricesResult.status === 'fulfilled' ? pricesResult.value : null
 
     setApiData(nextOverview)
     setCanaryData(nextCanary)
+    setLiveMarketPrices(nextPrices)
     setLastFetchedAt(new Date())
 
     const hasData = Boolean(
@@ -699,7 +711,7 @@ function App() {
 
         <div className="sidebar-footer border-t border-base-300">
           <div className="flex items-center justify-between">
-            <span className="sidebar-label font-mono">PHASE 311</span>
+            <span className="sidebar-label font-mono">PHASE 314</span>
             <span className="badge badge-success badge-xs py-1.5 px-2 font-mono font-semibold">
               Mission Control
             </span>
@@ -711,14 +723,17 @@ function App() {
         {/* Archive Notice Bar when visiting historical phase */}
         {isArchive && (
           <div className="rounded-2xl bg-base-200/90 border border-primary/30 p-4 mb-6 shadow-md flex flex-wrap items-center justify-between gap-3 font-mono text-xs">
-            <div className="flex items-center gap-2.5 text-base-content">
+            <div className="flex items-center gap-2.5 text-base-content flex-wrap">
               <div className="p-2 rounded-xl bg-primary/10 text-primary">
                 <Archive className="w-4 h-4" />
               </div>
               <div>
-                <span className="font-bold text-primary block">
-                  📁 Arkib Penyelidikan Sejarah ({page.toUpperCase()})
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-primary block">
+                    📁 Arkib Penyelidikan Sejarah ({page.toUpperCase()})
+                  </span>
+                  <ProvenanceBadge source="RESEARCH ARTIFACT / SIMULATION" />
+                </div>
                 <span className="text-[11px] text-base-content/60">
                   Paparan fasa kajian terdahulu (Phases 250-309). Semua bukti kriptografi DAG &amp; lejar audit dikekalkan.
                 </span>
@@ -869,6 +884,10 @@ function App() {
               productionLaunchModel={productionLaunchModel}
               riskModel={riskModel}
               killSwitchModel={killSwitchModel}
+              executionStatus={canaryData.executionStatus ?? null}
+              microstructureModel={microstructureModel}
+              liveMarketModel={liveMarketModel}
+              latencyMs={executiveModel.kpis.latencyMs}
             />
           )}
 

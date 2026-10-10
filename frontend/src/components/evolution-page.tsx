@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 
 import type { AutoEvolutionModel } from '@/lib/canary'
+import { ProvenanceBadge } from './mission-control/provenance-badge'
 
 function formatMyt(ts: number | string | Date): string {
   const d = typeof ts === 'number' || typeof ts === 'string' ? new Date(ts) : ts
@@ -220,6 +221,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               <CheckCircle2 className="h-3.5 w-3.5" />
               {model.status}
             </span>
+            <ProvenanceBadge source="DAEMON 24/7" />
           </div>
           <p className="mt-2 text-sm text-base-content/70">
             Hash-verified simulation artifact only. It does not establish real feedback learning,

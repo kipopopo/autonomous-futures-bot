@@ -10,6 +10,7 @@ import {
   Zap,
 } from 'lucide-react'
 import type { OrderFeedItem } from './mission-control/types'
+import { ProvenanceBadge } from './mission-control/provenance-badge'
 
 export interface ExecutiveTradesPageProps {
   orders: OrderFeedItem[]
@@ -22,9 +23,24 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
     filterSymbol === 'ALL' ? true : o.symbol === filterSymbol,
   )
 
-  const totalFilled = orders.filter((o) => o.status === 'FILLED').length
+  const filledOrders = orders.filter((o) => o.status === 'FILLED')
+  const totalFilled = filledOrders.length
   const totalRealizedPnl = orders.reduce((acc, o) => acc + (o.realizedPnlUsdt || 0), 0)
   const totalFees = orders.reduce((acc, o) => acc + (o.makerFeeUsdt || 0), 0)
+
+  // Dynamic win rate from authentic orders (default to 0.0% when 0 completed trades)
+  const completedWithPnl = filledOrders.filter((o) => (o.realizedPnlUsdt ?? 0) !== 0)
+  const winningTrades = filledOrders.filter((o) => (o.realizedPnlUsdt ?? 0) > 0)
+  const dynamicWinRate =
+    completedWithPnl.length > 0
+      ? (winningTrades.length / completedWithPnl.length) * 100.0
+      : 0.0
+
+  // Dynamic slippage analysis: 100% maker limit order structuring eliminates taker drag
+  const makerOrdersCount = filledOrders.filter(
+    (o) => o.orderType === 'LIMIT MAKER' || o.orderType === 'LIMIT',
+  ).length
+  const isPureMaker = filledOrders.length > 0 && makerOrdersCount === filledOrders.length
 
   return (
     <div className="w-full space-y-6">
@@ -37,13 +53,14 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
               <Receipt className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold tracking-tight text-white">
                   Log Perdagangan &amp; Bedah Siasat Pelaksanaan
                 </h1>
                 <span className="badge badge-sm font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   {totalFilled} Pesanan Diisi
                 </span>
+                <ProvenanceBadge source="LIVE EXCHANGE" />
               </div>
               <p className="text-xs text-white/50">
                 Sejarah lengkap pelaksanaan pasaran, yuran maker 0.02%, dan analisis autopsi kualiti dagangan
@@ -54,8 +71,12 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
           <div className="flex items-center gap-3">
             <div className="text-right font-mono">
               <span className="text-[11px] text-white/50 block">PnL Keseluruhan:</span>
-              <span className="text-base font-bold text-emerald-400">
-                +${totalRealizedPnl.toFixed(4)} USDT
+              <span
+                className={`text-base font-bold ${
+                  totalRealizedPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                }`}
+              >
+                {`${totalRealizedPnl >= 0 ? '+' : '-'}${Math.abs(totalRealizedPnl).toFixed(4)} USDT`}
               </span>
             </div>
           </div>
@@ -81,10 +102,12 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
             Kadar Kemenangan (Win Rate)
           </span>
           <span className="text-xl font-bold text-emerald-400 block mt-1">
-            100.0%
+            {`${dynamicWinRate.toFixed(1)}%`}
           </span>
           <span className="text-[11px] text-white/50 mt-1 block">
-            Berdasarkan posisi yang selesai
+            {completedWithPnl.length > 0
+              ? `${winningTrades.length} drpd ${completedWithPnl.length} dagangan untung`
+              : 'Berdasarkan posisi yang selesai'}
           </span>
         </div>
 
@@ -96,7 +119,10 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
             0.00 bps (0.00%)
           </span>
           <span className="text-[11px] text-cyan-400 flex items-center gap-1 mt-1">
-            <CheckCircle2 className="w-3 h-3" /> Pelaksanaan had tepat (exact limit)
+            <CheckCircle2 className="w-3 h-3" />
+            {isPureMaker
+              ? '100% Pelaksanaan had pasif (exact maker limit)'
+              : 'Pelaksanaan had tepat (exact limit)'}
           </span>
         </div>
       </div>
@@ -197,7 +223,7 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
                           ) : (
                             <ArrowDownRight className="w-3.5 h-3.5" />
                           )}
-                          +${ord.realizedPnlUsdt.toFixed(4)}
+                          {`${pnlPositive ? '+' : '-'}${Math.abs(ord.realizedPnlUsdt).toFixed(4)}`}
                         </span>
                       ) : (
                         <span className="text-white/30">—</span>
