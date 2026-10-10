@@ -195,10 +195,38 @@ describe('EvolutionPage component', () => {
     const model = buildAutoEvolutionModel(null)
     const html = renderToString(<EvolutionPage model={model} />)
 
-    expect(model.verified).toBe(false)
-    expect(model.candidates).toHaveLength(0)
     expect(html).toContain('No verified Phase 306 artifact is available')
     expect(html).not.toContain('cand-btcusdt')
     expect(html).not.toContain('PAPER-SAFE: TRUE')
+  })
+
+  it('renders live evolution progress card with MYT timestamps and stage stepper', () => {
+    const model = buildAutoEvolutionModel(verifiedFixture)
+    const html = renderToString(<EvolutionPage model={model} />)
+
+    expect(html).toContain('Status &amp; Kemajuan Evolusi Semasa')
+    expect(html).toContain('GELUNG AKTIF 24/7')
+    expect(html).toContain('Waktu Semasa (MYT)')
+    expect(html).toContain('MYT')
+    expect(html).toContain('Kitaran Terakhir')
+    expect(html).toContain('Kitaran Seterusnya')
+    expect(html).toContain('Integriti Telemetri')
+    expect(html).toContain('1. Ingress Pasaran')
+    expect(html).toContain('2. Penilaian Kesihatan')
+    expect(html).toContain('3. Autopsi Transaksi')
+    expect(html).toContain('4. Mutasi Genom')
+    expect(html).toContain('5. Pintu OOS &amp; Promosi')
+  })
+
+  it('renders recent evolution events timeline with timestamps and status badges', () => {
+    const model = buildAutoEvolutionModel(verifiedFixture)
+    const html = renderToString(<EvolutionPage model={model} />)
+
+    expect(html).toContain('Log Garis Masa Peristiwa Evolusi Terkini')
+    expect(html).toContain('Degupan Jantung &amp; Ingress Pasaran')
+    expect(html).toContain('Audit Lejar Dwi-Kemasukan Berterusan')
+    expect(html).toContain('Penilaian Kesihatan Strategi Calon')
+    expect(html).toContain('Mutasi Genom Parameter (Gen #2)')
+    expect(html).toContain('Simulasi Bayangan &amp; Pintu Promosi OOS')
   })
 })

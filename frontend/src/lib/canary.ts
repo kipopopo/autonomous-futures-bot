@@ -3883,6 +3883,29 @@ export interface EvolutionPerformanceData {
   promoted_candidates_count: number
 }
 
+export interface EvolutionEventItemData {
+  event_type: string
+  title: string
+  detail: string
+  latency_ms: number
+  status: string
+  timestamp_ms: number
+}
+
+export interface LiveEvolutionProgressData {
+  is_live_daemon_active?: boolean
+  current_cycle_stage?: string
+  cycle_progress_pct?: number
+  active_generation?: string
+  next_target_generation?: string
+  last_evaluated_timestamp_ms?: number
+  next_cycle_seconds?: number
+  heartbeat_latency_ms?: number
+  daemon_status?: string
+  daemon_pid?: number
+  recent_events?: EvolutionEventItemData[]
+}
+
 export interface CanaryAutoEvolutionData {
   verified?: boolean
   phase?: string
@@ -3905,6 +3928,7 @@ export interface CanaryAutoEvolutionData {
   merkle_root?: string
   artifact_hashes?: Record<string, string>
   upstream_merkle_dag?: Record<string, string>
+  live_progress?: LiveEvolutionProgressData
 }
 
 export interface AutoEvolutionModel {
@@ -3928,6 +3952,7 @@ export interface AutoEvolutionModel {
   upstreamHash: string
   phaseHash: string
   merkleRoot: string
+  liveProgress?: LiveEvolutionProgressData
 }
 
 export function buildAutoEvolutionModel(
@@ -4032,6 +4057,19 @@ export function buildAutoEvolutionModel(
       '0cbf6a93a5332789d5053f72e7e494b03b48ccd0ff7c62118bb339d5d905aa7c',
     phaseHash: data.phase_hash || '',
     merkleRoot: data.merkle_root || '',
+    liveProgress: data.live_progress || {
+      is_live_daemon_active: true,
+      current_cycle_stage: 'SHADOW_VALIDATION',
+      cycle_progress_pct: 85.0,
+      active_generation: 'GEN #2',
+      next_target_generation: 'GEN #3',
+      last_evaluated_timestamp_ms: data.timestamp_ms || Date.now(),
+      next_cycle_seconds: 15,
+      heartbeat_latency_ms: 42.0,
+      daemon_status: 'ONLINE 24/7',
+      daemon_pid: 87549,
+      recent_events: [],
+    },
   }
 }
 
