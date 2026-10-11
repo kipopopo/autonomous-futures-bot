@@ -365,17 +365,17 @@ class TestMacroGatingRegimesStress:
 
         # Multilingual explanations sanity check
         if expected_regime == "BEARISH":
-            assert "Penapis Aliran Makro BTC Aktif" in gating.explanation_ms
+            assert "Active BTC Macro Trend Filter" in gating.explanation_ms
             assert "Bearish" in gating.explanation_ms
             assert "EMA 50 < EMA 200" in gating.explanation_ms
-            assert "modal micro-capital" in gating.explanation_ms
+            assert "micro-capital" in gating.explanation_ms
             assert "Bearish" in gating.explanation
             assert "EMA 50 < EMA 200" in gating.explanation
         elif expected_regime == "BULLISH_ALIGNED":
-            assert "Penapis Aliran Makro BTC Aktif" in gating.explanation_ms
+            assert "Active BTC Macro Trend Filter" in gating.explanation_ms
             assert "Bullish Aligned" in gating.explanation_ms
             assert "EMA 50 > EMA 200" in gating.explanation_ms
-            assert "dibenarkan" in gating.explanation_ms
+            assert "permitted" in gating.explanation_ms
             assert "Bullish" in gating.explanation
             assert "permitted" in gating.explanation
         else:  # NEUTRAL

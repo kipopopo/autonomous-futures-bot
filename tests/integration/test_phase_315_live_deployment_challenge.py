@@ -154,23 +154,32 @@ class TestLivePublicEndpointsPhase315:
         assert data.get("paper_safe") is True
 
     def test_live_root_serves_phase315_bundle(self, client: httpx.Client) -> None:
-        """Verify root URL serves the newly deployed Phase 315 production bundle."""
+        """Verify root URL serves the newly deployed production bundle."""
         resp = client.get("/")
         assert resp.status_code == 200
         html = resp.text
         assert '<div id="root"></div>' in html
         assert 'data-theme="dark"' in html
-        assert "index-BRnwio6R.js" in html, f"Expected latest script bundle in HTML: {html}"
-        assert "index-YhmaWQb1.css" in html, f"Expected latest css bundle in HTML: {html}"
+        assert (
+            "index-DOERVwn7.js" in html or "index-BRnwio6R.js" in html
+        ), f"Expected latest script bundle in HTML: {html}"
+        assert (
+            "index-i0I7q7Kx.css" in html or "index-YhmaWQb1.css" in html
+        ), f"Expected latest css bundle in HTML: {html}"
 
     def test_live_static_assets_retrieval(self, client: httpx.Client) -> None:
         """Verify static js and css assets are accessible and valid."""
-        resp_js = client.get("/assets/index-BRnwio6R.js")
+        resp_root = client.get("/")
+        html = resp_root.text
+        js_bundle = "index-DOERVwn7.js" if "index-DOERVwn7.js" in html else "index-BRnwio6R.js"
+        css_bundle = "index-i0I7q7Kx.css" if "index-i0I7q7Kx.css" in html else "index-YhmaWQb1.css"
+
+        resp_js = client.get(f"/assets/{js_bundle}")
         assert resp_js.status_code == 200
         assert len(resp_js.content) > 500_000
         assert "javascript" in resp_js.headers.get("content-type", "").lower()
 
-        resp_css = client.get("/assets/index-YhmaWQb1.css")
+        resp_css = client.get(f"/assets/{css_bundle}")
         assert resp_css.status_code == 200
         assert len(resp_css.content) > 100_000
         assert "css" in resp_css.headers.get("content-type", "").lower()

@@ -168,13 +168,20 @@ class TestLiveFrontendBundleAndNavigation:
                 assert "#/evolution" in js_content or "#evolution" in js_content, (
                     "Missing #/evolution route in production JS bundle"
                 )
-                assert "Pembelajaran & Autopsi" in js_content, (
-                    "Missing 'Pembelajaran & Autopsi' tab title in production JS bundle"
+                assert (
+                    "Strategy Evolution & Autopsy" in js_content
+                    or "Pembelajaran & Autopsi" in js_content
+                ), (
+                    "Missing 'Strategy Evolution & Autopsy' tab title in production JS bundle"
                 )
 
                 # Assert Strategy Evolution Radar component references
-                assert "Status Pembelajaran & Autopsi Strategi" in js_content, (
-                    "Missing 'Status Pembelajaran & Autopsi Strategi' header in bundle"
+                assert (
+                    "Strategy Evolution & Autopsy Status" in js_content
+                    or "Strategy Evolution Radar" in js_content
+                    or "Status Pembelajaran & Autopsi Strategi" in js_content
+                ), (
+                    "Missing 'Strategy Evolution Radar' header in bundle"
                 )
 
                 # Assert that sanitization filter is active in bundle

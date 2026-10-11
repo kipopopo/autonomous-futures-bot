@@ -3588,3 +3588,67 @@ Integrity mode: development
 - [ ] Vitest test suite (`npm test --prefix frontend`) passes with 100% success rate across all updated components.
 - [ ] Pytest test suite passes 100% covering multi-pair ingress, dynamic evolution state machine, and zero-drift balance invariant ($|\Delta| < 10^{-15}$ USDT).
 - [ ] VPS trader daemon (`autonomous-futures-trader.service`) Main PID 87549 remains running uninterrupted with 0 restarts.
+
+
+## 2026-10-11T07:11:39Z
+
+Execute Phase 316 for Autonomous Futures Bot: Standardize the web dashboard (`https://futures.semua.dev/`) and backend telemetry endpoints into 100% clean, idiomatic, professional financial English by purging all Malay and Indonesian phrasings across all navigation, KPI cards, tables, charts, evolution steppers, autopsy logs, and backend telemetry descriptors, while preserving complete functionality, 100% test suite pass rates, zero-drift solvency invariants, and uninterrupted continuity of the 24/7 background trader daemon (Main PID 87549).
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Comprehensive Frontend UI English Localization
+- Translate all navigation tabs, submenus, badges, drawer labels, tooltips, and modal titles across the entire React application:
+  - `Dashboard Utama` -> `Executive Overview`
+  - `Pasaran & Posisi` -> `Live Positions & Markets`
+  - `Log Perdagangan` -> `Trade Log & Executions`
+  - `Kawalan Keselamatan` -> `Risk Controls & Solvency`
+  - `Pembelajaran & Autopsi` -> `Strategy Evolution & Autopsy`
+  - `Arkib Penyelidikan` -> `Research Archives`
+- Translate all KPI cards, metric labels, tooltips, table headers, and relative timestamps (e.g. `5s ago`, `just now` instead of `yang lalu` or `Baru sahaja`).
+- Standardize all status badges (e.g. `ACTIVE 24/7`, `STANDBY / SCANNING`, `EVALUATING`, `NORMAL`, `VERIFIED (0.00)`).
+
+### R2. Evolution State Machine & Strategy Radar Localization
+- Standardize the 5-stage evolution pipeline in `evolution-page.tsx` and `strategy-evolution-radar.tsx` into institutional trading terminology:
+  - `1. Market Ingress`
+  - `2. Candidate Health Evaluation`
+  - `3. Trade Autopsy & Attribution`
+  - `4. Genome Mutation Staging`
+  - `5. OOS Qualification Gate & Promotion`
+- Update all live hurdle descriptions, stage indicators (e.g. `WAITING FOR SAMPLES (0/5 REQUIRED TRADES)`), Sharpe hurdle notices (`Sharpe ≥ 15% hurdle`), and the macro gating banner (`Long entries temporarily paused by BTC Bearish macro filter for capital protection`).
+
+### R3. Backend Telemetry & API Event Localization
+- In `src/autonomous_futures/api/canary.py` and `app.py`, translate all event descriptions, gating reasons, and live progress titles returned in JSON endpoints (`/api/v1/canary/evolution`, `/api/v1/canary/summary`, `/api/v1/execution/status`) into clean English:
+  - `Degupan Jantung & Ingress Pasaran` -> `Heartbeat & Market Ingress`
+  - `Audit Lejar Dwi-Kemasukan Berterusan` -> `Continuous Double-Entry Ledger Audit`
+  - `Penilaian Kesihatan Strategi Calon` -> `Candidate Strategy Health Evaluation`
+  - `Mutasi Genom Parameter` -> `Parameter Genome Mutation`
+  - `Simulasi Bayangan & Pintu Promosi OOS` -> `Shadow Simulation & OOS Promotion Gate`
+- Maintain backwards-compatible JSON schema keys and fields.
+
+### R4. Test Suite Alignment & Zero-Regression Quality Gates
+- Update all frontend Vitest test assertions (`npm test --prefix frontend`) that check for rendered text strings, ensuring all 41+ test files pass 100%.
+- Update backend Pytest suites to assert English telemetry strings.
+- Verify `npm run build` compiles cleanly with zero TypeScript errors or linting regressions.
+
+### R5. Non-Disruptive VPS Deployment & Continuous Daemon Invariant
+- Deploy the updated frontend production bundle to `/opt/autonomous-futures-bot/frontend/dist` on Kainode Linux VPS (`147.79.18.15`) and reload web services.
+- Guarantee that `autonomous-futures-trader.service` (Main PID 87549) runs 100% continuously without restarting, process interruption, or balance drift.
+
+## Acceptance Criteria
+
+### UI English Localization & Visual Consistency
+- [ ] Visiting `https://futures.semua.dev/` renders 100% English across all 5 primary views, KPI cards, tables, charts, drawers, and badges with zero Indonesian/Malay remnants.
+- [ ] Relative timestamps render in English (e.g. `Just now`, `12s ago`, `5m ago`, `2h ago`).
+- [ ] The Strategy Evolution & Autopsy page displays the 5-stage pipeline and OOS scorecards in institutional English terminology.
+
+### Backend Telemetry & API Consistency
+- [ ] `GET /api/v1/canary/evolution` and `/api/v1/execution/status` return English titles, event descriptions, and gating reasons.
+- [ ] API responses maintain complete schema integrity and zero-drift balance invariant ($|\Delta| < 10^{-15}\text{ USDT}$).
+
+### Test Verification & VPS Daemon Continuity
+- [ ] `npm test --prefix frontend` (Vitest) passes with 100% success rate across all test files.
+- [ ] Backend Pytest test suites pass with 100% success rate.
+- [ ] Kainode Linux VPS trader daemon (`autonomous-futures-trader.service`) Main PID 87549 remains active and uninterrupted with `NRestarts=0`.

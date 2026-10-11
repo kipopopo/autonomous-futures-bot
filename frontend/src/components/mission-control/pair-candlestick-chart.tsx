@@ -353,7 +353,7 @@ export function PairCandlestickChart({
         if (!isMounted) return
 
         if (!klines || klines.length === 0) {
-          setError('Tiada data kline tersedia')
+          setError('No kline data available')
           setIsLoading(false)
           return
         }
@@ -427,7 +427,7 @@ export function PairCandlestickChart({
       })
       .catch((err) => {
         if (!isMounted) return
-        setError(err instanceof Error ? err.message : 'Gagal memuatkan data kline')
+        setError(err instanceof Error ? err.message : 'Failed to load kline data')
         setIsLoading(false)
       })
 
@@ -479,7 +479,7 @@ export function PairCandlestickChart({
         >
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-white/10 text-xs font-mono text-slate-300">
             <span className="loading loading-spinner loading-xs text-cyan-400" />
-            <span>{`Memuatkan ${symbol} (${interval})...`}</span>
+            <span>{`Loading ${symbol} (${interval})...`}</span>
           </div>
         </div>
       )}

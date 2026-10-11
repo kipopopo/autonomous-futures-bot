@@ -47,7 +47,7 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
-                🧠 Status Pembelajaran &amp; Autopsi Strategi
+                🧠 Strategy Evolution &amp; Autopsy Status
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-purple-500/10 border border-purple-500/25 text-purple-300">
                 {generation || 'GEN #2'}
@@ -55,26 +55,26 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
               <ProvenanceBadge source="DAEMON 24/7" />
             </div>
             <p className="text-xs text-zinc-400">
-              Kesihatan calon model, 5 pintu kelayakan walk-forward OOS, dan atribusi bedah siasat pelaksanaan
+              Candidate model health, 5 walk-forward OOS qualification gates, and execution autopsy attribution
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <span className="badge badge-sm font-mono font-semibold py-1 px-3 badge-success bg-emerald-500/15 border-emerald-500/30 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]">
-            ⚡ GELUNG AKTIF (ACTIVE DAEMON)
+            ⚡ ACTIVE DAEMON LOOP
           </span>
           <a
             href="#/evolution"
             className="btn btn-xs bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 font-medium transition-colors"
           >
-            🔬 Autopsi &amp; Evolusi Penuh
+            🔬 Full Autopsy &amp; Evolution
           </a>
           <a
             href="#/mining"
             className="btn btn-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-medium transition-colors"
           >
-            ⛏️ Perlombongan Strategi
+            ⛏️ Strategy Mining
           </a>
         </div>
       </div>
@@ -86,7 +86,7 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                 <Cpu className="w-4 h-4 text-purple-400" />
-                Strategi Aktif &amp; Kesihatan Calon
+                Active Strategy &amp; Candidate Health
               </span>
               <span
                 className={`inline-flex items-center gap-1 text-xs font-mono font-bold py-0.5 px-2.5 rounded-lg border ${
@@ -123,40 +123,40 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
                 <div className="text-base font-bold font-mono text-emerald-400">
                   {rollingSharpe.toFixed(2)}
                 </div>
-                <div className="text-[10px] text-zinc-500">Ambang: ≥ 2.0</div>
+                <div className="text-[10px] text-zinc-500">Threshold: ≥ 2.0</div>
               </div>
 
               <div className="p-2.5 rounded-lg bg-black/20 border border-white/5">
-                <div className="text-[10px] text-zinc-400 uppercase font-mono">Kadar Menang</div>
+                <div className="text-[10px] text-zinc-400 uppercase font-mono">Win Rate</div>
                 <div className="text-base font-bold font-mono text-emerald-400">
                   {`${winRatePct.toFixed(1)}%`}
                 </div>
-                <div className="text-[10px] text-zinc-500">Ambang: ≥ 65%</div>
+                <div className="text-[10px] text-zinc-500">Threshold: ≥ 65%</div>
               </div>
 
               <div className="p-2.5 rounded-lg bg-black/20 border border-white/5">
-                <div className="text-[10px] text-zinc-400 uppercase font-mono">Drawdown Maks</div>
+                <div className="text-[10px] text-zinc-400 uppercase font-mono">Max Drawdown</div>
                 <div className="text-base font-bold font-mono text-cyan-400">
                   {`${maxDrawdownPct.toFixed(1)}%`}
                 </div>
-                <div className="text-[10px] text-zinc-500">Siling: ≤ 15%</div>
+                <div className="text-[10px] text-zinc-500">Ceiling: ≤ 15%</div>
               </div>
 
               <div className="p-2.5 rounded-lg bg-black/20 border border-white/5">
-                <div className="text-[10px] text-zinc-400 uppercase font-mono">Ketahanan Hawkes</div>
+                <div className="text-[10px] text-zinc-400 uppercase font-mono">Hawkes Resilience</div>
                 <div className="text-base font-bold font-mono text-purple-300">
                   {hawkesResilienceScore.toFixed(2)}
                 </div>
-                <div className="text-[10px] text-zinc-500">Skor: [0 - 1.0]</div>
+                <div className="text-[10px] text-zinc-500">Score: [0 - 1.0]</div>
               </div>
             </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs text-zinc-400">
-            <span>Status Model:</span>
+            <span>Model Status:</span>
             <span className="font-mono text-emerald-400 font-semibold flex items-center gap-1">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              Sedia Pelaksanaan (Live-Ready)
+              Live-Ready
             </span>
           </div>
         </div>
@@ -168,7 +168,7 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  5 Pintu Kelayakan OOS
+                  5 OOS Qualification Gates
                 </span>
                 <ProvenanceBadge source="RESEARCH ARTIFACT / SIMULATION" />
               </div>
@@ -179,12 +179,12 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
                     : 'badge-warning bg-amber-500/15 border-amber-500/30 text-amber-400'
                 }`}
               >
-                {`${passedGatesCount} / ${gates.length} PINTU LULUS`}
+                {`${passedGatesCount} / ${gates.length} GATES PASSED`}
               </span>
             </div>
 
             <p className="text-xs text-zinc-400 mb-3">
-              Pengesahan ketahanan data luar sampel (Walk-Forward Out-of-Sample)
+              Walk-Forward Out-of-Sample (OOS) data resilience verification
             </p>
 
             <div className="space-y-2">
@@ -200,7 +200,7 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
                         {gate.name}
                       </div>
                       <div className="text-[10px] text-zinc-400 font-mono">
-                        {`Syarat: ${gate.thresholdLabel}`}
+                        {`Hurdle: ${gate.thresholdLabel}`}
                       </div>
                     </div>
                   </div>
@@ -210,7 +210,7 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
                       {gate.actualValueLabel}
                     </span>
                     <span className="badge badge-xs badge-success bg-emerald-500/20 text-emerald-300">
-                      LULUS
+                      PASSED
                     </span>
                   </div>
                 </div>
@@ -219,7 +219,7 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
           </div>
 
           <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs text-zinc-400">
-            <span>Ujian Ketegangan:</span>
+            <span>Stress Test:</span>
             <span className="font-mono text-emerald-400 font-semibold">
               Flash Crash -20% (SURVIVED)
             </span>
@@ -232,15 +232,15 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                 <Gauge className="w-4 h-4 text-cyan-400" />
-                Tolok Atribusi Autopsi Dagangan
+                Trade Autopsy Attribution Gauges
               </span>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-300">
-                {`${totalAutopsies} Autopsi`}
+                {`${totalAutopsies} Autopsies`}
               </span>
             </div>
 
             <p className="text-xs text-zinc-400 mb-3">
-              Penguraian mikro-eksekusi order flow, timing entry, dan kelebihan bersih
+              Micro-execution order flow decomposition, entry timing, and net edge
             </p>
 
             <div className="space-y-3">
@@ -274,7 +274,7 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
                               : 'badge-warning bg-amber-500/20 text-amber-300'
                           }`}
                         >
-                          {gauge.isOptimal ? 'OPTIMAL' : 'PERHATIAN'}
+                          {gauge.isOptimal ? 'OPTIMAL' : 'ATTENTION'}
                         </span>
                       </div>
                     </div>
@@ -304,9 +304,9 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
           </div>
 
           <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs text-zinc-400">
-            <span>Calon Dinaikkan:</span>
+            <span>Promoted Candidates:</span>
             <span className="font-mono text-purple-300 font-semibold">
-              {`${promotedCandidatesCount} Calon Promosi Aktif`}
+              {`${promotedCandidatesCount} Active Promoted Candidates`}
             </span>
           </div>
         </div>

@@ -55,22 +55,22 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold tracking-tight text-white">
-                  Log Perdagangan &amp; Bedah Siasat Pelaksanaan
+                  Trade Log &amp; Execution Autopsy
                 </h1>
                 <span className="badge badge-sm font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  {totalFilled} Pesanan Diisi
+                  {totalFilled} Orders Filled
                 </span>
                 <ProvenanceBadge source="LIVE EXCHANGE" />
               </div>
               <p className="text-xs text-white/50">
-                Sejarah lengkap pelaksanaan pasaran, yuran maker 0.02%, dan analisis autopsi kualiti dagangan
+                Complete market execution history, 0.02% maker fee accounting, and trade quality autopsy analytics
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="text-right font-mono">
-              <span className="text-[11px] text-white/50 block">PnL Keseluruhan:</span>
+              <span className="text-[11px] text-white/50 block">Total Realized PnL:</span>
               <span
                 className={`text-base font-bold ${
                   totalRealizedPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
@@ -87,33 +87,33 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="glass-card-subtle p-4 font-mono">
           <span className="text-xs text-white/50 block uppercase font-semibold">
-            Yuran Maker Dibayar
+            Maker Fees Paid
           </span>
           <span className="text-xl font-bold text-amber-400 block mt-1">
             ${totalFees.toFixed(4)} USDT
           </span>
           <span className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
-            <Zap className="w-3 h-3" /> Penjimatan 60% berbanding yuran taker
+            <Zap className="w-3 h-3" /> 60% savings vs taker fees
           </span>
         </div>
 
         <div className="glass-card-subtle p-4 font-mono">
           <span className="text-xs text-white/50 block uppercase font-semibold">
-            Kadar Kemenangan (Win Rate)
+            Win Rate
           </span>
           <span className="text-xl font-bold text-emerald-400 block mt-1">
             {`${dynamicWinRate.toFixed(1)}%`}
           </span>
           <span className="text-[11px] text-white/50 mt-1 block">
             {completedWithPnl.length > 0
-              ? `${winningTrades.length} drpd ${completedWithPnl.length} dagangan untung`
-              : 'Berdasarkan posisi yang selesai'}
+              ? `${winningTrades.length} of ${completedWithPnl.length} winning trades`
+              : 'Based on completed positions'}
           </span>
         </div>
 
         <div className="glass-card-subtle p-4 font-mono">
           <span className="text-xs text-white/50 block uppercase font-semibold">
-            Analisis Gelinciran (Slippage)
+            Slippage Analysis
           </span>
           <span className="text-xl font-bold text-emerald-400 block mt-1">
             0.00 bps (0.00%)
@@ -121,8 +121,8 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
           <span className="text-[11px] text-cyan-400 flex items-center gap-1 mt-1">
             <CheckCircle2 className="w-3 h-3" />
             {isPureMaker
-              ? '100% Pelaksanaan had pasif (exact maker limit)'
-              : 'Pelaksanaan had tepat (exact limit)'}
+              ? '100% Passive limit execution (exact maker limit)'
+              : 'Exact limit execution'}
           </span>
         </div>
       </div>
@@ -133,7 +133,7 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-cyan-400" />
             <h2 className="text-base font-bold text-white">
-              Sejarah Pesanan &amp; Isian Masa Nyata
+              Real-Time Order &amp; Fill History
             </h2>
           </div>
 
@@ -160,7 +160,7 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
                     : 'text-white/60 hover:text-white'
                 }`}
               >
-                {sym === 'ALL' ? 'SEMUA' : sym.replace('USDT', '')}
+                {sym === 'ALL' ? 'ALL' : sym.replace('USDT', '')}
               </button>
             ))}
           </div>
@@ -170,15 +170,15 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
           <table className="table table-sm w-full font-mono text-xs">
             <thead>
               <tr className="border-b border-white/[0.08] text-white/50 text-[11px] uppercase">
-                <th>Waktu (MYT)</th>
-                <th>ID Pesanan</th>
-                <th>Pasangan</th>
-                <th>Tindakan / Jenis</th>
-                <th className="text-right">Harga Isian</th>
-                <th className="text-right">Kuantiti</th>
+                <th>Time (MYT)</th>
+                <th>Order ID</th>
+                <th>Symbol</th>
+                <th>Side / Type</th>
+                <th className="text-right">Filled Price</th>
+                <th className="text-right">Quantity</th>
                 <th className="text-right">Notional</th>
-                <th className="text-right">Yuran (0.02%)</th>
-                <th className="text-right">PnL Direalisasi</th>
+                <th className="text-right">Fee (0.02%)</th>
+                <th className="text-right">Realized PnL</th>
                 <th className="text-center">Status</th>
               </tr>
             </thead>
@@ -257,15 +257,15 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-purple-500/40 to-transparent" />
         <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-purple-400" />
-          Metodologi Bedah Siasat Dagangan Kuantitatif (Phase 306 Engine)
+          Quantitative Trade Autopsy Methodology (Phase 306 Engine)
         </h3>
         <p className="text-white/70 leading-relaxed mb-3">
-          Setiap dagangan yang selesai diuraikan kepada 3 komponen teras: Kesilapan Pemasaan (Timing Error), Pilihan Menentang (Adverse Selection), dan Kelebihan Bersih (Net Edge). Keputusan diarkibkan ke dalam lejar telemetri SQLite dan log peristiwa JSONL untuk pembelajaran pengukuhan berterusan.
+          Every completed trade is decomposed into 3 core components: Timing Error, Adverse Selection, and Net Edge. Results are archived into the SQLite telemetry ledger and JSONL event logs for continuous reinforcement learning.
         </p>
         <div className="flex flex-wrap gap-2">
-          <span className="badge badge-sm badge-success font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Kategori Kesihatan: ELITE</span>
-          <span className="badge badge-sm badge-outline font-semibold border-white/20 text-white/80">Siling Kerugian Harian: 3.00 USDT (Terpelihara)</span>
-          <span className="badge badge-sm badge-outline font-semibold border-cyan-500/30 text-cyan-300">Gelung Pembelajaran: AKTIF</span>
+          <span className="badge badge-sm badge-success font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Health Tier: ELITE</span>
+          <span className="badge badge-sm badge-outline font-semibold border-white/20 text-white/80">Daily Loss Ceiling: 3.00 USDT (Protected)</span>
+          <span className="badge badge-sm badge-outline font-semibold border-cyan-500/30 text-cyan-300">Learning Loop: ACTIVE</span>
         </div>
       </div>
     </div>

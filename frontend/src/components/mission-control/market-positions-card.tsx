@@ -126,15 +126,15 @@ export function MarketPositionsCard({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
-                Pasaran Langsung &amp; Posisi Aktif
+                Live Positions &amp; Markets
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-cyan-500/10 border border-cyan-500/25 text-cyan-400">
-                {positions.length > 0 ? `${positions.length} Pasangan Abadi (Perp)` : '8 Pasangan Abadi (Perp)'}
+                {positions.length > 0 ? `${positions.length} Perpetual Pairs` : '8 Perpetual Pairs'}
               </span>
               <ProvenanceBadge source="LIVE EXCHANGE" />
             </div>
             <p className="text-xs text-zinc-400">
-              Pengawasan harga tanda (mark price), kedudukan terbuka, dan sasaran kurungan TP/SL berpandukan ATR
+              Real-time mark prices, open positions, and ATR bracket TP/SL target telemetry
             </p>
           </div>
         </div>
@@ -145,13 +145,13 @@ export function MarketPositionsCard({
             onClick={toggleAllCharts}
             className="inline-flex items-center gap-1.5 text-xs font-mono py-1 px-2.5 rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 hover:bg-cyan-500/20 transition-colors"
             data-testid="toggle-all-charts-button"
-            title="Buka atau tutup semua carta interaktif serentak"
+            title="Expand or collapse all interactive charts simultaneously"
           >
             <span>📈</span>
-            <span>{allExpanded ? 'Tutup Semua Carta' : 'Carta Interaktif (Semua)'}</span>
+            <span>{allExpanded ? 'Collapse All Charts' : 'Interactive Chart (All)'}</span>
           </button>
           <span className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold py-1 px-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.1)]">
-            1.66 : 1 Nisbah R:R
+            1.66 : 1 R:R Ratio
           </span>
           <span className="inline-flex items-center gap-1 text-xs font-mono py-1 px-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-zinc-300">
             Maker 0.02% Fee Drag
@@ -175,7 +175,7 @@ export function MarketPositionsCard({
               }`}
               data-testid={`symbol-pill-${sym.toLowerCase()}`}
             >
-              {sym === 'ALL' ? 'SEMUA' : sym}
+              {sym === 'ALL' ? 'ALL' : sym}
             </button>
           )
         })}
@@ -265,7 +265,7 @@ export function MarketPositionsCard({
                 <div className="mb-4">
                   <div className="flex items-baseline justify-between mb-1.5">
                     <span className="text-xs text-zinc-400 font-mono">
-                      Harga Tanda (Mark):
+                      Mark Price:
                     </span>
                     <span className="text-xl font-mono font-bold text-white tracking-tight tabular-nums">
                       ${pos.currentPrice.toLocaleString('en-US', {
@@ -278,30 +278,30 @@ export function MarketPositionsCard({
                   {isScanning ? (
                     <div className="p-3 rounded-lg bg-black/20 border border-white/[0.05] text-xs text-zinc-400 mt-2 font-mono flex items-center gap-2.5">
                       <Crosshair className="w-4 h-4 text-cyan-400 shrink-0 animate-spin-slow" />
-                      <span className="leading-snug">Mengimbas kecairan 15m (Capitulation Sweep)...</span>
+                      <span className="leading-snug">Scanning 15m liquidity (Capitulation Sweep)...</span>
                     </div>
                   ) : (
                     <div className="p-3 rounded-lg bg-black/25 border border-white/[0.06] mt-2 flex flex-col gap-1.5 text-xs font-mono">
                       <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">Harga Masuk:</span>
+                        <span className="text-zinc-400">Entry Price:</span>
                         <span className="font-semibold text-white tabular-nums">
                           ${pos.entryPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">Saiz / Nilai:</span>
+                        <span className="text-zinc-400">Size / Notional:</span>
                         <span className="font-semibold text-white tabular-nums">
                           {pos.size} (${pos.notionalUsdt.toFixed(2)} USDT)
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">Margin Terkunci:</span>
+                        <span className="text-zinc-400">Allocated Margin:</span>
                         <span className="font-semibold text-cyan-400 tabular-nums">
                           ${pos.marginUsdt.toFixed(2)} USDT (1x)
                         </span>
                       </div>
                       <div className="flex items-center justify-between pt-1.5 border-t border-white/[0.06]">
-                        <span className="text-zinc-400">PnL Belum Direalisasi:</span>
+                        <span className="text-zinc-400">Unrealized PnL:</span>
                         <span
                           className={`font-bold flex items-center gap-1 tabular-nums ${
                             pnlPositive ? 'text-emerald-400' : 'text-rose-400'
@@ -325,7 +325,7 @@ export function MarketPositionsCard({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-emerald-400">
                     <Target className="w-3.5 h-3.5 shrink-0" />
-                    <span>Ambil Untung (TP 2.0x ATR):</span>
+                    <span>Take Profit (TP 2.0x ATR):</span>
                   </div>
                   <div className="flex items-center gap-1.5 font-semibold text-emerald-400 tabular-nums">
                     <span>
@@ -342,7 +342,7 @@ export function MarketPositionsCard({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-rose-400">
                     <Shield className="w-3.5 h-3.5 shrink-0" />
-                    <span>Henti Rugi (SL 1.2x ATR):</span>
+                    <span>Stop Loss (SL 1.2x ATR):</span>
                   </div>
                   <div className="flex items-center gap-1.5 font-semibold text-rose-400 tabular-nums">
                     <span>
@@ -366,7 +366,7 @@ export function MarketPositionsCard({
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400">
                     <span className="text-rose-400/90 font-medium">SL -1.2x ATR</span>
-                    <span className="text-cyan-400 font-semibold">Harga Semasa</span>
+                    <span className="text-cyan-400 font-semibold">Current Price</span>
                     <span className="text-emerald-400/90 font-medium">TP +2.0x ATR</span>
                   </div>
                 </div>
@@ -375,7 +375,7 @@ export function MarketPositionsCard({
                 <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-0.5">
                   <span className="flex items-center gap-1 text-zinc-400">
                     <Gauge className="w-3 h-3 text-cyan-400" />
-                    Nisbah Risiko/Ganjaran:
+                    Risk/Reward Ratio:
                   </span>
                   <span className="font-mono font-bold text-zinc-300 py-0.5 px-1.5 rounded bg-white/[0.05] border border-white/[0.08]">
                     {pos.riskRewardRatio}
@@ -398,7 +398,7 @@ export function MarketPositionsCard({
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-sm">📈</span>
-                    <span className="font-semibold tracking-wide">Carta Interaktif</span>
+                    <span className="font-semibold tracking-wide">Interactive Chart</span>
                     <span
                       className={`text-[10px] font-mono py-0.5 px-2 rounded-full border ${
                         isExpanded
@@ -406,12 +406,12 @@ export function MarketPositionsCard({
                           : 'bg-white/[0.05] border-white/[0.1] text-zinc-400'
                       }`}
                     >
-                      {isExpanded ? 'Dibuka' : 'Dikecilkan'}
+                      {isExpanded ? 'Expanded' : 'Collapsed'}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-zinc-400">
                     <span className="text-[10px] hidden sm:inline">
-                      {isExpanded ? 'Sembunyi' : activeInterval}
+                      {isExpanded ? 'Hide' : activeInterval}
                     </span>
                     <ChevronDown
                       className={`w-4 h-4 transition-transform duration-200 ${
@@ -441,7 +441,7 @@ export function MarketPositionsCard({
                             : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                         }`}
                         data-testid={`timeframe-15m-${pos.symbol.toLowerCase()}`}
-                        title="15-minit Skalper"
+                        title="15-minute Scalper"
                       >
                         15m
                       </button>
@@ -454,7 +454,7 @@ export function MarketPositionsCard({
                             : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                         }`}
                         data-testid={`timeframe-1h-${pos.symbol.toLowerCase()}`}
-                        title="1-jam Trend Makro"
+                        title="1-hour Macro Trend"
                       >
                         1h
                       </button>

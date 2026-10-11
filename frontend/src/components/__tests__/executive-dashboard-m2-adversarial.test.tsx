@@ -159,8 +159,8 @@ describe('Empirical Adversarial Challenge Suite: Milestone 2 Deliverables', () =
 
       // Must display $0.00
       expect(html).toContain('$0.00')
-      expect(html).toContain('/ $25.00 Had Maksimum')
-      expect(html).toContain('100.0% (Lantai ≥ 75%)')
+      expect(html).toContain('/ $25.00 Max Cap')
+      expect(html).toContain('100.0% (Floor ≥ 75%)')
 
       // Adversarial check: Must NOT contain the purged $5.50 stale fallback
       expect(html).not.toContain('$5.50')
@@ -301,8 +301,8 @@ describe('Empirical Adversarial Challenge Suite: Milestone 2 Deliverables', () =
       expect(html).not.toMatch(/>\s*SHORT\s*</)
 
       // Active position telemetry fields must NOT be displayed
-      expect(html).not.toContain('Harga Masuk:')
-      expect(html).not.toContain('PnL Belum Direalisasi:')
+      expect(html).not.toContain('Entry Price:')
+      expect(html).not.toContain('Unrealized PnL:')
     })
 
     it('asserts genuine active positions are preserved when phase is NOT phase_309 (control test)', () => {

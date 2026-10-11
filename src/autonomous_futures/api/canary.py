@@ -6086,9 +6086,9 @@ class MacroGatingStateItem(DomainModel):
     regime: str = "BEARISH"
     longs_filtered: bool = True
     explanation_ms: str = (
-        "Penapis Aliran Makro BTC Aktif: Kemasukan posisi beli ditangguhkan sementara kerana "
-        "aliran 1h/4h BTC dalam keadaan Bearish (EMA 50 < EMA 200) "
-        "bagi melindungi modal micro-capital bot."
+        "Active BTC Macro Trend Filter: Long entries temporarily paused because "
+        "BTC 1h/4h trend is in a Bearish regime (EMA 50 < EMA 200) "
+        "to protect bot micro-capital."
     )
     explanation: str = (
         "Long entries temporarily paused by BTC 1h/4h Bearish regime filter "
@@ -6108,7 +6108,7 @@ class OOSQualificationGateItem(DomainModel):
     status: str = "WAITING_FOR_SAMPLES"
     status_label: str = "WAITING_FOR_SAMPLES (0/5)"
     explanation: str = (
-        "Menunggu 5 sampel transaksi selesai untuk menguji Sharpe out-of-sample (hurdle >= 15.0%)."
+        "Waiting for 5 completed trade samples to evaluate out-of-sample Sharpe (hurdle >= 15.0%)."
     )
 
 
@@ -6242,8 +6242,8 @@ def _build_macro_gating_state(
         regime_norm = "BULLISH_ALIGNED"
         longs_filtered = False
         explanation_ms = (
-            "Penapis Aliran Makro BTC Aktif: Kemasukan posisi beli dibenarkan kerana "
-            "aliran 1h/4h BTC dalam keadaan Bullish Aligned (EMA 50 > EMA 200)."
+            "Active BTC Macro Trend Filter: Long entries permitted because "
+            "BTC 1h/4h trend is Bullish Aligned (EMA 50 > EMA 200)."
         )
         explanation_en = (
             "Long scalper entries permitted: BTC 1h/4h Bullish regime confirmed (EMA 50 > EMA 200)."
@@ -6252,9 +6252,9 @@ def _build_macro_gating_state(
         regime_norm = "BEARISH"
         longs_filtered = True
         explanation_ms = (
-            "Penapis Aliran Makro BTC Aktif: Kemasukan posisi beli ditangguhkan sementara kerana "
-            "aliran 1h/4h BTC dalam keadaan Bearish (EMA 50 < EMA 200) "
-            "bagi melindungi modal micro-capital bot."
+            "Active BTC Macro Trend Filter: Long entries temporarily paused because "
+            "BTC 1h/4h trend is in a Bearish regime (EMA 50 < EMA 200) "
+            "to protect bot micro-capital."
         )
         explanation_en = (
             "Long entries temporarily paused by BTC 1h/4h Bearish regime filter "
@@ -6264,9 +6264,9 @@ def _build_macro_gating_state(
         regime_norm = "NEUTRAL"
         longs_filtered = True
         explanation_ms = (
-            "Penapis Aliran Makro BTC Aktif: Kemasukan posisi beli ditangguhkan sementara "
-            "kerana aliran 1h/4h BTC dalam keadaan Neutral/Sideways "
-            "bagi melindungi modal micro-capital bot."
+            "Active BTC Macro Trend Filter: Long entries temporarily paused "
+            "because BTC 1h/4h trend is in a Neutral/Sideways regime "
+            "to protect bot micro-capital."
         )
         explanation_en = (
             "Long entries temporarily paused: BTC macro regime transitional / sideways."
@@ -6653,9 +6653,9 @@ def load_verified_canary_auto_evolution(
         stage_status = "WAITING_FOR_SAMPLES"
         stage_status_label = f"WAITING_FOR_SAMPLES ({closed_trades_count}/{required_trades_count})"
         oos_explanation = (
-            f"Menunggu {required_trades_count} sampel transaksi selesai "
-            f"untuk menguji Sharpe out-of-sample "
-            f"(semasa: {closed_trades_count}/{required_trades_count}, "
+            f"Waiting for {required_trades_count} completed trade samples "
+            f"to evaluate out-of-sample Sharpe "
+            f"(current: {closed_trades_count}/{required_trades_count}, "
             f"hurdle >= {sharpe_hurdle_pct:.1f}%)."
         )
     else:
@@ -6663,16 +6663,16 @@ def load_verified_canary_auto_evolution(
             stage_status = "QUALIFIED"
             stage_status_label = f"QUALIFIED ({closed_trades_count}/{required_trades_count})"
             oos_explanation = (
-                f"Calon melepasi hurdle Sharpe out-of-sample "
+                f"Candidate cleared out-of-sample Sharpe hurdle "
                 f"(+{current_sharpe_improvement_pct:.1f}% >= +{sharpe_hurdle_pct:.1f}%)."
             )
         else:
             stage_status = "EVALUATING"
             stage_status_label = f"EVALUATING ({closed_trades_count}/{required_trades_count})"
             oos_explanation = (
-                "Menilai promosi bayangan: Sharpe improvement "
+                "Evaluating shadow promotion: Sharpe improvement "
                 f"(+{current_sharpe_improvement_pct:.1f}%) "
-                f"sedang diuji terhadap hurdle +{sharpe_hurdle_pct:.1f}%."
+                f"is being tested against hurdle +{sharpe_hurdle_pct:.1f}%."
             )
 
     # Dynamic progress percentage: 80% base for stages 1-4 + (min(trades, 5) / 5 * 20%)
@@ -6701,10 +6701,10 @@ def load_verified_canary_auto_evolution(
     recent_events = [
         LiveEvolutionEventItem(
             event_type="HEARTBEAT_INGRESS",
-            title="Degupan Jantung & Ingress Pasaran",
+            title="Heartbeat & Market Ingress",
             detail=(
-                "Penstriman klines 15m & 1h Binance Futures disegerakkan "
-                "(8 pasangan: BTC, ETH, SOL, DOGE, BNB, XRP, SUI, AVAX)"
+                "Binance Futures 15m & 1h klines streaming synchronized "
+                "(8 pairs: BTC, ETH, SOL, DOGE, BNB, XRP, SUI, AVAX)"
             ),
             latency_ms=42.0,
             status="HEALTHY",
@@ -6712,9 +6712,10 @@ def load_verified_canary_auto_evolution(
         ),
         LiveEvolutionEventItem(
             event_type="SOLVENCY_AUDIT",
-            title="Audit Lejar Dwi-Kemasukan Berterusan",
+            title="Continuous Double-Entry Ledger Audit",
             detail=(
-                "Baki $100.12 USDT disahkan dengan sifar drift matematis (|Δ| = 0.00 < 10^-15 USDT)"
+                "Balance $100.12 USDT verified with zero mathematical drift "
+                "(|Δ| = 0.00 < 10^-15 USDT)"
             ),
             latency_ms=0.5,
             status="VERIFIED",
@@ -6722,9 +6723,10 @@ def load_verified_canary_auto_evolution(
         ),
         LiveEvolutionEventItem(
             event_type="CANDIDATE_HEALTH",
-            title="Penilaian Kesihatan Strategi Calon",
+            title="Candidate Strategy Health Evaluation",
             detail=(
-                "BTCUSDT & ETHUSDT dinilai ELITE; SOLUSDT dinilai DEGRADED dan diarahkan ke mutasi"
+                "BTCUSDT & ETHUSDT evaluated as ELITE; "
+                "SOLUSDT evaluated as DEGRADED and routed to mutation"
             ),
             latency_ms=1.2,
             status="EVALUATED",
@@ -6732,17 +6734,17 @@ def load_verified_canary_auto_evolution(
         ),
         LiveEvolutionEventItem(
             event_type="MUTATION_STAGING",
-            title="Mutasi Genom Parameter (Gen #2)",
-            detail="cand-ethusdt-evo-002 dijana dengan Donchian period 24, ATR 2.5x, Hawkes 0.65",
+            title="Parameter Genome Mutation (Gen #2)",
+            detail="cand-ethusdt-evo-002 generated with Donchian period 24, ATR 2.5x, Hawkes 0.65",
             latency_ms=2.8,
             status="STAGED",
             timestamp_ms=now_epoch_ms - 300000,
         ),
         LiveEvolutionEventItem(
             event_type="SHADOW_OOS_GATE",
-            title="Pintu Kelayakan Out-of-Sample (OOS Gate)",
+            title="Shadow Simulation & OOS Promotion Gate",
             detail=(
-                f"Pintu OOS: {closed_trades_count}/{required_trades_count} sampel diperoleh, "
+                f"OOS Gate: {closed_trades_count}/{required_trades_count} samples acquired, "
                 f"Sharpe hurdle >= {sharpe_hurdle_pct:.1f}% ({stage_status})"
             ),
             latency_ms=5.4,

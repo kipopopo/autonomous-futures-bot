@@ -125,15 +125,15 @@ export function ExecutiveSafetyPage({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold tracking-tight text-white">
-                  Kawalan Keselamatan &amp; Ketulenan Lejar
+                  Risk Controls &amp; Ledger Integrity
                 </h1>
                 <span className="badge badge-sm font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Sifar Drift Terbukti
+                  Zero-Drift Verified
                 </span>
                 <ProvenanceBadge source="DAEMON 24/7" />
               </div>
               <p className="text-xs text-white/50">
-                Pemeriksaan ketat invarian matematik catatan bergu, had siling mikro-modal, dan suis pemati kecemasan
+                Rigorous double-entry mathematical invariant verification, micro-capital ceiling limits, and emergency kill switches
               </p>
             </div>
           </div>
@@ -143,7 +143,7 @@ export function ExecutiveSafetyPage({
               CIRCUIT: NORMAL
             </span>
             <span className="badge badge-sm badge-neutral font-mono bg-black/60 border border-white/10 text-white">
-              0 Tripwires Aktif
+              0 Active Tripwires
             </span>
           </div>
         </div>
@@ -156,7 +156,7 @@ export function ExecutiveSafetyPage({
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold uppercase text-white/70">
-                Invarian Catatan Bergu
+                Double-Entry Invariant
               </span>
               <Scale className="w-4 h-4 text-emerald-400" />
             </div>
@@ -164,12 +164,12 @@ export function ExecutiveSafetyPage({
               |Δ| &lt; 10⁻¹⁵ USDT
             </div>
             <p className="text-xs text-white/50">
-              Perbezaan lejar tempatan dan ekuiti akaun Binance sentiasa sifar matematik.
+              Discrepancy between local ledger and Binance account equity is strictly zero.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-white/[0.06] text-[11px] font-mono text-emerald-400 flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            {isZeroDrift ? 'Disahkan Sifar-Drift' : 'Semakan Berterusan'}
+            {isZeroDrift ? 'Zero-Drift Verified' : 'Continuous Verification'}
           </div>
         </div>
 
@@ -178,19 +178,19 @@ export function ExecutiveSafetyPage({
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold uppercase text-white/70">
-                Had Pendedahan Mikro
+                Micro-Exposure Limits
               </span>
               <PieChart className="w-4 h-4 text-cyan-400" />
             </div>
             <div className="text-xl font-mono font-bold text-white my-1">
-              $5.00 / Anak Pesanan
+              $5.00 / Child Order
             </div>
             <p className="text-xs text-white/50">
-              Siling agregat $25.00 USDT mengehadkan risiko modal pada setiap ketika.
+              Aggregate $25.00 USDT ceiling constrains capital risk at all times.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-white/[0.06] text-[11px] font-mono text-cyan-400 flex items-center gap-1">
-            <Zap className="w-3.5 h-3.5" /> Pematuhan Siling 100%
+            <Zap className="w-3.5 h-3.5" /> 100% Ceiling Compliance
           </div>
         </div>
 
@@ -199,19 +199,19 @@ export function ExecutiveSafetyPage({
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold uppercase text-white/70">
-                Lantai Rizab Tunai
+                Cash Floor Reserve
               </span>
               <Shield className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-xl font-mono font-bold text-emerald-400 my-1">
-              {cashReservePct.toFixed(1)}% Tunai
+              {cashReservePct.toFixed(1)}% Cash
             </div>
             <p className="text-xs text-white/50">
-              Sekurang-kurangnya ≥ 75.0% modal mesti kekal sebagai tunai cair tanpa beban.
+              At least ≥ 75.0% capital must remain as unencumbered liquid cash.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-white/[0.06] text-[11px] font-mono text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> {isFloorSafe ? 'Lantai Selamat' : 'Amaran Lantai'}
+            <CheckCircle2 className="w-3.5 h-3.5" /> {isFloorSafe ? 'Floor Safe' : 'Floor Warning'}
           </div>
         </div>
 
@@ -220,7 +220,7 @@ export function ExecutiveSafetyPage({
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold uppercase text-white/70">
-                Siling Kerugian Harian
+                Daily Loss Ceiling
               </span>
               <AlertTriangle className="w-4 h-4 text-amber-400" />
             </div>
@@ -228,11 +228,11 @@ export function ExecutiveSafetyPage({
               ${intraDayLoss.toFixed(2)} / $3.00 USDT
             </div>
             <p className="text-xs text-white/50">
-              Pemberhentian automatik (fail-closed pause) sekiranya drawdown mencecah $3.00.
+              Automatic fail-closed pause if drawdown reaches $3.00.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-white/[0.06] text-[11px] font-mono text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> {intraDayLoss.toFixed(2)} USDT Rugi Diperhatikan
+            <CheckCircle2 className="w-3.5 h-3.5" /> {intraDayLoss.toFixed(2)} USDT Observed Loss
           </div>
         </div>
       </div>
@@ -242,47 +242,47 @@ export function ExecutiveSafetyPage({
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-500/40 to-transparent" />
         <h2 className="text-base font-bold text-white mb-4 flex items-center gap-2">
           <Scale className="w-4 h-4 text-emerald-400" />
-          Pembuktian Matematik Lejar Catatan Bergu (Double-Entry Invariant)
+          Mathematical Double-Entry Ledger Invariant Proof
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
           <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-            <span className="text-white/50 block mb-1">Formula Ekuiti Akaun:</span>
+            <span className="text-white/50 block mb-1">Account Equity Formula:</span>
             <div className="font-bold text-white text-sm mb-2">
-              Ekuiti = Tunai + Margin + PnL Semasa
+              Equity = Cash + Margin + Unrealized PnL
             </div>
             <div className="text-[11px] text-white/70 space-y-1">
-              <div>Tunai: ${cash.toFixed(4)} USDT</div>
+              <div>Cash: ${cash.toFixed(4)} USDT</div>
               <div>Margin: ${margin.toFixed(4)} USDT</div>
-              <div>PnL Semasa: {unrealizedPnl >= 0 ? '+' : '-'}${Math.abs(unrealizedPnl).toFixed(4)} USDT</div>
+              <div>Unrealized PnL: {unrealizedPnl >= 0 ? '+' : '-'}${Math.abs(unrealizedPnl).toFixed(4)} USDT</div>
               <div className="pt-1 border-t border-white/[0.08] font-bold text-emerald-400">
-                Jumlah: ${totalEquity.toFixed(4)} USDT
+                Total: ${totalEquity.toFixed(4)} USDT
               </div>
             </div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-            <span className="text-white/50 block mb-1">Formula Penyelarasan Lejar:</span>
+            <span className="text-white/50 block mb-1">Ledger Reconciliation Formula:</span>
             <div className="font-bold text-white text-sm mb-2">
-              Ekuiti = Ekuiti Asal + Untung Direalisasi
+              Equity = Starting Equity + Realized PnL
             </div>
             <div className="text-[11px] text-white/70 space-y-1">
-              <div>Ekuiti Asal: ${startingEquity.toFixed(4)} USDT</div>
-              <div>Untung Direalisasi: {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toFixed(4)} USDT</div>
-              <div>Yuran Dibayar: ${totalFees.toFixed(4)} USDT</div>
+              <div>Starting Equity: ${startingEquity.toFixed(4)} USDT</div>
+              <div>Realized PnL: {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toFixed(4)} USDT</div>
+              <div>Fees Paid: ${totalFees.toFixed(4)} USDT</div>
               <div className="pt-1 border-t border-white/[0.08] font-bold text-emerald-400">
-                Jumlah Seimbang: ${totalEquity.toFixed(4)} USDT
+                Balanced Total: ${totalEquity.toFixed(4)} USDT
               </div>
             </div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-            <span className="text-white/50 block mb-1">Invarian Sifar Drift:</span>
+            <span className="text-white/50 block mb-1">Zero-Drift Invariant:</span>
             <div className="font-bold text-emerald-400 text-sm mb-2 flex items-center gap-1">
               <CheckCircle2 className="w-4 h-4" /> Drift = 0.000000000000000 USDT
             </div>
             <p className="text-[11px] text-white/60 leading-relaxed">
-              Drift lejar |Δ| = 0.00 USDT &lt; 10⁻¹⁵ USDT. Tiada kebocoran perakaunan atau ketidaksamaan baki dibenarkan.
+              Ledger drift |Δ| = 0.00 USDT &lt; 10⁻¹⁵ USDT. Zero accounting leakage or balance disparity permitted.
             </p>
           </div>
         </div>
@@ -293,31 +293,31 @@ export function ExecutiveSafetyPage({
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
         <h2 className="text-base font-bold text-white mb-4 flex items-center gap-2">
           <ShieldAlert className="w-4 h-4 text-amber-400" />
-          Kondisi Pemutus Litar &amp; Suis Pemati Kecemasan (Kill Switch)
+          Circuit Breaker Conditions &amp; Emergency Kill Switch
         </h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-            <span className="text-white/50 block text-[11px]">Tripwire 1: Bahaya Hawkes</span>
-            <div className="font-bold text-white mt-1">ρ ≥ 1.000 (Superkritikal)</div>
+            <span className="text-white/50 block text-[11px]">Tripwire 1: Hawkes Hazard</span>
+            <div className="font-bold text-white mt-1">ρ ≥ 1.000 (Supercritical)</div>
             <span className={`text-[10px] ${isHawkesNormal ? 'text-emerald-400' : 'text-rose-400'} mt-1 block`}>
               {`Status: ${isHawkesNormal ? 'NORMAL' : 'ELEVATED / CRITICAL'} (ρ = ${spectralRadius.toFixed(3)})`}
             </span>
           </div>
 
           <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-            <span className="text-white/50 block text-[11px]">Tripwire 2: Kependaman Gerbang</span>
-            <div className="font-bold text-white mt-1">Kependaman &gt; 500 ms</div>
+            <span className="text-white/50 block text-[11px]">Tripwire 2: Gateway Latency</span>
+            <div className="font-bold text-white mt-1">Latency &gt; 500 ms</div>
             <span className={`text-[10px] ${isLatencyNormal ? 'text-emerald-400' : 'text-rose-400'} mt-1 block`}>
               {`Status: ${isLatencyNormal ? 'NORMAL' : 'HIGH LATENCY'} (${latency.toFixed(1)} ms)`}
             </span>
           </div>
 
           <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-            <span className="text-white/50 block text-[11px]">Tripwire 3: Kuorum Berbilang Pihak</span>
-            <div className="font-bold text-white mt-1">Suis Panik Perkakasan</div>
+            <span className="text-white/50 block text-[11px]">Tripwire 3: Multi-Party Quorum</span>
+            <div className="font-bold text-white mt-1">Hardware Panic Switch</div>
             <span className="text-[10px] text-emerald-400 mt-1 block">
-              {killSwitchModel?.killSwitchState === 'ARMED' ? 'Status: BERSENJATA (ARMED)' : 'Status: STANDBY (SEDIA)'}
+              {killSwitchModel?.killSwitchState === 'ARMED' ? 'Status: ARMED' : 'Status: STANDBY'}
             </span>
           </div>
         </div>

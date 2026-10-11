@@ -89,13 +89,13 @@ function createVerifiedEvolutionFixture(
         current_sharpe_improvement_pct: 0.0,
         status: 'WAITING_FOR_SAMPLES',
         status_label: 'WAITING_FOR_SAMPLES (0/5)',
-        explanation: 'Menunggu 5 sampel transaksi selesai.',
+        explanation: 'Waiting for 5 completed trade samples.',
       },
       macro_gating_state: {
         regime: 'BEARISH',
         longs_filtered: true,
         is_long_allowed: false,
-        explanation_ms: 'Trend Makro Bearish (Harga < EMA 200 1j).',
+        explanation_ms: 'Bearish Macro Trend (Price < 1h EMA 200).',
         explanation: 'Bearish Macro Trend (Price < 1h EMA 200).',
       },
       ...overrides,
@@ -213,13 +213,13 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
       // next_cycle_seconds is 0
       const modelZero = createVerifiedEvolutionFixture({ next_cycle_seconds: 0 })
       const htmlZero = renderToString(React.createElement(EvolutionPage, { model: modelZero })).replace(/<!-- -->/g, '')
-      expect(htmlZero).toContain('Kitaran Seterusnya')
+      expect(htmlZero).toContain('Next Cycle')
       expect(htmlZero).toContain('0s') // 0 seconds shown initially
 
       // next_cycle_seconds is negative
       const modelNeg = createVerifiedEvolutionFixture({ next_cycle_seconds: -10 })
       const htmlNeg = renderToString(React.createElement(EvolutionPage, { model: modelNeg })).replace(/<!-- -->/g, '')
-      expect(htmlNeg).toContain('Kitaran Seterusnya')
+      expect(htmlNeg).toContain('Next Cycle')
 
       // next_cycle_seconds is missing / undefined -> defaults to 15
       const modelUndef = createVerifiedEvolutionFixture({ next_cycle_seconds: undefined })
@@ -231,21 +231,21 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
       const model = createVerifiedEvolutionFixture()
       const html = renderToString(React.createElement(EvolutionPage, { model })).replace(/<!-- -->/g, '')
 
-      // Box 1: Masa Semasa Sistem (MYT)
-      expect(html).toContain('Waktu Semasa (MYT)')
+      // Box 1: Current System Time (MYT)
+      expect(html).toContain('Current Time (MYT)')
       expect(html).toContain('MYT')
 
-      // Box 2: Kitaran Terakhir & Ambilan Lilin
-      expect(html).toContain('Kitaran Terakhir')
-      expect(html).toContain('Ambilan Lilin:')
-      expect(html).toContain('Imbasan (8 Pasangan):')
+      // Box 2: Last Cycle & Candle Fetch
+      expect(html).toContain('Last Cycle')
+      expect(html).toContain('Candle Fetch:')
+      expect(html).toContain('Scan (8 Pairs):')
       expect(html).toContain('BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT, BNBUSDT, XRPUSDT, SUIUSDT, AVAXUSDT')
 
-      // Box 3: Degupan Jantung Kitaran Seterusnya
-      expect(html).toContain('Kitaran Seterusnya')
-      expect(html).toContain('/ 15s jendela')
+      // Box 3: Next Cycle Heartbeat
+      expect(html).toContain('Next Cycle')
+      expect(html).toContain('/ 15s window')
 
-      // Box 4: Latensi & Status Daemon
+      // Box 4: Latency & Daemon Status
       expect(html).toContain('DAEMON PID: 87549')
       expect(html).toContain('ONLINE 24/7')
     })
@@ -427,7 +427,7 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
         React.createElement(MarketPositionsCard, { positions: adapted.positions }),
       )
 
-      expect(html).toContain('8 Pasangan Abadi (Perp)')
+      expect(html).toContain('8 Perpetual Pairs')
 
       // Verify all 8 test ids exist
       const symbols = ['solusdt', 'ethusdt', 'btcusdt', 'dogeusdt', 'bnbusdt', 'xrpusdt', 'suiusdt', 'avaxusdt']
@@ -436,7 +436,7 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
       }
 
       // Verify selector pills
-      for (const pill of ['SEMUA', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']) {
+      for (const pill of ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']) {
         expect(html).toContain(pill)
       }
     })
@@ -480,7 +480,7 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
       expect(html).toContain('$85,200.50')
 
       // Filter pills include all 8 pairs
-      for (const sym of ['SEMUA', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']) {
+      for (const sym of ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']) {
         expect(html).toContain(sym)
       }
     })
@@ -504,11 +504,11 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
         }),
       ).replace(/<!-- -->/g, '')
 
-      expect(html).toContain('Pasaran &amp; Posisi Terperinci')
-      expect(html).toContain('0 Terbuka / 8 Dipantau')
+      expect(html).toContain('Detailed Positions &amp; Markets')
+      expect(html).toContain('0 Open / 8 Monitored')
 
       // Pills
-      for (const pill of ['SEMUA', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']) {
+      for (const pill of ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']) {
         expect(html).toContain(pill)
       }
     })

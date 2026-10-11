@@ -107,7 +107,7 @@ describe('PairCandlestickChart component', () => {
       />,
     )
     expect(html).toContain('data-testid="chart-loading-overlay"')
-    expect(html).toContain('Memuatkan BTCUSDT (15m)...')
+    expect(html).toContain('Loading BTCUSDT (15m)...')
   })
 
   it('supports 1h macro trend timeframe', () => {
@@ -119,7 +119,7 @@ describe('PairCandlestickChart component', () => {
       />,
     )
     expect(html).toContain('data-interval="1h"')
-    expect(html).toContain('Memuatkan SOLUSDT (1h)...')
+    expect(html).toContain('Loading SOLUSDT (1h)...')
   })
 
   it('handles active LONG position prop with entry, TP, and SL brackets', () => {

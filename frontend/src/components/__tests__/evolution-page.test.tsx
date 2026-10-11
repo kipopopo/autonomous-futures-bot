@@ -204,33 +204,33 @@ describe('EvolutionPage component', () => {
     const model = buildAutoEvolutionModel(verifiedFixture)
     const html = renderToString(<EvolutionPage model={model} />)
 
-    expect(html).toContain('Status &amp; Kemajuan Evolusi Semasa')
-    expect(html).toContain('GELUNG AKTIF 24/7')
-    expect(html).toContain('Waktu Semasa (MYT)')
+    expect(html).toContain('Current Evolution Progress &amp; Status')
+    expect(html).toContain('ACTIVE 24/7 LOOP')
+    expect(html).toContain('Current Time (MYT)')
     expect(html).toContain('MYT')
-    expect(html).toContain('Kitaran Terakhir')
-    expect(html).toContain('Kitaran Seterusnya')
-    expect(html).toContain('Integriti Telemetri')
-    expect(html).toContain('1. Ingress Pasaran')
-    expect(html).toContain('2. Penilaian Kesihatan')
-    expect(html).toContain('3. Autopsi Transaksi')
-    expect(html).toContain('4. Mutasi Genom')
-    expect(html).toContain('5. Pintu OOS &amp; Promosi')
+    expect(html).toContain('Last Cycle')
+    expect(html).toContain('Next Cycle')
+    expect(html).toContain('Telemetry Integrity')
+    expect(html).toContain('1. Market Ingress')
+    expect(html).toContain('2. Candidate Health')
+    expect(html).toContain('3. Trade Autopsy')
+    expect(html).toContain('4. Genome Mutation')
+    expect(html).toContain('5. OOS Gate &amp; Promotion')
   })
 
   it('renders recent evolution events timeline with timestamps and status badges', () => {
     const model = buildAutoEvolutionModel(verifiedFixture)
     const html = renderToString(<EvolutionPage model={model} />)
 
-    expect(html).toContain('Log Garis Masa Peristiwa Evolusi Terkini')
-    expect(html).toContain('Degupan Jantung &amp; Ingress Pasaran')
-    expect(html).toContain('Audit Lejar Dwi-Kemasukan Berterusan')
-    expect(html).toContain('Penilaian Kesihatan Strategi Calon')
-    expect(html).toContain('Mutasi Genom Parameter (Gen #2)')
-    expect(html).toContain('Simulasi Bayangan &amp; Pintu Promosi OOS')
+    expect(html).toContain('Recent Evolution Events Timeline')
+    expect(html).toContain('Heartbeat &amp; Market Ingress')
+    expect(html).toContain('Continuous Double-Entry Ledger Audit')
+    expect(html).toContain('Candidate Strategy Health Evaluation')
+    expect(html).toContain('Parameter Genome Mutation (Gen #2)')
+    expect(html).toContain('Shadow Simulation &amp; OOS Promotion Gate')
   })
 
-  it('renders BTC Macro Trend Gating Banner with regime and dual-language Malay/English explanation', () => {
+  it('renders BTC Macro Trend Gating Banner with regime and institutional English explanation', () => {
     const fixtureWithMacro: CanaryAutoEvolutionData = {
       ...verifiedFixture,
       live_progress: {
@@ -238,8 +238,8 @@ describe('EvolutionPage component', () => {
           regime: 'BEARISH',
           longs_filtered: true,
           is_long_allowed: false,
-          explanation_ms: 'Trend Makro Bearish (Harga < EMA 200 1j). Kemasukan LONG ditapis secara automatik.',
-          explanation: 'Bearish Macro Trend (Price < 1h EMA 200). LONG entries automatically filtered.',
+          explanation_ms: 'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
+          explanation: 'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
         },
       },
     }
@@ -247,12 +247,11 @@ describe('EvolutionPage component', () => {
     const html = renderToString(<EvolutionPage model={model} />)
 
     expect(html).toContain('data-testid="btc-macro-gating-banner"')
-    expect(html).toContain('BTC Macro Trend Gating (Rejim 1-Jam)')
+    expect(html).toContain('BTC Macro Trend Gating (1-Hour Regime)')
     expect(html).toContain('REGIME: BEARISH')
     expect(html).toContain('LONG Filtered')
-    expect(html).toContain('LONGS: DISEKAT')
-    expect(html).toContain('Trend Makro Bearish (Harga &lt; EMA 200 1j)')
-    expect(html).toContain('Bearish Macro Trend (Price &lt; 1h EMA 200)')
+    expect(html).toContain('LONGS: BLOCKED')
+    expect(html).toContain('Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection')
   })
 
   it('renders Out-of-Sample (OOS) Qualification Gate telemetry card with trade counter and Sharpe hurdle', () => {
@@ -276,7 +275,7 @@ describe('EvolutionPage component', () => {
     expect(html).toContain('Out-of-Sample (OOS) Qualification Gate')
     expect(html).toContain('WAITING_FOR_SAMPLES')
     expect(html).toContain('0 / 5 required trades')
-    expect(html).toContain('≥ 15.0% peningkatan')
+    expect(html).toContain('≥ 15.0% improvement')
   })
 
   it('renders dynamic 5-stage pipeline with active indicator based on current_stage', () => {
@@ -290,16 +289,16 @@ describe('EvolutionPage component', () => {
     const model = buildAutoEvolutionModel(fixtureIngress)
     const html = renderToString(<EvolutionPage model={model} />)
 
-    expect(html).toContain('1. Ingress Pasaran &amp; Klines Streaming')
-    expect(html).toContain('20% SELESAI')
+    expect(html).toContain('1. Market Ingress &amp; Klines Streaming')
+    expect(html).toContain('20% COMPLETE')
   })
 
   it('renders all 8 scanned perpetual universe pairs and candle fetch timestamp in Box 2', () => {
     const model = buildAutoEvolutionModel(verifiedFixture)
     const html = renderToString(<EvolutionPage model={model} />)
 
-    expect(html).toContain('Ambilan Lilin:')
-    expect(html).toContain('Imbasan (8 Pasangan):')
+    expect(html).toContain('Candle Fetch:')
+    expect(html).toContain('Scan (8 Pairs):')
     expect(html).toContain('BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT, BNBUSDT, XRPUSDT, SUIUSDT, AVAXUSDT')
   })
 

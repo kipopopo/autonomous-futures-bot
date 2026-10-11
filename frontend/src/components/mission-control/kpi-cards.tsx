@@ -34,7 +34,7 @@ export function KpiCards({ kpis }: KpiCardsProps) {
         <div>
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              Jumlah Ekuiti &amp; Baki
+              Total Balance &amp; Equity
             </span>
             <div className="flex items-center gap-2">
               <ProvenanceBadge source="LIVE EXCHANGE" />
@@ -54,19 +54,19 @@ export function KpiCards({ kpis }: KpiCardsProps) {
           </div>
 
           <p className="text-[11px] text-zinc-400 mb-3 font-mono">
-            Dompet Binance Futures (Simpanan Modal Selamat)
+            Binance Futures Wallet (Protected Capital Reserve)
           </p>
         </div>
 
         <div className="pt-3 border-t border-white/[0.06] flex flex-col gap-1.5 text-xs font-mono">
           <div className="flex items-center justify-between">
-            <span className="text-zinc-400">Tunai Sedia Ada:</span>
+            <span className="text-zinc-400">Available Cash:</span>
             <span className="font-semibold text-emerald-400 tabular-nums">
               {`$${kpis.cashUsdt.toFixed(2)} (${kpis.cashReservePct.toFixed(1)}%)`}
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-zinc-400">Margin Diperuntukkan:</span>
+            <span className="text-zinc-400">Allocated Margin:</span>
             <span className="font-semibold text-cyan-400 tabular-nums">
               {`$${kpis.allocatedMarginUsdt.toFixed(2)}`}
             </span>
@@ -82,7 +82,7 @@ export function KpiCards({ kpis }: KpiCardsProps) {
         <div>
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              Untung Bersih &amp; Kadar Kemenangan
+              Net Realized PnL &amp; Win Rate
             </span>
             <div className="flex items-center gap-2">
               <ProvenanceBadge source="LIVE EXCHANGE" />
@@ -112,13 +112,13 @@ export function KpiCards({ kpis }: KpiCardsProps) {
               {`${kpis.winRatePct.toFixed(1)}% Win Rate`}
             </span>
             <span className="text-[11px] text-zinc-400 font-mono">
-              {`${kpis.totalTrades} Dagangan Selesai`}
+              {`${kpis.totalTrades} Completed Trades`}
             </span>
           </div>
         </div>
 
         <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs font-mono">
-          <span className="text-zinc-400">Penjimatan Yuran:</span>
+          <span className="text-zinc-400">Fee Savings:</span>
           <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
             100% Maker (0.02%)
@@ -134,7 +134,7 @@ export function KpiCards({ kpis }: KpiCardsProps) {
         <div>
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              Pendedahan Aktif &amp; Had Siling
+              Active Exposure &amp; Capital Sizing
             </span>
             <div className="flex items-center gap-2">
               <ProvenanceBadge source="DAEMON 24/7" />
@@ -149,7 +149,7 @@ export function KpiCards({ kpis }: KpiCardsProps) {
               {`$${kpis.activeExposureUsdt.toFixed(2)}`}
             </span>
             <span className="text-xs font-mono text-zinc-400">
-              {`/ $${kpis.maxExposureCapUsdt.toFixed(2)} Had Maksimum`}
+              {`/ $${kpis.maxExposureCapUsdt.toFixed(2)} Max Cap`}
             </span>
           </div>
 
@@ -170,18 +170,18 @@ export function KpiCards({ kpis }: KpiCardsProps) {
 
         <div className="pt-3 border-t border-white/[0.06] flex flex-col gap-1 text-xs font-mono">
           <div className="flex items-center justify-between">
-            <span className="text-zinc-400">Rizab Tunai:</span>
+            <span className="text-zinc-400">Cash Reserve:</span>
             <span
               className={`font-semibold ${
                 isReserveFloorHealthy ? 'text-emerald-400' : 'text-amber-400'
               }`}
             >
-              {`${kpis.cashReservePct.toFixed(1)}% (Lantai ≥ ${kpis.minCashReserveFloorPct}%)`}
+              {`${kpis.cashReservePct.toFixed(1)}% (Floor ≥ ${kpis.minCashReserveFloorPct}%)`}
             </span>
           </div>
           <div className="flex items-center justify-between text-[11px] text-zinc-500">
-            <span>Had Pesanan:</span>
-            <span>≤ $5.00 USDT / anak</span>
+            <span>Order Cap:</span>
+            <span>≤ $5.00 USDT / child</span>
           </div>
         </div>
       </div>
@@ -194,7 +194,7 @@ export function KpiCards({ kpis }: KpiCardsProps) {
         <div>
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              Kesihatan Sistem &amp; Ketulenan
+              System Health &amp; Solvency
             </span>
             <div className="flex items-center gap-2">
               <ProvenanceBadge source="DAEMON 24/7" />
@@ -213,22 +213,22 @@ export function KpiCards({ kpis }: KpiCardsProps) {
 
           <div className="flex items-center gap-1.5 mb-3 text-xs text-emerald-400 font-mono">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span>Sifar Drift (Zero-Drift Solvency)</span>
+            <span>Zero-Drift Solvency</span>
           </div>
         </div>
 
         <div className="pt-3 border-t border-white/[0.06] flex flex-col gap-1 text-xs font-mono">
           <div className="flex items-center justify-between">
-            <span className="text-zinc-400">Kependaman Rangkaian:</span>
+            <span className="text-zinc-400">Gateway Latency:</span>
             <span className="text-cyan-400 font-semibold flex items-center gap-1 tabular-nums">
               <Activity className="w-3 h-3 text-cyan-400" />
               {`${kpis.latencyMs.toFixed(1)} ms`}
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-zinc-400">Sekatan Interlock:</span>
+            <span className="text-zinc-400">Interlock Blocks:</span>
             <span className="text-zinc-300 font-semibold">
-              {`${kpis.interlockBlocksCount} Sekatan (0 Bahaya)`}
+              {`${kpis.interlockBlocksCount} Interlock Blocks (0 Hazards)`}
             </span>
           </div>
         </div>

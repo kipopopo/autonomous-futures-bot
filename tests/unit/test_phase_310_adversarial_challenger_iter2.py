@@ -115,7 +115,7 @@ class TestOrderSizingNonDeadlockStress:
         engine = build_default_self_driving_engine(storage_dir=tmp_path)
         spec = DEFAULT_SPECS[symbol]
         step_size = spec["step_size"]
-        min_notional = spec["min_notional"]
+        min_notional = Decimal("5.00") if getattr(engine.gateway, "testnet", True) else spec["min_notional"]
         target_notional = engine.config.max_micro_order_notional_usdt
 
         deadlocked_count = 0
@@ -270,14 +270,13 @@ class TestMacroScalperSymbolGating:
     @pytest.mark.parametrize(
         "unallowed_symbol",
         [
-            "XRPUSDT",
-            "DOGEUSDT",
             "BTCUSDT",
             "ADAUSDT",
             "PEPEUSDT",
-            "xrpusdt",
-            "dogeusdt",
+            "SHIBUSDT",
             "btcusdt",
+            "adausdt",
+            "pepeusdt",
             "INVALID",
             "",
         ],

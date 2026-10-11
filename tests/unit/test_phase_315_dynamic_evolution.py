@@ -323,7 +323,7 @@ def test_get_canary_evolution_api_dynamic_fields(tmp_path: Path) -> None:
     assert mg["regime"] in ["BEARISH", "BULLISH_ALIGNED", "NEUTRAL"]
     assert isinstance(mg["longs_filtered"], bool)
     assert isinstance(mg["explanation_ms"], str)
-    assert "Penapis Aliran Makro BTC Aktif" in mg["explanation_ms"]
+    assert "Active BTC Macro Trend Filter" in mg["explanation_ms"]
 
     # OOS gate scorecard
     assert "oos_gate" in lp
@@ -437,7 +437,7 @@ def test_waiting_for_samples_under_5_trades(tmp_path: Path) -> None:
     assert res.live_progress.sharpe_hurdle_pct >= 15.0
     assert isinstance(res.live_progress.oos_gate, OOSQualificationGateItem)
     assert res.live_progress.oos_gate.status_label == "WAITING_FOR_SAMPLES (0/5)"
-    assert "Menunggu 5 sampel" in res.live_progress.oos_gate.explanation
+    assert "Waiting for 5 completed trade samples" in res.live_progress.oos_gate.explanation
 
 
 def test_oos_evaluating_vs_qualified_at_5_trades(tmp_path: Path) -> None:
@@ -456,7 +456,7 @@ def test_oos_evaluating_vs_qualified_at_5_trades(tmp_path: Path) -> None:
         res_qual.live_progress.current_sharpe_improvement_pct
         >= res_qual.live_progress.sharpe_hurdle_pct
     )
-    assert "melepasi hurdle" in res_qual.live_progress.oos_gate.explanation
+    assert "cleared out-of-sample Sharpe hurdle" in res_qual.live_progress.oos_gate.explanation
 
 
 def test_btc_macro_trend_gating_explanations(tmp_path: Path) -> None:
@@ -473,9 +473,9 @@ def test_btc_macro_trend_gating_explanations(tmp_path: Path) -> None:
     assert mg_bear.regime == "BEARISH"
     assert mg_bear.longs_filtered is True
     assert mg_bear.is_long_allowed is False
-    assert "Penapis Aliran Makro BTC Aktif" in mg_bear.explanation_ms
-    assert "Bearish (EMA 50 < EMA 200)" in mg_bear.explanation_ms
-    assert "melindungi modal" in mg_bear.explanation_ms
+    assert "Active BTC Macro Trend Filter" in mg_bear.explanation_ms
+    assert "Bearish regime (EMA 50 < EMA 200)" in mg_bear.explanation_ms
+    assert "protect bot micro-capital" in mg_bear.explanation_ms
     assert "Bearish regime filter for capital protection" in mg_bear.explanation
 
     # 2. Bullish Aligned Regime (allowing longs)
@@ -488,7 +488,7 @@ def test_btc_macro_trend_gating_explanations(tmp_path: Path) -> None:
     assert mg_bull.regime == "BULLISH_ALIGNED"
     assert mg_bull.longs_filtered is False
     assert mg_bull.is_long_allowed is True
-    assert "dibenarkan" in mg_bull.explanation_ms
+    assert "permitted" in mg_bull.explanation_ms
     assert "Bullish Aligned (EMA 50 > EMA 200)" in mg_bull.explanation_ms
 
     # 3. Neutral / Sideways Regime (filtering longs)
@@ -500,7 +500,7 @@ def test_btc_macro_trend_gating_explanations(tmp_path: Path) -> None:
     assert isinstance(mg_neut, MacroGatingStateItem)
     assert mg_neut.regime == "NEUTRAL"
     assert mg_neut.longs_filtered is True
-    assert "Neutral/Sideways" in mg_neut.explanation_ms
+    assert "Neutral/Sideways regime" in mg_neut.explanation_ms
 
 
 def test_sha256_merkle_dag_hash_integrity_preserved(tmp_path: Path) -> None:

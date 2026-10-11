@@ -587,7 +587,7 @@ function App() {
               isOverviewPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
             }`}
           >
-            🚀 Dashboard Utama
+            🚀 Executive Overview
           </a>
           <a
             href="#/positions"
@@ -596,7 +596,7 @@ function App() {
               isPositionsPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
             }`}
           >
-            📊 Pasaran &amp; Posisi
+            📊 Live Positions &amp; Markets
           </a>
           <a
             href="#/trades"
@@ -605,7 +605,7 @@ function App() {
               isTradesPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
             }`}
           >
-            ⚡ Log Perdagangan
+            ⚡ Trade Log &amp; Executions
           </a>
           <a
             href="#/safety"
@@ -614,7 +614,7 @@ function App() {
               isSafetyPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
             }`}
           >
-            🛡️ Kawalan Keselamatan
+            🛡️ Risk Controls &amp; Solvency
           </a>
           <a
             href="#/evolution"
@@ -623,7 +623,7 @@ function App() {
               isEvolutionPage ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-zinc-300 hover:text-white'
             }`}
           >
-            🧠 Pembelajaran &amp; Autopsi
+            🧠 Strategy Evolution &amp; Autopsy
           </a>
           <button
             type="button"
@@ -633,7 +633,7 @@ function App() {
             }}
             className="w-full text-left p-2.5 rounded-xl text-xs font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-between"
           >
-            <span>📁 Arkib Penyelidikan (23 Fasa)</span>
+            <span>📁 Research Archives (23 Phases)</span>
             <Archive size={15} />
           </button>
         </div>
@@ -654,7 +654,7 @@ function App() {
             aria-current={isOverviewPage ? 'page' : undefined}
           >
             <Zap size={18} className="text-primary" aria-hidden="true" />
-            <span className="font-semibold">🚀 Dashboard Utama</span>
+            <span className="font-semibold">🚀 Executive Overview</span>
           </a>
           <a
             className={`nav-item ${isPositionsPage ? 'nav-item-active' : ''}`}
@@ -662,7 +662,7 @@ function App() {
             aria-current={isPositionsPage ? 'page' : undefined}
           >
             <Radio size={18} className="text-cyan-400" aria-hidden="true" />
-            <span className="font-semibold">📊 Pasaran &amp; Posisi</span>
+            <span className="font-semibold">📊 Live Positions &amp; Markets</span>
           </a>
           <a
             className={`nav-item ${isTradesPage ? 'nav-item-active' : ''}`}
@@ -670,7 +670,7 @@ function App() {
             aria-current={isTradesPage ? 'page' : undefined}
           >
             <Receipt size={18} className="text-emerald-400" aria-hidden="true" />
-            <span className="font-semibold">⚡ Log Perdagangan</span>
+            <span className="font-semibold">⚡ Trade Log &amp; Executions</span>
           </a>
           <a
             className={`nav-item ${isSafetyPage ? 'nav-item-active' : ''}`}
@@ -678,7 +678,7 @@ function App() {
             aria-current={isSafetyPage ? 'page' : undefined}
           >
             <ShieldCheck size={18} className="text-emerald-400" aria-hidden="true" />
-            <span className="font-semibold">🛡️ Kawalan Keselamatan</span>
+            <span className="font-semibold">🛡️ Risk Controls &amp; Solvency</span>
           </a>
           <a
             className={`nav-item ${isEvolutionPage ? 'nav-item-active' : ''}`}
@@ -686,7 +686,7 @@ function App() {
             aria-current={isEvolutionPage ? 'page' : undefined}
           >
             <Brain size={18} className="text-purple-400" aria-hidden="true" />
-            <span className="font-semibold">🧠 Pembelajaran &amp; Autopsi</span>
+            <span className="font-semibold">🧠 Strategy Evolution &amp; Autopsy</span>
           </a>
 
           {/* Research Archive Trigger */}
@@ -700,10 +700,10 @@ function App() {
             >
               <div className="flex items-center gap-2">
                 <Archive size={17} className="text-primary" aria-hidden="true" />
-                <span className="font-medium">📁 Arkib Penyelidikan</span>
+                <span className="font-medium">📁 Research Archives</span>
               </div>
               <span className="badge badge-xs badge-primary font-mono py-1 px-1.5 font-bold">
-                23 Fasa
+                23 Phases
               </span>
             </button>
           </div>
@@ -730,12 +730,12 @@ function App() {
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-primary block">
-                    📁 Arkib Penyelidikan Sejarah ({page.toUpperCase()})
+                    📁 Historical Research Archive ({page.toUpperCase()})
                   </span>
                   <ProvenanceBadge source="RESEARCH ARTIFACT / SIMULATION" />
                 </div>
                 <span className="text-[11px] text-base-content/60">
-                  Paparan fasa kajian terdahulu (Phases 250-309). Semua bukti kriptografi DAG &amp; lejar audit dikekalkan.
+                  Historical research phase view (Phases 250-309). All cryptographic DAG proofs &amp; audit ledgers preserved.
                 </span>
               </div>
             </div>
@@ -744,7 +744,7 @@ function App() {
               className="btn btn-sm btn-primary rounded-xl gap-1.5 font-semibold text-xs shadow-sm"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Kembali ke Dashboard Utama</span>
+              <span>Return to Executive Overview</span>
             </a>
           </div>
         )}
@@ -754,7 +754,7 @@ function App() {
           <header className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-base-300 mb-6">
             <div>
               <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
-                Autonomous Futures / Arkib Penyelidikan / {page}
+                Autonomous Futures / Research Archives / {page}
               </p>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-base-content">
                 {isProductionPage
@@ -836,7 +836,7 @@ function App() {
           </div>
         )}
 
-        {/* Executive Landing Page (Dashboard Utama - R1 to R4) */}
+        {/* Executive Landing Page (Executive Overview - R1 to R4) */}
         {isOverviewPage && state === 'ready' && (
           <ExecutiveDashboard
             model={executiveModel}
@@ -849,9 +849,9 @@ function App() {
           <section className="card bg-base-200 border border-base-300 shadow-xl p-8 text-center my-6" aria-live="polite">
             <div className="flex flex-col items-center justify-center gap-3">
               <span className="loading loading-ring loading-lg text-primary" aria-hidden="true" />
-              <h2 className="text-lg font-bold">Menyelaras data &amp; telemetri langsung</h2>
+              <h2 className="text-lg font-bold">Synchronizing live data &amp; telemetry</h2>
               <p className="text-sm text-base-content/70 max-w-md">
-                Menghubungkan ke perkhidmatan telemetri read-only bagi status kesihatan, baki lejar catatan bergu, dan isyarat strategi.
+                Connecting to read-only telemetry services for health status, double-entry ledger balance, and strategy signals.
               </p>
             </div>
           </section>
@@ -861,8 +861,8 @@ function App() {
           <section className="alert alert-warning shadow-lg my-6" role="status">
             <AlertTriangle size={24} className="text-warning" aria-hidden="true" />
             <div>
-              <h2 className="font-bold text-base">Tiada set data disahkan tersedia pada masa ini.</h2>
-              <p className="text-sm opacity-80">Segar semula setelah API sedia ada diakses. Data yang belum disahkan kekal tersembunyi demi keselamatan.</p>
+              <h2 className="font-bold text-base">No verified dataset currently available.</h2>
+              <p className="text-sm opacity-80">Refresh once the API is accessible. Unverified data remains hidden for safety.</p>
             </div>
           </section>
         )}
@@ -919,8 +919,8 @@ function App() {
         </ErrorBoundary>
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">
-          <span className="text-xs text-base-content/60">Autonomous Futures Bot · Perdagangan Eksekutif 24/7 · PAPER-SAFE</span>
-          <span className="text-xs font-mono text-base-content/60">{lastFetchedAt ? `Diselaraskan ${formatMyt(lastFetchedAt)}` : 'Diselaraskan —'}</span>
+          <span className="text-xs text-base-content/60">Autonomous Futures Bot · Executive Trading 24/7 · PAPER-SAFE</span>
+          <span className="text-xs font-mono text-base-content/60">{lastFetchedAt ? `Synchronized ${formatMyt(lastFetchedAt)}` : 'Synchronized —'}</span>
         </footer>
       </main>
 
@@ -933,7 +933,7 @@ function App() {
           }`}
         >
           <Zap size={18} />
-          <span>Utama</span>
+          <span>Overview</span>
         </a>
         <a
           href="#/positions"
@@ -942,7 +942,7 @@ function App() {
           }`}
         >
           <Radio size={18} />
-          <span>Posisi</span>
+          <span>Positions</span>
         </a>
         <a
           href="#/trades"
@@ -951,7 +951,7 @@ function App() {
           }`}
         >
           <Receipt size={18} />
-          <span>Log</span>
+          <span>Trade Log</span>
         </a>
         <a
           href="#/safety"
@@ -960,7 +960,7 @@ function App() {
           }`}
         >
           <ShieldCheck size={18} />
-          <span>Keselamatan</span>
+          <span>Safety</span>
         </a>
         <a
           href="#/evolution"
@@ -969,7 +969,7 @@ function App() {
           }`}
         >
           <Brain size={18} />
-          <span>Evolusi</span>
+          <span>Evolution</span>
         </a>
         <button
           type="button"
@@ -979,7 +979,7 @@ function App() {
           }`}
         >
           <Archive size={18} />
-          <span>Arkib</span>
+          <span>Archives</span>
         </button>
       </nav>
 

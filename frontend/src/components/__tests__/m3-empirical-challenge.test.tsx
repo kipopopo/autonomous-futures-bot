@@ -206,12 +206,12 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const html = renderToString(<EvolutionPage model={model} />)
 
       expect(html).toContain('Continuous Self-Learning Loop')
-      expect(html).toContain('GELUNG AKTIF 24/7')
+      expect(html).toContain('ACTIVE 24/7 LOOP')
       expect(html).toContain('data-testid="btc-macro-gating-banner"')
       expect(html).toContain('REGIME: BEARISH')
       expect(html).toContain('data-testid="oos-qualification-gate-card"')
       expect(html).toContain('0 / 5 required trades')
-      expect(html).toContain('80% SELESAI')
+      expect(html).toContain('80% COMPLETE')
       expect(html).toContain('BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT, BNBUSDT, XRPUSDT, SUIUSDT, AVAXUSDT')
     })
 
@@ -223,7 +223,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const model = buildAutoEvolutionModel(fixture)
       const html = renderToString(<EvolutionPage model={model} />)
 
-      expect(html).toContain('Status &amp; Kemajuan Evolusi Semasa')
+      expect(html).toContain('Current Evolution Progress &amp; Status')
       expect(html).toContain('0 / 5 required trades')
       expect(html).not.toContain('NaN')
     })
@@ -236,7 +236,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const model = buildAutoEvolutionModel(fixture)
       const html = renderToString(<EvolutionPage model={model} />)
 
-      expect(html).toContain('Status &amp; Kemajuan Evolusi Semasa')
+      expect(html).toContain('Current Evolution Progress &amp; Status')
       expect(html).toContain('0 / 5 required trades')
       expect(html).not.toContain('undefined%')
       expect(html).not.toContain('NaN%')
@@ -256,9 +256,9 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const html = renderToString(<EvolutionPage model={model} />)
 
       expect(html).toContain('0 / 5 required trades')
-      expect(html).toContain('80% SELESAI')
+      expect(html).toContain('80% COMPLETE')
       expect(html).toContain('WAITING_FOR_SAMPLES')
-      expect(html).toContain('0/5 SAMPEL')
+      expect(html).toContain('0/5 SAMPLES')
     })
 
     it('verifies sample count 4/5: 96% progress (80 + 4/5*20) and WAITING_FOR_SAMPLES status', () => {
@@ -275,9 +275,9 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const html = renderToString(<EvolutionPage model={model} />)
 
       expect(html).toContain('4 / 5 required trades')
-      expect(html).toContain('96% SELESAI')
+      expect(html).toContain('96% COMPLETE')
       expect(html).toContain('WAITING_FOR_SAMPLES')
-      expect(html).toContain('4/5 SAMPEL')
+      expect(html).toContain('4/5 SAMPLES')
     })
 
     it('verifies sample count 5/5: 100% progress and EVALUATING / QUALIFIED stage status', () => {
@@ -296,9 +296,9 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const html = renderToString(<EvolutionPage model={model} />)
 
       expect(html).toContain('5 / 5 required trades')
-      expect(html).toContain('100% SELESAI')
+      expect(html).toContain('100% COMPLETE')
       expect(html).toContain('QUALIFIED')
-      expect(html).toContain('LAYAK / PROMOTED')
+      expect(html).toContain('QUALIFIED / PROMOTED')
       expect(html).toContain('+22.5%')
     })
 
@@ -318,7 +318,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const html = renderToString(<EvolutionPage model={model} />)
 
       expect(html).toContain('100 / 5 required trades')
-      expect(html).toContain('100% SELESAI')
+      expect(html).toContain('100% COMPLETE')
       expect(html).not.toContain('480%')
       expect(html).not.toContain('NaN')
     })
@@ -331,7 +331,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
             regime: 'BEARISH',
             longs_filtered: true,
             is_long_allowed: false,
-            explanation_ms: 'Trend Makro Bearish (Harga < EMA 200 1j). Kemasukan LONG ditapis.',
+            explanation_ms: 'Bearish Macro Trend (Price < 1h EMA 200). LONG entries filtered.',
             explanation: 'Bearish Macro Trend (Price < 1h EMA 200). LONG entries filtered.',
           },
         },
@@ -341,11 +341,11 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
 
       expect(html).toContain('REGIME: BEARISH')
       expect(html).toContain('LONG Filtered')
-      expect(html).toContain('LONGS: DISEKAT')
+      expect(html).toContain('LONGS: BLOCKED')
       expect(html).toContain('border-warning/40')
     })
 
-    it('verifies Macro Gating Regime BULLISH_ALIGNED: success styling and LONGS: DIBENARKAN', () => {
+    it('verifies Macro Gating Regime BULLISH_ALIGNED: success styling and LONGS: ALLOWED', () => {
       const fixture: CanaryAutoEvolutionData = {
         ...baseVerifiedFixture,
         live_progress: {
@@ -353,7 +353,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
             regime: 'BULLISH_ALIGNED',
             longs_filtered: false,
             is_long_allowed: true,
-            explanation_ms: 'Trend Makro Bullish (Harga > EMA 200 1j). Kemasukan LONG dibenarkan.',
+            explanation_ms: 'Bullish Macro Trend (Price > 1h EMA 200). LONG entries allowed.',
             explanation: 'Bullish Macro Trend (Price > 1h EMA 200). LONG entries allowed.',
           },
         },
@@ -363,7 +363,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
 
       expect(html).toContain('REGIME: BULLISH_ALIGNED')
       expect(html).not.toContain('LONG Filtered')
-      expect(html).toContain('LONGS: DIBENARKAN')
+      expect(html).toContain('LONGS: ALLOWED')
       expect(html).toContain('border-success/40')
     })
 
@@ -375,7 +375,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
             regime: 'NEUTRAL',
             longs_filtered: false,
             is_long_allowed: true,
-            explanation_ms: 'Trend Makro Neutral (Sideways konsolidasi).',
+            explanation_ms: 'Neutral Macro Trend (Sideways consolidation).',
             explanation: 'Neutral Macro Trend (Sideways consolidation).',
           },
         },
@@ -384,8 +384,8 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const html = renderToString(<EvolutionPage model={model} />)
 
       expect(html).toContain('REGIME: NEUTRAL')
-      expect(html).toContain('LONGS: DIBENARKAN')
-      expect(html).toContain('Trend Makro Neutral')
+      expect(html).toContain('LONGS: ALLOWED')
+      expect(html).toContain('Neutral Macro Trend')
     })
 
     it('verifies Stage 1 INGRESS activates Stage 1 stepper', () => {
@@ -399,9 +399,9 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const model = buildAutoEvolutionModel(fixture)
       const html = renderToString(<EvolutionPage model={model} />)
 
-      expect(html).toContain('1. Ingress Pasaran &amp; Klines Streaming')
-      expect(html).toContain('20% SELESAI')
-      expect(html).toContain('1. Ingress Pasaran')
+      expect(html).toContain('1. Market Ingress &amp; Klines Streaming')
+      expect(html).toContain('20% COMPLETE')
+      expect(html).toContain('1. Market Ingress')
     })
 
     it('verifies Stage 2 HEALTH_EVALUATION activates Stage 2 stepper', () => {
@@ -415,8 +415,8 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const model = buildAutoEvolutionModel(fixture)
       const html = renderToString(<EvolutionPage model={model} />)
 
-      expect(html).toContain('2. Penilaian Kesihatan Strategi Calon')
-      expect(html).toContain('40% SELESAI')
+      expect(html).toContain('2. Candidate Strategy Health Evaluation')
+      expect(html).toContain('40% COMPLETE')
     })
 
     it('verifies Stage 3 TRADE_AUTOPSY activates Stage 3 stepper', () => {
@@ -430,8 +430,8 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const model = buildAutoEvolutionModel(fixture)
       const html = renderToString(<EvolutionPage model={model} />)
 
-      expect(html).toContain('3. Autopsi Pelaksanaan Transaksi &amp; Geseran')
-      expect(html).toContain('60% SELESAI')
+      expect(html).toContain('3. Trade Execution Autopsy &amp; Friction Decomposition')
+      expect(html).toContain('60% COMPLETE')
     })
 
     it('verifies Stage 4 MUTATION_STAGING activates Stage 4 stepper', () => {
@@ -445,8 +445,8 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const model = buildAutoEvolutionModel(fixture)
       const html = renderToString(<EvolutionPage model={model} />)
 
-      expect(html).toContain('4. Mutasi Genom &amp; Penalaan Parameter')
-      expect(html).toContain('80% SELESAI')
+      expect(html).toContain('4. Genome Mutation &amp; Parameter Tuning')
+      expect(html).toContain('80% COMPLETE')
     })
 
     it('verifies Stage 5 SHADOW_OOS_GATE activates Stage 5 stepper', () => {
@@ -460,8 +460,8 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const model = buildAutoEvolutionModel(fixture)
       const html = renderToString(<EvolutionPage model={model} />)
 
-      expect(html).toContain('5. Simulasi Bayangan &amp; Pengesahan Pintu Promosi OOS')
-      expect(html).toContain('90% SELESAI')
+      expect(html).toContain('5. Shadow Simulation &amp; OOS Promotion Gate Verification')
+      expect(html).toContain('90% COMPLETE')
     })
   })
 
@@ -469,7 +469,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
     it('renders all 8 symbol selector pills and 8-pair perp badge in MarketPositionsCard', () => {
       const html = renderToString(<MarketPositionsCard positions={mock8Positions} />)
 
-      expect(html).toContain('8 Pasangan Abadi (Perp)')
+      expect(html).toContain('8 Perpetual Pairs')
       expect(html).toContain('data-testid="symbol-pill-all"')
       expect(html).toContain('data-testid="symbol-pill-sol"')
       expect(html).toContain('data-testid="symbol-pill-eth"')
@@ -479,7 +479,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       expect(html).toContain('data-testid="symbol-pill-xrp"')
       expect(html).toContain('data-testid="symbol-pill-sui"')
       expect(html).toContain('data-testid="symbol-pill-avax"')
-      expect(html).toContain('SEMUA')
+      expect(html).toContain('ALL')
 
       // All 8 cards rendered by default
       expect(html).toContain('data-testid="market-pair-card-solusdt"')
@@ -579,11 +579,11 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
         />,
       )
 
-      expect(html).toContain('Pasaran &amp; Posisi Terperinci')
-      expect(html).toContain('SEMUA')
+      expect(html).toContain('Detailed Positions &amp; Markets')
+      expect(html).toContain('ALL')
       expect(html).toContain('DOGE')
       expect(html).toContain('XRP')
-      expect(html).toMatch(/8<!-- -->\s*Dipantau/)
+      expect(html).toMatch(/8<!-- -->\s*Monitored/)
     })
 
     it('verifies ExecutiveTradesPage renders filter pills and formats 8 pairs', () => {
@@ -604,7 +604,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       ]
 
       const html = renderToString(<ExecutiveTradesPage orders={mockOrders} />)
-      expect(html).toContain('Log Perdagangan &amp; Bedah Siasat Pelaksanaan')
+      expect(html).toContain('Trade Log &amp; Execution Autopsy')
       expect(html).toContain('DOGE')
       expect(html).toContain('XRP')
       expect(html).toContain('0.1625')

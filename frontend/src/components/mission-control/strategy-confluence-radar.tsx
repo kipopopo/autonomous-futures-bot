@@ -58,15 +58,15 @@ export function StrategyConfluenceRadar({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
-                Radar Konfluens Strategi &amp; Skalper 15m
+                Strategy Confluence Radar &amp; 15m Scalper
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-purple-500/10 border border-purple-500/25 text-purple-300">
-                Sistem Keputusan
+                Decision Engine
               </span>
               <ProvenanceBadge source="DAEMON 24/7" />
             </div>
             <p className="text-xs text-zinc-400">
-              Penapis aliran makro Bitcoin, senarai semak pencetus jatuhan kecairan 15m, dan tolok bahaya Hawkes
+              Bitcoin macro trend filter, 15m liquidity dip trigger checklist, and Hawkes hazard gauge
             </p>
           </div>
         </div>
@@ -80,8 +80,8 @@ export function StrategyConfluenceRadar({
             }`}
           >
             {isBtcBullish && isHawkesSafe
-              ? '✅ AUTORISASI BELIAN AKTIF'
-              : '⚠️ KELULUSAN DITAHAN'}
+              ? '✅ BUY AUTHORIZATION ACTIVE'
+              : '⚠️ APPROVAL WITHHELD'}
           </span>
         </div>
       </div>
@@ -93,7 +93,7 @@ export function StrategyConfluenceRadar({
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                 <TrendingUp className="w-4 h-4 text-amber-400" />
-                Penapis Trend Makro BTC
+                BTC Macro Trend Filter
               </span>
               <span
                 className={`inline-flex items-center gap-1 text-xs font-mono font-bold py-0.5 px-2.5 rounded-lg border ${
@@ -114,7 +114,7 @@ export function StrategyConfluenceRadar({
               <div className="p-2.5 rounded-lg bg-black/25 border border-white/[0.06] flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                  <span className="text-zinc-300">BTC 1-Jam (1h):</span>
+                  <span className="text-zinc-300">BTC 1-Hour (1h):</span>
                 </div>
                 <div className="flex items-center gap-2 font-semibold">
                   <span className="text-emerald-400">
@@ -130,7 +130,7 @@ export function StrategyConfluenceRadar({
               <div className="p-2.5 rounded-lg bg-black/25 border border-white/[0.06] flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                  <span className="text-zinc-300">BTC 4-Jam (4h):</span>
+                  <span className="text-zinc-300">BTC 4-Hour (4h):</span>
                 </div>
                 <div className="flex items-center gap-2 font-semibold">
                   <span className="text-emerald-400">
@@ -146,10 +146,10 @@ export function StrategyConfluenceRadar({
           </div>
 
           <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-zinc-500 font-mono">
-            <span>Perlindungan Aliran:</span>
+            <span>Trend Protection:</span>
             <span className="text-emerald-400 font-semibold flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5" />
-              Kedudukan Belian Sahaja (Long Only)
+              Long Only Positions
             </span>
           </div>
         </div>
@@ -160,10 +160,10 @@ export function StrategyConfluenceRadar({
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                 <Zap className="w-4 h-4 text-cyan-400" />
-                Senarai Semak Skalper 15m
+                15m Scalper Checklist
               </span>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-cyan-500/10 border border-cyan-500/25 text-cyan-300">
-                Sapu Kecairan
+                Liquidity Sweep
               </span>
             </div>
 
@@ -176,7 +176,7 @@ export function StrategyConfluenceRadar({
                       scalperCriteria.priceTriggered ? 'bg-emerald-400 animate-ping' : 'bg-cyan-400'
                     }`}
                   />
-                  <span className="text-zinc-300">Jarak Harga Bawah 20 EMA:</span>
+                  <span className="text-zinc-300">Price Distance Below 20 EMA:</span>
                 </div>
                 <div className="flex items-center gap-1.5 font-bold">
                   <span className={scalperCriteria.priceTriggered ? 'text-emerald-400' : 'text-zinc-200'}>
@@ -196,7 +196,7 @@ export function StrategyConfluenceRadar({
                       scalperCriteria.volumeTriggered ? 'bg-emerald-400 animate-ping' : 'bg-cyan-400'
                     }`}
                   />
-                  <span className="text-zinc-300">Volum Relatif (Lonjakan):</span>
+                  <span className="text-zinc-300">Relative Volume (Surge):</span>
                 </div>
                 <div className="flex items-center gap-1.5 font-bold">
                   <span className={scalperCriteria.volumeTriggered ? 'text-emerald-400' : 'text-zinc-200'}>
@@ -216,7 +216,7 @@ export function StrategyConfluenceRadar({
                       scalperCriteria.rsiTriggered ? 'bg-emerald-400 animate-ping' : 'bg-cyan-400'
                     }`}
                   />
-                  <span className="text-zinc-300">RSI (14-Tempoh) Terlebih Jual:</span>
+                  <span className="text-zinc-300">RSI (14-Period) Oversold:</span>
                 </div>
                 <div className="flex items-center gap-1.5 font-bold">
                   <span className={scalperCriteria.rsiTriggered ? 'text-emerald-400' : 'text-zinc-200'}>
@@ -232,17 +232,17 @@ export function StrategyConfluenceRadar({
               <div className="p-2.5 rounded-lg bg-black/25 border border-white/[0.06] flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Percent className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-zinc-300">Struktur Pesanan Maker:</span>
+                  <span className="text-zinc-300">Maker Order Structure:</span>
                 </div>
                 <span className="text-emerald-400 font-bold">
-                  0.02% Yuran (Tiada Taker Drag)
+                  0.02% Fee (Zero Taker Drag)
                 </span>
               </div>
             </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-zinc-500 font-mono">
-            <span>Struktur Kurungan:</span>
+            <span>Bracket Structure:</span>
             <span className="text-cyan-400 font-semibold">
               TP +2.0x ATR · SL -1.2x ATR (R:R 1.66)
             </span>
@@ -255,7 +255,7 @@ export function StrategyConfluenceRadar({
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                 <Activity className="w-4 h-4 text-cyan-400" />
-                Bahaya Mikrostruktur &amp; Hawkes
+                Microstructure &amp; Hawkes Hazard
               </span>
               <span
                 className={`badge badge-sm font-mono font-bold py-0.5 px-2.5 ${
@@ -264,31 +264,31 @@ export function StrategyConfluenceRadar({
                     : 'badge-error bg-rose-500/15 border-rose-500/30 text-rose-400'
                 }`}
               >
-                {isHawkesSafe ? 'SELAMAT / TIDAK TOKSIK' : 'BAHAYA TOKSIK'}
+                {isHawkesSafe ? 'SAFE / NON-TOXIC' : 'TOXIC HAZARD'}
               </span>
             </div>
 
             <div className="flex items-baseline justify-between mb-3">
               <div>
                 <span className="text-xs text-zinc-400 block font-mono">
-                  Radius Spektral (ρ):
+                  Spectral Radius (ρ):
                 </span>
                 <span className="text-2xl font-mono font-bold text-emerald-400 tabular-nums">
                   {`ρ = ${hawkesHazard.spectralRadius.toFixed(4)}`}
                 </span>
               </div>
               <span className="text-xs font-mono text-zinc-500">
-                Siling Selamat &lt; 1.000
+                Safe Ceiling &lt; 1.000
               </span>
             </div>
 
             {/* Sparkline SVG Chart */}
             <div className="p-3 rounded-lg bg-black/30 border border-white/[0.06] mb-2 relative overflow-hidden">
               <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono mb-2">
-                <span>Aliran Sejarah ρ (60 saat)</span>
+                <span>Historical ρ Trend (60s)</span>
                 <span className="text-emerald-400 font-semibold flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Stabil
+                  Stable
                 </span>
               </div>
               <svg
@@ -316,11 +316,11 @@ export function StrategyConfluenceRadar({
           <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-zinc-400 font-mono">
             <span className="flex items-center gap-1">
               <AlertTriangle className="w-3 h-3 text-amber-400" />
-              {`Amaran: ρ ≥ ${hawkesHazard.thresholdWarning.toFixed(2)}`}
+              {`Warning: ρ ≥ ${hawkesHazard.thresholdWarning.toFixed(2)}`}
             </span>
             <span className="flex items-center gap-1 text-rose-400 font-semibold">
               <Flame className="w-3 h-3" />
-              {`Kritikal: ρ ≥ ${hawkesHazard.thresholdCritical.toFixed(2)}`}
+              {`Critical: ρ ≥ ${hawkesHazard.thresholdCritical.toFixed(2)}`}
             </span>
           </div>
         </div>

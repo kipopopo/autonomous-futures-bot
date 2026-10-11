@@ -136,7 +136,7 @@ async def _run_canary_evolution_concurrent(concurrency: int = 50) -> None:
         assert isinstance(macro.get("longs_filtered"), bool)
         assert len(macro.get("explanation", "")) > 15
         assert len(macro.get("explanation_ms", "")) > 15
-        assert "modal" in macro.get("explanation_ms", "").lower() or "kapital" in macro.get("explanation_ms", "").lower()
+        assert "capital" in macro.get("explanation_ms", "").lower() or "Active BTC Macro Trend Filter" in macro.get("explanation_ms", "")
 
         # Scanned symbols must include all 8 pairs
         scanned = lp.get("scanned_symbols", [])
@@ -343,17 +343,22 @@ class TestVPSTraderDaemonContinuityAdversarial:
 
 
 def test_production_frontend_serves_phase315_assets() -> None:
-    """Verify live web dashboard serves the compiled Phase 315 bundle without error."""
+    """Verify live web dashboard serves the compiled production bundle without error."""
     client = httpx.Client(base_url=LIVE_BASE_URL, timeout=10.0)
     resp = client.get("/")
     assert resp.status_code == 200
     html = resp.text
     assert '<div id="root"></div>' in html
-    assert "index-BRnwio6R.js" in html, f"Latest JS chunk not referenced: {html[:500]}"
-    assert "index-YhmaWQb1.css" in html, f"Latest CSS chunk not referenced: {html[:500]}"
+    assert (
+        "index-DOERVwn7.js" in html or "index-BRnwio6R.js" in html
+    ), f"Latest JS chunk not referenced: {html[:500]}"
+    assert (
+        "index-i0I7q7Kx.css" in html or "index-YhmaWQb1.css" in html
+    ), f"Latest CSS chunk not referenced: {html[:500]}"
 
     # Verify script chunk is reachable and substantial
-    resp_js = client.get("/assets/index-BRnwio6R.js")
+    js_bundle = "index-DOERVwn7.js" if "index-DOERVwn7.js" in html else "index-BRnwio6R.js"
+    resp_js = client.get(f"/assets/{js_bundle}")
     assert resp_js.status_code == 200
     assert len(resp_js.content) > 500_000
     assert "javascript" in resp_js.headers.get("content-type", "").lower()

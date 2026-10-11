@@ -210,14 +210,14 @@ describe('Phase 314 Milestone 2 Remediation Suite', () => {
     it('renders dynamic win rate 0.0% when completed trades is 0', () => {
       const html = renderToString(<ExecutiveTradesPage orders={[]} />)
       expect(html).toContain('0.0%')
-      expect(html).toContain('Kadar Kemenangan (Win Rate)')
+      expect(html).toContain('Win Rate')
     })
 
     it('renders 100% passive limit execution when orders are pure maker', () => {
       const pureMakerOrders: OrderFeedItem[] = [
         {
           orderId: 'canary-maker-1',
-          timestampMyt: '10 Oct 22:00:00 (10m yang lalu)',
+          timestampMyt: '10 Oct 22:00:00 (10m ago)',
           symbol: 'SOLUSDT',
           side: 'BUY',
           orderType: 'LIMIT MAKER',
@@ -230,7 +230,7 @@ describe('Phase 314 Milestone 2 Remediation Suite', () => {
         },
       ]
       const html = renderToString(<ExecutiveTradesPage orders={pureMakerOrders} />)
-      expect(html).toContain('100% Pelaksanaan had pasif (exact maker limit)')
+      expect(html).toContain('100% Passive limit execution (exact maker limit)')
     })
 
     it('formats Realized PnL correctly for negative loss without +- or duplicate signs', () => {

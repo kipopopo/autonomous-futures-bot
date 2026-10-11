@@ -129,7 +129,7 @@ export function MissionControlHeader({
           {/* Telegram Alert Notification Status Badge */}
           <div className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-sky-500/20 bg-sky-500/10 text-sky-400 text-xs font-mono">
             <Bell className="w-3 h-3 text-sky-400 animate-bounce" />
-            <span>Telegram: Aktif</span>
+            <span>Telegram: Active</span>
           </div>
         </div>
 
@@ -181,7 +181,7 @@ export function MissionControlHeader({
             <RefreshCw
               className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`}
             />
-            <span>{isLoading ? 'Menyelaras…' : 'Segar Semula'}</span>
+            <span>{isLoading ? 'Syncing…' : 'Refresh'}</span>
           </button>
         </div>
       </div>

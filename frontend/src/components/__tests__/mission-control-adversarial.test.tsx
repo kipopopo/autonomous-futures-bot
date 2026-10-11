@@ -185,8 +185,8 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
       expect(html).not.toContain('Infinity')
       expect(html).toContain('$0.00')
       expect(html).toContain('0.0% Win Rate')
-      expect(html).toContain('0 Dagangan Selesai')
-      expect(html).toContain('0.0% (Lantai ≥ 75%)')
+      expect(html).toContain('0 Completed Trades')
+      expect(html).toContain('0.0% (Floor ≥ 75%)')
       expect(html).toContain('text-amber-400') // unhealthy reserve floor < 75%
     })
   })
@@ -354,11 +354,11 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
         />,
       )
 
-      expect(html).toContain('BAHAYA TOKSIK')
+      expect(html).toContain('TOXIC HAZARD')
       expect(html).toContain('badge-error')
-      expect(html).toContain('⚠️ KELULUSAN DITAHAN')
+      expect(html).toContain('⚠️ APPROVAL WITHHELD')
       expect(html).toContain('badge-warning')
-      expect(html).not.toContain('✅ AUTORISASI BELIAN AKTIF')
+      expect(html).not.toContain('✅ BUY AUTHORIZATION ACTIVE')
       expect(html).not.toContain('NaN')
     })
 
@@ -430,7 +430,7 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
 
     it('renders empty table banner when OrderFeedTable is passed empty array directly', () => {
       const html = renderToString(<OrderFeedTable orders={[]} />)
-      expect(html).toContain('Tiada rekod pesanan bagi tapisan ini.')
+      expect(html).toContain('No order records for this filter.')
       expect(html).not.toContain('<tbody')
     })
   })
@@ -447,14 +447,14 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
           liveMarketModel={liveMarket}
         />,
       )
-      expect(html).toContain('Terbuka')
-      expect(html).toContain('Dipantau')
+      expect(html).toContain('Open')
+      expect(html).toContain('Monitored')
       expect(html).not.toContain('NaN')
     })
 
     it('renders ExecutiveTradesPage with empty orders list and negative PnL', () => {
       const emptyHtml = renderToString(<ExecutiveTradesPage orders={[]} />)
-      expect(emptyHtml).toContain('Pesanan Diisi')
+      expect(emptyHtml).toContain('Orders Filled')
       expect(emptyHtml).toContain('0.0000')
 
       const lossOrders: OrderFeedItem[] = [
@@ -474,7 +474,7 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
       ]
 
       const lossHtml = renderToString(<ExecutiveTradesPage orders={lossOrders} />)
-      expect(lossHtml).toContain('Pesanan Diisi')
+      expect(lossHtml).toContain('Orders Filled')
       expect(lossHtml).toContain('-1.2500')
     })
 
@@ -490,7 +490,7 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
           killSwitchModel={killSwitch}
         />,
       )
-      expect(verifiedHtml).toContain('Disahkan Sifar-Drift')
+      expect(verifiedHtml).toContain('Zero-Drift Verified')
 
       const driftedProd: ProductionLaunchModel = {
         ...prodLaunch,
@@ -508,7 +508,7 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
           killSwitchModel={killSwitch}
         />,
       )
-      expect(driftedHtml).toContain('Semakan Berterusan')
+      expect(driftedHtml).toContain('Continuous Verification')
     })
   })
 

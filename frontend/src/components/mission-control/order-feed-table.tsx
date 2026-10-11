@@ -36,7 +36,7 @@ export function OrderFeedTable({ orders }: OrderFeedTableProps) {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
-                Suapan Pesanan &amp; Log Pelaksanaan Langsung
+                Recent Orders &amp; Execution Feed
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-300">
                 Maker 0.02%
@@ -44,7 +44,7 @@ export function OrderFeedTable({ orders }: OrderFeedTableProps) {
               <ProvenanceBadge source="LIVE EXCHANGE" />
             </div>
             <p className="text-xs text-zinc-400">
-              Pelaksanaan pesanan pasaran had (maker limit) tanpa seretan yuran tinggi, direkodkan mengikut waktu Malaysia (MYT)
+              Maker limit execution without taker fee drag, logged in Malaysia Time (MYT)
             </p>
           </div>
         </div>
@@ -73,7 +73,7 @@ export function OrderFeedTable({ orders }: OrderFeedTableProps) {
                   : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
               }`}
             >
-              {sym === 'ALL' ? 'SEMUA' : sym.replace('USDT', '')}
+              {sym === 'ALL' ? 'ALL' : sym.replace('USDT', '')}
             </button>
           ))}
         </div>
@@ -82,20 +82,20 @@ export function OrderFeedTable({ orders }: OrderFeedTableProps) {
       {/* Orders Table */}
       {filteredOrders.length === 0 ? (
         <div className="p-10 text-center text-xs text-zinc-500 font-mono">
-          Tiada rekod pesanan bagi tapisan ini.
+          No order records for this filter.
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full font-mono text-xs text-left">
             <thead>
               <tr className="border-b border-white/[0.06] text-zinc-400 text-[11px] uppercase tracking-wider">
-                <th className="pb-3 font-semibold">Waktu (MYT)</th>
-                <th className="pb-3 font-semibold">Pasangan</th>
-                <th className="pb-3 font-semibold">Tindakan / Jenis</th>
-                <th className="pb-3 font-semibold text-right">Harga &amp; Kuantiti</th>
-                <th className="pb-3 font-semibold text-right">Nilai Notional</th>
-                <th className="pb-3 font-semibold text-right">Yuran Maker (0.02%)</th>
-                <th className="pb-3 font-semibold text-right">PnL Direalisasi</th>
+                <th className="pb-3 font-semibold">Time (MYT)</th>
+                <th className="pb-3 font-semibold">Pair</th>
+                <th className="pb-3 font-semibold">Side / Type</th>
+                <th className="pb-3 font-semibold text-right">Price &amp; Quantity</th>
+                <th className="pb-3 font-semibold text-right">Notional Value</th>
+                <th className="pb-3 font-semibold text-right">Maker Fee (0.02%)</th>
+                <th className="pb-3 font-semibold text-right">Realized PnL</th>
                 <th className="pb-3 font-semibold text-center">Status</th>
               </tr>
             </thead>
@@ -153,7 +153,7 @@ export function OrderFeedTable({ orders }: OrderFeedTableProps) {
                         }`}
                       </div>
                       <div className="text-[10px] text-zinc-400 tabular-nums">
-                        {`${ord.quantity} unit`}
+                        {`${ord.quantity} units`}
                       </div>
                     </td>
 

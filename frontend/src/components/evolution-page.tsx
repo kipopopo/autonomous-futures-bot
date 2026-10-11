@@ -57,14 +57,14 @@ function formatUtc(ts: number | string | Date): string {
 
 function formatRelativeTime(timestampMs: number, nowMs: number): string {
   const diffSec = Math.max(0, Math.floor((nowMs - timestampMs) / 1000))
-  if (diffSec < 5) return 'Baru sahaja'
-  if (diffSec < 60) return `${diffSec}s yang lalu`
+  if (diffSec < 5) return 'Just now'
+  if (diffSec < 60) return `${diffSec}s ago`
   const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${diffMin}m yang lalu`
+  if (diffMin < 60) return `${diffMin}m ago`
   const diffHours = Math.floor(diffMin / 60)
-  if (diffHours < 24) return `${diffHours}j ${diffMin % 60}m yang lalu`
+  if (diffHours < 24) return `${diffHours}h ago`
   const diffDays = Math.floor(diffHours / 24)
-  return `${diffDays}h yang lalu`
+  return `${diffDays}d ago`
 }
 
 export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
@@ -183,16 +183,16 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
       status: 'WAITING_FOR_SAMPLES',
       status_label: 'WAITING_FOR_SAMPLES (0/5)',
       explanation:
-        'Menunggu 5 sampel transaksi selesai untuk menguji Sharpe out-of-sample (semasa: 0/5, hurdle >= 15.0%).',
+        'Waiting for 5 completed trade samples to evaluate out-of-sample Sharpe (current: 0/5, hurdle >= 15.0%).',
     },
     macro_gating_state: {
       regime: 'BEARISH',
       longs_filtered: true,
       is_long_allowed: false,
       explanation_ms:
-        'Trend Makro Bearish (Harga < EMA 200 1j). Kemasukan LONG ditapis secara automatik untuk melindungi modal.',
+        'Active BTC Macro Trend Filter: Long entries temporarily paused because BTC 1h/4h trend is in a Bearish regime (EMA 50 < EMA 200) to protect bot micro-capital.',
       explanation:
-        'Bearish Macro Trend (Price < 1h EMA 200). LONG entries automatically filtered to protect capital.',
+        'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
     },
     recent_events: [],
   }
@@ -217,17 +217,17 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
   const oosGateExplanation =
     liveProgress.oos_gate?.explanation ||
     (closedTrades < requiredTrades
-      ? `Menunggu ${requiredTrades} sampel transaksi selesai untuk menguji Sharpe out-of-sample (semasa: ${closedTrades}/${requiredTrades}, hurdle >= ${sharpeHurdle.toFixed(1)}%).`
-      : `Menilai promosi bayangan: Sharpe improvement (+${sharpeImprovement.toFixed(1)}%) sedang diuji terhadap hurdle +${sharpeHurdle.toFixed(1)}%.`)
+      ? `Waiting for ${requiredTrades} completed trade samples to evaluate out-of-sample Sharpe (current: ${closedTrades}/${requiredTrades}, hurdle >= ${sharpeHurdle.toFixed(1)}%).`
+      : `Evaluating shadow promotion: Sharpe improvement (+${sharpeImprovement.toFixed(1)}%) being tested against hurdle +${sharpeHurdle.toFixed(1)}%.`)
 
   const macroState = liveProgress.macro_gating_state || liveProgress.macro_gating || {
     regime: 'BEARISH',
     longs_filtered: true,
     is_long_allowed: false,
     explanation_ms:
-      'Trend Makro Bearish (Harga < EMA 200 1j). Kemasukan LONG ditapis secara automatik untuk melindungi modal.',
+      'Active BTC Macro Trend Filter: Long entries temporarily paused because BTC 1h/4h trend is in a Bearish regime (EMA 50 < EMA 200) to protect bot micro-capital.',
     explanation:
-      'Bearish Macro Trend (Price < 1h EMA 200). LONG entries automatically filtered to protect capital.',
+      'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
   }
 
   const lastEvalMs =
@@ -237,7 +237,9 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
 
   const cycleProgressPct =
     liveProgress.cycle_progress_pct ??
-    Number((80.0 + (Math.min(closedTrades, requiredTrades) / requiredTrades) * 20.0).toFixed(1))
+    (requiredTrades > 0
+      ? Number((80.0 + (Math.min(closedTrades, requiredTrades) / requiredTrades) * 20.0).toFixed(1))
+      : 80.0)
 
   const scannedSymbols =
     liveProgress.scanned_symbols && liveProgress.scanned_symbols.length > 0
@@ -259,43 +261,43 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
       : [
           {
             event_type: 'HEARTBEAT_INGRESS',
-            title: 'Degupan Jantung & Ingress Pasaran',
-            detail: `Penstriman klines 15m & 1h Binance Futures disegerakkan (8 pasangan: ${scannedSymbols.join(', ')})`,
+            title: 'Heartbeat & Market Ingress',
+            detail: `Binance Futures 15m & 1h klines streaming synchronized (8 pairs: ${scannedSymbols.join(', ')})`,
             latency_ms: 42.0,
             status: 'HEALTHY',
             timestamp_ms: lastEvalMs - 15000,
           },
           {
             event_type: 'SOLVENCY_AUDIT',
-            title: 'Audit Lejar Dwi-Kemasukan Berterusan',
-            detail: 'Baki $100.12 USDT disahkan dengan sifar drift matematis (|Δ| = 0.00 < 10^-15 USDT)',
+            title: 'Continuous Double-Entry Ledger Audit',
+            detail: 'Balance $100.12 USDT verified with zero mathematical drift (|Δ| = 0.00 < 10^-15 USDT)',
             latency_ms: 0.5,
             status: 'VERIFIED',
             timestamp_ms: lastEvalMs - 45000,
           },
           {
             event_type: 'CANDIDATE_HEALTH',
-            title: 'Penilaian Kesihatan Strategi Calon',
-            detail: 'BTCUSDT & ETHUSDT dinilai ELITE; SOLUSDT dinilai DEGRADED dan diarahkan ke mutasi',
+            title: 'Candidate Strategy Health Evaluation',
+            detail: 'BTCUSDT & ETHUSDT evaluated as ELITE; SOLUSDT evaluated as DEGRADED and routed to mutation',
             latency_ms: 1.2,
             status: 'EVALUATED',
             timestamp_ms: lastEvalMs - 120000,
           },
           {
             event_type: 'MUTATION_STAGING',
-            title: 'Mutasi Genom Parameter (Gen #2)',
-            detail: 'cand-ethusdt-evo-002 dijana dengan Donchian period 24, ATR 2.5x, Hawkes 0.65',
+            title: 'Parameter Genome Mutation (Gen #2)',
+            detail: 'cand-ethusdt-evo-002 generated with Donchian period 24, ATR 2.5x, Hawkes 0.65',
             latency_ms: 2.8,
             status: 'STAGED',
             timestamp_ms: lastEvalMs - 300000,
           },
           {
             event_type: 'SHADOW_VALIDATION',
-            title: 'Simulasi Bayangan & Pintu Promosi OOS',
+            title: 'Shadow Simulation & OOS Promotion Gate',
             detail:
               closedTrades < requiredTrades
-                ? `Pintu OOS: ${closedTrades}/${requiredTrades} sampel diperoleh, Sharpe hurdle >= ${sharpeHurdle.toFixed(1)}% (${stageStatus})`
-                : 'Sharpe bayangan 2.10 vs induk -5.00 (+100.0% peningkatan) melepasi hurdle OOS',
+                ? `OOS Gate: ${closedTrades}/${requiredTrades} samples acquired, Sharpe hurdle >= ${sharpeHurdle.toFixed(1)}% (${stageStatus})`
+                : 'Shadow Sharpe 2.10 vs parent -5.00 (+100.0% improvement) cleared OOS hurdle',
             latency_ms: 5.4,
             status: closedTrades < requiredTrades ? 'WAITING' : 'PROMOTED',
             timestamp_ms: lastEvalMs - 600000,
@@ -368,7 +370,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-bold text-sm sm:text-base text-base-content">
-                BTC Macro Trend Gating (Rejim 1-Jam)
+                BTC Macro Trend Gating (1-Hour Regime)
               </span>
               <span
                 className={`badge badge-sm font-mono font-bold ${
@@ -386,16 +388,13 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               )}
             </div>
             <p className="text-xs sm:text-sm text-base-content/80 mt-1 font-medium">
-              🇲🇾 {macroState.explanation_ms || macroState.explanation}
-            </p>
-            <p className="text-[11px] sm:text-xs text-base-content/60 mt-0.5 italic">
-              🇬🇧 {macroState.explanation}
+              {macroState.explanation || macroState.explanation_ms}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
           <div className="badge badge-outline text-xs font-mono">
-            {macroState.is_long_allowed ? 'LONGS: DIBENARKAN' : 'LONGS: DISEKAT'}
+            {macroState.is_long_allowed ? 'LONGS: ALLOWED' : 'LONGS: BLOCKED'}
           </div>
         </div>
       </div>
@@ -418,15 +417,15 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-lg font-bold text-base-content flex items-center gap-1.5">
-                    Status &amp; Kemajuan Evolusi Semasa
+                    Current Evolution Progress &amp; Status
                   </h2>
                   <span className="badge badge-success badge-sm font-semibold gap-1">
                     <Activity className="h-3 w-3" />
-                    GELUNG AKTIF 24/7
+                    ACTIVE 24/7 LOOP
                   </span>
                 </div>
                 <p className="text-xs text-base-content/60">
-                  Penalaan kendiri model kuantitatif, autopsi geseran pelaksanaan dan evolusi strategi berterusan.
+                  Continuous quantitative model self-tuning, execution friction autopsy, and strategy evolution.
                 </p>
               </div>
             </div>
@@ -445,12 +444,12 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
 
           {/* 4 Timestamps & Latency Telemetry Grid */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Box 1: Masa Semasa Sistem (MYT) */}
+            {/* Box 1: Current System Time (MYT) */}
             <div className="rounded-xl border border-base-200 bg-base-200/50 p-4">
               <div className="flex items-center justify-between text-base-content/70">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1">
                   <Clock className="h-3.5 w-3.5" />
-                  Waktu Semasa (MYT)
+                  Current Time (MYT)
                 </span>
                 <span className="badge badge-ghost badge-xs font-mono">GMT+8</span>
               </div>
@@ -462,12 +461,12 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               </div>
             </div>
 
-            {/* Box 2: Kitaran Terakhir & Ambilan Lilin */}
+            {/* Box 2: Last Cycle & Candle Fetch */}
             <div className="rounded-xl border border-base-200 bg-base-200/50 p-4">
               <div className="flex items-center justify-between text-base-content/70">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-info flex items-center gap-1">
                   <History className="h-3.5 w-3.5" />
-                  Kitaran Terakhir
+                  Last Cycle
                 </span>
                 <span className="badge badge-info badge-xs font-mono text-info-content">
                   {formatRelativeTime(lastEvalMs, nowMs)}
@@ -479,26 +478,26 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               <div className="mt-1 flex items-center justify-between text-[10px] text-base-content/70">
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3 text-info" />
-                  Ambilan Lilin:
+                  Candle Fetch:
                 </span>
                 <span className="font-mono font-semibold text-info">
                   {formatMyt(lastCandleFetchMs)}
                 </span>
               </div>
               <div className="mt-1.5 pt-1.5 border-t border-base-200/80 text-[10px] text-base-content/60">
-                <span className="font-semibold text-base-content/80">{`Imbasan (${scannedSymbols.length} Pasangan): `}</span>
+                <span className="font-semibold text-base-content/80">{`Scan (${scannedSymbols.length} Pairs): `}</span>
                 <span className="font-mono text-success font-semibold truncate block">
                   {scannedSymbols.join(', ')}
                 </span>
               </div>
             </div>
 
-            {/* Box 3: Degupan Jantung Kitaran Seterusnya */}
+            {/* Box 3: Next Cycle Heartbeat */}
             <div className="rounded-xl border border-base-200 bg-base-200/50 p-4">
               <div className="flex items-center justify-between text-base-content/70">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-warning flex items-center gap-1">
                   <Timer className="h-3.5 w-3.5" />
-                  Kitaran Seterusnya
+                  Next Cycle
                 </span>
                 <span className="badge badge-warning badge-xs font-mono">
                   {countdown}s
@@ -509,7 +508,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   00:{countdown.toString().padStart(2, '0')}
                 </span>
                 <span className="text-[11px] text-base-content/60 font-mono">
-                  / 15s jendela
+                  / 15s window
                 </span>
               </div>
               <div className="mt-2 w-full">
@@ -521,12 +520,12 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               </div>
             </div>
 
-            {/* Box 4: Latensi & Integriti Litar */}
+            {/* Box 4: Latency & Telemetry Integrity */}
             <div className="rounded-xl border border-base-200 bg-base-200/50 p-4">
               <div className="flex items-center justify-between text-base-content/70">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-success flex items-center gap-1">
                   <Zap className="h-3.5 w-3.5" />
-                  Integriti Telemetri
+                  Telemetry Integrity
                 </span>
                 <span className="badge badge-success badge-xs font-mono text-success-content">
                   NORMAL
@@ -537,11 +536,11 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   {liveProgress.heartbeat_latency_ms ?? 42.0} ms
                 </span>
                 <span className="text-[11px] text-base-content/60 font-mono">
-                  (&lt; 500ms had)
+                  (&lt; 500ms limit)
                 </span>
               </div>
               <div className="mt-1 flex items-center gap-1 text-[10px] text-base-content/60">
-                <span>Drift Lejar:</span>
+                <span>Ledger Drift:</span>
                 <span className="font-mono text-success font-semibold">|&Delta;| = 0.00 USDT</span>
               </div>
             </div>
@@ -552,26 +551,26 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <div className="text-xs font-bold uppercase tracking-wider text-base-content/70">
-                  Kemajuan Kitaran Evolusi Semasa ({liveProgress.active_generation ?? 'GEN #2'} &rarr; {liveProgress.next_target_generation ?? 'GEN #3'})
+                  Current Evolution Cycle Progress ({liveProgress.active_generation ?? 'GEN #2'} &rarr; {liveProgress.next_target_generation ?? 'GEN #3'})
                 </div>
                 <div className="text-sm font-semibold text-base-content mt-0.5">
-                  Peringkat Semasa:{' '}
+                  Current Stage:{' '}
                   <span className="text-primary font-bold">
                     {currentStage === 'INGRESS'
-                      ? '1. Ingress Pasaran & Klines Streaming'
+                      ? '1. Market Ingress & Klines Streaming'
                       : currentStage === 'HEALTH_EVALUATION'
-                      ? '2. Penilaian Kesihatan Strategi Calon'
+                      ? '2. Candidate Strategy Health Evaluation'
                       : currentStage === 'TRADE_AUTOPSY'
-                      ? '3. Autopsi Pelaksanaan Transaksi & Geseran'
+                      ? '3. Trade Execution Autopsy & Friction Decomposition'
                       : currentStage === 'MUTATION_STAGING'
-                      ? '4. Mutasi Genom & Penalaan Parameter'
-                      : '5. Simulasi Bayangan & Pengesahan Pintu Promosi OOS'}
+                      ? '4. Genome Mutation & Parameter Tuning'
+                      : '5. Shadow Simulation & OOS Promotion Gate Verification'}
                   </span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm font-black text-primary">
-                  {`${cycleProgressPct}% SELESAI`}
+                  {`${cycleProgressPct}% COMPLETE`}
                 </span>
               </div>
             </div>
@@ -594,7 +593,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 }`}
               >
                 <div className="flex items-center justify-between text-success">
-                  <span className="font-bold">1. Ingress Pasaran</span>
+                  <span className="font-bold">1. Market Ingress</span>
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </div>
                 <p className="text-[10px] text-base-content/60 mt-1">15m &amp; 1h Klines streaming</p>
@@ -603,7 +602,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                     currentStage === 'INGRESS' ? 'badge-primary' : 'badge-success'
                   }`}
                 >
-                  {currentStage === 'INGRESS' ? 'AKTIF' : '100% LENGKAP'}
+                  {currentStage === 'INGRESS' ? 'ACTIVE' : '100% COMPLETE'}
                 </div>
               </div>
 
@@ -616,7 +615,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 }`}
               >
                 <div className="flex items-center justify-between text-success">
-                  <span className="font-bold">2. Penilaian Kesihatan</span>
+                  <span className="font-bold">2. Candidate Health</span>
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </div>
                 <p className="text-[10px] text-base-content/60 mt-1">Rolling Sharpe &amp; Hawkes &rho;</p>
@@ -626,8 +625,8 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   }`}
                 >
                   {currentStage === 'HEALTH_EVALUATION'
-                    ? 'AKTIF'
-                    : `${Object.keys(healthEvaluations).length || 3} CALON AKTIF`}
+                    ? 'ACTIVE'
+                    : `${Object.keys(healthEvaluations).length || 3} ACTIVE CANDIDATES`}
                 </div>
               </div>
 
@@ -640,7 +639,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 }`}
               >
                 <div className="flex items-center justify-between text-success">
-                  <span className="font-bold">3. Autopsi Transaksi</span>
+                  <span className="font-bold">3. Trade Autopsy</span>
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </div>
                 <p className="text-[10px] text-base-content/60 mt-1">Timing, Slip &amp; Adverse Sel</p>
@@ -650,8 +649,8 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   }`}
                 >
                   {currentStage === 'TRADE_AUTOPSY'
-                    ? 'AKTIF'
-                    : `${model.performance?.total_autopsies_conducted || 16} DIAUDIT`}
+                    ? 'ACTIVE'
+                    : `${model.performance?.total_autopsies_conducted || 16} AUDITED`}
                 </div>
               </div>
 
@@ -664,12 +663,12 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 }`}
               >
                 <div className="flex items-center justify-between text-primary">
-                  <span className="font-bold">4. Mutasi Genom</span>
+                  <span className="font-bold">4. Genome Mutation</span>
                   <Sparkles className="h-3.5 w-3.5" />
                 </div>
-                <p className="text-[10px] text-base-content/60 mt-1">Parameter adaptif dilaras</p>
+                <p className="text-[10px] text-base-content/60 mt-1">Adaptive parameters tuned</p>
                 <div className="badge badge-primary badge-xs mt-2 font-mono">
-                  {currentStage === 'MUTATION_STAGING' ? 'AKTIF' : `${liveProgress.active_generation ?? 'GEN #2'} STAGED`}
+                  {currentStage === 'MUTATION_STAGING' ? 'ACTIVE' : `${liveProgress.active_generation ?? 'GEN #2'} STAGED`}
                 </div>
               </div>
 
@@ -682,7 +681,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 }`}
               >
                 <div className="flex items-center justify-between text-warning">
-                  <span className="font-bold">5. Pintu OOS &amp; Promosi</span>
+                  <span className="font-bold">5. OOS Gate &amp; Promotion</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </div>
                 <p className="text-[10px] text-base-content/60 mt-1">Sharpe &ge; {sharpeHurdle.toFixed(0)}% hurdle</p>
@@ -696,10 +695,10 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   }`}
                 >
                   {stageStatus === 'WAITING_FOR_SAMPLES'
-                    ? `${closedTrades}/${requiredTrades} SAMPEL`
+                    ? `${closedTrades}/${requiredTrades} SAMPLES`
                     : stageStatus === 'QUALIFIED'
-                    ? 'LAYAK / PROMOTED'
-                    : 'MENILAI'}
+                    ? 'QUALIFIED / PROMOTED'
+                    : 'EVALUATING'}
                 </div>
               </div>
             </div>
@@ -717,7 +716,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-base-content/60 font-medium">Status Pintu:</span>
+                  <span className="text-xs text-base-content/60 font-medium">Gate Status:</span>
                   <span
                     className={`badge badge-sm font-mono font-bold ${
                       stageStatus === 'QUALIFIED'
@@ -736,7 +735,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 {/* Samples counter & Progress */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-base-content/70 font-semibold">Sampel Transaksi Ditutup:</span>
+                    <span className="text-base-content/70 font-semibold">Closed Trade Samples:</span>
                     <span className="font-mono font-black text-base-content">
                       {`${closedTrades} / ${requiredTrades} required trades`}
                     </span>
@@ -745,25 +744,25 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                     className={`progress w-full h-2 ${
                       closedTrades >= requiredTrades ? 'progress-success' : 'progress-warning'
                     }`}
-                    value={closedTrades}
-                    max={requiredTrades}
+                    value={requiredTrades > 0 ? closedTrades : 0}
+                    max={Math.max(1, requiredTrades)}
                   />
                   <div className="flex justify-between text-[11px] text-base-content/50 font-mono">
-                    <span>0 sampel</span>
-                    <span>{requiredTrades} sasaran kelayakan</span>
+                    <span>0 samples</span>
+                    <span>{requiredTrades} required qualification target</span>
                   </div>
                 </div>
 
                 {/* Sharpe Hurdle & Improvement */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-base-content/70 font-semibold">Batas Minimum Sharpe (Hurdle):</span>
+                    <span className="text-base-content/70 font-semibold">Sharpe Minimum Hurdle:</span>
                     <span className="font-mono font-black text-warning">
-                      {`≥ ${sharpeHurdle.toFixed(1)}% peningkatan`}
+                      {`≥ ${sharpeHurdle.toFixed(1)}% improvement`}
                     </span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg bg-base-200/50 p-2 font-mono text-xs">
-                    <span className="text-base-content/60">Peningkatan Semasa:</span>
+                    <span className="text-base-content/60">Current Improvement:</span>
                     <span
                       className={`font-black ${
                         sharpeImprovement >= sharpeHurdle
@@ -792,9 +791,9 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-base-content/70 flex items-center gap-1.5">
                 <History className="h-3.5 w-3.5 text-primary" />
-                Log Garis Masa Peristiwa Evolusi Terkini (Live Audit Timeline)
+                Recent Evolution Events Timeline (Live Audit Timeline)
               </h3>
-              <span className="badge badge-ghost badge-xs font-mono">Waktu Malaysia (MYT)</span>
+              <span className="badge badge-ghost badge-xs font-mono">Malaysia Time (MYT)</span>
             </div>
 
             <div className="space-y-2">

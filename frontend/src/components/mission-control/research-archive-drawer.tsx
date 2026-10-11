@@ -18,241 +18,241 @@ export interface ArchivePhaseItem {
 }
 
 export const ARCHIVE_PHASES: ArchivePhaseItem[] = [
-  // 1. Penyelidikan & Model (Research & Modeling)
+  // 1. Research & Modeling
   {
     id: 'phase-250',
-    phaseNumber: 'Fasa 250',
-    title: 'Pencipta Hipotesis & Pendaftaran (Creator)',
-    description: 'Pendaftaran strategi hipotesis kuantitatif dan kelayakan calon DAG.',
+    phaseNumber: 'Phase 250',
+    title: 'Hypothesis Creator & Registry (Creator)',
+    description: 'Quantitative hypothesis strategy registry and DAG candidate eligibility.',
     route: '#/creator',
     category: 'research',
-    categoryLabel: 'Penyelidikan & Model',
+    categoryLabel: 'Research & Modeling',
     badgeText: 'Hypothesis Registry',
   },
   {
     id: 'phase-253',
-    phaseNumber: 'Fasa 253',
-    title: 'Kesediaan & Latihan Model (Learner)',
-    description: 'Pengesahan latihan model, semakan kualiti, dan metrik pembelajaran.',
+    phaseNumber: 'Phase 253',
+    title: 'Model Readiness & Training (Learner)',
+    description: 'Model training verification, quality checks, and learning metrics.',
     route: '#/learner',
     category: 'research',
-    categoryLabel: 'Penyelidikan & Model',
+    categoryLabel: 'Research & Modeling',
     badgeText: 'Model Learning',
   },
   {
     id: 'phase-298',
-    phaseNumber: 'Fasa 298',
-    title: 'Perlombongan Strategi Kuantitatif (Mining)',
-    description: 'Penjanaan hipotesis kuantitatif, penapisan OOS, dan pengesahan statistik.',
+    phaseNumber: 'Phase 298',
+    title: 'Quantitative Strategy Mining (Mining)',
+    description: 'Quantitative hypothesis generation, OOS filtering, and statistical validation.',
     route: '#/mining',
     category: 'research',
-    categoryLabel: 'Penyelidikan & Model',
+    categoryLabel: 'Research & Modeling',
     badgeText: 'Hypothesis Mining',
   },
   {
     id: 'phase-304',
-    phaseNumber: 'Fasa 304',
-    title: 'Penentukuran Avellaneda-Stoikov (Calibration)',
-    description: 'Adaptasi parameter pasaran mikrostruktur secara masa nyata.',
+    phaseNumber: 'Phase 304',
+    title: 'Avellaneda-Stoikov Calibration (Calibration)',
+    description: 'Real-time market microstructure parameter adaptation.',
     route: '#/calibration',
     category: 'research',
-    categoryLabel: 'Penyelidikan & Model',
+    categoryLabel: 'Research & Modeling',
     badgeText: 'Adaptive Parameters',
   },
   {
     id: 'phase-305',
-    phaseNumber: 'Fasa 305',
-    title: 'Ensembel Alfa Pelbagai Jangkamasa (Ensemble)',
-    description: 'Pengadunan meta-dasar multi-horizon dan gabungan isyarat alfa.',
+    phaseNumber: 'Phase 305',
+    title: 'Multi-Horizon Alpha Ensemble (Ensemble)',
+    description: 'Multi-horizon meta-policy blending and alpha signal combination.',
     route: '#/ensemble',
     category: 'research',
-    categoryLabel: 'Penyelidikan & Model',
+    categoryLabel: 'Research & Modeling',
     badgeText: 'Alpha Blending',
   },
   {
     id: 'phase-306',
-    phaseNumber: 'Fasa 306',
-    title: 'Bedah Siasat Dagangan & Evolusi Kendiri (Evolution)',
-    description: 'Gelung pembelajaran tertutup menganalisis kesilapan masa & kelebihan.',
+    phaseNumber: 'Phase 306',
+    title: 'Trade Autopsy & Self-Evolution (Evolution)',
+    description: 'Closed-loop self-learning analyzing timing error and execution edge.',
     route: '#/evolution',
     category: 'research',
-    categoryLabel: 'Penyelidikan & Model',
+    categoryLabel: 'Research & Modeling',
     badgeText: 'Self-Learning Loop',
   },
 
-  // 2. Mikrostruktur & Pasaran (Microstructure & Market)
+  // 2. Microstructure & Markets
   {
     id: 'phase-291',
-    phaseNumber: 'Fasa 291',
-    title: 'Kaskad Hawkes & Teruja-Silang (Microstructure)',
-    description: 'Analisis ketoksikan aliran pesanan, radius spektral ρ, dan intensiti lompatan.',
+    phaseNumber: 'Phase 291',
+    title: 'Hawkes Cascades & Cross-Excitation (Microstructure)',
+    description: 'Order flow toxicity analysis, spectral radius ρ, and jump intensities.',
     route: '#/microstructure',
     category: 'microstructure',
-    categoryLabel: 'Mikrostruktur & Pasaran',
+    categoryLabel: 'Microstructure & Markets',
     badgeText: 'Hawkes Cascades',
   },
   {
     id: 'phase-292',
-    phaseNumber: 'Fasa 292',
-    title: 'Kemasukan Pasaran Abadi Awam (Live Market)',
-    description: 'Harga tanda langsung, kadar pembiayaan, dan status gerbang awam.',
+    phaseNumber: 'Phase 292',
+    title: 'Public Perpetuals Market Ingress (Live Market)',
+    description: 'Real-time mark prices, funding rates, and public gateway telemetry.',
     route: '#/market',
     category: 'microstructure',
-    categoryLabel: 'Mikrostruktur & Pasaran',
+    categoryLabel: 'Microstructure & Markets',
     badgeText: 'Public Perpetuals',
   },
   {
     id: 'phase-302',
-    phaseNumber: 'Fasa 302',
-    title: 'Pertahanan Aliran Toksik (Execution Guard)',
-    description: 'Pemintasan gelinciran harga (slippage) dan pemuliharaan kecairan.',
+    phaseNumber: 'Phase 302',
+    title: 'Toxic Flow Defense (Execution Guard)',
+    description: 'Price slippage interception and liquidity preservation.',
     route: '#/guard',
     category: 'microstructure',
-    categoryLabel: 'Mikrostruktur & Pasaran',
+    categoryLabel: 'Microstructure & Markets',
     badgeText: 'Adverse Selection',
   },
 
-  // 3. Pengurusan Risiko & Pelaksanaan (Execution & Risk)
+  // 3. Execution & Risk Controls
   {
     id: 'phase-294',
-    phaseNumber: 'Fasa 294',
-    title: 'Kawalan Risiko & Pemutus Litar (Risk Controls)',
-    description: 'Pendedahan bertingkat, pemutus litar automatik, dan interlock.',
+    phaseNumber: 'Phase 294',
+    title: 'Risk Controls & Circuit Breakers (Risk Controls)',
+    description: 'Tiered exposure limits, automated circuit breakers, and interlocks.',
     route: '#/risk',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Circuit Breakers',
   },
   {
     id: 'phase-295-exec',
-    phaseNumber: 'Fasa 295A',
-    title: 'Pelaksanaan Kertas & Pemotongan Pesanan (Paper Execution)',
-    description: 'Pemadanan pasif simulasi, hirisan pesanan mikro, dan pengesahan.',
+    phaseNumber: 'Phase 295A',
+    title: 'Paper Execution & Order Slicing (Paper Execution)',
+    description: 'Simulated passive matching, micro order slicing, and validation.',
     route: '#/execution',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Passive Matching',
   },
   {
     id: 'phase-295-act',
-    phaseNumber: 'Fasa 295B',
-    title: 'Pengaktifan Strategi & Interlock Veto (Activation)',
-    description: 'Promosi calon strategi dengan kuasa veto masa nyata.',
+    phaseNumber: 'Phase 295B',
+    title: 'Strategy Activation & Veto Interlocks (Activation)',
+    description: 'Candidate strategy promotion with real-time veto authority.',
     route: '#/strategy-activation',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Veto Interlocks',
   },
   {
     id: 'phase-296',
-    phaseNumber: 'Fasa 296',
-    title: 'Daemon Kitar Hayat Autonomi 24/7 (Lifecycle)',
-    description: 'Pemantauan daemon berterusan, degupan jantung, dan transisi.',
+    phaseNumber: 'Phase 296',
+    title: 'Autonomous 24/7 Lifecycle Daemon (Lifecycle)',
+    description: 'Continuous daemon supervision, heartbeats, and state transitions.',
     route: '#/lifecycle',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Lifecycle Daemon',
   },
   {
     id: 'phase-297',
-    phaseNumber: 'Fasa 297',
-    title: 'Ketahanan Tekanan & Suntikan Ralat (Stress)',
-    description: 'Ujian ketahanan kegagalan rangkaian dan perataan kecemasan.',
+    phaseNumber: 'Phase 297',
+    title: 'Stress Resilience & Fault Injection (Stress)',
+    description: 'Network disruption stress testing and emergency position flattening.',
     route: '#/stress',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Fault Injection',
   },
   {
     id: 'phase-299',
-    phaseNumber: 'Fasa 299',
-    title: 'Penyusunan Semula Risiko Pariti (Portfolio)',
-    description: 'Hawkes risk-parity portfolio rebalancing dan penularan risiko.',
+    phaseNumber: 'Phase 299',
+    title: 'Risk Parity Rebalancing (Portfolio)',
+    description: 'Hawkes risk-parity portfolio rebalancing and risk contagion mitigation.',
     route: '#/portfolio',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Risk Parity',
   },
   {
     id: 'phase-300',
-    phaseNumber: 'Fasa 300',
-    title: 'Gerbang Dwi-Kustodi Berperingkat (Testnet Gateway)',
-    description: 'Pemisahan kuasa tandatangan dan perlindungan kunci API.',
+    phaseNumber: 'Phase 300',
+    title: 'Tiered Dual-Custody Gateway (Testnet Gateway)',
+    description: 'Signing authority segregation and API key protection.',
     route: '#/testnet',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Dual-Custody',
   },
   {
     id: 'phase-301',
-    phaseNumber: 'Fasa 301',
-    title: 'Kurungan Dinamik & Trailing Stop (Brackets)',
-    description: 'Pengurusan trailing stop, high watermark ratchet, dan kedudukan.',
+    phaseNumber: 'Phase 301',
+    title: 'Dynamic Trailing Stop Brackets (Brackets)',
+    description: 'Trailing stop governance, high-watermark ratchet, and position tracking.',
     route: '#/brackets',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Trailing Stops',
   },
   {
     id: 'phase-303',
-    phaseNumber: 'Fasa 303',
-    title: 'Pengaturcara Gelung Tertutup (Orchestrator)',
-    description: 'Orkestrasi dagangan kertas dengan semakan bukti kriptografi.',
+    phaseNumber: 'Phase 303',
+    title: 'Closed-Loop Orchestrator (Orchestrator)',
+    description: 'Paper trading orchestration with cryptographic proof verification.',
     route: '#/orchestrator',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Paper Orchestrator',
   },
   {
     id: 'phase-307',
-    phaseNumber: 'Fasa 307',
-    title: 'Jambatan REST & WebSocket Testnet (Bridge)',
-    description: 'Pengesahan HMAC-SHA256, pengurusan listenKey, dan penstriman akaun.',
+    phaseNumber: 'Phase 307',
+    title: 'Testnet REST & WebSocket Bridge (Bridge)',
+    description: 'HMAC-SHA256 authentication, listenKey lifecycle, and account streams.',
     route: '#/testnet-bridge',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Gateway Bridge',
   },
   {
     id: 'phase-308',
-    phaseNumber: 'Fasa 308',
-    title: 'Suis Pemati Berbilang Pihak (Kill Switch)',
-    description: 'Kuorum berbilang tandatangan, panik perkakasan, dan penutupan segera.',
+    phaseNumber: 'Phase 308',
+    title: 'Multi-Party Kill Switch (Kill Switch)',
+    description: 'Multi-signature quorum, hardware panic switch, and immediate flattening.',
     route: '#/kill-switch',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Hardware Quorum',
   },
   {
     id: 'phase-309',
-    phaseNumber: 'Fasa 309',
-    title: 'Pelancaran Mikro-Modal Memandu Sendiri (Production Launch)',
-    description: 'Pematuhan siling $5.00 USDT, lantai tunai 75%, dan sifar drift.',
+    phaseNumber: 'Phase 309',
+    title: 'Self-Driving Micro-Capital Launch (Production Launch)',
+    description: '$5.00 USDT ceiling compliance, 75% cash floor, and zero drift.',
     route: '#/production-launch',
     category: 'execution',
-    categoryLabel: 'Pengurusan Risiko & Pelaksanaan',
+    categoryLabel: 'Execution & Risk Controls',
     badgeText: 'Self-Driving $5.00',
   },
 
-  // 4. Perakaunan & Asas Data (Accounting & Foundations)
+  // 4. Accounting & Foundations
   {
     id: 'phase-295-acc',
-    phaseNumber: 'Fasa 295C',
-    title: 'Lejar Perakaunan Catatan Bergu (Accounting)',
-    description: 'Invarian matematik sifar drift |Δ| < 10⁻¹⁵ USDT merentas semua peralihan.',
+    phaseNumber: 'Phase 295C',
+    title: 'Double-Entry Accounting Ledger (Accounting)',
+    description: 'Mathematical zero-drift invariant |Δ| < 10⁻¹⁵ USDT across all state transitions.',
     route: '#/accounting',
     category: 'accounting',
-    categoryLabel: 'Perakaunan & Asas Data',
+    categoryLabel: 'Accounting & Foundations',
     badgeText: 'Zero-Drift Ledger',
   },
   {
     id: 'phase-foundation',
-    phaseNumber: 'Asas',
-    title: 'Identiti Set Data, DAG & Bukti Merkle (Overview)',
-    description: 'Pemeriksaan komponen kline, pendaftaran set data, dan hash Merkle DAG.',
+    phaseNumber: 'Foundations',
+    title: 'Dataset Identity, DAG & Merkle Proofs (Overview)',
+    description: 'Kline component inspection, dataset registration, and Merkle DAG hashes.',
     route: '#/overview',
     category: 'accounting',
-    categoryLabel: 'Perakaunan & Asas Data',
+    categoryLabel: 'Accounting & Foundations',
     badgeText: 'Dataset Foundations',
   },
 ]
@@ -260,7 +260,7 @@ export const ARCHIVE_PHASES: ArchivePhaseItem[] = [
 export interface ResearchArchiveDrawerProps {
   isOpen: boolean
   onClose: () => void
-  onSelectPhase: (route: string) => void
+  onSelectPhase?: (route: string) => void
 }
 
 export function ResearchArchiveDrawer({
@@ -316,14 +316,14 @@ export function ResearchArchiveDrawer({
                   id="archive-drawer-title"
                   className="text-lg font-bold tracking-tight text-white"
                 >
-                  Arkib Penyelidikan (Research Archives)
+                  Research Archives
                 </h2>
                 <span className="badge badge-sm badge-outline font-mono border-white/20 text-white/70">
-                  23 Fasa Sejarah
+                  23 Historical Phases
                 </span>
               </div>
               <p className="text-xs text-white/50">
-                Pemeriksaan bukti kriptografi dan telemetri terperinci bagi fasa 250 hingga 309
+                Cryptographic verification proofs and granular telemetry for Phases 250 through 309
               </p>
             </div>
           </div>
@@ -332,7 +332,7 @@ export function ResearchArchiveDrawer({
             type="button"
             onClick={onClose}
             className="btn btn-sm btn-circle btn-ghost text-white/70 hover:text-white"
-            aria-label="Tutup arkib penyelidikan"
+            aria-label="Close research archives"
           >
             <X className="w-5 h-5" />
           </button>
@@ -344,7 +344,7 @@ export function ResearchArchiveDrawer({
             <Search className="w-4 h-4 text-white/40 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Cari fasa, kata kunci, algoritma atau metrik…"
+              placeholder="Search phases, keywords, algorithms, or metrics…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="input input-sm w-full pl-9 font-mono text-xs rounded-xl bg-black/40 border border-white/[0.08] focus:border-cyan-500/50 text-white placeholder-white/30"
@@ -355,18 +355,18 @@ export function ResearchArchiveDrawer({
                 onClick={() => setSearchQuery('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-white/40 hover:text-white"
               >
-                Padam
+                Clear
               </button>
             )}
           </div>
 
           <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
             {[
-              { id: 'ALL', label: 'Semua (23)' },
-              { id: 'research', label: 'Model (6)' },
-              { id: 'microstructure', label: 'Pasaran (3)' },
-              { id: 'execution', label: 'Risiko (12)' },
-              { id: 'accounting', label: 'Lejar (2)' },
+              { id: 'ALL', label: 'All (23)' },
+              { id: 'research', label: 'Modeling (6)' },
+              { id: 'microstructure', label: 'Markets (3)' },
+              { id: 'execution', label: 'Execution & Risk (12)' },
+              { id: 'accounting', label: 'Accounting (2)' },
             ].map((cat) => (
               <button
                 key={cat.id}
@@ -388,14 +388,14 @@ export function ResearchArchiveDrawer({
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {filteredPhases.length === 0 ? (
             <div className="p-12 text-center text-xs text-white/40 font-mono">
-              Tiada fasa penyelidikan sepadan dengan carian "{searchQuery}".
+              No research phases matched search query "{searchQuery}".
             </div>
           ) : (
             filteredPhases.map((phase) => (
               <div
                 key={phase.id}
                 onClick={() => {
-                  onSelectPhase(phase.route)
+                  onSelectPhase?.(phase.route)
                   onClose()
                 }}
                 className="group p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-cyan-500/40 hover:bg-white/[0.04] transition-all cursor-pointer flex items-center justify-between gap-3 shadow-xs"
@@ -424,7 +424,7 @@ export function ResearchArchiveDrawer({
 
                 <div className="flex items-center gap-2 text-white/30 group-hover:text-cyan-400 transition-colors shrink-0">
                   <span className="text-[11px] font-mono font-semibold hidden sm:inline">
-                    Buka Halaman
+                    Open Phase
                   </span>
                   <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                 </div>
@@ -435,13 +435,13 @@ export function ResearchArchiveDrawer({
 
         {/* Footer */}
         <div className="p-4 border-t border-white/[0.06] bg-black/40 flex items-center justify-between text-xs text-white/60 font-mono">
-          <span>Semua bukti kriptografi DAG &amp; audit dikekalkan</span>
+          <span>All cryptographic DAG &amp; audit trail proofs preserved</span>
           <button
             type="button"
             onClick={onClose}
             className="btn btn-xs btn-outline border-white/20 text-white/70 hover:text-white rounded-lg"
           >
-            Tutup Arkib
+            Close Archive
           </button>
         </div>
       </div>

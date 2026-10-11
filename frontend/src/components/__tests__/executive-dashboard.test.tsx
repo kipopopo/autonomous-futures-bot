@@ -160,35 +160,35 @@ const MOCK_MODEL: ExecutiveDashboardModel = {
     gates: [
       {
         id: 'gate-return',
-        name: 'Pulangan Purata OOS',
+        name: 'Average Return OOS',
         thresholdLabel: '≥ 0.0%',
         actualValueLabel: '+14.8%',
         passed: true,
       },
       {
         id: 'gate-drawdown',
-        name: 'Drawdown Maksimum OOS',
+        name: 'Maximum Drawdown OOS',
         thresholdLabel: '≤ 15.0%',
         actualValueLabel: '4.2%',
         passed: true,
       },
       {
         id: 'gate-profit-factor',
-        name: 'Faktor Keuntungan OOS',
+        name: 'Profit Factor OOS',
         thresholdLabel: '≥ 1.05',
         actualValueLabel: '1.84',
         passed: true,
       },
       {
         id: 'gate-trade-count',
-        name: 'Jumlah Dagangan OOS',
+        name: 'Trade Count OOS',
         thresholdLabel: '≥ 5',
         actualValueLabel: '24',
         passed: true,
       },
       {
         id: 'gate-stress',
-        name: 'Ketahanan Tekanan Ranap Kilat',
+        name: 'Flash Crash Stress Resilience',
         thresholdLabel: '-20% Crash / 10% Shock',
         actualValueLabel: 'SURVIVED',
         passed: true,
@@ -198,27 +198,27 @@ const MOCK_MODEL: ExecutiveDashboardModel = {
     attributionGauges: [
       {
         id: 'timing-error',
-        label: 'Kesilapan Masa Kemasukan (Timing Error)',
+        label: 'Timing Error (Entry Timing)',
         bps: 1.8,
         thresholdBps: 5.0,
         isOptimal: true,
-        description: 'Kemasukan Maker Limit pada titik kecairan maksimum tanpa kelewatan eksekusi',
+        description: 'Maker limit entry execution at maximum liquidity without execution delay',
       },
       {
         id: 'adverse-selection',
-        label: 'Pilihan Buruk (Adverse Selection)',
+        label: 'Adverse Selection',
         bps: -0.6,
         thresholdBps: 3.0,
         isOptimal: true,
-        description: 'Penapis intensiti Hawkes menghalang pengisian pesanan sewaktu aliran toksik',
+        description: 'Hawkes intensity filter blocks order fills during toxic order flow',
       },
       {
         id: 'net-edge',
-        label: 'Kelebihan Bersih Pelaksanaan (Net Edge)',
+        label: 'Net Edge (Execution Edge)',
         bps: 8.4,
         thresholdBps: 5.0,
         isOptimal: true,
-        description: 'Lebihan alfa bersih positif selepas yuran maker 0.02% dan seretan gelinciran',
+        description: 'Positive net alpha surplus after 0.02% maker fee and slippage drag',
       },
     ],
     totalAutopsies: 18,
@@ -242,7 +242,7 @@ describe('MissionControlHeader component', () => {
     expect(html).toContain('CIRCUIT: NORMAL')
     expect(html).toContain('STREAMING')
     expect(html).toContain('MYT (UTC+8)')
-    expect(html).toContain('Segar Semula')
+    expect(html).toContain('Refresh')
   })
 })
 
@@ -251,29 +251,29 @@ describe('KpiCards component', () => {
     const html = renderToString(<KpiCards kpis={MOCK_MODEL.kpis} />)
 
     // Card 1: Balance & Equity
-    expect(html).toContain('Jumlah Ekuiti &amp; Baki')
+    expect(html).toContain('Total Balance &amp; Equity')
     expect(html).toContain('$100.00')
     expect(html).toContain('$100.00 (100.0%)')
 
     // Card 2: Net Realized PnL & Win Rate
-    expect(html).toContain('Untung Bersih &amp; Kadar Kemenangan')
+    expect(html).toContain('Net Realized PnL &amp; Win Rate')
     expect(html).toContain('+$0.00')
     expect(html).toContain('100.0% Win Rate')
-    expect(html).toContain('0 Dagangan Selesai')
+    expect(html).toContain('0 Completed Trades')
     expect(html).toContain('100% Maker (0.02%)')
 
     // Card 3: Active Exposure & Sizing
-    expect(html).toContain('Pendedahan Aktif &amp; Had Siling')
+    expect(html).toContain('Active Exposure &amp; Capital Sizing')
     expect(html).toContain('$0.00')
-    expect(html).toContain('/ $25.00 Had Maksimum')
-    expect(html).toContain('100.0% (Lantai ≥ 75%)')
+    expect(html).toContain('/ $25.00 Max Cap')
+    expect(html).toContain('100.0% (Floor ≥ 75%)')
 
     // Card 4: System Health & Zero-Drift Solvency
-    expect(html).toContain('Kesihatan Sistem &amp; Ketulenan')
+    expect(html).toContain('System Health &amp; Solvency')
     expect(html).toContain('|Δ| &lt; 10⁻¹⁵')
-    expect(html).toContain('Sifar Drift (Zero-Drift Solvency)')
+    expect(html).toContain('Zero-Drift Solvency')
     expect(html).toContain('12.4 ms')
-    expect(html).toContain('1 Sekatan (0 Bahaya)')
+    expect(html).toContain('1 Interlock Blocks (0 Hazards)')
   })
 })
 
@@ -281,8 +281,8 @@ describe('MarketPositionsCard component', () => {
   it('renders staged pairs (SOLUSDT, ETHUSDT, BTCUSDT) with TP/SL and 1.66:1 R:R in clean standby state', () => {
     const html = renderToString(<MarketPositionsCard positions={MOCK_MODEL.positions} />)
 
-    expect(html).toContain('Pasaran Langsung &amp; Posisi Aktif')
-    expect(html).toContain('1.66 : 1 Nisbah R:R')
+    expect(html).toContain('Live Positions &amp; Markets')
+    expect(html).toContain('1.66 : 1 R:R Ratio')
 
     // Pairs
     expect(html).toContain('SOLUSDT')
@@ -312,23 +312,23 @@ describe('MarketPositionsCard component', () => {
     ]
     const html = renderToString(<MarketPositionsCard positions={activePositions} />)
     expect(html).toContain('LONG')
-    expect(html).toContain('Harga Masuk:')
+    expect(html).toContain('Entry Price:')
     expect(html).toContain('180.00')
-    expect(html).toContain('PnL Belum Direalisasi:')
+    expect(html).toContain('Unrealized PnL:')
     expect(html).toContain('0.150')
   })
 
-  it('renders "📈 Carta Interaktif" toggle button with collapsed state by default on each candidate pair card', () => {
+  it('renders "📈 Interactive Chart" toggle button with collapsed state by default on each candidate pair card', () => {
     const html = renderToString(<MarketPositionsCard positions={MOCK_MODEL.positions} />)
 
     // Button presence on all staged candidate pair cards
-    expect(html).toContain('Carta Interaktif')
+    expect(html).toContain('Interactive Chart')
     expect(html).toContain('data-testid="toggle-chart-solusdt"')
     expect(html).toContain('data-testid="toggle-chart-ethusdt"')
     expect(html).toContain('data-testid="toggle-chart-btcusdt"')
 
     // Badges indicate collapsed state by default
-    expect(html).toContain('Dikecilkan')
+    expect(html).toContain('Collapsed')
     expect(html).toContain('data-testid="toggle-all-charts-button"')
 
     // Drawer is collapsed by default (not rendered)
@@ -346,7 +346,7 @@ describe('MarketPositionsCard component', () => {
     expect(html).toContain('data-testid="chart-drawer-solusdt"')
     expect(html).toContain('data-testid="chart-drawer-ethusdt"')
     expect(html).toContain('data-testid="chart-drawer-btcusdt"')
-    expect(html).toContain('Dibuka')
+    expect(html).toContain('Expanded')
 
     // Timeframe pills (15m default scalper, 1h macro trend)
     expect(html).toContain('data-testid="timeframe-15m-solusdt"')
@@ -409,7 +409,7 @@ describe('MarketPositionsCard component', () => {
       <MarketPositionsCard positions={MOCK_MODEL.positions} />,
     )
 
-    const expectedPills = ['SEMUA', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']
+    const expectedPills = ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']
     for (const pill of expectedPills) {
       expect(html).toContain(pill)
     }
@@ -427,24 +427,24 @@ describe('StrategyConfluenceRadar component', () => {
     )
 
     // Panel 1: BTC Macro Trend
-    expect(html).toContain('Penapis Trend Makro BTC')
+    expect(html).toContain('BTC Macro Trend Filter')
     expect(html).toContain('BULLISH ALIGNED')
     expect(html).toContain('EMA50: $95,420')
     expect(html).toContain('EMA200: $93,810')
 
     // Panel 2: 15m Scalper Checklist
-    expect(html).toContain('Senarai Semak Skalper 15m')
+    expect(html).toContain('15m Scalper Checklist')
     expect(html).toContain('1.8x ATR')
     expect(html).toContain('1.4x SMA')
     expect(html).toContain('38.5')
-    expect(html).toContain('0.02% Yuran')
+    expect(html).toContain('0.02% Fee')
 
     // Panel 3: Hawkes Hazard
-    expect(html).toContain('Bahaya Mikrostruktur &amp; Hawkes')
-    expect(html).toContain('SELAMAT / TIDAK TOKSIK')
+    expect(html).toContain('Microstructure &amp; Hawkes Hazard')
+    expect(html).toContain('SAFE / NON-TOXIC')
     expect(html).toContain('ρ = 0.4286')
-    expect(html).toContain('Amaran: ρ ≥ 0.85')
-    expect(html).toContain('Kritikal: ρ ≥ 1.00')
+    expect(html).toContain('Warning: ρ ≥ 0.85')
+    expect(html).toContain('Critical: ρ ≥ 1.00')
   })
 })
 
@@ -452,7 +452,7 @@ describe('OrderFeedTable component', () => {
   it('renders recent orders with MYT timestamps and maker fees', () => {
     const html = renderToString(<OrderFeedTable orders={MOCK_MODEL.orders} />)
 
-    expect(html).toContain('Suapan Pesanan &amp; Log Pelaksanaan Langsung')
+    expect(html).toContain('Recent Orders &amp; Execution Feed')
     expect(html).toContain('SOLUSDT')
     expect(html).toContain('BUY')
     expect(html).toContain('SELL')
@@ -474,13 +474,13 @@ describe('ResearchArchiveDrawer component', () => {
       />,
     )
 
-    expect(htmlOpen).toContain('Arkib Penyelidikan (Research Archives)')
-    expect(htmlOpen).toContain('23 Fasa Sejarah')
+    expect(htmlOpen).toContain('Research Archives')
+    expect(htmlOpen).toContain('23 Historical Phases')
 
     // Key historical phases
-    expect(htmlOpen).toContain('Fasa 250')
-    expect(htmlOpen).toContain('Fasa 291')
-    expect(htmlOpen).toContain('Fasa 309')
+    expect(htmlOpen).toContain('Phase 250')
+    expect(htmlOpen).toContain('Phase 291')
+    expect(htmlOpen).toContain('Phase 309')
     expect(htmlOpen).toContain('Avellaneda-Stoikov')
 
     const htmlClosed = renderToString(
@@ -505,11 +505,11 @@ describe('ExecutiveDashboard component', () => {
     )
 
     expect(html).toContain('Autonomous Futures')
-    expect(html).toContain('Jumlah Ekuiti &amp; Baki')
-    expect(html).toContain('Pasaran Langsung &amp; Posisi Aktif')
-    expect(html).toContain('Radar Konfluens Strategi &amp; Skalper 15m')
-    expect(html).toContain('Status Pembelajaran &amp; Autopsi Strategi')
-    expect(html).toContain('Suapan Pesanan &amp; Log Pelaksanaan Langsung')
+    expect(html).toContain('Total Balance &amp; Equity')
+    expect(html).toContain('Live Positions &amp; Markets')
+    expect(html).toContain('Strategy Confluence Radar &amp; 15m Scalper')
+    expect(html).toContain('Strategy Evolution &amp; Autopsy Status')
+    expect(html).toContain('Recent Orders &amp; Execution Feed')
   })
 })
 
@@ -520,15 +520,15 @@ describe('StrategyEvolutionRadar component', () => {
     )
 
     // Title and daemon status
-    expect(html).toContain('Status Pembelajaran &amp; Autopsi Strategi')
-    expect(html).toContain('GELUNG AKTIF (ACTIVE DAEMON)')
+    expect(html).toContain('Strategy Evolution &amp; Autopsy Status')
+    expect(html).toContain('⚡ ACTIVE DAEMON LOOP')
     expect(html).toContain('GEN #2')
 
     // Deep dive links
     expect(html).toContain('href="#/evolution"')
-    expect(html).toContain('Autopsi &amp; Evolusi Penuh')
+    expect(html).toContain('Full Autopsy &amp; Evolution')
     expect(html).toContain('href="#/mining"')
-    expect(html).toContain('Perlombongan Strategi')
+    expect(html).toContain('Strategy Mining')
 
     // Panel 1: Strategy family and candidate health tier
     expect(html).toContain('15m Macro-Confluence Liquidity Scalper')
@@ -541,29 +541,29 @@ describe('StrategyEvolutionRadar component', () => {
     expect(html).toContain('0.94') // Hawkes resilience
 
     // Panel 2: 5 Walk-Forward OOS Qualification Gates
-    expect(html).toContain('5 Pintu Kelayakan OOS')
-    expect(html).toContain('5 / 5 PINTU LULUS')
-    expect(html).toContain('Pulangan Purata OOS')
+    expect(html).toContain('5 OOS Qualification Gates')
+    expect(html).toContain('5 / 5 GATES PASSED')
+    expect(html).toContain('Average Return OOS')
     expect(html).toContain('+14.8%')
-    expect(html).toContain('Drawdown Maksimum OOS')
-    expect(html).toContain('Faktor Keuntungan OOS')
+    expect(html).toContain('Maximum Drawdown OOS')
+    expect(html).toContain('Profit Factor OOS')
     expect(html).toContain('1.84')
-    expect(html).toContain('Jumlah Dagangan OOS')
+    expect(html).toContain('Trade Count OOS')
     expect(html).toContain('24')
-    expect(html).toContain('Ketahanan Tekanan Ranap Kilat')
+    expect(html).toContain('Flash Crash Stress Resilience')
     expect(html).toContain('SURVIVED')
 
     // Panel 3: Trade Autopsy Attribution Gauges
-    expect(html).toContain('Tolok Atribusi Autopsi Dagangan')
-    expect(html).toContain('Kesilapan Masa Kemasukan (Timing Error)')
+    expect(html).toContain('Trade Autopsy Attribution Gauges')
+    expect(html).toContain('Timing Error (Entry Timing)')
     expect(html).toContain('+1.8 bps')
-    expect(html).toContain('Pilihan Buruk (Adverse Selection)')
+    expect(html).toContain('Adverse Selection')
     expect(html).toContain('-0.6 bps')
-    expect(html).toContain('Kelebihan Bersih Pelaksanaan (Net Edge)')
+    expect(html).toContain('Net Edge (Execution Edge)')
     expect(html).toContain('+8.4 bps')
     expect(html).toContain('OPTIMAL')
-    expect(html).toContain('18 Autopsi')
-    expect(html).toContain('3 Calon Promosi Aktif')
+    expect(html).toContain('18 Autopsies')
+    expect(html).toContain('3 Active Promoted Candidates')
   })
 })
 

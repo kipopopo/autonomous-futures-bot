@@ -217,31 +217,31 @@ describe('Milestone 3 Challenge: Navigation Stability, Archive Suppression & Ada
       ])
 
       const returnGate = radar.gates.find((g) => g.id === 'gate-return')!
-      expect(returnGate.name).toBe('Pulangan Purata OOS')
+      expect(returnGate.name).toBe('Average Return OOS')
       expect(returnGate.thresholdLabel).toBe('≥ 0.0%')
       expect(returnGate.actualValueLabel).toBe('+14.8%')
       expect(returnGate.passed).toBe(true)
 
       const ddGate = radar.gates.find((g) => g.id === 'gate-drawdown')!
-      expect(ddGate.name).toBe('Drawdown Maksimum OOS')
+      expect(ddGate.name).toBe('Maximum Drawdown OOS')
       expect(ddGate.thresholdLabel).toBe('≤ 15.0%')
       expect(ddGate.actualValueLabel).toBe('4.2%')
       expect(ddGate.passed).toBe(true)
 
       const pfGate = radar.gates.find((g) => g.id === 'gate-profit-factor')!
-      expect(pfGate.name).toBe('Faktor Keuntungan OOS')
+      expect(pfGate.name).toBe('Profit Factor OOS')
       expect(pfGate.thresholdLabel).toBe('≥ 1.05')
       expect(pfGate.actualValueLabel).toBe('1.84')
       expect(pfGate.passed).toBe(true)
 
       const countGate = radar.gates.find((g) => g.id === 'gate-trade-count')!
-      expect(countGate.name).toBe('Jumlah Dagangan OOS')
+      expect(countGate.name).toBe('Trade Count OOS')
       expect(countGate.thresholdLabel).toBe('≥ 5')
       expect(countGate.actualValueLabel).toBe('24')
       expect(countGate.passed).toBe(true)
 
       const stressGate = radar.gates.find((g) => g.id === 'gate-stress')!
-      expect(stressGate.name).toBe('Ketahanan Tekanan Ranap Kilat')
+      expect(stressGate.name).toBe('Flash Crash Stress Resilience')
       expect(stressGate.thresholdLabel).toBe('-20% Crash / 10% Shock')
       expect(stressGate.actualValueLabel).toBe('SURVIVED')
       expect(stressGate.passed).toBe(true)
@@ -332,8 +332,8 @@ describe('Milestone 3 Challenge: Navigation Stability, Archive Suppression & Ada
       )
 
       // Verify key elements are present in rendered markup
-      expect(html).toContain('Status Pembelajaran &amp; Autopsi Strategi')
-      expect(html).toContain('GELUNG AKTIF (ACTIVE DAEMON)')
+      expect(html).toContain('Strategy Evolution &amp; Autopsy Status')
+      expect(html).toContain('⚡ ACTIVE DAEMON LOOP')
       expect(html).toContain('15m Macro-Confluence Liquidity Scalper')
       expect(html).toContain('Hawkes Microstructure Filter')
       expect(html).toContain('cand-macro-scalper-v1')
@@ -342,16 +342,16 @@ describe('Milestone 3 Challenge: Navigation Stability, Archive Suppression & Ada
       expect(html).toContain('78.5%')
       expect(html).toContain('4.2%')
       expect(html).toContain('0.94')
-      expect(html).toContain('5 / 5 PINTU LULUS')
-      expect(html).toContain('Pulangan Purata OOS')
+      expect(html).toContain('5 / 5 GATES PASSED')
+      expect(html).toContain('Average Return OOS')
       expect(html).toContain('+14.8%')
       expect(html).toContain('Flash Crash -20% (SURVIVED)')
-      expect(html).toContain('Kesilapan Masa Kemasukan (Timing Error)')
+      expect(html).toContain('Timing Error (Entry Timing)')
       expect(html).toContain('+1.8 bps')
       expect(html).toContain('-0.6 bps')
       expect(html).toContain('+8.4 bps')
-      expect(html).toContain('18 Autopsi')
-      expect(html).toContain('3 Calon Promosi Aktif')
+      expect(html).toContain('18 Autopsies')
+      expect(html).toContain('3 Active Promoted Candidates')
       expect(html).toContain('href="#/evolution"')
       expect(html).toContain('href="#/mining"')
     })

@@ -99,58 +99,58 @@ describe('Milestone 3 Empirical Challenge: Strategy Evolution Radar & Navigation
       const html = renderToString(<StrategyEvolutionRadar evolutionRadar={data} />)
 
       // Title & Generation & Subtitle
-      expect(html).toContain('🧠 Status Pembelajaran &amp; Autopsi Strategi')
+      expect(html).toContain('🧠 Strategy Evolution &amp; Autopsy Status')
       expect(html).toContain('GEN #2')
-      expect(html).toContain('Kesihatan calon model, 5 pintu kelayakan walk-forward OOS, dan atribusi bedah siasat pelaksanaan')
+      expect(html).toContain('Candidate model health, 5 walk-forward OOS qualification gates, and execution autopsy attribution')
 
       // Status Badge
-      expect(html).toContain('⚡ GELUNG AKTIF (ACTIVE DAEMON)')
+      expect(html).toContain('⚡ ACTIVE DAEMON LOOP')
 
       // Deep dive navigation links
       expect(html).toContain('href="#/evolution"')
-      expect(html).toContain('🔬 Autopsi &amp; Evolusi Penuh')
+      expect(html).toContain('🔬 Full Autopsy &amp; Evolution')
       expect(html).toContain('href="#/mining"')
-      expect(html).toContain('⛏️ Perlombongan Strategi')
+      expect(html).toContain('⛏️ Strategy Mining')
 
       // Panel 1: Active Strategy Family & Health Tier
-      expect(html).toContain('Strategi Aktif &amp; Kesihatan Calon')
+      expect(html).toContain('Active Strategy &amp; Candidate Health')
       expect(html).toContain('15m Macro-Confluence Liquidity Scalper')
       expect(html).toContain('Hawkes Microstructure Filter')
       expect(html).toContain('cand-macro-scalper-v1')
       expect(html).toContain('ELITE')
       expect(html).toContain('Rolling Sharpe')
       expect(html).toContain('2.45')
-      expect(html).toContain('Kadar Menang')
+      expect(html).toContain('Win Rate')
       expect(html).toContain('78.5%')
-      expect(html).toContain('Drawdown Maks')
+      expect(html).toContain('Max Drawdown')
       expect(html).toContain('4.2%')
-      expect(html).toContain('Ketahanan Hawkes')
+      expect(html).toContain('Hawkes Resilience')
       expect(html).toContain('0.94')
-      expect(html).toContain('Sedia Pelaksanaan (Live-Ready)')
+      expect(html).toContain('Live-Ready')
 
       // Panel 2: 5 Walk-Forward OOS Gates
-      expect(html).toContain('5 Pintu Kelayakan OOS')
-      expect(html).toContain('5 / 5 PINTU LULUS')
+      expect(html).toContain('5 OOS Qualification Gates')
+      expect(html).toContain('5 / 5 GATES PASSED')
       expect(html).toContain('Pulangan Purata OOS')
       expect(html).toContain('+14.8%')
-      expect(html).toContain('Syarat: ≥ 0.0%')
+      expect(html).toContain('Hurdle: ≥ 0.0%')
       expect(html).toContain('Drawdown Maksimum OOS')
       expect(html).toContain('4.2%')
-      expect(html).toContain('Syarat: ≤ 15.0%')
+      expect(html).toContain('Hurdle: ≤ 15.0%')
       expect(html).toContain('Faktor Keuntungan OOS')
       expect(html).toContain('1.84')
-      expect(html).toContain('Syarat: ≥ 1.05')
+      expect(html).toContain('Hurdle: ≥ 1.05')
       expect(html).toContain('Jumlah Dagangan OOS')
       expect(html).toContain('24')
-      expect(html).toContain('Syarat: ≥ 5')
+      expect(html).toContain('Hurdle: ≥ 5')
       expect(html).toContain('Ketahanan Tekanan Ranap Kilat')
       expect(html).toContain('SURVIVED')
-      expect(html).toContain('Syarat: -20% Crash / 10% Shock')
+      expect(html).toContain('Hurdle: -20% Crash / 10% Shock')
       expect(html).toContain('Flash Crash -20% (SURVIVED)')
 
       // Panel 3: Trade Autopsy Attribution Gauges
-      expect(html).toContain('Tolok Atribusi Autopsi Dagangan')
-      expect(html).toContain('18 Autopsi')
+      expect(html).toContain('Trade Autopsy Attribution Gauges')
+      expect(html).toContain('18 Autopsies')
       expect(html).toContain('Kesilapan Masa Kemasukan (Timing Error)')
       expect(html).toContain('+1.8 bps')
       expect(html).toContain('Pilihan Buruk (Adverse Selection)')
@@ -158,7 +158,7 @@ describe('Milestone 3 Empirical Challenge: Strategy Evolution Radar & Navigation
       expect(html).toContain('Kelebihan Bersih Pelaksanaan (Net Edge)')
       expect(html).toContain('+8.4 bps')
       expect(html).toContain('OPTIMAL')
-      expect(html).toContain('3 Calon Promosi Aktif')
+      expect(html).toContain('3 Active Promoted Candidates')
     })
   })
 
@@ -301,7 +301,7 @@ describe('Milestone 3 Empirical Challenge: Strategy Evolution Radar & Navigation
       }
 
       const html = renderToString(<StrategyEvolutionRadar evolutionRadar={failedGatesData} />)
-      expect(html).toContain('1 / 5 PINTU LULUS')
+      expect(html).toContain('1 / 5 GATES PASSED')
       expect(html).toContain('badge-warning')
       expect(html).toContain('-5.2%')
       expect(html).toContain('18.4%')
@@ -309,7 +309,7 @@ describe('Milestone 3 Empirical Challenge: Strategy Evolution Radar & Navigation
   })
 
   describe('Challenge 5: Sub-optimal Trade Autopsy Attribution Gauges Stress Case', () => {
-    it('renders PERHATIAN warning badges when attribution gauges breach optimality thresholds', () => {
+    it('renders ATTENTION warning badges when attribution gauges breach optimality thresholds', () => {
       const suboptimalData: StrategyEvolutionRadarData = {
         ...getStandardEvolutionRadarData(),
         attributionGauges: [
@@ -341,7 +341,7 @@ describe('Milestone 3 Empirical Challenge: Strategy Evolution Radar & Navigation
       }
 
       const html = renderToString(<StrategyEvolutionRadar evolutionRadar={suboptimalData} />)
-      expect(html).toContain('PERHATIAN')
+      expect(html).toContain('ATTENTION')
       expect(html).toContain('+8.5 bps')
       expect(html).toContain('+4.8 bps')
       expect(html).toContain('+1.2 bps')
@@ -369,10 +369,10 @@ describe('Milestone 3 Empirical Challenge: Strategy Evolution Radar & Navigation
       )
 
       // Verified inclusion between Confluence Radar and Order Feed
-      expect(html).toContain('Radar Konfluens Strategi &amp; Skalper 15m')
-      expect(html).toContain('Status Pembelajaran &amp; Autopsi Strategi')
-      expect(html).toContain('Suapan Pesanan &amp; Log Pelaksanaan Langsung')
-      expect(html).toContain('⚡ GELUNG AKTIF (ACTIVE DAEMON)')
+      expect(html).toContain('Strategy Confluence Radar &amp; 15m Scalper')
+      expect(html).toContain('Strategy Evolution &amp; Autopsy Status')
+      expect(html).toContain('Recent Orders &amp; Execution Feed')
+      expect(html).toContain('⚡ ACTIVE DAEMON LOOP')
       expect(html).toContain('15m Macro-Confluence Liquidity Scalper')
       expect(html).toContain('ELITE')
     })

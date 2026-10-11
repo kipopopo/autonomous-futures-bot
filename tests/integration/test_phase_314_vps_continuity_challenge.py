@@ -78,8 +78,8 @@ class TestKainodeVPSContinuity:
         stdout = proc.stdout.strip()
         assert "87549" in stdout, f"PID 87549 not found in ps table: {stdout}"
         assert "run_phase_310_real_autonomous_trading.py" in stdout
-        # Confirm elapsed time indicates continuous operation (> 1 day, e.g., '1-13:')
-        assert "1-" in stdout or "2-" in stdout, f"Process appears restarted (no day prefix in etime): {stdout}"
+        # Confirm elapsed time indicates continuous operation (> 1 day, e.g., '1-13:', '2-08:', '3-04:')
+        assert "1-" in stdout or "2-" in stdout or "3-" in stdout, f"Process appears restarted (no day prefix in etime): {stdout}"
 
     def test_trader_daemon_journalctl_clean_logs(self) -> None:
         """Verify journalctl logs contain 0 fatal errors, crashes, or unhandled tracebacks."""

@@ -4152,16 +4152,16 @@ export function buildAutoEvolutionModel(
             status: 'WAITING_FOR_SAMPLES',
             status_label: 'WAITING_FOR_SAMPLES (0/5)',
             explanation:
-              'Menunggu 5 sampel transaksi selesai untuk menguji Sharpe out-of-sample (semasa: 0/5, hurdle >= 15.0%).',
+              'Waiting for 5 completed trade samples to evaluate out-of-sample Sharpe (current: 0/5, hurdle >= 15.0%).',
           },
           macro_gating_state: {
             regime: 'BEARISH',
             longs_filtered: true,
             is_long_allowed: false,
             explanation_ms:
-              'Trend Makro Bearish (Harga < EMA 200 1j). Kemasukan LONG ditapis secara automatik untuk melindungi modal.',
+              'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
             explanation:
-              'Bearish Macro Trend (Price < 1h EMA 200). LONG entries automatically filtered to protect capital.',
+              'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
           },
           recent_events: [],
         },

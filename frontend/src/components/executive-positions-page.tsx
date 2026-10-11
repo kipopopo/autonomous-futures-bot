@@ -57,25 +57,25 @@ export function ExecutivePositionsPage({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold tracking-tight text-white">
-                  Pasaran &amp; Posisi Terperinci
+                  Detailed Positions &amp; Markets
                 </h1>
                 <span className="badge badge-sm font-mono font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                  {activeCount} Terbuka / {positions.length} Dipantau
+                  {activeCount} Open / {positions.length} Monitored
                 </span>
                 <ProvenanceBadge source="LIVE EXCHANGE" />
               </div>
               <p className="text-xs text-white/50">
-                Pemantauan telemetri kedudukan pasaran abadi Binance Futures, pesanan kurungan ATR, dan kedalaman harga tanda
+                Binance Futures perpetual market position telemetry, ATR bracket orders, and mark price depth
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="badge badge-sm font-mono font-semibold py-1 px-3 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              1.66:1 R:R Sasaran
+              1.66:1 Target R:R
             </span>
             <span className="badge badge-sm badge-outline font-mono border-white/20 text-white/70">
-              Siling $5.00/Pesanan
+              $5.00/Order Cap
             </span>
           </div>
         </div>
@@ -86,7 +86,7 @@ export function ExecutivePositionsPage({
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
             <Crosshair className="w-4 h-4 text-cyan-400" />
-            Kedudukan &amp; Sasaran Semasa Staged Assets
+            Current Staged Asset Positions &amp; Targets
           </h2>
 
           {/* Symbol Filter Controls */}
@@ -102,7 +102,7 @@ export function ExecutivePositionsPage({
                     : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                 }`}
               >
-                {sym === 'ALL' ? 'SEMUA' : sym}
+                {sym === 'ALL' ? 'ALL' : sym}
               </button>
             ))}
           </div>
@@ -147,25 +147,25 @@ export function ExecutivePositionsPage({
 
                   <div className="space-y-2 text-xs font-mono mb-4">
                     <div className="flex justify-between">
-                      <span className="text-base-content/60">Harga Tanda:</span>
+                      <span className="text-base-content/60">Mark Price:</span>
                       <span className="font-bold text-base-content">
                         ${formatPrice(pos.currentPrice)}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-base-content/60">Harga Masuk:</span>
+                      <span className="text-base-content/60">Entry Price:</span>
                       <span className="text-base-content font-semibold">
                         {pos.entryPrice > 0 ? `$${formatPrice(pos.entryPrice)}` : '—'}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-base-content/60">Saiz / Notional:</span>
+                      <span className="text-base-content/60">Size / Notional:</span>
                       <span className="text-base-content">
                         {pos.size} (${pos.notionalUsdt.toFixed(2)} USDT)
                       </span>
                     </div>
                     <div className="flex justify-between pt-1 border-t border-base-300/60">
-                      <span className="text-base-content/60">PnL Semasa:</span>
+                      <span className="text-base-content/60">Unrealized PnL:</span>
                       <span
                         className={`font-bold flex items-center gap-0.5 ${
                           pnlPositive ? 'text-emerald-400' : 'text-rose-400'
@@ -209,20 +209,20 @@ export function ExecutivePositionsPage({
         <div className="pt-4 border-t border-white/[0.06]">
           <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
             <Gauge className="w-4 h-4 text-cyan-400" />
-            Pesanan Kurungan Dinamik (Dynamic Trailing Stop Brackets)
+            Dynamic Trailing Stop Bracket Orders
           </h3>
 
           <div className="overflow-x-auto">
             <table className="table table-sm w-full font-mono text-xs">
               <thead>
                 <tr className="border-b border-white/[0.08] text-white/50 text-[11px] uppercase">
-                  <th>ID Kurungan</th>
-                  <th>Pasangan</th>
-                  <th>Jenis Kurungan</th>
-                  <th>Harga Masuk</th>
-                  <th>Harga Pencetus (TP/SL)</th>
+                  <th>Bracket ID</th>
+                  <th>Symbol</th>
+                  <th>Bracket Type</th>
+                  <th>Entry Price</th>
+                  <th>Trigger Price (TP/SL)</th>
                   <th>Ratchet Watermark</th>
-                  <th>Kadar Callback</th>
+                  <th>Callback Rate</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -255,7 +255,7 @@ export function ExecutivePositionsPage({
                 ) : (
                   <tr>
                     <td colSpan={8} className="text-center py-4 text-white/40">
-                      Tiada kurungan aktif pada masa ini.
+                      No active brackets currently.
                     </td>
                   </tr>
                 )}

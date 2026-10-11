@@ -36,15 +36,15 @@ export function formatRelativeTime(
   const t = timestampMs instanceof Date ? timestampMs.getTime() : Number(timestampMs)
   if (Number.isNaN(t) || t <= 0) return ''
   const diffSec = Math.floor((nowMs - t) / 1000)
-  if (diffSec < 0) return 'Baru sahaja'
-  if (diffSec < 5) return 'Baru sahaja'
-  if (diffSec < 60) return `${diffSec}s yang lalu`
+  if (diffSec < 0) return 'Just now'
+  if (diffSec < 5) return 'Just now'
+  if (diffSec < 60) return `${diffSec}s ago`
   const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${diffMin}m yang lalu`
+  if (diffMin < 60) return `${diffMin}m ago`
   const diffHours = Math.floor(diffMin / 60)
-  if (diffHours < 24) return `${diffHours}j yang lalu`
+  if (diffHours < 24) return `${diffHours}h ago`
   const diffDays = Math.floor(diffHours / 24)
-  return `${diffDays}h yang lalu`
+  return `${diffDays}d ago`
 }
 
 export function formatMytDate(timestampMs: number | string | Date): string {
@@ -404,10 +404,10 @@ export function buildExecutiveDashboardModel(
   const macroExplanation =
     rawBtcMacro?.explanation ||
     (resolvedRegime === 'BULLISH ALIGNED'
-      ? 'Longs enabled: Aliran makro Bitcoin diselaraskan menaik (EMA 50 > EMA 200) merentas jangkamasa 1-jam dan 4-jam. Kemasukan belian jatuhan kecairan dibenarkan.'
+      ? 'Longs enabled: Bitcoin macro trend aligned bullish (EMA 50 > EMA 200) across 1-hour and 4-hour timeframes. Liquidity dip long entries permitted.'
       : resolvedRegime === 'BEARISH'
-        ? 'Longs gated: Aliran makro Bitcoin menurun / di bawah purata bergerak (EMA 50 < EMA 200). Kemasukan belian ditangguhkan demi perlindungan modal.'
-        : 'Sideways: Aliran makro Bitcoin mendatar tanpa arah aliran jelas. Sila pantau volum pengesahan.')
+        ? 'Longs gated: Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).'
+        : 'Sideways / Conflict: Bitcoin macro trend flat with no clear directional bias. Monitoring volume confirmation.')
 
   const btcTrend: BtcMacroTrend = {
     regime: resolvedRegime,
@@ -614,35 +614,35 @@ export function buildExecutiveDashboardModel(
   const oosGates = [
     {
       id: 'gate-return',
-      name: 'Pulangan Purata OOS',
+      name: 'Average Return OOS',
       thresholdLabel: '≥ 0.0%',
       actualValueLabel: oosReturnLabel,
       passed: oosReturnPct >= 0.0,
     },
     {
       id: 'gate-drawdown',
-      name: 'Drawdown Maksimum OOS',
+      name: 'Maximum Drawdown OOS',
       thresholdLabel: '≤ 15.0%',
       actualValueLabel: `${oosDrawdownPct.toFixed(1)}%`,
       passed: oosDrawdownPct <= 15.0,
     },
     {
       id: 'gate-profit-factor',
-      name: 'Faktor Keuntungan OOS',
+      name: 'Profit Factor OOS',
       thresholdLabel: '≥ 1.05',
       actualValueLabel: oosProfitFactor.toFixed(2),
       passed: oosProfitFactor >= 1.05,
     },
     {
       id: 'gate-trade-count',
-      name: 'Jumlah Dagangan OOS',
+      name: 'Trade Count OOS',
       thresholdLabel: '≥ 5',
       actualValueLabel: String(oosTradeCount),
       passed: oosTradeCount >= 5,
     },
     {
       id: 'gate-stress',
-      name: 'Ketahanan Tekanan Ranap Kilat',
+      name: 'Flash Crash Stress Resilience',
       thresholdLabel: '-20% Crash / 10% Shock',
       actualValueLabel: 'SURVIVED',
       passed: true,
@@ -664,27 +664,27 @@ export function buildExecutiveDashboardModel(
     attributionGauges: [
       {
         id: 'timing-error',
-        label: 'Kesilapan Masa Kemasukan (Timing Error)',
+        label: 'Timing Error (Entry Timing)',
         bps: timingBps,
         thresholdBps: 5.0,
         isOptimal: timingBps <= 5.0,
-        description: 'Kemasukan Maker Limit pada titik kecairan maksimum tanpa kelewatan eksekusi',
+        description: 'Maker limit entry execution at maximum liquidity without execution delay',
       },
       {
         id: 'adverse-selection',
-        label: 'Pilihan Buruk (Adverse Selection)',
+        label: 'Adverse Selection',
         bps: adverseBps,
         thresholdBps: 3.0,
         isOptimal: adverseBps <= 3.0,
-        description: 'Penapis intensiti Hawkes menghalang pengisian pesanan sewaktu aliran toksik',
+        description: 'Hawkes intensity filter blocks order fills during toxic order flow',
       },
       {
         id: 'net-edge',
-        label: 'Kelebihan Bersih Pelaksanaan (Net Edge)',
+        label: 'Net Edge (Execution Edge)',
         bps: edgeBps,
         thresholdBps: 5.0,
         isOptimal: edgeBps >= 5.0,
-        description: 'Lebihan alfa bersih positif selepas yuran maker 0.02% dan seretan gelinciran',
+        description: 'Positive net alpha surplus after 0.02% maker fee and slippage drag',
       },
     ],
     totalAutopsies: perf?.total_autopsies_conducted ?? 18,

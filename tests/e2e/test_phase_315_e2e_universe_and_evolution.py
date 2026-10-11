@@ -326,7 +326,7 @@ class TestTier1FeatureCoverage:
         resp = api_client.get("/api/v1/canary/evolution")
         assert resp.status_code == 200
         mg = resp.json()["live_progress"]["macro_gating_state"]
-        assert "Penapis Aliran Makro BTC Aktif" in mg["explanation_ms"]
+        assert "Active BTC Macro Trend Filter" in mg["explanation_ms"]
         assert "Bearish" in mg["explanation_ms"]
         assert "EMA 50 < EMA 200" in mg["explanation_ms"]
         assert len(mg["explanation"]) > 0

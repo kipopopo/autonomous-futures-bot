@@ -7,6 +7,7 @@ leakage invariants, and dry-run execution behavior.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -216,7 +217,10 @@ def test_canary_zero_credentials_or_passwords(script_content: str) -> None:
         )
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash executable not in PATH")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="bash executable not in PATH or running on Windows",
+)
 def test_bash_syntax_check_oracle() -> None:
     """Execute bash -n on the script to verify shell syntax."""
     result = subprocess.run(
@@ -229,7 +233,10 @@ def test_bash_syntax_check_oracle() -> None:
     assert result.returncode == 0, f"bash -n failed: {result.stderr}"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash executable not in PATH")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="Linux provisioning script execution requires POSIX environment",
+)
 def test_dry_run_execution_via_cli_flag() -> None:
     """Executing script with --dry-run exits 0 and prints simulation summary."""
     result = subprocess.run(
@@ -238,13 +245,17 @@ def test_dry_run_execution_via_cli_flag() -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=10,
     )
     assert result.returncode == 0, f"Dry-run execution failed: {result.stderr}"
     assert "[DRY-RUN]" in result.stdout
     assert "Simulation completed successfully" in result.stdout
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash executable not in PATH")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="Linux provisioning script execution requires POSIX environment",
+)
 def test_dry_run_execution_via_env_var() -> None:
     """Executing script with DRY_RUN=1 environment variable exits 0."""
     result = subprocess.run(
@@ -253,13 +264,17 @@ def test_dry_run_execution_via_env_var() -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=10,
     )
     assert result.returncode == 0, f"DRY_RUN=1 execution failed: {result.stderr}"
     assert "[DRY-RUN]" in result.stdout
     assert "Simulation completed successfully" in result.stdout
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash executable not in PATH")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="Linux provisioning script execution requires POSIX environment",
+)
 def test_non_root_execution_fails_with_code_1() -> None:
     """Executing script without root and without dry-run exits with code 1."""
     # In Windows or unprivileged test runner, id -u is not 0 (or fails/returns non-zero)
@@ -276,7 +291,10 @@ def test_non_root_execution_fails_with_code_1() -> None:
         assert "must be executed as root" in result.stderr
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash executable not in PATH")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="bash executable not in PATH or running on Windows",
+)
 def test_invalid_cli_option_fails_with_code_1() -> None:
     """Passing unrecognized argument causes script to exit 1 with usage error."""
     result = subprocess.run(
@@ -285,13 +303,17 @@ def test_invalid_cli_option_fails_with_code_1() -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=10,
     )
     assert result.returncode == 1
     assert "ERROR: Unknown option '--unrecognized-option'" in result.stderr
     assert "Usage:" in result.stderr
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash executable not in PATH")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="bash executable not in PATH or running on Windows",
+)
 def test_help_flag_exits_0() -> None:
     """Passing --help causes script to display usage and exit 0."""
     result = subprocess.run(
@@ -300,6 +322,7 @@ def test_help_flag_exits_0() -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=10,
     )
     assert result.returncode == 0
     assert "Usage:" in result.stdout
@@ -396,7 +419,10 @@ def test_script_all_variable_references_are_declared_or_builtin(script_content: 
     assert not unbound, f"Unbound variable references detected in script: {unbound}"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash executable not in PATH")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="bash executable not in PATH or running on Windows",
+)
 def test_stage6_completion_summary_dynamic_execution_zero_unbound_vars(
     script_content: str,
 ) -> None:
