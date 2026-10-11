@@ -3892,17 +3892,62 @@ export interface EvolutionEventItemData {
   timestamp_ms: number
 }
 
+export interface OOSQualificationGateData {
+  samples_required?: number
+  samples_acquired?: number
+  sharpe_hurdle_pct?: number
+  current_sharpe_improvement_pct?: number
+  status?: 'WAITING_FOR_SAMPLES' | 'EVALUATING' | 'QUALIFIED' | string
+  status_label?: string
+  explanation?: string
+}
+
+export interface MacroGatingStateData {
+  regime?: 'BEARISH' | 'BULLISH_ALIGNED' | 'NEUTRAL' | string
+  longs_filtered?: boolean
+  explanation_ms?: string
+  explanation?: string
+  is_long_allowed?: boolean
+  btc_price?: number
+  btc_1h_ema50?: number
+  btc_1h_ema200?: number
+}
+
 export interface LiveEvolutionProgressData {
   is_live_daemon_active?: boolean
-  current_cycle_stage?: string
+  current_stage?:
+    | 'INGRESS'
+    | 'HEALTH_EVALUATION'
+    | 'TRADE_AUTOPSY'
+    | 'MUTATION_STAGING'
+    | 'SHADOW_OOS_GATE'
+    | string
+  current_cycle_stage?:
+    | 'INGRESS'
+    | 'HEALTH_EVALUATION'
+    | 'TRADE_AUTOPSY'
+    | 'MUTATION_STAGING'
+    | 'SHADOW_OOS_GATE'
+    | string
   cycle_progress_pct?: number
+  stage_status?: 'WAITING_FOR_SAMPLES' | 'EVALUATING' | 'QUALIFIED' | string
+  stage_status_label?: string
+  closed_trades_count?: number
+  required_trades_count?: number
+  sharpe_hurdle_pct?: number
+  current_sharpe_improvement_pct?: number
   active_generation?: string
   next_target_generation?: string
   last_evaluated_timestamp_ms?: number
+  last_candle_fetch_timestamp_ms?: number
   next_cycle_seconds?: number
   heartbeat_latency_ms?: number
   daemon_status?: string
   daemon_pid?: number
+  scanned_symbols?: string[]
+  oos_gate?: OOSQualificationGateData
+  macro_gating_state?: MacroGatingStateData
+  macro_gating?: MacroGatingStateData
   recent_events?: EvolutionEventItemData[]
 }
 
@@ -4057,19 +4102,69 @@ export function buildAutoEvolutionModel(
       '0cbf6a93a5332789d5053f72e7e494b03b48ccd0ff7c62118bb339d5d905aa7c',
     phaseHash: data.phase_hash || '',
     merkleRoot: data.merkle_root || '',
-    liveProgress: data.live_progress || {
-      is_live_daemon_active: true,
-      current_cycle_stage: 'SHADOW_VALIDATION',
-      cycle_progress_pct: 85.0,
-      active_generation: 'GEN #2',
-      next_target_generation: 'GEN #3',
-      last_evaluated_timestamp_ms: data.timestamp_ms || Date.now(),
-      next_cycle_seconds: 15,
-      heartbeat_latency_ms: 42.0,
-      daemon_status: 'ONLINE 24/7',
-      daemon_pid: 87549,
-      recent_events: [],
-    },
+    liveProgress: data.live_progress
+      ? {
+          ...data.live_progress,
+          scanned_symbols: data.live_progress.scanned_symbols || [
+            'BTCUSDT',
+            'ETHUSDT',
+            'SOLUSDT',
+            'DOGEUSDT',
+            'BNBUSDT',
+            'XRPUSDT',
+            'SUIUSDT',
+            'AVAXUSDT',
+          ],
+        }
+      : {
+          is_live_daemon_active: true,
+          current_cycle_stage: 'SHADOW_OOS_GATE',
+          cycle_progress_pct: 80.0,
+          stage_status: 'WAITING_FOR_SAMPLES',
+          stage_status_label: 'WAITING_FOR_SAMPLES (0/5)',
+          closed_trades_count: 0,
+          required_trades_count: 5,
+          sharpe_hurdle_pct: 15.0,
+          current_sharpe_improvement_pct: 0.0,
+          active_generation: 'GEN #2',
+          next_target_generation: 'GEN #3',
+          last_evaluated_timestamp_ms: data.timestamp_ms || Date.now(),
+          last_candle_fetch_timestamp_ms: (data.timestamp_ms || Date.now()) - 5000,
+          next_cycle_seconds: 15,
+          heartbeat_latency_ms: 42.0,
+          daemon_status: 'ONLINE 24/7',
+          daemon_pid: 87549,
+          scanned_symbols: [
+            'BTCUSDT',
+            'ETHUSDT',
+            'SOLUSDT',
+            'DOGEUSDT',
+            'BNBUSDT',
+            'XRPUSDT',
+            'SUIUSDT',
+            'AVAXUSDT',
+          ],
+          oos_gate: {
+            samples_required: 5,
+            samples_acquired: 0,
+            sharpe_hurdle_pct: 15.0,
+            current_sharpe_improvement_pct: 0.0,
+            status: 'WAITING_FOR_SAMPLES',
+            status_label: 'WAITING_FOR_SAMPLES (0/5)',
+            explanation:
+              'Menunggu 5 sampel transaksi selesai untuk menguji Sharpe out-of-sample (semasa: 0/5, hurdle >= 15.0%).',
+          },
+          macro_gating_state: {
+            regime: 'BEARISH',
+            longs_filtered: true,
+            is_long_allowed: false,
+            explanation_ms:
+              'Trend Makro Bearish (Harga < EMA 200 1j). Kemasukan LONG ditapis secara automatik untuk melindungi modal.',
+            explanation:
+              'Bearish Macro Trend (Price < 1h EMA 200). LONG entries automatically filtered to protect capital.',
+          },
+          recent_events: [],
+        },
   }
 }
 

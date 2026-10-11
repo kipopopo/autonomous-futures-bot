@@ -119,6 +119,9 @@ export function PairCandlestickChart({
             if (price >= 1000) {
               return `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`
             }
+            if (price < 10) {
+              return `$${price.toFixed(4)} USDT`
+            }
             return `$${price.toFixed(2)} USDT`
           },
         },
@@ -127,6 +130,12 @@ export function PairCandlestickChart({
       })
 
       chartRef.current = chart
+
+      const upperSym = symbol.toUpperCase()
+      const isSubDollar =
+        upperSym.includes('DOGE') ||
+        upperSym.includes('XRP') ||
+        upperSym.includes('SUI')
 
       // 1. Volume histogram on lower 20% margin
       const volumeSeries = chart.addSeries(HistogramSeries, {
@@ -146,6 +155,11 @@ export function PairCandlestickChart({
         borderVisible: false,
         wickUpColor: '#10b981',
         wickDownColor: '#f43f5e',
+        priceFormat: {
+          type: 'price',
+          precision: isSubDollar ? 4 : 2,
+          minMove: isSubDollar ? 0.0001 : 0.01,
+        },
       })
       candlestickSeriesRef.current = candlestickSeries
 
@@ -157,6 +171,11 @@ export function PairCandlestickChart({
         lastValueVisible: false,
         crosshairMarkerVisible: false,
         visible: Boolean(activeIndicatorsRef.current.ema50),
+        priceFormat: {
+          type: 'price',
+          precision: isSubDollar ? 4 : 2,
+          minMove: isSubDollar ? 0.0001 : 0.01,
+        },
       })
       ema50SeriesRef.current = ema50Series
 
@@ -168,6 +187,11 @@ export function PairCandlestickChart({
         lastValueVisible: false,
         crosshairMarkerVisible: false,
         visible: Boolean(activeIndicatorsRef.current.ema200),
+        priceFormat: {
+          type: 'price',
+          precision: isSubDollar ? 4 : 2,
+          minMove: isSubDollar ? 0.0001 : 0.01,
+        },
       })
       ema200SeriesRef.current = ema200Series
 

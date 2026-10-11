@@ -246,6 +246,36 @@ describe('PairCandlestickChart component', () => {
     expect(html).toContain('data-interval="1h"')
   })
 
+  it('renders sub-dollar coins (DOGEUSDT, XRPUSDT) with high precision data-symbol attributes', () => {
+    const dogePosition: PositionTelemetry = {
+      symbol: 'DOGEUSDT',
+      currentPrice: 0.1625,
+      state: 'LONG',
+      entryPrice: 0.16,
+      size: 100.0,
+      notionalUsdt: 16.25,
+      marginUsdt: 3.25,
+      unrealizedPnlUsdt: 0.25,
+      unrealizedPnlPct: 7.69,
+      takeProfitPrice: 0.17,
+      stopLossPrice: 0.154,
+      riskRewardRatio: '1.66 : 1',
+      atrDistanceTpPct: 4.6,
+      atrDistanceSlPct: 3.75,
+    }
+    const html = renderToString(
+      <PairCandlestickChart
+        symbol="DOGEUSDT"
+        interval="15m"
+        activeIndicators={{ ema50: true, ema200: true, volume: true }}
+        position={dogePosition}
+      />,
+    )
+    expect(html).toContain('data-testid="pair-candlestick-chart-dogeusdt"')
+    expect(html).toContain('data-symbol="DOGEUSDT"')
+    expect(html).toContain('data-interval="15m"')
+  })
+
   it('renders default export identical to named export', async () => {
     const DefaultImportModule = await import('./pair-candlestick-chart')
     expect(DefaultImportModule.default).toBe(DefaultImportModule.PairCandlestickChart)

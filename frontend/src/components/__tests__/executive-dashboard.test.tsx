@@ -403,6 +403,17 @@ describe('MarketPositionsCard component', () => {
     // PairCandlestickChart receives interval 1h
     expect(html).toContain('data-interval="1h"')
   })
+
+  it('renders responsive symbol selector pills (ALL, SOL, ETH, BTC, DOGE, BNB, XRP, SUI, AVAX)', () => {
+    const html = renderToString(
+      <MarketPositionsCard positions={MOCK_MODEL.positions} />,
+    )
+
+    const expectedPills = ['SEMUA', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']
+    for (const pill of expectedPills) {
+      expect(html).toContain(pill)
+    }
+  })
 })
 
 describe('StrategyConfluenceRadar component', () => {
@@ -592,7 +603,7 @@ describe('buildExecutiveDashboardModel adapter', () => {
     expect(adapted.kpis.maxExposureCapUsdt).toBe(25.0)
     expect(adapted.kpis.minCashReserveFloorPct).toBe(75.0)
 
-    expect(adapted.positions.length).toBe(3)
+    expect(adapted.positions.length).toBe(8)
     expect(adapted.positions[0].symbol).toBe('SOLUSDT')
     expect(adapted.positions[1].symbol).toBe('ETHUSDT')
     expect(adapted.positions[2].symbol).toBe('BTCUSDT')

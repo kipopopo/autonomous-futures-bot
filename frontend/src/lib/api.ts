@@ -337,7 +337,8 @@ export async function fetchLiveMarketPrices(): Promise<LiveMarketPricesResponse 
 
   // 2. Direct fallback to Binance public futures ticker
   try {
-    const symbols = '["BTCUSDT","ETHUSDT","SOLUSDT"]'
+    const symbols =
+      '["BTCUSDT","ETHUSDT","SOLUSDT","DOGEUSDT","BNBUSDT","XRPUSDT","SUIUSDT","AVAXUSDT"]'
     const res = await fetch(
       `https://fapi.binance.com/fapi/v1/ticker/price?symbols=${encodeURIComponent(symbols)}`,
     )

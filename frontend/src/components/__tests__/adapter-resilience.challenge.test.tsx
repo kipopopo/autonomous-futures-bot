@@ -189,8 +189,8 @@ describe('Adversarial Challenge: buildExecutiveDashboardModel Edge Cases & Fault
       expect(adapted.kpis.totalTrades).toBe(0)
       expect(adapted.kpis.winRatePct).toBe(0.0)
 
-      // Positions: all 3 staged pairs must be in SCANNING / STANDBY with 0.0 metrics
-      expect(adapted.positions.length).toBe(3)
+      // Positions: all 8 staged pairs must be in SCANNING / STANDBY with 0.0 metrics
+      expect(adapted.positions.length).toBe(8)
       for (const pos of adapted.positions) {
         expect(pos.state).toBe('SCANNING / STANDBY')
         expect(pos.size).toBe(0.0)
@@ -491,7 +491,7 @@ describe('Adversarial Challenge: buildExecutiveDashboardModel Edge Cases & Fault
           )
           expect(adapted).toBeDefined()
           expect(adapted.kpis).toBeDefined()
-          expect(adapted.positions.length).toBe(3)
+          expect(adapted.positions.length).toBe(8)
         }).not.toThrow()
       }
     })

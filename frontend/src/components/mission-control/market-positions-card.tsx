@@ -91,8 +91,17 @@ export function MarketPositionsCard({
     }))
   }
 
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('ALL')
+  const symbolPills = ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']
+
+  const filteredPositions = positions.filter((p) => {
+    if (selectedSymbol === 'ALL') return true
+    return p.symbol.startsWith(selectedSymbol) || p.symbol === `${selectedSymbol}USDT`
+  })
+
   const allExpanded =
-    positions.length > 0 && positions.every((p) => Boolean(expandedCharts[p.symbol]))
+    filteredPositions.length > 0 &&
+    filteredPositions.every((p) => Boolean(expandedCharts[p.symbol]))
 
   const toggleAllCharts = () => {
     const next = !allExpanded
@@ -109,7 +118,7 @@ export function MarketPositionsCard({
       <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent" />
 
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/[0.06] mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/[0.06] mb-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
             <Radio className="w-5 h-5 text-cyan-400 animate-pulse" />
@@ -120,7 +129,7 @@ export function MarketPositionsCard({
                 Pasaran Langsung &amp; Posisi Aktif
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-cyan-500/10 border border-cyan-500/25 text-cyan-400">
-                SOL · ETH · BTC
+                {positions.length > 0 ? `${positions.length} Pasangan Abadi (Perp)` : '8 Pasangan Abadi (Perp)'}
               </span>
               <ProvenanceBadge source="LIVE EXCHANGE" />
             </div>
@@ -150,9 +159,37 @@ export function MarketPositionsCard({
         </div>
       </div>
 
-      {/* Grid of 3 Staged Pairs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-        {positions.map((pos) => {
+      {/* Responsive Symbol Selector Pills */}
+      <div className="flex items-center gap-1.5 overflow-x-auto py-1 mb-5 no-scrollbar">
+        {symbolPills.map((sym) => {
+          const isActive = selectedSymbol === sym
+          return (
+            <button
+              key={sym}
+              type="button"
+              onClick={() => setSelectedSymbol(sym)}
+              className={`px-3 py-1 rounded-lg text-xs font-mono font-semibold transition-all shrink-0 ${
+                isActive
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.04] border border-transparent'
+              }`}
+              data-testid={`symbol-pill-${sym.toLowerCase()}`}
+            >
+              {sym === 'ALL' ? 'SEMUA' : sym}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Grid of Staged Pairs */}
+      <div
+        className={`grid grid-cols-1 ${
+          selectedSymbol === 'ALL'
+            ? 'md:grid-cols-2 xl:grid-cols-4'
+            : 'max-w-2xl'
+        } gap-4 items-start`}
+      >
+        {filteredPositions.map((pos) => {
           const isScanning = pos.state === 'SCANNING / STANDBY'
           const isLong = pos.state === 'LONG'
           const isShort = pos.state === 'SHORT'

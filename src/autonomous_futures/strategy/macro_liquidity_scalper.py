@@ -203,7 +203,15 @@ class MacroLiquidityDipScalper:
     - Momentum Decay Stop: 8 bars (120 minutes)
     """
 
-    ALLOWED_SYMBOLS: tuple[str, ...] = ("SOLUSDT", "ETHUSDT")
+    ALLOWED_SYMBOLS: tuple[str, ...] = (
+        "SOLUSDT",
+        "ETHUSDT",
+        "DOGEUSDT",
+        "BNBUSDT",
+        "XRPUSDT",
+        "SUIUSDT",
+        "AVAXUSDT",
+    )
 
     def __init__(
         self,

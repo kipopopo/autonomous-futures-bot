@@ -161,7 +161,7 @@ export function buildExecutiveDashboardModel(
       ? (winningOrders.length / filledOrders.length) * 100.0
       : 0.0
 
-  // 3. Staged Pairs & Positions (SOLUSDT, ETHUSDT, BTCUSDT)
+  // 3. Staged Pairs & Positions (8 liquid perpetual universe pairs)
   const symbolConfigs = [
     {
       symbol: 'SOLUSDT',
@@ -183,6 +183,41 @@ export function buildExecutiveDashboardModel(
       atrMultiplierTp: 2.0,
       atrMultiplierSl: 1.2,
       typicalAtr: 850.0,
+    },
+    {
+      symbol: 'DOGEUSDT',
+      fallbackPrice: 0.16,
+      atrMultiplierTp: 2.0,
+      atrMultiplierSl: 1.2,
+      typicalAtr: 0.005,
+    },
+    {
+      symbol: 'BNBUSDT',
+      fallbackPrice: 600.0,
+      atrMultiplierTp: 2.0,
+      atrMultiplierSl: 1.2,
+      typicalAtr: 8.5,
+    },
+    {
+      symbol: 'XRPUSDT',
+      fallbackPrice: 0.58,
+      atrMultiplierTp: 2.0,
+      atrMultiplierSl: 1.2,
+      typicalAtr: 0.015,
+    },
+    {
+      symbol: 'SUIUSDT',
+      fallbackPrice: 2.20,
+      atrMultiplierTp: 2.0,
+      atrMultiplierSl: 1.2,
+      typicalAtr: 0.08,
+    },
+    {
+      symbol: 'AVAXUSDT',
+      fallbackPrice: 28.0,
+      atrMultiplierTp: 2.0,
+      atrMultiplierSl: 1.2,
+      typicalAtr: 0.75,
     },
   ]
 
@@ -262,7 +297,7 @@ export function buildExecutiveDashboardModel(
 
     if (hasActivePosition) {
       const baseEntry = entryPrice > 0 ? entryPrice : currentPrice
-      const precision = currentPrice < 1000 ? 2 : 1
+      const precision = currentPrice < 1 ? 4 : currentPrice < 1000 ? 2 : 1
       const bracketTp = bracketPos?.brackets?.find((b) => b.bracket_type?.includes('PROFIT'))?.trigger_price
       const bracketSl = bracketPos?.brackets?.find((b) => b.bracket_type?.includes('STOP') || b.bracket_type?.includes('LOSS'))?.trigger_price
       takeProfitPrice = Number(

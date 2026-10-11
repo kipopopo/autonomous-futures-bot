@@ -137,9 +137,19 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
             </h2>
           </div>
 
-          <div className="flex items-center gap-1.5 bg-black/40 p-1 rounded-xl border border-white/[0.08]">
-            <Filter className="w-3.5 h-3.5 text-white/40 ml-1.5" />
-            {['ALL', 'SOLUSDT', 'ETHUSDT', 'BTCUSDT'].map((sym) => (
+          <div className="flex flex-wrap items-center gap-1.5 bg-black/40 p-1 rounded-xl border border-white/[0.08]">
+            <Filter className="w-3.5 h-3.5 text-white/40 ml-1.5 shrink-0" />
+            {[
+              'ALL',
+              'SOLUSDT',
+              'ETHUSDT',
+              'BTCUSDT',
+              'DOGEUSDT',
+              'BNBUSDT',
+              'XRPUSDT',
+              'SUIUSDT',
+              'AVAXUSDT',
+            ].map((sym) => (
               <button
                 key={sym}
                 type="button"
@@ -202,7 +212,7 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
                       <span className="text-[10px] text-white/50">{ord.orderType}</span>
                     </td>
                     <td className="text-right font-bold text-white">
-                      ${ord.price.toFixed(2)}
+                      ${ord.price < 10 ? ord.price.toFixed(4) : ord.price.toFixed(2)}
                     </td>
                     <td className="text-right text-white/70">{ord.quantity}</td>
                     <td className="text-right font-semibold text-white/90">

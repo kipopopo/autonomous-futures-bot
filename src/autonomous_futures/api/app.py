@@ -534,7 +534,7 @@ def get_live_market_data(
         import urllib.request
         url = (
             "https://fapi.binance.com/fapi/v1/ticker/price"
-            "?symbols=%5B%22BTCUSDT%22%2C%22ETHUSDT%22%2C%22SOLUSDT%22%5D"
+            "?symbols=%5B%22BTCUSDT%22%2C%22ETHUSDT%22%2C%22SOLUSDT%22%2C%22DOGEUSDT%22%2C%22BNBUSDT%22%2C%22XRPUSDT%22%2C%22SUIUSDT%22%2C%22AVAXUSDT%22%5D"
         )
         req = urllib.request.Request(
             url,
@@ -543,7 +543,16 @@ def get_live_market_data(
         with urllib.request.urlopen(req, timeout=2.5) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
             if isinstance(raw, list) and len(raw) > 0:
-                target_syms = {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
+                target_syms = {
+                    "BTCUSDT",
+                    "ETHUSDT",
+                    "SOLUSDT",
+                    "DOGEUSDT",
+                    "BNBUSDT",
+                    "XRPUSDT",
+                    "SUIUSDT",
+                    "AVAXUSDT",
+                }
                 candidate_prices = {
                     item["symbol"]: float(item["price"])
                     for item in raw
@@ -559,9 +568,14 @@ def get_live_market_data(
                 res_data = {
                     "timestamp_ms": int(now_sec * 1000),
                     "prices": prices,
-                    "BTCUSDT": prices.get("BTCUSDT"),
-                    "ETHUSDT": prices.get("ETHUSDT"),
-                    "SOLUSDT": prices.get("SOLUSDT"),
+                    "BTCUSDT": prices.get("BTCUSDT", 82600.0),
+                    "ETHUSDT": prices.get("ETHUSDT", 2500.0),
+                    "SOLUSDT": prices.get("SOLUSDT", 110.0),
+                    "DOGEUSDT": prices.get("DOGEUSDT", 0.086),
+                    "BNBUSDT": prices.get("BNBUSDT", 750.0),
+                    "XRPUSDT": prices.get("XRPUSDT", 1.40),
+                    "SUIUSDT": prices.get("SUIUSDT", 1.11),
+                    "AVAXUSDT": prices.get("AVAXUSDT", 10.5),
                     "btc_macro": macro,
                     "source": "binance_futures_live",
                 }
@@ -594,9 +608,14 @@ def get_live_market_data(
                     res_data = {
                         "timestamp_ms": data.get("timestamp_ms", int(now_sec * 1000)),
                         "prices": prices,
-                        "BTCUSDT": prices.get("BTCUSDT"),
-                        "ETHUSDT": prices.get("ETHUSDT"),
-                        "SOLUSDT": prices.get("SOLUSDT"),
+                        "BTCUSDT": prices.get("BTCUSDT", 82600.0),
+                        "ETHUSDT": prices.get("ETHUSDT", 2500.0),
+                        "SOLUSDT": prices.get("SOLUSDT", 110.0),
+                        "DOGEUSDT": prices.get("DOGEUSDT", 0.086),
+                        "BNBUSDT": prices.get("BNBUSDT", 750.0),
+                        "XRPUSDT": prices.get("XRPUSDT", 1.40),
+                        "SUIUSDT": prices.get("SUIUSDT", 1.11),
+                        "AVAXUSDT": prices.get("AVAXUSDT", 10.5),
                         "btc_macro": macro,
                         "source": "daemon_live_prices",
                     }
@@ -627,9 +646,14 @@ def get_live_market_data(
                     res_data = {
                         "timestamp_ms": data.get("timestamp_ms", int(now_sec * 1000)),
                         "prices": prices,
-                        "BTCUSDT": prices.get("BTCUSDT"),
-                        "ETHUSDT": prices.get("ETHUSDT"),
-                        "SOLUSDT": prices.get("SOLUSDT"),
+                        "BTCUSDT": prices.get("BTCUSDT", 82600.0),
+                        "ETHUSDT": prices.get("ETHUSDT", 2500.0),
+                        "SOLUSDT": prices.get("SOLUSDT", 110.0),
+                        "DOGEUSDT": prices.get("DOGEUSDT", 0.086),
+                        "BNBUSDT": prices.get("BNBUSDT", 750.0),
+                        "XRPUSDT": prices.get("XRPUSDT", 1.40),
+                        "SUIUSDT": prices.get("SUIUSDT", 1.11),
+                        "AVAXUSDT": prices.get("AVAXUSDT", 10.5),
                         "btc_macro": macro,
                         "source": "phase310_report",
                     }
@@ -644,6 +668,11 @@ def get_live_market_data(
         "BTCUSDT": 82600.0,
         "ETHUSDT": 2500.0,
         "SOLUSDT": 110.0,
+        "DOGEUSDT": 0.086,
+        "BNBUSDT": 750.0,
+        "XRPUSDT": 1.40,
+        "SUIUSDT": 1.11,
+        "AVAXUSDT": 10.5,
     }
     macro = compute_authentic_btc_macro(82600.0, research_dir)
     fallback_data = {
@@ -652,6 +681,11 @@ def get_live_market_data(
         "BTCUSDT": 82600.0,
         "ETHUSDT": 2500.0,
         "SOLUSDT": 110.0,
+        "DOGEUSDT": 0.086,
+        "BNBUSDT": 750.0,
+        "XRPUSDT": 1.40,
+        "SUIUSDT": 1.11,
+        "AVAXUSDT": 10.5,
         "btc_macro": macro,
         "source": "fallback_anchor",
     }
@@ -667,13 +701,31 @@ def _baseline_execution_status(
     fallback_solvency = ExecutionSolvency()
     market_data = get_live_market_data()
     live_prices = market_data.get("prices", {}) if isinstance(market_data, dict) else {}
-    fallback_prices = {"BTCUSDT": 82600.0, "ETHUSDT": 2500.0, "SOLUSDT": 110.0}
+    fallback_prices = {
+        "BTCUSDT": 82600.0,
+        "ETHUSDT": 2500.0,
+        "SOLUSDT": 110.0,
+        "DOGEUSDT": 0.086,
+        "BNBUSDT": 750.0,
+        "XRPUSDT": 1.40,
+        "SUIUSDT": 1.11,
+        "AVAXUSDT": 10.5,
+    }
     fallback_positions = {
         sym: ExecutionPositionItem(
             symbol=sym,
             mark_price=float(live_prices.get(sym, fallback_prices.get(sym, 100.0))),
         )
-        for sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+        for sym in (
+            "BTCUSDT",
+            "ETHUSDT",
+            "SOLUSDT",
+            "DOGEUSDT",
+            "BNBUSDT",
+            "XRPUSDT",
+            "SUIUSDT",
+            "AVAXUSDT",
+        )
     }
     return ExecutionStatusResponse(
         verified=True,
@@ -795,10 +847,19 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
         if not isinstance(p310_candidates, dict):
             p310_candidates = {}
 
-        for sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+        for sym in (
+            "BTCUSDT",
+            "ETHUSDT",
+            "SOLUSDT",
+            "DOGEUSDT",
+            "BNBUSDT",
+            "XRPUSDT",
+            "SUIUSDT",
+            "AVAXUSDT",
+        ):
             mark_p: float | None = None
 
-            # In isolated/fixture mode (custom research_dir specified in unit test), prioritize report files
+            # In isolated/fixture mode (custom research_dir in test), prioritize report files
             if research_dir is not None and research_dir != _resolve_research_dir():
                 raw_cand = p310_candidates.get(sym)
                 cand = raw_cand if isinstance(raw_cand, dict) else {}
@@ -810,7 +871,11 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
                         mark_p = cand_price
                     except (ValueError, TypeError):
                         mark_p = None
-                if sym == "SOLUSDT" and mark_p is None and p311_report.get("mark_price") is not None:
+                if (
+                    sym == "SOLUSDT"
+                    and mark_p is None
+                    and p311_report.get("mark_price") is not None
+                ):
                     try:
                         mark_p = float(p311_report["mark_price"])
                     except (ValueError, TypeError):
@@ -844,7 +909,16 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
                     pass
 
             if mark_p is None:
-                fallback_prices = {"BTCUSDT": 82600.0, "ETHUSDT": 2500.0, "SOLUSDT": 110.0}
+                fallback_prices = {
+                    "BTCUSDT": 82600.0,
+                    "ETHUSDT": 2500.0,
+                    "SOLUSDT": 110.0,
+                    "DOGEUSDT": 0.086,
+                    "BNBUSDT": 750.0,
+                    "XRPUSDT": 1.40,
+                    "SUIUSDT": 1.11,
+                    "AVAXUSDT": 10.5,
+                }
                 mark_p = fallback_prices.get(sym, 100.0)
 
             positions[sym] = ExecutionPositionItem(
@@ -2200,7 +2274,16 @@ def create_app(
             pass
 
         # 3. Fallback: Deterministic synthetic generator
-        base_prices = {"BTCUSDT": 82600.0, "ETHUSDT": 2500.0, "SOLUSDT": 110.0}
+        base_prices = {
+            "BTCUSDT": 82600.0,
+            "ETHUSDT": 2500.0,
+            "SOLUSDT": 110.0,
+            "DOGEUSDT": 0.086,
+            "BNBUSDT": 750.0,
+            "XRPUSDT": 1.40,
+            "SUIUSDT": 1.11,
+            "AVAXUSDT": 10.5,
+        }
         base = base_prices.get(norm_sym, 100.0)
         interval_seconds = {
             "1m": 60,

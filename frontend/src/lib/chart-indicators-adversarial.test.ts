@@ -313,9 +313,14 @@ describe('Empirical Adversarial Challenge: Indicators & Math Engine', () => {
     })
 
     it('handles fallback symbol base price mapping for unknown symbols', () => {
-      const custom = generateSyntheticKlines('DOGEUSDT', '15m', 5)
+      const custom = generateSyntheticKlines('UNKNOWNUSDT', '15m', 5)
       expect(custom.length).toBe(5)
       expect(custom[0].open).toBe(100) // fallback basePrice = 100
+
+      // DOGEUSDT is now a supported liquid perpetual pair with base price 0.16
+      const doge = generateSyntheticKlines('DOGEUSDT', '15m', 5)
+      expect(doge.length).toBe(5)
+      expect(doge[0].open).toBe(0.16)
     })
   })
 

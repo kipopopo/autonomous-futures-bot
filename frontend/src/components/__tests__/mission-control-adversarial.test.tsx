@@ -58,7 +58,7 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
       expect(adapted.botStatus.isStreaming).toBe(false)
       expect(adapted.botStatus.lastSyncedAtMyt).not.toBe('—')
       expect(adapted.kpis.totalEquityUsdt).toBeGreaterThanOrEqual(100.0)
-      expect(adapted.positions.length).toBe(3)
+      expect(adapted.positions.length).toBe(8)
       expect(adapted.orders.length).toBeGreaterThan(0)
 
       // Ensure the assembled dashboard renders without any exceptions

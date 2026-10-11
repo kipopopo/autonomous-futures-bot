@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   Clock,
@@ -11,8 +12,10 @@ import {
   Lock,
   Radio,
   Scale,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Target,
   Timer,
   TrendingUp,
   Zap,
@@ -67,7 +70,9 @@ function formatRelativeTime(timestampMs: number, nowMs: number): string {
 export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ALL')
   const [nowMs, setNowMs] = useState<number>(Date.now())
-  const [countdown, setCountdown] = useState<number>(12)
+  const [countdown, setCountdown] = useState<number>(() => {
+    return model.liveProgress?.next_cycle_seconds ?? 15
+  })
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -144,20 +149,109 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
 
   const liveProgress = model.liveProgress || {
     is_live_daemon_active: true,
-    current_cycle_stage: 'SHADOW_VALIDATION',
-    cycle_progress_pct: 85.0,
+    current_cycle_stage: 'SHADOW_OOS_GATE',
+    cycle_progress_pct: 80.0,
+    stage_status: 'WAITING_FOR_SAMPLES',
+    stage_status_label: 'WAITING_FOR_SAMPLES (0/5)',
+    closed_trades_count: 0,
+    required_trades_count: 5,
+    sharpe_hurdle_pct: 15.0,
+    current_sharpe_improvement_pct: 0.0,
     active_generation: 'GEN #2',
     next_target_generation: 'GEN #3',
     last_evaluated_timestamp_ms: model.timestampMs || Date.now() - 17000,
+    last_candle_fetch_timestamp_ms: (model.timestampMs || Date.now()) - 22000,
     next_cycle_seconds: 15,
     heartbeat_latency_ms: 42.0,
     daemon_status: 'ONLINE 24/7',
     daemon_pid: 87549,
+    scanned_symbols: [
+      'BTCUSDT',
+      'ETHUSDT',
+      'SOLUSDT',
+      'DOGEUSDT',
+      'BNBUSDT',
+      'XRPUSDT',
+      'SUIUSDT',
+      'AVAXUSDT',
+    ],
+    oos_gate: {
+      samples_required: 5,
+      samples_acquired: 0,
+      sharpe_hurdle_pct: 15.0,
+      current_sharpe_improvement_pct: 0.0,
+      status: 'WAITING_FOR_SAMPLES',
+      status_label: 'WAITING_FOR_SAMPLES (0/5)',
+      explanation:
+        'Menunggu 5 sampel transaksi selesai untuk menguji Sharpe out-of-sample (semasa: 0/5, hurdle >= 15.0%).',
+    },
+    macro_gating_state: {
+      regime: 'BEARISH',
+      longs_filtered: true,
+      is_long_allowed: false,
+      explanation_ms:
+        'Trend Makro Bearish (Harga < EMA 200 1j). Kemasukan LONG ditapis secara automatik untuk melindungi modal.',
+      explanation:
+        'Bearish Macro Trend (Price < 1h EMA 200). LONG entries automatically filtered to protect capital.',
+    },
     recent_events: [],
+  }
+
+  const currentStage =
+    liveProgress.current_stage || liveProgress.current_cycle_stage || 'SHADOW_OOS_GATE'
+  const closedTrades =
+    liveProgress.closed_trades_count ?? liveProgress.oos_gate?.samples_acquired ?? 0
+  const requiredTrades =
+    liveProgress.required_trades_count ?? liveProgress.oos_gate?.samples_required ?? 5
+  const sharpeHurdle =
+    liveProgress.sharpe_hurdle_pct ?? liveProgress.oos_gate?.sharpe_hurdle_pct ?? 15.0
+  const sharpeImprovement =
+    liveProgress.current_sharpe_improvement_pct ??
+    liveProgress.oos_gate?.current_sharpe_improvement_pct ??
+    0.0
+  const stageStatus =
+    liveProgress.stage_status ??
+    liveProgress.oos_gate?.status ??
+    (closedTrades < requiredTrades ? 'WAITING_FOR_SAMPLES' : 'EVALUATING')
+
+  const oosGateExplanation =
+    liveProgress.oos_gate?.explanation ||
+    (closedTrades < requiredTrades
+      ? `Menunggu ${requiredTrades} sampel transaksi selesai untuk menguji Sharpe out-of-sample (semasa: ${closedTrades}/${requiredTrades}, hurdle >= ${sharpeHurdle.toFixed(1)}%).`
+      : `Menilai promosi bayangan: Sharpe improvement (+${sharpeImprovement.toFixed(1)}%) sedang diuji terhadap hurdle +${sharpeHurdle.toFixed(1)}%.`)
+
+  const macroState = liveProgress.macro_gating_state || liveProgress.macro_gating || {
+    regime: 'BEARISH',
+    longs_filtered: true,
+    is_long_allowed: false,
+    explanation_ms:
+      'Trend Makro Bearish (Harga < EMA 200 1j). Kemasukan LONG ditapis secara automatik untuk melindungi modal.',
+    explanation:
+      'Bearish Macro Trend (Price < 1h EMA 200). LONG entries automatically filtered to protect capital.',
   }
 
   const lastEvalMs =
     liveProgress.last_evaluated_timestamp_ms || model.timestampMs || (nowMs - 17000)
+  const lastCandleFetchMs =
+    liveProgress.last_candle_fetch_timestamp_ms || (lastEvalMs - 5000)
+
+  const cycleProgressPct =
+    liveProgress.cycle_progress_pct ??
+    Number((80.0 + (Math.min(closedTrades, requiredTrades) / requiredTrades) * 20.0).toFixed(1))
+
+  const scannedSymbols =
+    liveProgress.scanned_symbols && liveProgress.scanned_symbols.length > 0
+      ? liveProgress.scanned_symbols
+      : [
+          'BTCUSDT',
+          'ETHUSDT',
+          'SOLUSDT',
+          'DOGEUSDT',
+          'BNBUSDT',
+          'XRPUSDT',
+          'SUIUSDT',
+          'AVAXUSDT',
+        ]
 
   const eventsList =
     liveProgress.recent_events && liveProgress.recent_events.length > 0
@@ -166,7 +260,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
           {
             event_type: 'HEARTBEAT_INGRESS',
             title: 'Degupan Jantung & Ingress Pasaran',
-            detail: 'Penstriman klines 15m & 1h Binance Futures disegerakkan (SOL, ETH, BTC)',
+            detail: `Penstriman klines 15m & 1h Binance Futures disegerakkan (8 pasangan: ${scannedSymbols.join(', ')})`,
             latency_ms: 42.0,
             status: 'HEALTHY',
             timestamp_ms: lastEvalMs - 15000,
@@ -198,9 +292,12 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
           {
             event_type: 'SHADOW_VALIDATION',
             title: 'Simulasi Bayangan & Pintu Promosi OOS',
-            detail: 'Sharpe bayangan 2.10 vs induk -5.00 (+100.0% peningkatan) melepasi hurdle OOS',
+            detail:
+              closedTrades < requiredTrades
+                ? `Pintu OOS: ${closedTrades}/${requiredTrades} sampel diperoleh, Sharpe hurdle >= ${sharpeHurdle.toFixed(1)}% (${stageStatus})`
+                : 'Sharpe bayangan 2.10 vs induk -5.00 (+100.0% peningkatan) melepasi hurdle OOS',
             latency_ms: 5.4,
-            status: 'PROMOTED',
+            status: closedTrades < requiredTrades ? 'WAITING' : 'PROMOTED',
             timestamp_ms: lastEvalMs - 600000,
           },
         ]
@@ -241,6 +338,64 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
           <div className="badge badge-outline gap-1 font-mono text-xs">
             <Scale className="h-3.5 w-3.5 text-info" />
             ZERO-DRIFT: {isZeroDrift ? 'VERIFIED (0.00)' : 'BREACH'}
+          </div>
+        </div>
+      </div>
+
+      {/* BTC Macro Trend Gating Banner */}
+      <div
+        data-testid="btc-macro-gating-banner"
+        className={`rounded-2xl border p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition shadow-sm ${
+          macroState.longs_filtered || macroState.regime === 'BEARISH'
+            ? 'border-warning/40 bg-warning/10 text-warning-content'
+            : 'border-success/40 bg-success/10 text-success-content'
+        }`}
+      >
+        <div className="flex items-start sm:items-center gap-3">
+          <div
+            className={`p-2.5 rounded-xl shrink-0 ${
+              macroState.longs_filtered || macroState.regime === 'BEARISH'
+                ? 'bg-warning/20 text-warning'
+                : 'bg-success/20 text-success'
+            }`}
+          >
+            {macroState.longs_filtered || macroState.regime === 'BEARISH' ? (
+              <ShieldAlert className="h-6 w-6" />
+            ) : (
+              <ShieldCheck className="h-6 w-6" />
+            )}
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold text-sm sm:text-base text-base-content">
+                BTC Macro Trend Gating (Rejim 1-Jam)
+              </span>
+              <span
+                className={`badge badge-sm font-mono font-bold ${
+                  macroState.regime === 'BEARISH'
+                    ? 'badge-error text-error-content'
+                    : 'badge-success text-success-content'
+                }`}
+              >
+                {`REGIME: ${macroState.regime}`}
+              </span>
+              {macroState.longs_filtered && (
+                <span className="badge badge-warning badge-sm font-mono font-bold">
+                  LONG Filtered
+                </span>
+              )}
+            </div>
+            <p className="text-xs sm:text-sm text-base-content/80 mt-1 font-medium">
+              🇲🇾 {macroState.explanation_ms || macroState.explanation}
+            </p>
+            <p className="text-[11px] sm:text-xs text-base-content/60 mt-0.5 italic">
+              🇬🇧 {macroState.explanation}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+          <div className="badge badge-outline text-xs font-mono">
+            {macroState.is_long_allowed ? 'LONGS: DIBENARKAN' : 'LONGS: DISEKAT'}
           </div>
         </div>
       </div>
@@ -307,7 +462,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               </div>
             </div>
 
-            {/* Box 2: Kitaran Terakhir Dinilai */}
+            {/* Box 2: Kitaran Terakhir & Ambilan Lilin */}
             <div className="rounded-xl border border-base-200 bg-base-200/50 p-4">
               <div className="flex items-center justify-between text-base-content/70">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-info flex items-center gap-1">
@@ -321,9 +476,20 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               <div className="mt-2 font-mono text-sm font-bold text-base-content">
                 {formatMyt(lastEvalMs)}
               </div>
-              <div className="mt-1 flex items-center gap-1 text-[10px] text-base-content/60 truncate">
-                <span>Imbasan:</span>
-                <span className="font-mono text-success font-semibold">SOLUSDT, ETHUSDT, BTCUSDT</span>
+              <div className="mt-1 flex items-center justify-between text-[10px] text-base-content/70">
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3 text-info" />
+                  Ambilan Lilin:
+                </span>
+                <span className="font-mono font-semibold text-info">
+                  {formatMyt(lastCandleFetchMs)}
+                </span>
+              </div>
+              <div className="mt-1.5 pt-1.5 border-t border-base-200/80 text-[10px] text-base-content/60">
+                <span className="font-semibold text-base-content/80">{`Imbasan (${scannedSymbols.length} Pasangan): `}</span>
+                <span className="font-mono text-success font-semibold truncate block">
+                  {scannedSymbols.join(', ')}
+                </span>
               </div>
             </div>
 
@@ -389,12 +555,23 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   Kemajuan Kitaran Evolusi Semasa ({liveProgress.active_generation ?? 'GEN #2'} &rarr; {liveProgress.next_target_generation ?? 'GEN #3'})
                 </div>
                 <div className="text-sm font-semibold text-base-content mt-0.5">
-                  Peringkat Semasa: <span className="text-primary font-bold">Simulasi Bayangan &amp; Pengesahan Pintu Promosi OOS</span>
+                  Peringkat Semasa:{' '}
+                  <span className="text-primary font-bold">
+                    {currentStage === 'INGRESS'
+                      ? '1. Ingress Pasaran & Klines Streaming'
+                      : currentStage === 'HEALTH_EVALUATION'
+                      ? '2. Penilaian Kesihatan Strategi Calon'
+                      : currentStage === 'TRADE_AUTOPSY'
+                      ? '3. Autopsi Pelaksanaan Transaksi & Geseran'
+                      : currentStage === 'MUTATION_STAGING'
+                      ? '4. Mutasi Genom & Penalaan Parameter'
+                      : '5. Simulasi Bayangan & Pengesahan Pintu Promosi OOS'}
+                  </span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm font-black text-primary">
-                  {liveProgress.cycle_progress_pct ?? 85.0}% SELESAI
+                  {`${cycleProgressPct}% SELESAI`}
                 </span>
               </div>
             </div>
@@ -402,60 +579,210 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             {/* Main Progress Bar */}
             <progress
               className="progress progress-primary w-full h-2.5"
-              value={liveProgress.cycle_progress_pct ?? 85.0}
+              value={cycleProgressPct}
               max="100"
             />
 
             {/* 5-Step Visual Pipeline */}
             <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 pt-2 text-xs">
               {/* Step 1 */}
-              <div className="rounded-lg bg-base-100 p-2.5 border border-success/30 flex flex-col justify-between">
+              <div
+                className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
+                  currentStage === 'INGRESS'
+                    ? 'bg-primary/10 border-2 border-primary shadow-sm'
+                    : 'bg-base-100 border border-success/30'
+                }`}
+              >
                 <div className="flex items-center justify-between text-success">
                   <span className="font-bold">1. Ingress Pasaran</span>
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </div>
                 <p className="text-[10px] text-base-content/60 mt-1">15m &amp; 1h Klines streaming</p>
-                <div className="badge badge-success badge-xs mt-2 font-mono">100% LENGKAP</div>
+                <div
+                  className={`badge badge-xs mt-2 font-mono ${
+                    currentStage === 'INGRESS' ? 'badge-primary' : 'badge-success'
+                  }`}
+                >
+                  {currentStage === 'INGRESS' ? 'AKTIF' : '100% LENGKAP'}
+                </div>
               </div>
 
               {/* Step 2 */}
-              <div className="rounded-lg bg-base-100 p-2.5 border border-success/30 flex flex-col justify-between">
+              <div
+                className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
+                  currentStage === 'HEALTH_EVALUATION'
+                    ? 'bg-primary/10 border-2 border-primary shadow-sm'
+                    : 'bg-base-100 border border-success/30'
+                }`}
+              >
                 <div className="flex items-center justify-between text-success">
                   <span className="font-bold">2. Penilaian Kesihatan</span>
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </div>
                 <p className="text-[10px] text-base-content/60 mt-1">Rolling Sharpe &amp; Hawkes &rho;</p>
-                <div className="badge badge-success badge-xs mt-2 font-mono">3 CALON AKTIF</div>
+                <div
+                  className={`badge badge-xs mt-2 font-mono ${
+                    currentStage === 'HEALTH_EVALUATION' ? 'badge-primary' : 'badge-success'
+                  }`}
+                >
+                  {currentStage === 'HEALTH_EVALUATION'
+                    ? 'AKTIF'
+                    : `${Object.keys(healthEvaluations).length || 3} CALON AKTIF`}
+                </div>
               </div>
 
               {/* Step 3 */}
-              <div className="rounded-lg bg-base-100 p-2.5 border border-success/30 flex flex-col justify-between">
+              <div
+                className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
+                  currentStage === 'TRADE_AUTOPSY'
+                    ? 'bg-primary/10 border-2 border-primary shadow-sm'
+                    : 'bg-base-100 border border-success/30'
+                }`}
+              >
                 <div className="flex items-center justify-between text-success">
                   <span className="font-bold">3. Autopsi Transaksi</span>
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </div>
                 <p className="text-[10px] text-base-content/60 mt-1">Timing, Slip &amp; Adverse Sel</p>
-                <div className="badge badge-info badge-xs mt-2 font-mono">16 DIAUDIT</div>
+                <div
+                  className={`badge badge-xs mt-2 font-mono ${
+                    currentStage === 'TRADE_AUTOPSY' ? 'badge-primary' : 'badge-info'
+                  }`}
+                >
+                  {currentStage === 'TRADE_AUTOPSY'
+                    ? 'AKTIF'
+                    : `${model.performance?.total_autopsies_conducted || 16} DIAUDIT`}
+                </div>
               </div>
 
               {/* Step 4 */}
-              <div className="rounded-lg bg-base-100 p-2.5 border border-primary/30 flex flex-col justify-between">
+              <div
+                className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
+                  currentStage === 'MUTATION_STAGING'
+                    ? 'bg-primary/10 border-2 border-primary shadow-sm'
+                    : 'bg-base-100 border border-primary/30'
+                }`}
+              >
                 <div className="flex items-center justify-between text-primary">
                   <span className="font-bold">4. Mutasi Genom</span>
                   <Sparkles className="h-3.5 w-3.5" />
                 </div>
                 <p className="text-[10px] text-base-content/60 mt-1">Parameter adaptif dilaras</p>
-                <div className="badge badge-primary badge-xs mt-2 font-mono">GEN #2 STAGED</div>
+                <div className="badge badge-primary badge-xs mt-2 font-mono">
+                  {currentStage === 'MUTATION_STAGING' ? 'AKTIF' : `${liveProgress.active_generation ?? 'GEN #2'} STAGED`}
+                </div>
               </div>
 
               {/* Step 5 */}
-              <div className="rounded-lg bg-base-100 p-2.5 border border-warning/40 bg-warning/5 flex flex-col justify-between">
+              <div
+                className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
+                  currentStage === 'SHADOW_OOS_GATE'
+                    ? 'bg-warning/10 border-2 border-warning shadow-sm'
+                    : 'bg-base-100 border border-warning/40'
+                }`}
+              >
                 <div className="flex items-center justify-between text-warning">
                   <span className="font-bold">5. Pintu OOS &amp; Promosi</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </div>
-                <p className="text-[10px] text-base-content/60 mt-1">Sharpe &ge; 15% hurdle</p>
-                <div className="badge badge-warning badge-xs mt-2 font-mono">MENILAI 20 TICKS</div>
+                <p className="text-[10px] text-base-content/60 mt-1">Sharpe &ge; {sharpeHurdle.toFixed(0)}% hurdle</p>
+                <div
+                  className={`badge badge-xs mt-2 font-mono ${
+                    stageStatus === 'QUALIFIED'
+                      ? 'badge-success text-success-content'
+                      : stageStatus === 'EVALUATING'
+                      ? 'badge-info text-info-content'
+                      : 'badge-warning'
+                  }`}
+                >
+                  {stageStatus === 'WAITING_FOR_SAMPLES'
+                    ? `${closedTrades}/${requiredTrades} SAMPEL`
+                    : stageStatus === 'QUALIFIED'
+                    ? 'LAYAK / PROMOTED'
+                    : 'MENILAI'}
+                </div>
+              </div>
+            </div>
+
+            {/* Out-of-Sample (OOS) Qualification Gate Telemetry Card */}
+            <div
+              data-testid="oos-qualification-gate-card"
+              className="rounded-xl border border-base-200 bg-base-100 p-4 space-y-3"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-base-200 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-warning" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-base-content/80">
+                    Out-of-Sample (OOS) Qualification Gate
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-base-content/60 font-medium">Status Pintu:</span>
+                  <span
+                    className={`badge badge-sm font-mono font-bold ${
+                      stageStatus === 'QUALIFIED'
+                        ? 'badge-success text-success-content'
+                        : stageStatus === 'EVALUATING'
+                        ? 'badge-info text-info-content'
+                        : 'badge-warning text-warning-content'
+                    }`}
+                  >
+                    {stageStatus}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                {/* Samples counter & Progress */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-base-content/70 font-semibold">Sampel Transaksi Ditutup:</span>
+                    <span className="font-mono font-black text-base-content">
+                      {`${closedTrades} / ${requiredTrades} required trades`}
+                    </span>
+                  </div>
+                  <progress
+                    className={`progress w-full h-2 ${
+                      closedTrades >= requiredTrades ? 'progress-success' : 'progress-warning'
+                    }`}
+                    value={closedTrades}
+                    max={requiredTrades}
+                  />
+                  <div className="flex justify-between text-[11px] text-base-content/50 font-mono">
+                    <span>0 sampel</span>
+                    <span>{requiredTrades} sasaran kelayakan</span>
+                  </div>
+                </div>
+
+                {/* Sharpe Hurdle & Improvement */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-base-content/70 font-semibold">Batas Minimum Sharpe (Hurdle):</span>
+                    <span className="font-mono font-black text-warning">
+                      {`≥ ${sharpeHurdle.toFixed(1)}% peningkatan`}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg bg-base-200/50 p-2 font-mono text-xs">
+                    <span className="text-base-content/60">Peningkatan Semasa:</span>
+                    <span
+                      className={`font-black ${
+                        sharpeImprovement >= sharpeHurdle
+                          ? 'text-success'
+                          : sharpeImprovement > 0
+                          ? 'text-info'
+                          : 'text-base-content/70'
+                      }`}
+                    >
+                      {sharpeImprovement >= 0 ? `+${sharpeImprovement.toFixed(1)}%` : `${sharpeImprovement.toFixed(1)}%`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Explanation Note */}
+              <div className="rounded-lg bg-base-200/30 p-2.5 text-[11px] text-base-content/70 border border-base-200/60 flex items-start gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
+                <span>{oosGateExplanation}</span>
               </div>
             </div>
           </div>
@@ -740,10 +1067,20 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-base-content/70">Filter Symbol:</span>
-              <div className="join">
-                {['ALL', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT'].map((sym) => (
+              <div className="join flex-wrap gap-1">
+                {[
+                  'ALL',
+                  'BTCUSDT',
+                  'ETHUSDT',
+                  'SOLUSDT',
+                  'DOGEUSDT',
+                  'BNBUSDT',
+                  'XRPUSDT',
+                  'SUIUSDT',
+                  'AVAXUSDT',
+                ].map((sym) => (
                   <button
                     key={sym}
                     onClick={() => setSelectedSymbol(sym)}
@@ -803,7 +1140,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                         </span>
                       </td>
                       <td className="font-mono text-xs">
-                        ${a.entry_price.toFixed(2)} &rarr; ${a.exit_price.toFixed(2)}
+                        ${a.entry_price < 1 ? a.entry_price.toFixed(4) : a.entry_price.toFixed(2)} &rarr; ${a.exit_price < 1 ? a.exit_price.toFixed(4) : a.exit_price.toFixed(2)}
                       </td>
                       <td className="font-mono text-xs">{a.fill_qty}</td>
                       <td className="font-mono text-xs">{a.entry_timing_error_bps.toFixed(1)} bps</td>

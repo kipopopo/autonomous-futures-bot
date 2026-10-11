@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -17,11 +18,26 @@ export interface ExecutivePositionsPageProps {
   liveMarketModel: LiveMarketModel
 }
 
+function formatPrice(val?: number): string {
+  if (val === undefined || Number.isNaN(val)) return '0.00'
+  if (val < 10) return val.toFixed(4)
+  if (val < 1000) return val.toFixed(2)
+  return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export function ExecutivePositionsPage({
   positions,
   bracketPositionsModel,
   liveMarketModel: _liveMarketModel,
 }: ExecutivePositionsPageProps) {
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('ALL')
+  const symbolPills = ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']
+
+  const filteredPositions = positions.filter((p) => {
+    if (selectedSymbol === 'ALL') return true
+    return p.symbol.startsWith(selectedSymbol) || p.symbol === `${selectedSymbol}USDT`
+  })
+
   const activeCount = positions.filter((p) => p.state !== 'SCANNING / STANDBY').length
   const liveBrackets =
     bracketPositionsModel.phase === 'phase_301'
@@ -67,13 +83,39 @@ export function ExecutivePositionsPage({
 
       {/* Main Multi-Asset Positions Table */}
       <div className="glass-panel p-5 relative">
-        <h2 className="text-base font-bold tracking-tight text-white mb-4 flex items-center gap-2">
-          <Crosshair className="w-4 h-4 text-cyan-400" />
-          Kedudukan &amp; Sasaran Semasa Staged Assets
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
+            <Crosshair className="w-4 h-4 text-cyan-400" />
+            Kedudukan &amp; Sasaran Semasa Staged Assets
+          </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          {positions.map((pos) => {
+          {/* Symbol Filter Controls */}
+          <div className="flex flex-wrap items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.08]">
+            {symbolPills.map((sym) => (
+              <button
+                key={sym}
+                type="button"
+                onClick={() => setSelectedSymbol(sym)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all ${
+                  selectedSymbol === sym
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                }`}
+              >
+                {sym === 'ALL' ? 'SEMUA' : sym}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div
+          className={`grid grid-cols-1 ${
+            selectedSymbol === 'ALL'
+              ? 'md:grid-cols-2 xl:grid-cols-4'
+              : 'max-w-2xl'
+          } gap-4 mb-6`}
+        >
+          {filteredPositions.map((pos) => {
             const isScanning = pos.state === 'SCANNING / STANDBY'
             const pnlPositive = pos.unrealizedPnlUsdt >= 0
 
@@ -107,15 +149,13 @@ export function ExecutivePositionsPage({
                     <div className="flex justify-between">
                       <span className="text-base-content/60">Harga Tanda:</span>
                       <span className="font-bold text-base-content">
-                        ${pos.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        ${formatPrice(pos.currentPrice)}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-base-content/60">Harga Masuk:</span>
                       <span className="text-base-content font-semibold">
-                        {pos.entryPrice > 0
-                          ? `$${pos.entryPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                          : '—'}
+                        {pos.entryPrice > 0 ? `$${formatPrice(pos.entryPrice)}` : '—'}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -148,7 +188,7 @@ export function ExecutivePositionsPage({
                       <Target className="w-3.5 h-3.5" /> TP 2.0x ATR:
                     </span>
                     <span className="font-semibold">
-                      ${pos.takeProfitPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      ${formatPrice(pos.takeProfitPrice)}
                     </span>
                   </div>
                   <div className="flex justify-between text-rose-400">
@@ -156,7 +196,7 @@ export function ExecutivePositionsPage({
                       <Shield className="w-3.5 h-3.5" /> SL 1.2x ATR:
                     </span>
                     <span className="font-semibold">
-                      ${pos.stopLossPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      ${formatPrice(pos.stopLossPrice)}
                     </span>
                   </div>
                 </div>

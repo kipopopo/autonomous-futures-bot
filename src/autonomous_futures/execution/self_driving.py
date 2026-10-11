@@ -190,11 +190,16 @@ class SelfDrivingTradingEngine:
         self.autopsy_engine = StrategyAutopsyEngine(taker_fee_rate=0.0004, maker_fee_rate=0.0002)
         self.self_learning_daemon = ContinuousSelfLearningDaemon(min_sample_size=5)
 
-        # Market tracking state
+        # Market tracking state (Phase 315: 8-pair universe)
         self.candidates: dict[str, CandidateState] = {
             "BTCUSDT": CandidateState(symbol="BTCUSDT", current_price=Decimal("82600.00")),
             "ETHUSDT": CandidateState(symbol="ETHUSDT", current_price=Decimal("2500.00")),
             "SOLUSDT": CandidateState(symbol="SOLUSDT", current_price=Decimal("110.00")),
+            "DOGEUSDT": CandidateState(symbol="DOGEUSDT", current_price=Decimal("0.08600")),
+            "BNBUSDT": CandidateState(symbol="BNBUSDT", current_price=Decimal("750.00")),
+            "XRPUSDT": CandidateState(symbol="XRPUSDT", current_price=Decimal("1.4000")),
+            "SUIUSDT": CandidateState(symbol="SUIUSDT", current_price=Decimal("1.1100")),
+            "AVAXUSDT": CandidateState(symbol="AVAXUSDT", current_price=Decimal("10.500")),
         }
 
         # Execution records & telemetry
@@ -204,6 +209,8 @@ class SelfDrivingTradingEngine:
         self.health_evaluations: dict[str, CandidateHealthEvaluation] = {}
         self.interlock_blocks_count: int = 0
         self.intra_day_loss_usdt: Decimal = Decimal("0.0")
+        self.latest_btc_ema50: float = 82800.0
+        self.latest_btc_ema200: float = 81500.0
 
         # Database initialization
         self.db_path = self.storage_dir / "canary-production-telemetry.sqlite3"
@@ -367,12 +374,30 @@ class SelfDrivingTradingEngine:
         Returns:
             (quantized_price, quantized_qty, actual_notional)
         """
+        if price <= Decimal("0"):
+            return Decimal("0.0"), Decimal("0.0"), Decimal("0.0")
+
         spec = DEFAULT_SPECS.get(symbol.upper(), {})
         step_size = spec.get("step_size", Decimal("0.001"))
         tick_size = spec.get("tick_size", Decimal("0.01"))
         min_notional = spec.get("min_notional", Decimal("5.00"))
 
+        # Micro-capital testnet execution mode:
+        # On Binance testnet and micro-capital validation, enforce min_notional = 5.00 USDT
+        # and adapt BTC step_size to 0.00001 when target_notional < price * step_size
+        # to permit sub-$5 child order slicing.
+        if getattr(self.gateway, "testnet", True):
+            min_notional = Decimal("5.00")
+            if (
+                symbol.upper() == "BTCUSDT"
+                and self.config.max_micro_order_notional_usdt < (price * step_size)
+            ):
+                step_size = Decimal("0.00001")
+
         quantized_price = self._round_tick_size(price, tick_size)
+        if quantized_price <= Decimal("0"):
+            return quantized_price, Decimal("0.0"), Decimal("0.0")
+
         target_notional = self.config.max_micro_order_notional_usdt
 
         raw_qty = target_notional / quantized_price
@@ -382,9 +407,18 @@ class SelfDrivingTradingEngine:
         # Binance MIN_NOTIONAL precision step-up compliance:
         # If rounding down causes actual_notional < min_notional (5.00 USDT),
         # step up by 1 step_size if notional remains within 1 step size of micro-cap
-        # (e.g. 0.03 SOL at 171.00 = 5.13 USDT), ensuring non-deadlocking order sizing.
+        # (e.g. 0.03 SOL at 171.00 = 5.13 USDT, 59 DOGE at 0.086 = 5.07 USDT),
+        # ensuring non-deadlocking order sizing across all candidate symbols.
         if actual_notional < min_notional:
-            if symbol.upper() in ("SOLUSDT", "ETHUSDT"):
+            if symbol.upper() in (
+                "SOLUSDT",
+                "ETHUSDT",
+                "DOGEUSDT",
+                "BNBUSDT",
+                "XRPUSDT",
+                "SUIUSDT",
+                "AVAXUSDT",
+            ):
                 step_up_qty = quantized_qty + step_size
                 step_up_notional = step_up_qty * quantized_price
                 max_allowed = target_notional + (step_size * quantized_price)
@@ -430,9 +464,11 @@ class SelfDrivingTradingEngine:
             else (now_ms if now_ms is not None else int(time.time() * 1000))
         )
 
-        # Handle negative or zero price fail-closed
-        if price <= Decimal("0"):
-            logger.warning("Order rejected: Invalid price %s <= 0", price)
+        # Handle negative, zero, or sub-tick price fail-closed
+        spec = DEFAULT_SPECS.get(symbol.upper(), {})
+        tick_size = spec.get("tick_size", Decimal("0.01"))
+        if price <= Decimal("0") or price < (tick_size * Decimal("0.5")):
+            logger.warning("Order rejected: Invalid or sub-tick price %s for %s", price, symbol)
             self.interlock_blocks_count += 1
             self._append_event("INVALID_PRICE_BLOCK", {"symbol": symbol, "price": str(price)})
             return None
@@ -511,6 +547,8 @@ class SelfDrivingTradingEngine:
         )
         spec = DEFAULT_SPECS.get(symbol.upper(), {})
         min_notional = spec.get("min_notional", Decimal("5.00"))
+        if getattr(self.gateway, "testnet", True):
+            min_notional = Decimal("5.00")
 
         if quantized_qty <= Decimal("0") or actual_notional < min_notional:
             logger.warning(
@@ -1062,10 +1100,19 @@ class SelfDrivingTradingEngine:
                 for sym, c in self.candidates.items()
             },
             "macro_btc": {
-                "current_price": float(self.candidates["BTCUSDT"].current_price) if "BTCUSDT" in self.candidates else 82600.0,
+                "current_price": (
+                    float(self.candidates["BTCUSDT"].current_price)
+                    if "BTCUSDT" in self.candidates
+                    else 82600.0
+                ),
                 "ema50_1h": getattr(self, "latest_btc_ema50", 82800.0),
                 "ema200_1h": getattr(self, "latest_btc_ema200", 81500.0),
-                "regime": "BULLISH ALIGNED" if getattr(self, "latest_btc_ema50", 82800.0) >= getattr(self, "latest_btc_ema200", 81500.0) else "BEARISH / SIDEWAYS",
+                "regime": (
+                    "BULLISH ALIGNED"
+                    if getattr(self, "latest_btc_ema50", 82800.0)
+                    >= getattr(self, "latest_btc_ema200", 81500.0)
+                    else "BEARISH / SIDEWAYS"
+                ),
             },
             "total_orders": len(self.orders),
             "interlock_blocks_count": self.interlock_blocks_count,

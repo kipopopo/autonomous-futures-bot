@@ -123,14 +123,17 @@ export function calculateOhlcSummary(data: MarketKline[] | null | undefined): Oh
     if (bar.low < low24h) low24h = bar.low
   }
 
+  const isSubDollar = latest.close < 1
+  const decimals = isSubDollar ? 4 : 2
+
   return {
     open: latest.open,
     high: latest.high,
     low: latest.low,
     close: latest.close,
     volume: latest.volume,
-    high24h: Number(high24h.toFixed(2)),
-    low24h: Number(low24h.toFixed(2)),
+    high24h: Number(high24h.toFixed(decimals)),
+    low24h: Number(low24h.toFixed(decimals)),
   }
 }
 
@@ -147,13 +150,27 @@ export function generateSyntheticKlines(
   }
 
   const upperSym = symbol.toUpperCase()
-  const basePrice = upperSym.startsWith('BTC')
-    ? 85000
-    : upperSym.startsWith('ETH')
-      ? 2700
-      : upperSym.startsWith('SOL')
-        ? 180
-        : 100
+  const basePriceMap: Record<string, number> = {
+    BTC: 85000,
+    ETH: 2700,
+    SOL: 180,
+    DOGE: 0.16,
+    BNB: 600,
+    XRP: 0.58,
+    SUI: 2.20,
+    AVAX: 28,
+  }
+
+  let basePrice = 100
+  for (const [prefix, price] of Object.entries(basePriceMap)) {
+    if (upperSym.startsWith(prefix)) {
+      basePrice = price
+      break
+    }
+  }
+
+  const isSubDollar = basePrice < 1
+  const decimals = isSubDollar ? 4 : 2
 
   const intervalSeconds = interval === '1h' ? 3600 : 900
   const now = Math.floor(Date.now() / 1000)
@@ -166,11 +183,11 @@ export function generateSyntheticKlines(
     // Predictable oscillation with mild stochastic spread
     const phase = ((count - i) % 20) / 20
     const drift = Math.sin(phase * Math.PI * 2) * (basePrice * 0.003)
-    const open = Number(currentClose.toFixed(2))
-    const close = Number(Math.max(0.01, open + drift).toFixed(2))
+    const open = Number(currentClose.toFixed(decimals))
+    const close = Number(Math.max(0.0001, open + drift).toFixed(decimals))
     const spread = Math.abs(close - open) + basePrice * 0.001
-    const high = Number((Math.max(open, close) + spread).toFixed(2))
-    const low = Number(Math.max(0.01, Math.min(open, close) - spread).toFixed(2))
+    const high = Number((Math.max(open, close) + spread).toFixed(decimals))
+    const low = Number(Math.max(0.0001, Math.min(open, close) - spread).toFixed(decimals))
     const volume = Number((2500 + Math.abs(drift) * 100).toFixed(2))
 
     result.push({

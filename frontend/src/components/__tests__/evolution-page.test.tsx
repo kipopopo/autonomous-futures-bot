@@ -229,4 +229,93 @@ describe('EvolutionPage component', () => {
     expect(html).toContain('Mutasi Genom Parameter (Gen #2)')
     expect(html).toContain('Simulasi Bayangan &amp; Pintu Promosi OOS')
   })
+
+  it('renders BTC Macro Trend Gating Banner with regime and dual-language Malay/English explanation', () => {
+    const fixtureWithMacro: CanaryAutoEvolutionData = {
+      ...verifiedFixture,
+      live_progress: {
+        macro_gating_state: {
+          regime: 'BEARISH',
+          longs_filtered: true,
+          is_long_allowed: false,
+          explanation_ms: 'Trend Makro Bearish (Harga < EMA 200 1j). Kemasukan LONG ditapis secara automatik.',
+          explanation: 'Bearish Macro Trend (Price < 1h EMA 200). LONG entries automatically filtered.',
+        },
+      },
+    }
+    const model = buildAutoEvolutionModel(fixtureWithMacro)
+    const html = renderToString(<EvolutionPage model={model} />)
+
+    expect(html).toContain('data-testid="btc-macro-gating-banner"')
+    expect(html).toContain('BTC Macro Trend Gating (Rejim 1-Jam)')
+    expect(html).toContain('REGIME: BEARISH')
+    expect(html).toContain('LONG Filtered')
+    expect(html).toContain('LONGS: DISEKAT')
+    expect(html).toContain('Trend Makro Bearish (Harga &lt; EMA 200 1j)')
+    expect(html).toContain('Bearish Macro Trend (Price &lt; 1h EMA 200)')
+  })
+
+  it('renders Out-of-Sample (OOS) Qualification Gate telemetry card with trade counter and Sharpe hurdle', () => {
+    const fixtureWithOOS: CanaryAutoEvolutionData = {
+      ...verifiedFixture,
+      live_progress: {
+        oos_gate: {
+          samples_acquired: 0,
+          samples_required: 5,
+          sharpe_hurdle_pct: 15.0,
+          current_sharpe_improvement_pct: 0.0,
+          status: 'WAITING_FOR_SAMPLES',
+          explanation: 'Pintu OOS: Mengumpul sampel transaksi keluar sampel (0/5)',
+        },
+      },
+    }
+    const model = buildAutoEvolutionModel(fixtureWithOOS)
+    const html = renderToString(<EvolutionPage model={model} />)
+
+    expect(html).toContain('data-testid="oos-qualification-gate-card"')
+    expect(html).toContain('Out-of-Sample (OOS) Qualification Gate')
+    expect(html).toContain('WAITING_FOR_SAMPLES')
+    expect(html).toContain('0 / 5 required trades')
+    expect(html).toContain('≥ 15.0% peningkatan')
+  })
+
+  it('renders dynamic 5-stage pipeline with active indicator based on current_stage', () => {
+    const fixtureIngress: CanaryAutoEvolutionData = {
+      ...verifiedFixture,
+      live_progress: {
+        current_stage: 'INGRESS',
+        cycle_progress_pct: 20.0,
+      },
+    }
+    const model = buildAutoEvolutionModel(fixtureIngress)
+    const html = renderToString(<EvolutionPage model={model} />)
+
+    expect(html).toContain('1. Ingress Pasaran &amp; Klines Streaming')
+    expect(html).toContain('20% SELESAI')
+  })
+
+  it('renders all 8 scanned perpetual universe pairs and candle fetch timestamp in Box 2', () => {
+    const model = buildAutoEvolutionModel(verifiedFixture)
+    const html = renderToString(<EvolutionPage model={model} />)
+
+    expect(html).toContain('Ambilan Lilin:')
+    expect(html).toContain('Imbasan (8 Pasangan):')
+    expect(html).toContain('BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT, BNBUSDT, XRPUSDT, SUIUSDT, AVAXUSDT')
+  })
+
+  it('renders 8 filter symbol pills in trade autopsy trace section', () => {
+    const model = buildAutoEvolutionModel(verifiedFixture)
+    const html = renderToString(<EvolutionPage model={model} />)
+
+    expect(html).toContain('Filter Symbol:')
+    expect(html).toContain('>ALL</button>')
+    expect(html).toContain('>BTCUSDT</button>')
+    expect(html).toContain('>ETHUSDT</button>')
+    expect(html).toContain('>SOLUSDT</button>')
+    expect(html).toContain('>DOGEUSDT</button>')
+    expect(html).toContain('>BNBUSDT</button>')
+    expect(html).toContain('>XRPUSDT</button>')
+    expect(html).toContain('>SUIUSDT</button>')
+    expect(html).toContain('>AVAXUSDT</button>')
+  })
 })

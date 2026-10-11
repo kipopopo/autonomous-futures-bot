@@ -50,9 +50,19 @@ export function OrderFeedTable({ orders }: OrderFeedTableProps) {
         </div>
 
         {/* Symbol Filter Controls */}
-        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.08]">
-          <Filter className="w-3.5 h-3.5 text-zinc-500 ml-2 mr-1" />
-          {['ALL', 'SOLUSDT', 'ETHUSDT', 'BTCUSDT'].map((sym) => (
+        <div className="flex flex-wrap items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.08]">
+          <Filter className="w-3.5 h-3.5 text-zinc-500 ml-2 mr-1 shrink-0" />
+          {[
+            'ALL',
+            'SOLUSDT',
+            'ETHUSDT',
+            'BTCUSDT',
+            'DOGEUSDT',
+            'BNBUSDT',
+            'XRPUSDT',
+            'SUIUSDT',
+            'AVAXUSDT',
+          ].map((sym) => (
             <button
               key={sym}
               type="button"
@@ -133,7 +143,14 @@ export function OrderFeedTable({ orders }: OrderFeedTableProps) {
                     {/* Price & Quantity */}
                     <td className="py-3 text-right whitespace-nowrap">
                       <div className="font-bold text-white tabular-nums">
-                        {`$${ord.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                        {`$${
+                          ord.price < 10
+                            ? ord.price.toFixed(4)
+                            : ord.price.toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                        }`}
                       </div>
                       <div className="text-[10px] text-zinc-400 tabular-nums">
                         {`${ord.quantity} unit`}

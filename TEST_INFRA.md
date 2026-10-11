@@ -1,10 +1,11 @@
-# E2E Test Infra: Autonomous Futures Bot — Phase 311
+# E2E Test Infra: Autonomous Futures Bot — Phase 315
 
 ## Test Philosophy
-- **Opaque-Box, Requirement-Driven**: Tests derive strictly from `ORIGINAL_REQUEST.md` (Phase 311) and `PROJECT.md` without dependency on undocumented private internals.
-- **Progressive Testability & Zero-Mock Integrity**: Tests evaluate concrete behaviors of the execution harness, exchange filters, gateway client, ATR protective brackets, Telegram alert formatters, double-entry solvency ledger, and Merkle DAG cryptographic telemetry.
-- **Mathematical Exactness**: Absolute zero-drift balance invariant $|\Delta| < 10^{-15}\text{ USDT}$ enforced across all lifecycle transitions.
-- **Non-Interference Guarantee**: Strict isolation ensuring the 24/7 background daemon on Kainode VPS is never disrupted (isolated client order IDs, separate storage namespaces, no listenKey termination, no global mass cancellations).
+- **Opaque-Box, Requirement-Driven**: Tests derive strictly from `ORIGINAL_REQUEST.md` (Phase 315) and `PROJECT.md` without dependency on undocumented private internals.
+- **Progressive Testability & Zero-Mock Integrity**: Tests evaluate concrete observable behaviors of the dynamic evolution state machine, transparent Out-of-Sample (OOS) qualification telemetry, 8-pair perpetual universe ingress and exchange filters, 15m macro-confluence liquidity dip scalper, micro-capital risk boundaries, and double-entry solvency ledger.
+- **Mathematical Exactness**: Absolute zero-drift balance invariant $|\Delta| < 10^{-15}\text{ USDT}$ enforced across all lifecycle transitions:
+  $$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+- **Non-Interference Guarantee**: Strict isolation ensuring the 24/7 background daemon on Kainode VPS (Main PID 87549) is never disrupted (isolated test namespaces, independent mock transports when offline, isolated SQLite databases).
 
 ---
 
@@ -12,72 +13,151 @@
 
 ### Tier 1 — Feature Coverage (Category-Partition Equivalence Classes)
 Each of the 8 core features is partitioned into functional equivalence classes with at least 5 isolated test cases per feature (>= 40 tests total):
-1. **Feature 1: Testnet Execution Drill CLI Harness & Flags**:
-   - Equivalence classes: `--symbol` selection (`SOLUSDT`, `ETHUSDT`), `--side` (`BUY`, `SELL`), `--notional` specification, `--dry-run` flag, `--cleanup`/`--auto-close` routine, and `--verify-only` mode.
-2. **Feature 2: Binance Exchange Filter Validation & Precision Step-Up**:
-   - Equivalence classes: `LOT_SIZE` quantization with `ROUND_DOWN`, `PRICE_FILTER` tick quantization with `ROUND_HALF_UP`, `MIN_NOTIONAL` validation, and allowable single step-size precision step-up (+1 tick) to meet the 5.00 USDT exchange floor without violating micro-capital bounds.
-3. **Feature 3: Gateway REST Extensions & Signed Order Dispatch**:
-   - Equivalence classes: `get_order` endpoint (`GET /fapi/v1/order`), `get_open_orders` endpoint (`GET /fapi/v1/openOrders`), `cancel_all_open_orders` endpoint, `create_order` support for `TAKE_PROFIT_MARKET` with `stopPrice`, HMAC-SHA256 signature verification, and strictly monotonic nonces.
-4. **Feature 4: Dynamic ATR-Based Bracket Management**:
-   - Equivalence classes: 14-period ATR calculation from 15m klines, dynamic Take-Profit target ($+2.0\times$ ATR), dynamic Stop-Loss target ($-1.2\times$ ATR), strict $1.66:1$ Risk:Reward ratio ($2.0 / 1.2 = 1.6667$), and `reduceOnly=True` enforcement.
-5. **Feature 5: Real-Time Multi-Channel Telegram Alerting**:
-   - Equivalence classes: MarkdownV2 character escaping (19 reserved characters), order submission alert formatting, fill confirmation alert formatting, bracket establishment alerts with TP/SL percentage distance, and cleanup position flattening alerts.
-6. **Feature 6: CentralizedSolvencyLedger & Mathematical Zero-Drift Balance Invariant**:
-   - Equivalence classes: Double-entry balance equation $\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$, absolute drift tolerance $|\Delta| < 10^{-15}\text{ USDT}$, order margin staging, fill reconciliation with fees and slippage, and position flattening solvency snapshots.
-7. **Feature 7: Cryptographic Merkle DAG Telemetry & Upstream Lineage**:
-   - Equivalence classes: Isolated SQLite database (`canary-lifecycle-telemetry.sqlite3`), append-only JSONL audit sink (`canary-orders.jsonl`), structured drill report (`canary-drill-report.json`), drill summary (`drill-summary.json`), and cryptographic chaining to Phase 310 upstream parent root `0004387045399718c6229d1a18fec40399d4baba01b0eecd0ab51c782268dd84`.
-8. **Feature 8: Non-Disruptive Cleanup, Flattening & VPS Daemon Protection**:
-   - Equivalence classes: Selective client order ID prefix filtering (`canary-p311-drill-`), cancelling only drill-placed bracket orders, flattening residual drill positions via market `reduceOnly=True` order, preserving WebSocket user data stream `listenKey` (never deleting via `DELETE /fapi/v1/listenKey`), and isolated process space.
+
+1. **Feature 1: Dynamic Evolution State Machine API**:
+   - Equivalence classes:
+     * 5 discrete cycle stages: `INGRESS` -> `HEALTH_EVALUATION` -> `TRADE_AUTOPSY` -> `MUTATION_STAGING` -> `SHADOW_OOS_GATE`.
+     * Dynamic cycle progress percentage calculation ($80\% + (\min(\text{trades}, 5) / 5 \times 20\%)$).
+     * 15-second cycle scan interval (`next_cycle_seconds: 15`).
+     * Live timestamps (`last_evaluated_timestamp_ms`, `candle_fetch_timestamp_ms`).
+     * Daemon status & PID synchronization (`ONLINE 24/7`, PID `87549`).
+     * Generation metadata (`active_generation: "GEN #2"`, `next_target_generation: "GEN #3"`).
+
+2. **Feature 2: Transparent OOS Qualification Telemetry API**:
+   - Equivalence classes:
+     * Required trade sample count hurdle (strictly 5 closed trades).
+     * Current acquired trade sample count ($0/5$ up to $\ge 5$).
+     * Required Sharpe improvement hurdle ($\ge 15.0\%$).
+     * Status indicators: `WAITING_FOR_SAMPLES`, `EVALUATING`, `QUALIFIED`, `REJECTED`.
+     * Macro trend gating telemetry (`regime`: `BEARISH`, `BULLISH_ALIGNED`, `NEUTRAL`; `longs_filtered`: `True`/`False`).
+     * Human-readable macro gating explanation in Malay/English.
+
+3. **Feature 3: 8-Pair Perpetual Universe Ingress & Filters**:
+   - Equivalence classes:
+     * Complete 8-pair universe coverage: `BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `DOGEUSDT`, `BNBUSDT`, `XRPUSDT`, `SUIUSDT`, `AVAXUSDT`.
+     * Exchange filter quantization: `LOT_SIZE` with `ROUND_DOWN` step size.
+     * `PRICE_FILTER` tick quantization with `ROUND_HALF_UP`.
+     * `MIN_NOTIONAL` validation ($5.00 USDT floor across candidates).
+     * Sizing step-up rule (+1 step size) for sub-dollar coins (`DOGEUSDT`, `XRPUSDT`, `SUIUSDT`, `AVAXUSDT`) meeting exchange minimum without exceeding micro-capital ceiling.
+
+4. **Feature 4: Scalper Opportunity Evaluation across 7 Candidates**:
+   - Equivalence classes:
+     * 15m candidate klines, 20 EMA, 14 ATR, 20 SMA Volume, 14 RSI.
+     * Confluence entry criteria: BTC macro bull regime (`BTC 1h EMA 50 > EMA 200` & `Close > EMA 200`), dip distance $> 2.5\times$ ATR below 20 EMA, volume spike $> 2.2\times$ 20 SMA, RSI $14 < 26.0$.
+     * Scanning across all 7 non-BTC candidates (`ETHUSDT`, `SOLUSDT`, `DOGEUSDT`, `BNBUSDT`, `XRPUSDT`, `SUIUSDT`, `AVAXUSDT`).
+     * Trade structuring: Maker limit order at `Close` (0.02% maker fee).
+     * Bracket targets: Take-Profit at $+2.0\times$ ATR, Stop-Loss at $-1.2\times$ ATR (1.6667:1 Risk:Reward ratio).
+     * Time-decay stop at 8 bars (120 minutes).
+
+5. **Feature 5: Micro-Capital Governance & Fail-Closed Guardrails**:
+   - Equivalence classes:
+     * Micro child order cap $\le \$5.00$ USDT per order slice.
+     * Aggregate portfolio exposure ceiling $\le \$25.00$ USDT across all active positions simultaneously.
+     * Unencumbered liquid cash reserve floor $\ge 75.0\%$ of wallet equity at all times.
+     * Intra-day loss budget $\le \$3.00$ USDT tripping `CIRCUIT_FLATTENED`.
+     * Hawkes spectral radius interlock ($\rho < 1.0$).
+     * Gateway heartbeat latency interlock ($\le 500$ ms).
+
+6. **Feature 6: Double-Entry Solvency Balance Invariant**:
+   - Equivalence classes:
+     * Double-entry balance equation: $\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$.
+     * Absolute zero-drift tolerance: $|\Delta| < 10^{-15}\text{ USDT}$.
+     * Order margin reservation across multiple pairs.
+     * Position fill reconciliation with fee deduction (0.02% maker, 0.04% taker).
+     * Take-profit and stop-loss realization with zero balance drift.
+     * Position flattening solvency snapshots.
+
+7. **Feature 7: Multi-Pair Dashboard API Contract**:
+   - Equivalence classes:
+     * `/api/v1/market/prices` returning live mark prices for all 8 pairs.
+     * `/api/v1/execution/status` reporting positions dictionary covering all 8 symbols.
+     * Truthful flat position state (`0.0` position_qty, `0.0` allocated exposure, `STANDBY / SCANNING`).
+     * Active position state reporting exact entry price, unrealized PnL, margin, and bracket target prices.
+     * Recent orders feed containing authentic executions (`canary-p310-`, `canary-p311-`), eliminating phantom entries.
+
+8. **Feature 8: Interactive Candlestick Data Contract**:
+   - Equivalence classes:
+     * `GET /api/v1/market/klines` returning normalized OHLCV for 15m and 1h intervals.
+     * High-precision pricing for sub-dollar assets (`DOGEUSDT` 5 decimals, `XRPUSDT` 4 decimals, `SUIUSDT` 4 decimals).
+     * Technical overlays (50 EMA, 200 EMA, Volume histogram).
+     * Dynamic bracket target lines (TP $+2.0\times$ ATR, SL $-1.2\times$ ATR) rendered only when active position exists, suppressed when flat.
 
 ---
 
-### Tier 2 — Boundary & Corner Cases (Boundary Value Analysis)
+## Tier 2 — Boundary & Corner Cases (Boundary Value Analysis)
 BVA targets extreme operating boundaries, edge conditions, and adversarial inputs (>= 5 test cases per category, >= 35 tests total):
-1. **Empty Inputs & Invalid Parameters**:
-   - Empty symbol strings, missing side, negative notional, zero notional, non-numeric strings, and malformed JSON payloads.
-2. **Micro-Capital Ceiling Violations**:
-   - Order notional $> 5.00$ USDT (e.g. 5.01 USDT, 10.00 USDT, 100.00 USDT) strictly rejected or clamped by fail-closed guardrails.
-   - Aggregate exposure exceeding 25.00 USDT triggering instant interlock rejection.
-   - Cumulative intra-day loss exceeding 3.00 USDT tripping the circuit breaker.
-3. **Step-Size & Tick-Size Edge Cases**:
-   - Fractional quantities below minimum step size (e.g. 0.00000001), exact step boundaries, prime-fraction prices requiring rounding, and sub-tick tick size quantizations.
-4. **Network Timeouts & Clock Drift Boundaries**:
-   - Clock drift $|\Delta t| = 999\text{ ms}$ (accepted) vs $|\Delta t| = 1001\text{ ms}$ (rejected / degraded).
-   - Gateway heartbeat latency $\le 500\text{ ms}$ (accepted) vs $> 500\text{ ms}$ (blocked).
-   - Network HTTP 504 / timeout simulation triggering fail-closed abort.
-5. **Zero-Drift Sub-Satoshi Precision Boundaries**:
-   - High-frequency micro fills ($10^{-8}$ to $10^{-18}$ USDT) verifying continuous zero-drift invariant under 1,000 sequential state updates.
-   - Irregular fee deductions ($0.02\%$ maker fee) verifying cash and realized PnL precision preservation.
-6. **Client Order ID 36-Character Boundary Limits**:
-   - Length verification of `canary-p311-drill-{sym}-{ts}`: 3-char symbol (`sol` $\rightarrow 35$ chars $\le 36$), 7-char symbol truncation (`solusdt` truncated to `sol`), and bracket prefixes (`canary-p311-tp-`, `canary-p311-sl-`).
+
+1. **Minimum Notional Step-Up Boundaries**:
+   - Order notional at $4.99 USDT (below $5.00 floor) triggering step-up for `DOGEUSDT`, `XRPUSDT`, `SUIUSDT`, and `AVAXUSDT`.
+   - Stepped-up notional within allowable ceiling $[5.00, 5.00 + \text{step} \times \text{price}]$ accepted.
+   - Stepped-up notional exceeding allowable ceiling rejected fail-closed.
+2. **Trade Sample Size Boundaries**:
+   - Exactly 0 closed trades: `WAITING_FOR_SAMPLES (0/5)`, progress $80.0\%$.
+   - Intermediate sample counts (1, 2, 3, 4 trades): progress advancing proportionally.
+   - Exactly 5 closed trades: boundary transition to `EVALUATING` (progress $100.0\%$).
+   - $\ge 5$ trades with Sharpe improvement $\ge 15.0\%$: transition to `QUALIFIED`.
+3. **Cash Reserve Floor Boundaries**:
+   - Unencumbered cash at exactly 75.0%: permitted.
+   - Unencumbered cash at 74.99%: fails cash floor check, new margin allocations rejected.
+4. **Aggregate Portfolio Exposure Boundaries**:
+   - Aggregate exposure at exactly $25.00 USDT: permitted.
+   - Order that would cause aggregate exposure to reach $25.01 USDT: strictly rejected by interlock.
+5. **Sub-Satoshi Precision & Round-Down Boundaries**:
+   - High-precision step size quantization using `ROUND_DOWN` ensuring zero over-allocation.
+   - High-frequency sequential fills ($10^{-8}$ to $10^{-15}$ USDT) verifying continuous zero-drift conservation ($|\Delta| < 10^{-15}$ USDT).
+6. **Intra-Day Loss Ceiling Boundaries**:
+   - Intra-day loss at $2.99 USDT: engine remains in `MICRO_CAPITAL_ACTIVE`.
+   - Intra-day loss at $3.00 USDT: engine instantaneously trips `CIRCUIT_FLATTENED`, auto-flattens positions, and halts trading.
+7. **Hawkes Hazard & Heartbeat Latency Boundaries**:
+   - Hawkes spectral radius $\rho = 0.99$: safe, trading active.
+   - Hawkes spectral radius $\rho = 1.00$: throttled (`HAWKES_THROTTLED`), order dispatch blocked.
+   - Gateway heartbeat latency at 500.0 ms: accepted.
+   - Gateway heartbeat latency at 500.1 ms: rejected / degraded.
 
 ---
 
-### Tier 3 — Cross-Feature Combinations (Pairwise Combinatorial)
+## Tier 3 — Cross-Feature Combinations (Pairwise Combinatorial)
 Testing pairwise and multi-feature interaction surfaces (>= 15 tests total):
-1. **CLI Harness + Dry-Run + Telegram Alerting**: CLI flag parsing in `--dry-run` mode triggers mock order generation and formats Telegram alert without network calls.
-2. **Live Drill Dispatch + ATR Brackets + Cleanup Flattening**: Entry maker order fill triggers TP (+2.0x ATR) and SL (-1.2x ATR) creation, followed by `--cleanup` routine cancelling brackets and flattening net position.
-3. **Order Fill + Double-Entry Ledger + Merkle Root**: Order fill updates `CentralizedSolvencyLedger`, records event in SQLite and JSONL, and computes Merkle root chained to Phase 310 parent.
-4. **Gateway REST + Clock Drift + Monotonic Nonce**: Gateway verifies clock synchronization before dispatching signed order with strictly incremented nonces.
-5. **Exchange Filter Step-Up + Micro-Capital Guard + Solvency Balance**: Sizing logic steps up quantity by 1 tick to meet `MIN_NOTIONAL = 5.00 USDT`, validates notional against child cap, and reserves margin in ledger.
-6. **Dynamic Brackets + Reverse Side (Short) + reduceOnly**: Short entry order (`SELL`) dispatches TP (`BUY` at $-2.0\times$ ATR) and SL (`BUY` at $+1.2\times$ ATR) with `reduceOnly=True`.
-7. **Cleanup Routine + Selective ID Filter + Non-Interference**: Cleanup routine cancels only orders matching `canary-p311-drill-`, leaving simulated daemon `canary-p310-` orders untouched.
-8. **Telemetry DB + Telegram Poller Schema Compatibility**: Telemetry records inserted by drill harness match exact SQLite column schema expected by `scripts/run_telegram_notifier.py`.
+
+1. **BTC Bearish Regime + Scalper Dip on Candidate Pairs**:
+   - Valid dip criteria met on `DOGEUSDT` and `SOLUSDT`, but BTC 1h/4h macro trend is Bearish (`EMA 50 < EMA 200`): long entry orders strictly blocked.
+2. **BTC Bullish Regime + Concurrent Multi-Pair Dips**:
+   - Dips trigger simultaneously on `SOLUSDT`, `ETHUSDT`, `DOGEUSDT`, and `AVAXUSDT`: verify child order cap ($\le \$5$) and aggregate exposure ceiling ($\le \$25$) are jointly enforced.
+3. **Dynamic Evolution State Transition during Active Trades**:
+   - Advancing cycle stages (`INGRESS` -> `HEALTH_EVALUATION` -> `TRADE_AUTOPSY` -> `MUTATION_STAGING` -> `SHADOW_OOS_GATE`) while trades are active preserves exact zero balance drift.
+4. **8-Pair Mark Price Ingress + Kline Cache + Execution Status**:
+   - Price feeds for all 8 pairs update in-memory kline caches and execution status without cache collision or missing keys.
+5. **Exchange Filter Step-Up + Ledger Margin Reservation + Solvency Invariant**:
+   - Sub-dollar sizing step-up reserves exact quantized margin in `CentralizedSolvencyLedger` with $|\Delta| < 10^{-15}$ USDT.
+6. **Evolution OOS Gate Telemetry + Macro Trend Gating API Synchronization**:
+   - Dynamic evolution endpoint `/api/v1/canary/evolution` reflects both live sample count (`0/5`) and BTC macro regime gating status with explanatory banner.
+7. **Candlestick API 4-Decimal Precision + Sub-Dollar Tick Size Quantization**:
+   - Kline API endpoints accurately return high-precision prices for `DOGEUSDT` and `XRPUSDT` matching exchange tick sizes.
+8. **Multi-Pair Concurrent Execution, TP/SL Bracket Triggers, Fee Deduction & Ledger Reconciliation**:
+   - Concurrent positions across different pairs, one hitting TP (+2.0x ATR) and one hitting SL (-1.2x ATR), fee deductions recorded, zero balance drift verified.
 
 ---
 
-### Tier 4 — Real-World Workload Scenarios (End-to-End Workflows)
+## Tier 4 — Real-World Workload Scenarios (End-to-End Workflows)
 Comprehensive multi-step end-to-end operational workflows (>= 5 scenarios):
-1. **Scenario 1: Dry-Run Verification Lifecycle**:
-   - Execute CLI with `--symbol SOLUSDT --dry-run`, verify credentials, exchange filters, ATR bracket calculations, zero-drift balance invariant, and Merkle artifact integrity without dispatching network orders.
-2. **Scenario 2: Authentic Maker Limit Entry, ATR Brackets & Order Lifecycle**:
-   - Dispatch entry Maker Limit order (`GTC`/`GTX`) with deterministic client order ID, simulate/verify fill confirmation, calculate 14-period ATR, and deploy protective TP/SL brackets adhering to 1.66:1 Risk:Reward ratio.
-3. **Scenario 3: Complete Execution Drill with Auto-Close & Position Cleanup**:
-   - Full drill cycle: Stage order $\rightarrow$ fill order $\rightarrow$ deploy brackets $\rightarrow$ trigger `--cleanup` $\rightarrow$ cancel pending brackets $\rightarrow$ flatten position via `reduceOnly` market order $\rightarrow$ verify net position returns to 0.00.
-4. **Scenario 4: Adversarial Micro-Capital & Fail-Closed Guardrails**:
-   - Hostile input testing: Notional 10.00 USDT rejected, clock drift 1200 ms rejected, gateway latency 600 ms rejected, Hawkes $\rho \ge 1.0$ blocked, preserving capital solvency.
-5. **Scenario 5: Complete End-to-End Cryptographic Audit & Lineage DAG Verification**:
-   - Run complete drill session $\rightarrow$ persist SQLite database $\rightarrow$ append JSONL logs $\rightarrow$ export `canary-drill-report.json` and `drill-summary.json` $\rightarrow$ verify cryptographic Merkle DAG chain rooted to Phase 310 upstream parent `0004387045399718c6229d1a18fec40399d4baba01b0eecd0ab51c782268dd84`.
+
+1. **Scenario 1: Full Daemon Trading Cycle Simulation with 8 Pairs & Dynamic Telemetry**:
+   - Complete 15s cycle: Ingress klines for all 8 pairs $\rightarrow$ evaluate BTC macro trend $\rightarrow$ scan 7 candidates for liquidity dips $\rightarrow$ update dynamic evolution state $\rightarrow$ reconcile solvency ledger $\rightarrow$ verify daemon heartbeat.
+2. **Scenario 2: Macro Regime Flip from Bearish to Bullish with Scalper Reactivation**:
+   - Phase A: Bearish BTC regime suppresses all candidate dips for capital protection.
+   - Phase B: BTC breaks above 200 EMA with EMA 50 > EMA 200 (Bullish regime confirmed).
+   - Phase C: Candidate dip on `DOGEUSDT` generates authentic maker limit order with TP/SL brackets.
+3. **Scenario 3: Multi-Pair Concurrent Execution, Bracket Realization & Ledger Solvency**:
+   - Enter positions on 3 distinct pairs (`SOLUSDT`, `ETHUSDT`, `DOGEUSDT`) totaling ~$15 exposure $\le \$25$.
+   - First pair hits Take-Profit (+2.0x ATR), second pair hits Stop-Loss (-1.2x ATR), third pair flattened.
+   - Double-entry ledger reconciles each event with exact zero drift ($|\Delta| < 10^{-15}$ USDT).
+4. **Scenario 4: Out-of-Sample Qualification Progression from 0 to 5 Closed Trades**:
+   - Start in `WAITING_FOR_SAMPLES` with 0 trades.
+   - Incrementally complete trades 1 through 4: sample counter and progress update.
+   - Complete 5th trade: status transitions to `EVALUATING` and checks Sharpe hurdle ($\ge 15.0\%$).
+5. **Scenario 5: Adversarial Micro-Capital Stress & Circuit Breaker Enforcement**:
+   - Concurrent dips across all 7 candidates: verify aggregate exposure ceiling rejects 6th and 7th positions.
+   - Simulate severe adverse market movement hitting $3.00 daily loss: engine trips `CIRCUIT_FLATTENED`, flattens positions, and maintains solvency.
 
 ---
 
@@ -85,31 +165,30 @@ Comprehensive multi-step end-to-end operational workflows (>= 5 scenarios):
 
 | # | Feature | Requirement Source | Tier 1 | Tier 2 | Tier 3 | Tier 4 |
 |---|---------|-------------------|:------:|:------:|:------:|:------:|
-| 1 | Testnet Execution Drill CLI Harness & Flags | ORIGINAL_REQUEST §R1, PROJECT §Feature 1 | 5 | 5 | ✓ | ✓ |
-| 2 | Binance Exchange Filter Validation & Step-Up | ORIGINAL_REQUEST §R1, PROJECT §Feature 2 | 5 | 5 | ✓ | ✓ |
-| 3 | Gateway REST Extensions & Signed Dispatch | ORIGINAL_REQUEST §R1, PROJECT §Feature 3, 4 | 5 | 5 | ✓ | ✓ |
-| 4 | Dynamic ATR-Based Protective Brackets | ORIGINAL_REQUEST §R2, PROJECT §Feature 5 | 5 | 5 | ✓ | ✓ |
-| 5 | Real-Time Multi-Channel Telegram Alerting | ORIGINAL_REQUEST §R3, PROJECT §Feature 8 | 5 | 5 | ✓ | ✓ |
-| 6 | CentralizedSolvencyLedger Zero-Drift Balance | ORIGINAL_REQUEST §R4, PROJECT §Feature 9 | 5 | 5 | ✓ | ✓ |
-| 7 | Cryptographic Merkle DAG Telemetry | ORIGINAL_REQUEST §R4, PROJECT §Feature 10, 11 | 5 | 5 | ✓ | ✓ |
-| 8 | Non-Disruptive Cleanup & VPS Protection | ORIGINAL_REQUEST §R2, R5, PROJECT §Feature 7, 13 | 5 | 5 | ✓ | ✓ |
+| 1 | Dynamic Evolution State Machine API | ORIGINAL_REQUEST §R1, PROJECT §F1 | 5 | 5 | ✓ | ✓ |
+| 2 | Transparent OOS Gate Telemetry API | ORIGINAL_REQUEST §R1, PROJECT §F2 | 5 | 5 | ✓ | ✓ |
+| 3 | 8-Pair Perpetual Universe Ingress & Filters | ORIGINAL_REQUEST §R2, PROJECT §F3 | 6 | 6 | ✓ | ✓ |
+| 4 | Scalper Opportunity Evaluation (7 Candidates) | ORIGINAL_REQUEST §R2, PROJECT §F4 | 5 | 5 | ✓ | ✓ |
+| 5 | Micro-Capital Governance & Guardrails | ORIGINAL_REQUEST §R4, PROJECT §F5 | 5 | 5 | ✓ | ✓ |
+| 6 | Double-Entry Solvency Balance Invariant | ORIGINAL_REQUEST §R4, PROJECT §F6 | 5 | 5 | ✓ | ✓ |
+| 7 | Multi-Pair Dashboard API Contract | ORIGINAL_REQUEST §R3, PROJECT §F7 | 5 | 5 | ✓ | ✓ |
+| 8 | Interactive Candlestick Data Contract | ORIGINAL_REQUEST §R3, PROJECT §F8 | 5 | 5 | ✓ | ✓ |
 
 ---
 
 ## Test Architecture & Execution
 
 ### Test Suite Location
-- Integration Test Suite: `tests/integration/test_phase_311_testnet_harness.py`
-- Targeted Unit Tests: `tests/unit/test_phase_311_execution_drill.py`
+- Comprehensive E2E Test Suite: `tests/e2e/test_phase_315_e2e_universe_and_evolution.py`
 
 ### Test Runner Command
 ```bash
-.venv/Scripts/python -m pytest tests/integration/test_phase_311_testnet_harness.py -v
+.venv/Scripts/python -m pytest tests/e2e/test_phase_315_e2e_universe_and_evolution.py -v
 ```
 
 ### Coverage Thresholds
 - **Tier 1**: $\ge 40$ feature tests (8 features $\times \ge 5$ tests)
-- **Tier 2**: $\ge 30$ boundary and corner tests
+- **Tier 2**: $\ge 35$ boundary and corner tests
 - **Tier 3**: $\ge 15$ pairwise interaction tests
 - **Tier 4**: $\ge 5$ real-world workload scenario tests
-- **Total Minimum Target**: $\ge 90$ test cases with 100% pass rate (0 failures).
+- **Total Target**: $\ge 95$ tests covering all Phase 315 specifications.

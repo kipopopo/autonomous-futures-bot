@@ -3521,3 +3521,70 @@ Integrity mode: development
 - [ ] Vitest test suite passes with 100% success rate (`npm test --prefix frontend`).
 - [ ] Pytest test suite passes all truthfulness and adversarial tests with 100% success rate.
 - [ ] VPS trader daemon (`autonomous-futures-trader.service`) Main PID 87549 continues running uninterrupted with 0 restarts.
+
+## 2026-10-11T01:24:33Z
+
+Execute Phase 315 for Autonomous Futures Bot: Transforming the Strategy Autopsy & Evolution pipeline into an authentic dynamic state machine with transparent real-time scan cycles, sample counts, and OOS gate scorecards, while expanding the active Binance Futures USDⓈ-M perpetual trading universe with top high-volume pairs (DOGEUSDT, BNBUSDT, XRPUSDT, SUIUSDT, AVAXUSDT alongside BTC, ETH, SOL) to eliminate trade entry bottlenecks, while enforcing strict micro-capital limits, zero-drift double-entry solvency, and uninterrupted continuity of the 24/7 background trader daemon (Main PID 87549).
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Dynamic Evolution State Machine & Transparent OOS Gate Telemetry
+- Replace static evolution percentages (85% / Step 5 stuck) with an authentic, dynamic state machine in `src/autonomous_futures/api/canary.py` and `frontend/src/components/evolution-page.tsx`.
+- Dynamically reflect live daemon progress: active scan cycles (15s polling interval), candle fetch timestamps, and real-time transition between stages (`INGRESS` -> `HEALTH_EVALUATION` -> `TRADE_AUTOPSY` -> `MUTATION_STAGING` -> `SHADOW_OOS_GATE`).
+- Provide transparent OOS qualification gate metrics: show required trade sample size vs current acquired closed trades (e.g. `0 / 5 required trades`), required Sharpe hurdle ($\ge 15\%$), and explicit status indicators (`WAITING_FOR_SAMPLES`, `EVALUATING`, `QUALIFIED`).
+- Surface live macro trend gating state with clear human-readable explanations (e.g. "Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection").
+
+### R2. High-Volume Perpetual Universe Expansion (8 Pairs Universe)
+- Expand the active candidate universe from 3 pairs (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`) to 8 top-tier liquid pairs by integrating:
+  - `DOGEUSDT`
+  - `BNBUSDT`
+  - `XRPUSDT`
+  - `SUIUSDT`
+  - `AVAXUSDT`
+- Update `continuous_trader.py`, `self_driving.py`, and market ingress engines to stream 15m candidate klines, compute 20 EMA, ATR, RSI 14, and scan for 15m liquidity dip sweep opportunities across all 7 non-BTC scalper candidates.
+- Ensure all 5 newly added pairs strictly comply with Binance Futures exchange filters (`LOT_SIZE`, `PRICE_FILTER`, `MIN_NOTIONAL`) with precision `ROUND_DOWN`.
+
+### R3. Executive Dashboard & Interactive Charting Multi-Pair Adaptation
+- Update Executive Dashboard (`Mission Control`), Market Watch & Active Positions card, and Recent Order Feeds to seamlessly display all 8 tracked pairs.
+- Extend TradingView Lightweight Charting to support interactive 15m/1h candlestick exploration, technical overlays (EMA 50/200, Volume), and bracket lines for the newly added high-volume pairs.
+- Provide responsive filtering/tabs (e.g., symbol selector pills: `ALL`, `SOL`, `ETH`, `BTC`, `DOGE`, `BNB`, `XRP`, `SUI`, `AVAX`) across the positions, trades, and evolution views to avoid UI clutter.
+
+### R4. Portfolio Micro-Capital Governance & Zero-Drift Balance Conservation
+- Maintain strict portfolio-wide risk confinement across the expanded 8-pair universe:
+  - Micro child order cap: $\le \$5.00$ USDT per order slice.
+  - Aggregate portfolio exposure ceiling: $\le \$25.00$ USDT total across all active positions simultaneously.
+  - Unencumbered liquid cash reserve floor: $\ge 75.0\%$ of wallet equity at all times.
+  - Intra-day loss budget ceiling: $\le \$3.00$ USDT with fail-closed auto-flattening.
+- Reconcile continuous double-entry ledger balance:
+  $$\text{Cash} + \text{Allocated Margin} + \text{Unrealized PnL} = \text{Starting Equity} + \text{Realized PnL}$$
+  guaranteeing exact zero balance drift ($|\Delta| < 10^{-15}$ USDT).
+
+### R5. 24/7 Trader Daemon Continuity & VPS Hot-Sync
+- Maintain 100% operational continuity of `autonomous-futures-trader.service` on the Kainode Linux VPS (`147.79.18.15`) without downtime.
+- Ensure configuration updates and universe expansion integrate smoothly with the running trader daemon (Main PID **87549**).
+- Deploy updated frontend production bundle to `/opt/autonomous-futures-bot/frontend/dist` and reload web service without restarting the trader daemon.
+
+## Acceptance Criteria
+
+### Evolution State Machine & OOS Telemetry
+- [ ] `GET /api/v1/canary/evolution` returns dynamic state reflecting actual daemon scan progress, live MYT timestamps, and trade sample counts.
+- [ ] In `https://futures.semua.dev/#/evolution`, the progress card actively reflects live status (`WAITING_FOR_SAMPLES (0/5)` or active candle scan) rather than remaining statically stuck at 85% / Step 5.
+- [ ] When BTC macro trend is bearish, the dashboard explicitly explains that long scalper entries are filtered for capital preservation.
+
+### High-Volume Pairs Ingress & Scalper Scanning
+- [ ] Ingress fetches and processes live klines for all 8 pairs (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `DOGEUSDT`, `BNBUSDT`, `XRPUSDT`, `SUIUSDT`, `AVAXUSDT`).
+- [ ] Candidate registry and scalper engine monitor and evaluate liquidity dip conditions across all 7 non-BTC candidate pairs.
+- [ ] Order sizing for all new pairs complies with Binance `MIN_NOTIONAL` and $\le \$5.00$ USDT cap with `ROUND_DOWN` precision.
+
+### Dashboard & Interactive Charting Multi-Pair Integration
+- [ ] Executive Dashboard and Market Watch display live mark prices and position states for all expanded pairs.
+- [ ] Expanding the candlestick chart drawer allows interactive chart inspection for `DOGEUSDT`, `BNBUSDT`, `XRPUSDT`, `SUIUSDT`, and `AVAXUSDT`.
+- [ ] Symbol filter pills permit switching between pairs smoothly on desktop and mobile.
+
+### Quality Gates, Solvency & VPS Continuity
+- [ ] Vitest test suite (`npm test --prefix frontend`) passes with 100% success rate across all updated components.
+- [ ] Pytest test suite passes 100% covering multi-pair ingress, dynamic evolution state machine, and zero-drift balance invariant ($|\Delta| < 10^{-15}$ USDT).
+- [ ] VPS trader daemon (`autonomous-futures-trader.service`) Main PID 87549 remains running uninterrupted with 0 restarts.

@@ -51,7 +51,15 @@ class ContinuousSelfDrivingTrader:
     ) -> None:
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.symbols = symbols or ["SOLUSDT", "ETHUSDT"]
+        self.symbols = symbols or [
+            "SOLUSDT",
+            "ETHUSDT",
+            "DOGEUSDT",
+            "BNBUSDT",
+            "XRPUSDT",
+            "SUIUSDT",
+            "AVAXUSDT",
+        ]
         self.starting_capital_usdt = starting_capital_usdt
         self.poll_interval_seconds = poll_interval_seconds
         self.running = False
@@ -183,8 +191,8 @@ class ContinuousSelfDrivingTrader:
         if len(closes_1h) >= 50:
             e50 = compute_ema(closes_1h, 50)
             e200 = compute_ema(closes_1h, 200) if len(closes_1h) >= 200 else e50
-            setattr(self.engine, "latest_btc_ema50", float(e50[-1]))
-            setattr(self.engine, "latest_btc_ema200", float(e200[-1]))
+            self.engine.latest_btc_ema50 = float(e50[-1])
+            self.engine.latest_btc_ema200 = float(e200[-1])
 
         # 1. Sync live position risk from exchange
         try:

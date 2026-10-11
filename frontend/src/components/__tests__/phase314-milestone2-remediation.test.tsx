@@ -118,7 +118,7 @@ describe('Phase 314 Milestone 2 Remediation Suite', () => {
         new Date(),
       )
 
-      expect(adapted.positions.length).toBe(3)
+      expect(adapted.positions.length).toBe(8)
       for (const pos of adapted.positions) {
         expect(pos.size).toBe(0.0)
         expect(pos.takeProfitPrice).toBe(0.0)
