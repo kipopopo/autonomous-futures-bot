@@ -1,0 +1,2947 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-3.0",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "2.2",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": false,
+    "positive_net_edge": false,
+    "profit_factor": false,
+    "stress_positive": false,
+    "sufficient_oos_samples": true,
+    "window_consistency": false
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "7.76020351462720000000000000",
+    "net_pnl": "-5.16113550344720000000000000",
+    "profitable_windows": 2,
+    "stress_net_pnl": "-9.69943607244720000000000000",
+    "trade_count": 68
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {},
+  "report_hash": "d0bb47e4741ffed315a051728390c422a5d6c726ccf1fdc62b13e25b705859f1",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-3.0",
+      "target_atr_multiplier": "2.2"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/APTUSDT-eb5a57137d4bef73.json",
+    "reference_report_sha256": "11ce3c62a03280d7bfbcd09b4a2736dcd2bcfa3e739df94331ffd5b1ca16f63f",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "24295ecea89a8c996c066c796fc79e3b86219a9784cb2cbb36d5f283d2fcf39e",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/APTUSDT-5m.parquet",
+      "rows": 376704,
+      "sha256": "9bf6008547b94ad73571397f310952ce3e19a0809cfb5d1704a2afae158e865c"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/APTUSDT-funding.csv",
+      "sha256": "8e20c70df0d7a838b4890675a58b1638d49e65a1ec43066609ea538ff285ff7c"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "0c6f64b359041ab5600a8ad56fd83d12fd0371e0bddd0fd4d8c48cfb721936e0",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/APTUSDT-15m.parquet",
+      "rows": 125568,
+      "sha256": "cf81efadec59b7833fb6ac4cf81862c2ff37f3072573778c996dcff82df00f1f"
+    }
+  },
+  "symbol": "APTUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 27,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704665700000,
+          "exit_ms": 1704666000000,
+          "exit_price": "8.53000",
+          "fees": "0.0251556200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.387100",
+          "minimum_equity": "99.6044631800",
+          "net_pnl": "-0.4122556200",
+          "plan": {
+            "decision_ms": 1704665700000,
+            "entry": "8.60900",
+            "exits": [
+              {
+                "price": "8.53000",
+                "quantity": "4.9",
+                "role": "STOP"
+              },
+              {
+                "price": "8.75370",
+                "quantity": "4.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4.9",
+            "side": "BUY",
+            "signal_key": "a6ff5c79a8e780f9e2cfd67075d13f2ad15e13dcf68f2cd2d2a8b097e9873e2e",
+            "stop": "8.53000",
+            "symbol": "APTUSDT",
+            "tp1": "8.75370",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.4794017900"
+        },
+        {
+          "day_start_equity": "99.5877443800",
+          "entry_ms": 1704790800000,
+          "exit_ms": 1704793800000,
+          "exit_price": "8.32410",
+          "fees": "0.0265468520",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.381070",
+          "minimum_equity": "99.1977746200",
+          "net_pnl": "-0.4076168520",
+          "plan": {
+            "decision_ms": 1704790800000,
+            "entry": "8.39600",
+            "exits": [
+              {
+                "price": "8.32410",
+                "quantity": "5.3",
+                "role": "STOP"
+              },
+              {
+                "price": "8.52760",
+                "quantity": "5.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.3",
+            "side": "BUY",
+            "signal_key": "324bf6c1d324518fd7aa22d5245f90da3a4b9103d60a8850a8d807d9b452d7ca",
+            "stop": "8.32410",
+            "symbol": "APTUSDT",
+            "tp1": "8.52760",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19731,
+          "stress_net_pnl": "-0.4784719690"
+        },
+        {
+          "day_start_equity": "99.5877443800",
+          "entry_ms": 1704794400000,
+          "exit_ms": 1704801600000,
+          "exit_price": "8.387000000000000000",
+          "fees": "0.02506500000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.4800000000000000000",
+          "minimum_equity": "99.1568365280000000000",
+          "net_pnl": "0.45493500000000000000000",
+          "plan": {
+            "decision_ms": 1704794400000,
+            "entry": "8.29100",
+            "exits": [
+              {
+                "price": "8.21470",
+                "quantity": "5.0",
+                "role": "STOP"
+              },
+              {
+                "price": "8.43080",
+                "quantity": "5.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.0",
+            "side": "BUY",
+            "signal_key": "1ff17b76f7d485eaac6ae8bd74a8238beabd728000d7a87b1225867612ec9c61",
+            "stop": "8.21470",
+            "symbol": "APTUSDT",
+            "tp1": "8.43080",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19731,
+          "stress_net_pnl": "0.38817500000000000000000"
+        },
+        {
+          "day_start_equity": "99.63506252800000000000000",
+          "entry_ms": 1707145200000,
+          "exit_ms": 1707152400000,
+          "exit_price": "8.755000000000000000",
+          "fees": "0.02994894000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.004983510000000000000000000",
+          "gross_pnl": "-0.0342000000000000000",
+          "minimum_equity": "99.32939147800000000000000000",
+          "net_pnl": "-0.069132450000000000000000000",
+          "plan": {
+            "decision_ms": 1707145200000,
+            "entry": "8.76100",
+            "exits": [
+              {
+                "price": "8.69630",
+                "quantity": "5.7",
+                "role": "STOP"
+              },
+              {
+                "price": "8.87940",
+                "quantity": "5.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.7",
+            "side": "BUY",
+            "signal_key": "07baf6603f170761ecb8b80b5378197bb2506d1439f553bd45eb4a24a7452e76",
+            "stop": "8.69630",
+            "symbol": "APTUSDT",
+            "tp1": "8.87940",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19758,
+          "stress_net_pnl": "-0.149001990000000000000000000"
+        },
+        {
+          "day_start_equity": "99.56593007800000000000000000",
+          "entry_ms": 1708096500000,
+          "exit_ms": 1708099500000,
+          "exit_price": "9.91180",
+          "fees": "0.0141240960",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.014401620576000000000000000",
+          "gross_pnl": "0.744480",
+          "minimum_equity": "99.53014247800000000000000000",
+          "net_pnl": "0.715954283424000000000000000",
+          "plan": {
+            "decision_ms": 1708096500000,
+            "entry": "9.70500",
+            "exits": [
+              {
+                "price": "9.59220",
+                "quantity": "3.6",
+                "role": "STOP"
+              },
+              {
+                "price": "9.91180",
+                "quantity": "3.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.6",
+            "side": "BUY",
+            "signal_key": "60c96825ca88737664d497d958740fae4000412a57e35a95974855afe75aef22",
+            "stop": "9.59220",
+            "symbol": "APTUSDT",
+            "tp1": "9.91180",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19769,
+          "stress_net_pnl": "0.666519947424000000000000000"
+        },
+        {
+          "day_start_equity": "100.2818843614240000000000000",
+          "entry_ms": 1708443000000,
+          "exit_ms": 1708450200000,
+          "exit_price": "9.308000000000000000",
+          "fees": "0.01282664000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.007185228704000000000000000",
+          "gross_pnl": "0.0920000000000000000",
+          "minimum_equity": "100.1255358527200000000000000",
+          "net_pnl": "0.071988131296000000000000000",
+          "plan": {
+            "decision_ms": 1708443000000,
+            "entry": "9.26800",
+            "exits": [
+              {
+                "price": "9.07390",
+                "quantity": "2.3",
+                "role": "STOP"
+              },
+              {
+                "price": "9.62370",
+                "quantity": "2.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2.3",
+            "side": "BUY",
+            "signal_key": "29b2b1fd45e045bb7f79507add210a8abb8652e76bd2ba0e29379cb9c6df11b6",
+            "stop": "9.07390",
+            "symbol": "APTUSDT",
+            "tp1": "9.62370",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19773,
+          "stress_net_pnl": "0.037799091296000000000000000"
+        },
+        {
+          "day_start_equity": "100.3538724927200000000000000",
+          "entry_ms": 1710081900000,
+          "exit_ms": 1710089100000,
+          "exit_price": "12.710000000000000000",
+          "fees": "0.02125704000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.020097715540000000000000000",
+          "gross_pnl": "0.4788000000000000000",
+          "minimum_equity": "100.3384506527200000000000000",
+          "net_pnl": "0.437445244460000000000000000",
+          "plan": {
+            "decision_ms": 1710081900000,
+            "entry": "12.53900",
+            "exits": [
+              {
+                "price": "12.39690",
+                "quantity": "2.8",
+                "role": "STOP"
+              },
+              {
+                "price": "12.79930",
+                "quantity": "2.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2.8",
+            "side": "BUY",
+            "signal_key": "87aac15bfda4cca949f94175975a015c06e6d293ce0a2af0c86554fa879ce3aa",
+            "stop": "12.39690",
+            "symbol": "APTUSDT",
+            "tp1": "12.79930",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19792,
+          "stress_net_pnl": "0.380839604460000000000000000"
+        },
+        {
+          "day_start_equity": "100.7913177371800000000000000",
+          "entry_ms": 1710337500000,
+          "exit_ms": 1710338100000,
+          "exit_price": "12.98150",
+          "fees": "0.0304504200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.368550",
+          "minimum_equity": "100.4125684571800000000000000",
+          "net_pnl": "-0.3990004200",
+          "plan": {
+            "decision_ms": 1710337500000,
+            "entry": "13.07600",
+            "exits": [
+              {
+                "price": "12.98150",
+                "quantity": "3.9",
+                "role": "STOP"
+              },
+              {
+                "price": "13.24910",
+                "quantity": "3.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.9",
+            "side": "BUY",
+            "signal_key": "ac37db3561a8956c2fe853f054f64716a9344d8bedb3a60826c3f6bd68b8ece0",
+            "stop": "12.98150",
+            "symbol": "APTUSDT",
+            "tp1": "13.24910",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19795,
+          "stress_net_pnl": "-0.4802629650"
+        },
+        {
+          "day_start_equity": "100.7913177371800000000000000",
+          "entry_ms": 1710338400000,
+          "exit_ms": 1710340800000,
+          "exit_price": "12.88740",
+          "fees": "0.0279120960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.376560",
+          "minimum_equity": "100.0064030771800000000000000",
+          "net_pnl": "-0.4044720960",
+          "plan": {
+            "decision_ms": 1710338400000,
+            "entry": "12.99200",
+            "exits": [
+              {
+                "price": "12.88740",
+                "quantity": "3.6",
+                "role": "STOP"
+              },
+              {
+                "price": "13.18370",
+                "quantity": "3.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.6",
+            "side": "BUY",
+            "signal_key": "5abb16e2aee52d10142a90435649bdb5d0b4aa8353ff0e7ca0563ba21a8fa2d4",
+            "stop": "12.88740",
+            "symbol": "APTUSDT",
+            "tp1": "13.18370",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19795,
+          "stress_net_pnl": "-0.4789671120"
+        },
+        {
+          "day_start_equity": "99.9878452211800000000000000",
+          "entry_ms": 1712025900000,
+          "exit_ms": 1712033100000,
+          "exit_price": "15.740000000000000000",
+          "fees": "0.01509984000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.0528000000000000000",
+          "minimum_equity": "99.8820189811800000000000000",
+          "net_pnl": "0.03770016000000000000000",
+          "plan": {
+            "decision_ms": 1712025900000,
+            "entry": "15.70700",
+            "exits": [
+              {
+                "price": "15.45340",
+                "quantity": "1.6",
+                "role": "STOP"
+              },
+              {
+                "price": "16.17180",
+                "quantity": "1.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1.6",
+            "side": "BUY",
+            "signal_key": "482315139f134d1f99e5d67c3f7be3f0fa8062190763293d4274659857cd822a",
+            "stop": "15.45340",
+            "symbol": "APTUSDT",
+            "tp1": "16.17180",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19815,
+          "stress_net_pnl": "-0.00255728000000000000000"
+        },
+        {
+          "day_start_equity": "100.0255453811800000000000000",
+          "entry_ms": 1712673900000,
+          "exit_ms": 1712675400000,
+          "exit_price": "13.18350",
+          "fees": "0.0230173000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.390050",
+          "minimum_equity": "99.6277709411800000000000000",
+          "net_pnl": "-0.4130673000",
+          "plan": {
+            "decision_ms": 1712673900000,
+            "entry": "13.31800",
+            "exits": [
+              {
+                "price": "13.18350",
+                "quantity": "2.9",
+                "role": "STOP"
+              },
+              {
+                "price": "13.56450",
+                "quantity": "2.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2.9",
+            "side": "BUY",
+            "signal_key": "7f3deb55538dc64e2f7e056ae12fb56b6f4dfdebe06181bcfcff64de2b1a2166",
+            "stop": "13.18350",
+            "symbol": "APTUSDT",
+            "tp1": "13.56450",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19822,
+          "stress_net_pnl": "-0.4745117750"
+        },
+        {
+          "day_start_equity": "100.0255453811800000000000000",
+          "entry_ms": 1712675700000,
+          "exit_ms": 1712681700000,
+          "exit_price": "13.00680",
+          "fees": "0.0195898000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.011215429050000000000000000",
+          "gross_pnl": "-0.398000",
+          "minimum_equity": "99.19667965213000000000000000",
+          "net_pnl": "-0.428805229050000000000000000",
+          "plan": {
+            "decision_ms": 1712675700000,
+            "entry": "13.16600",
+            "exits": [
+              {
+                "price": "13.00680",
+                "quantity": "2.5",
+                "role": "STOP"
+              },
+              {
+                "price": "13.45780",
+                "quantity": "2.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2.5",
+            "side": "BUY",
+            "signal_key": "988542c1fd907ccd192d8ca7abd1431a9517a6f30313d3a27d5ae618f2d70ec2",
+            "stop": "13.00680",
+            "symbol": "APTUSDT",
+            "tp1": "13.45780",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19822,
+          "stress_net_pnl": "-0.481111029050000000000000000"
+        },
+        {
+          "day_start_equity": "99.18367285213000000000000000",
+          "entry_ms": 1712928600000,
+          "exit_ms": 1712929500000,
+          "exit_price": "11.47130",
+          "fees": "0.0241665200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.383950",
+          "minimum_equity": "98.79161615213000000000000000",
+          "net_pnl": "-0.4081165200",
+          "plan": {
+            "decision_ms": 1712928600000,
+            "entry": "11.58100",
+            "exits": [
+              {
+                "price": "11.47130",
+                "quantity": "3.5",
+                "role": "STOP"
+              },
+              {
+                "price": "11.78190",
+                "quantity": "3.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.5",
+            "side": "BUY",
+            "signal_key": "efc4d9dbbe79415a3f29be74cd8c817e9e26bb2c35028a3e2c93e19d8490ca55",
+            "stop": "11.47130",
+            "symbol": "APTUSDT",
+            "tp1": "11.78190",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.4726245650"
+        },
+        {
+          "day_start_equity": "99.18367285213000000000000000",
+          "entry_ms": 1712929500000,
+          "exit_ms": 1712930700000,
+          "exit_price": "11.32740",
+          "fees": "0.0211493160",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.401760",
+          "minimum_equity": "98.36669299213000000000000000",
+          "net_pnl": "-0.4229093160",
+          "plan": {
+            "decision_ms": 1712929500000,
+            "entry": "11.45700",
+            "exits": [
+              {
+                "price": "11.32740",
+                "quantity": "3.1",
+                "role": "STOP"
+              },
+              {
+                "price": "11.69460",
+                "quantity": "3.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.1",
+            "side": "BUY",
+            "signal_key": "2cf60d9a8ca698813ee39e4c13e519d353dba8bdab1021b98a155142113581fc",
+            "stop": "11.32740",
+            "symbol": "APTUSDT",
+            "tp1": "11.69460",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.4793744520"
+        },
+        {
+          "day_start_equity": "98.35264701613000000000000000",
+          "entry_ms": 1717703100000,
+          "exit_ms": 1717704300000,
+          "exit_price": "8.99410",
+          "fees": "0.0373002960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.323610",
+          "minimum_equity": "98.01656043613000000000000000",
+          "net_pnl": "-0.3609102960",
+          "plan": {
+            "decision_ms": 1717703100000,
+            "entry": "9.04100",
+            "exits": [
+              {
+                "price": "8.99410",
+                "quantity": "6.9",
+                "role": "STOP"
+              },
+              {
+                "price": "9.12690",
+                "quantity": "6.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.9",
+            "side": "BUY",
+            "signal_key": "faee284820a098819dfd9205a529bda60d68f81fcfebc5ebfee8dd8d098a989a",
+            "stop": "8.99410",
+            "symbol": "APTUSDT",
+            "tp1": "9.12690",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19880,
+          "stress_net_pnl": "-0.4604316870"
+        },
+        {
+          "day_start_equity": "97.99173672013000000000000000",
+          "entry_ms": 1717784100000,
+          "exit_ms": 1717784400000,
+          "exit_price": "7.73760",
+          "fees": "0.0116941000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.438500",
+          "minimum_equity": "97.54928022013000000000000000",
+          "net_pnl": "-0.4501941000",
+          "plan": {
+            "decision_ms": 1717784100000,
+            "entry": "7.91300",
+            "exits": [
+              {
+                "price": "7.73760",
+                "quantity": "2.5",
+                "role": "STOP"
+              },
+              {
+                "price": "8.23450",
+                "quantity": "2.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2.5",
+            "side": "BUY",
+            "signal_key": "943d23b711ff7960b8aab850d770b479649fa5249320673b237e377449423706",
+            "stop": "7.73760",
+            "symbol": "APTUSDT",
+            "tp1": "8.23450",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19881,
+          "stress_net_pnl": "-0.4814514500"
+        }
+      ],
+      "unfilled": 11
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 21,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "97.54154262013000000000000000",
+          "entry_ms": 1721712600000,
+          "exit_ms": 1721716800000,
+          "exit_price": "7.00820",
+          "fees": "0.0290854320",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.357420",
+          "minimum_equity": "97.17437982013000000000000000",
+          "net_pnl": "-0.3865054320",
+          "plan": {
+            "decision_ms": 1721712600000,
+            "entry": "7.06000",
+            "exits": [
+              {
+                "price": "7.00820",
+                "quantity": "6.9",
+                "role": "STOP"
+              },
+              {
+                "price": "7.15490",
+                "quantity": "6.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.9",
+            "side": "BUY",
+            "signal_key": "4c9c4e58a05efda190fc15e3dd8ef1d36f5e92535611724dcb2ac3eb9c8cd7a9",
+            "stop": "7.00820",
+            "symbol": "APTUSDT",
+            "tp1": "7.15490",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19927,
+          "stress_net_pnl": "-0.4641261540"
+        },
+        {
+          "day_start_equity": "97.15503718813000000000000000",
+          "entry_ms": 1726651800000,
+          "exit_ms": 1726652100000,
+          "exit_price": "5.82070",
+          "fees": "0.0440632080",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.293580",
+          "minimum_equity": "96.84673030813000000000000000",
+          "net_pnl": "-0.3376432080",
+          "plan": {
+            "decision_ms": 1726651800000,
+            "entry": "5.84400",
+            "exits": [
+              {
+                "price": "5.82070",
+                "quantity": "12.6",
+                "role": "STOP"
+              },
+              {
+                "price": "5.88650",
+                "quantity": "12.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12.6",
+            "side": "BUY",
+            "signal_key": "e51e7e8e56c0a3b1c4d70d34bb4a6450465c0e81a0a276c821d77a8af1ae9d66",
+            "stop": "5.82070",
+            "symbol": "APTUSDT",
+            "tp1": "5.88650",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19984,
+          "stress_net_pnl": "-0.4551940260"
+        },
+        {
+          "day_start_equity": "97.15503718813000000000000000",
+          "entry_ms": 1726652700000,
+          "exit_ms": 1726653300000,
+          "exit_price": "5.78390",
+          "fees": "0.0396236640",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.308940",
+          "minimum_equity": "96.49520490013000000000000000",
+          "net_pnl": "-0.3485636640",
+          "plan": {
+            "decision_ms": 1726652700000,
+            "entry": "5.81100",
+            "exits": [
+              {
+                "price": "5.78390",
+                "quantity": "11.4",
+                "role": "STOP"
+              },
+              {
+                "price": "5.86060",
+                "quantity": "11.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.4",
+            "side": "BUY",
+            "signal_key": "83604c02957663b1b1c2fdbb2eab68a128fe44abe5ac898347dd99a53e6a28df",
+            "stop": "5.78390",
+            "symbol": "APTUSDT",
+            "tp1": "5.86060",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19984,
+          "stress_net_pnl": "-0.4542782580"
+        },
+        {
+          "day_start_equity": "97.15503718813000000000000000",
+          "entry_ms": 1726654500000,
+          "exit_ms": 1726656000000,
+          "exit_price": "5.80820",
+          "fees": "0.0226462320",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.609560",
+          "minimum_equity": "96.34976815613000000000000000",
+          "net_pnl": "0.5869137680",
+          "plan": {
+            "decision_ms": 1726654500000,
+            "entry": "5.74600",
+            "exits": [
+              {
+                "price": "5.71200",
+                "quantity": "9.8",
+                "role": "STOP"
+              },
+              {
+                "price": "5.80820",
+                "quantity": "9.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.8",
+            "side": "BUY",
+            "signal_key": "804a737d5625d8c1ba3086a6c7dbd3aaf71bd55658e75403036c93b257d03879",
+            "stop": "5.71200",
+            "symbol": "APTUSDT",
+            "tp1": "5.80820",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19984,
+          "stress_net_pnl": "0.5076519560"
+        },
+        {
+          "day_start_equity": "97.05574408413000000000000000",
+          "entry_ms": 1727514900000,
+          "exit_ms": 1727517300000,
+          "exit_price": "8.12120",
+          "fees": "0.0177318900",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.673750",
+          "minimum_equity": "97.04639551413000000000000000",
+          "net_pnl": "0.6560181100",
+          "plan": {
+            "decision_ms": 1727514900000,
+            "entry": "7.99870",
+            "exits": [
+              {
+                "price": "7.93180",
+                "quantity": "5.5",
+                "role": "STOP"
+              },
+              {
+                "price": "8.12120",
+                "quantity": "5.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.5",
+            "side": "BUY",
+            "signal_key": "b9ef30495d27c888cb31fc4e2f6791810c9e14e462af991de40c7834b23c446d",
+            "stop": "7.93180",
+            "symbol": "APTUSDT",
+            "tp1": "8.12120",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19994,
+          "stress_net_pnl": "0.5939564950"
+        },
+        {
+          "day_start_equity": "97.71176219413000000000000000",
+          "entry_ms": 1729830600000,
+          "exit_ms": 1729837500000,
+          "exit_price": "9.98230",
+          "fees": "0.0186324920",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.671160",
+          "minimum_equity": "97.36646306413000000000000000",
+          "net_pnl": "0.6525275080",
+          "plan": {
+            "decision_ms": 1729830600000,
+            "entry": "9.83950",
+            "exits": [
+              {
+                "price": "9.76150",
+                "quantity": "4.7",
+                "role": "STOP"
+              },
+              {
+                "price": "9.98230",
+                "quantity": "4.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4.7",
+            "side": "BUY",
+            "signal_key": "1f5080cec2364525858b8d2f2e8e9b6dd542f2f556d8976e6a375b6c04dcd5eb",
+            "stop": "9.76150",
+            "symbol": "APTUSDT",
+            "tp1": "9.98230",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20021,
+          "stress_net_pnl": "0.5873137860"
+        },
+        {
+          "day_start_equity": "98.36428970213000000000000000",
+          "entry_ms": 1730087100000,
+          "exit_ms": 1730087400000,
+          "exit_price": "8.75510",
+          "fees": "0.0268652700",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.373320",
+          "minimum_equity": "97.98196483613000000000000000",
+          "net_pnl": "-0.4001852700",
+          "plan": {
+            "decision_ms": 1730087100000,
+            "entry": "8.82830",
+            "exits": [
+              {
+                "price": "8.75510",
+                "quantity": "5.1",
+                "role": "STOP"
+              },
+              {
+                "price": "8.96240",
+                "quantity": "5.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.1",
+            "side": "BUY",
+            "signal_key": "6a30e1bdda67120868ab5451f8c39652fa8318d6a326aa2bfa4e14087fd6a877",
+            "stop": "8.75510",
+            "symbol": "APTUSDT",
+            "tp1": "8.96240",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20024,
+          "stress_net_pnl": "-0.4718882100"
+        },
+        {
+          "day_start_equity": "97.96410443213000000000000000",
+          "entry_ms": 1731809700000,
+          "exit_ms": 1731816900000,
+          "exit_price": "11.736700000000000000",
+          "fees": "0.01472725800000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.3049200000000000000",
+          "minimum_equity": "97.89308600213000000000000000",
+          "net_pnl": "0.29019274200000000000000",
+          "plan": {
+            "decision_ms": 1731809700000,
+            "entry": "11.59150",
+            "exits": [
+              {
+                "price": "11.39580",
+                "quantity": "2.1",
+                "role": "STOP"
+              },
+              {
+                "price": "11.95020",
+                "quantity": "2.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2.1",
+            "side": "BUY",
+            "signal_key": "b41b06d6449c82d5f8c98b4ba90a84f2e65859388f354a3786b692bb24a8dce3",
+            "stop": "11.39580",
+            "symbol": "APTUSDT",
+            "tp1": "11.95020",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20044,
+          "stress_net_pnl": "0.25097087400000000000000"
+        },
+        {
+          "day_start_equity": "98.25429717413000000000000000",
+          "entry_ms": 1732156200000,
+          "exit_ms": 1732157100000,
+          "exit_price": "11.22340",
+          "fees": "0.0196067840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.390340",
+          "minimum_equity": "97.85736953413000000000000000",
+          "net_pnl": "-0.4099467840",
+          "plan": {
+            "decision_ms": 1732156200000,
+            "entry": "11.35800",
+            "exits": [
+              {
+                "price": "11.22340",
+                "quantity": "2.9",
+                "role": "STOP"
+              },
+              {
+                "price": "11.60470",
+                "quantity": "2.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2.9",
+            "side": "BUY",
+            "signal_key": "0ce94e4191748a6886ca9fe87f1cc1b569c2793945b1fc8b81853e6125312b99",
+            "stop": "11.22340",
+            "symbol": "APTUSDT",
+            "tp1": "11.60470",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20048,
+          "stress_net_pnl": "-0.4622965980"
+        },
+        {
+          "day_start_equity": "97.84435039013000000000000000",
+          "entry_ms": 1732446900000,
+          "exit_ms": 1732451400000,
+          "exit_price": "11.95800",
+          "fees": "0.0158659600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.407000",
+          "minimum_equity": "97.43200747013000000000000000",
+          "net_pnl": "-0.4228659600",
+          "plan": {
+            "decision_ms": 1732446900000,
+            "entry": "12.14300",
+            "exits": [
+              {
+                "price": "11.95800",
+                "quantity": "2.2",
+                "role": "STOP"
+              },
+              {
+                "price": "12.48200",
+                "quantity": "2.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2.2",
+            "side": "BUY",
+            "signal_key": "319dacf9459f1f5a59daa4d6f0f831f8fad09ed0946c7199df2a6d23376633b3",
+            "stop": "11.95800",
+            "symbol": "APTUSDT",
+            "tp1": "12.48200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20051,
+          "stress_net_pnl": "-0.4652430200"
+        },
+        {
+          "day_start_equity": "97.84435039013000000000000000",
+          "entry_ms": 1732452300000,
+          "exit_ms": 1732459500000,
+          "exit_price": "11.909200000000000000",
+          "fees": "0.01205354400000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.4692000000000000000",
+          "minimum_equity": "97.35921914213000000000000000",
+          "net_pnl": "0.45714645600000000000000",
+          "plan": {
+            "decision_ms": 1732452300000,
+            "entry": "11.63320",
+            "exits": [
+              {
+                "price": "11.39210",
+                "quantity": "1.7",
+                "role": "STOP"
+              },
+              {
+                "price": "12.07510",
+                "quantity": "1.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1.7",
+            "side": "BUY",
+            "signal_key": "9c1a5e4da82e95d530317dd2a17ce84b1074868b8110ba507f21cace9a2b5928",
+            "stop": "11.39210",
+            "symbol": "APTUSDT",
+            "tp1": "12.07510",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20051,
+          "stress_net_pnl": "0.42508187200000000000000"
+        },
+        {
+          "day_start_equity": "97.87863088613000000000000000",
+          "entry_ms": 1734181200000,
+          "exit_ms": 1734182100000,
+          "exit_price": "13.59410",
+          "fees": "0.0294336000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.351720",
+          "minimum_equity": "97.51705279013000000000000000",
+          "net_pnl": "-0.3811536000",
+          "plan": {
+            "decision_ms": 1734181200000,
+            "entry": "13.69180",
+            "exits": [
+              {
+                "price": "13.59410",
+                "quantity": "3.6",
+                "role": "STOP"
+              },
+              {
+                "price": "13.87090",
+                "quantity": "3.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.6",
+            "side": "BUY",
+            "signal_key": "ea202c5294e9d5f6fa69cc34c54eb6c36ad47120c53193234c8b2715a12be337",
+            "stop": "13.59410",
+            "symbol": "APTUSDT",
+            "tp1": "13.87090",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20071,
+          "stress_net_pnl": "-0.4597018200"
+        },
+        {
+          "day_start_equity": "97.87863088613000000000000000",
+          "entry_ms": 1734182100000,
+          "exit_ms": 1734182700000,
+          "exit_price": "13.48910",
+          "fees": "0.0275897080",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.359720",
+          "minimum_equity": "97.12851275413000000000000000",
+          "net_pnl": "-0.3873097080",
+          "plan": {
+            "decision_ms": 1734182100000,
+            "entry": "13.59490",
+            "exits": [
+              {
+                "price": "13.48910",
+                "quantity": "3.4",
+                "role": "STOP"
+              },
+              {
+                "price": "13.78870",
+                "quantity": "3.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.4",
+            "side": "BUY",
+            "signal_key": "24114e0bd37ab55bae92d8ade32f6b378932a195f2ab0b8e8cbb8acbb5c0c43b",
+            "stop": "13.48910",
+            "symbol": "APTUSDT",
+            "tp1": "13.78870",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20071,
+          "stress_net_pnl": "-0.4609422160"
+        },
+        {
+          "day_start_equity": "97.87863088613000000000000000",
+          "entry_ms": 1734183000000,
+          "exit_ms": 1734190200000,
+          "exit_price": "13.668000000000000000",
+          "fees": "0.02701248000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.2508000000000000000",
+          "minimum_equity": "96.81904685813000000000000000",
+          "net_pnl": "0.22378752000000000000000",
+          "plan": {
+            "decision_ms": 1734183000000,
+            "entry": "13.59200",
+            "exits": [
+              {
+                "price": "13.48090",
+                "quantity": "3.3",
+                "role": "STOP"
+              },
+              {
+                "price": "13.79560",
+                "quantity": "3.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.3",
+            "side": "BUY",
+            "signal_key": "5a38ca201bbac7e9527a67d19f9c9ffdceea0691fb2301778a177cf2675dc73c",
+            "stop": "13.48090",
+            "symbol": "APTUSDT",
+            "tp1": "13.79560",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20071,
+          "stress_net_pnl": "0.15179604000000000000000"
+        },
+        {
+          "day_start_equity": "97.33395509813000000000000000",
+          "entry_ms": 1734449400000,
+          "exit_ms": 1734456600000,
+          "exit_price": "13.400400000000000000",
+          "fees": "0.02243343200000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.003711820000000000000000000",
+          "gross_pnl": "0.3962000000000000000",
+          "minimum_equity": "96.97617829413000000000000000",
+          "net_pnl": "0.370054748000000000000000000",
+          "plan": {
+            "decision_ms": 1734449400000,
+            "entry": "13.25890",
+            "exits": [
+              {
+                "price": "13.11980",
+                "quantity": "2.8",
+                "role": "STOP"
+              },
+              {
+                "price": "13.51380",
+                "quantity": "2.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2.8",
+            "side": "BUY",
+            "signal_key": "fc361fe52c103e131c4a0a2d76efc54dfe57440c0fcb0cf651a55671f00701a7",
+            "stop": "13.11980",
+            "symbol": "APTUSDT",
+            "tp1": "13.51380",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20074,
+          "stress_net_pnl": "0.310298296000000000000000000"
+        }
+      ],
+      "unfilled": 6
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 27,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "97.70400984613000000000000000",
+          "entry_ms": 1737171900000,
+          "exit_ms": 1737174000000,
+          "exit_price": "9.44070",
+          "fees": "0.0300928700",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.357220",
+          "minimum_equity": "97.33671126013000000000000000",
+          "net_pnl": "-0.3873128700",
+          "plan": {
+            "decision_ms": 1737171900000,
+            "entry": "9.50810",
+            "exits": [
+              {
+                "price": "9.44070",
+                "quantity": "5.3",
+                "role": "STOP"
+              },
+              {
+                "price": "9.63150",
+                "quantity": "5.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.3",
+            "side": "BUY",
+            "signal_key": "e45cc54aa7e91211e2cf447e81735f8a5b4fe85896a3ba904614f4e5e4fc4f4c",
+            "stop": "9.44070",
+            "symbol": "APTUSDT",
+            "tp1": "9.63150",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20106,
+          "stress_net_pnl": "-0.4676200600"
+        },
+        {
+          "day_start_equity": "97.70400984613000000000000000",
+          "entry_ms": 1737174600000,
+          "exit_ms": 1737177600000,
+          "exit_price": "9.35820",
+          "fees": "0.0264639140",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.368950",
+          "minimum_equity": "96.93887647813000000000000000",
+          "net_pnl": "-0.3954139140",
+          "plan": {
+            "decision_ms": 1737174600000,
+            "entry": "9.43670",
+            "exits": [
+              {
+                "price": "9.35820",
+                "quantity": "4.7",
+                "role": "STOP"
+              },
+              {
+                "price": "9.58040",
+                "quantity": "4.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4.7",
+            "side": "BUY",
+            "signal_key": "d33aa58c57b296691a950dd977ebf8173b03051e1b806efb17bc5462076fbf40",
+            "stop": "9.35820",
+            "symbol": "APTUSDT",
+            "tp1": "9.58040",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20106,
+          "stress_net_pnl": "-0.4660458430"
+        },
+        {
+          "day_start_equity": "97.70400984613000000000000000",
+          "entry_ms": 1737180000000,
+          "exit_ms": 1737187200000,
+          "exit_price": "9.183800000000000000",
+          "fees": "0.01985011200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.0655200000000000000",
+          "minimum_equity": "96.68677762213000000000000000",
+          "net_pnl": "-0.08537011200000000000000",
+          "plan": {
+            "decision_ms": 1737180000000,
+            "entry": "9.20200",
+            "exits": [
+              {
+                "price": "9.09440",
+                "quantity": "3.6",
+                "role": "STOP"
+              },
+              {
+                "price": "9.39910",
+                "quantity": "3.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.6",
+            "side": "BUY",
+            "signal_key": "9b457ac5b39fc201dd34304435682687d0decf0c071da8aed99592719d884d15",
+            "stop": "9.09440",
+            "symbol": "APTUSDT",
+            "tp1": "9.39910",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20106,
+          "stress_net_pnl": "-0.13831466400000000000000"
+        },
+        {
+          "day_start_equity": "96.83591295013000000000000000",
+          "entry_ms": 1737278100000,
+          "exit_ms": 1737278400000,
+          "exit_price": "8.80510",
+          "fees": "0.0180427800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.401880",
+          "minimum_equity": "96.42796510613000000000000000",
+          "net_pnl": "-0.4199227800",
+          "plan": {
+            "decision_ms": 1737278100000,
+            "entry": "8.92330",
+            "exits": [
+              {
+                "price": "8.80510",
+                "quantity": "3.4",
+                "role": "STOP"
+              },
+              {
+                "price": "9.13990",
+                "quantity": "3.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.4",
+            "side": "BUY",
+            "signal_key": "09749100178a99f619fe0cf4773397bd61fe883edf5f63c32168d22230ec17d2",
+            "stop": "8.80510",
+            "symbol": "APTUSDT",
+            "tp1": "9.13990",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.4681038400"
+        },
+        {
+          "day_start_equity": "96.83591295013000000000000000",
+          "entry_ms": 1737323100000,
+          "exit_ms": 1737323700000,
+          "exit_price": "8.93350",
+          "fees": "0.0183034240",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.395420",
+          "minimum_equity": "96.01441630613000000000000000",
+          "net_pnl": "-0.4137234240",
+          "plan": {
+            "decision_ms": 1737323100000,
+            "entry": "9.04980",
+            "exits": [
+              {
+                "price": "8.93350",
+                "quantity": "3.4",
+                "role": "STOP"
+              },
+              {
+                "price": "9.26290",
+                "quantity": "3.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.4",
+            "side": "BUY",
+            "signal_key": "3c5c39eca3156d3d6deb6b1e3cd993263b21e036c4b67cfa6d6ffaefeb2efa21",
+            "stop": "8.93350",
+            "symbol": "APTUSDT",
+            "tp1": "9.26290",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.4625984580"
+        },
+        {
+          "day_start_equity": "96.00226674613000000000000000",
+          "entry_ms": 1737929700000,
+          "exit_ms": 1737932700000,
+          "exit_price": "8.00280",
+          "fees": "0.0365558480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.315400",
+          "minimum_equity": "95.67463941013000000000000000",
+          "net_pnl": "-0.3519558480",
+          "plan": {
+            "decision_ms": 1737929700000,
+            "entry": "8.04430",
+            "exits": [
+              {
+                "price": "8.00280",
+                "quantity": "7.6",
+                "role": "STOP"
+              },
+              {
+                "price": "8.12030",
+                "quantity": "7.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7.6",
+            "side": "BUY",
+            "signal_key": "d409f5233735fbe4a0e21a4e52c800350ef88d17d25b84817260e2ca41744496",
+            "stop": "8.00280",
+            "symbol": "APTUSDT",
+            "tp1": "8.12030",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.4494906760"
+        },
+        {
+          "day_start_equity": "96.00226674613000000000000000",
+          "entry_ms": 1737933300000,
+          "exit_ms": 1737933600000,
+          "exit_price": "7.90840",
+          "fees": "0.0299622960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.342720",
+          "minimum_equity": "95.29755777013000000000000000",
+          "net_pnl": "-0.3726822960",
+          "plan": {
+            "decision_ms": 1737933300000,
+            "entry": "7.96280",
+            "exits": [
+              {
+                "price": "7.90840",
+                "quantity": "6.3",
+                "role": "STOP"
+              },
+              {
+                "price": "8.06240",
+                "quantity": "6.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.3",
+            "side": "BUY",
+            "signal_key": "e0f521b4fcdb6ba7c2d6f4a0c9c34afce44e1a9a768c2c593d69b539f6da65c2",
+            "stop": "7.90840",
+            "symbol": "APTUSDT",
+            "tp1": "8.06240",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.4526388720"
+        },
+        {
+          "day_start_equity": "94.97104997413000000000000000",
+          "entry_ms": 1737934200000,
+          "exit_ms": 1737936300000,
+          "exit_price": "7.80250",
+          "fees": "0.0253520280",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.003904308901800000000000000",
+          "gross_pnl": "-0.359640",
+          "minimum_equity": "94.90558566522820000000000000",
+          "net_pnl": "-0.388896336901800000000000000",
+          "plan": {
+            "decision_ms": 1737934200000,
+            "entry": "7.86910",
+            "exits": [
+              {
+                "price": "7.80250",
+                "quantity": "5.4",
+                "role": "STOP"
+              },
+              {
+                "price": "7.99100",
+                "quantity": "5.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.4",
+            "side": "BUY",
+            "signal_key": "e70a80327ec003fa1554b838ff425ae5f2cfbd1ca0993f4f2940e79a7df9bf8c",
+            "stop": "7.80250",
+            "symbol": "APTUSDT",
+            "tp1": "7.99100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20115,
+          "stress_net_pnl": "-0.456561684901800000000000000"
+        },
+        {
+          "day_start_equity": "94.88873226522820000000000000",
+          "entry_ms": 1745250300000,
+          "exit_ms": 1745257500000,
+          "exit_price": "4.991400000000000000",
+          "fees": "0.02187868400000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.000847658947200000000000000",
+          "gross_pnl": "-0.0817600000000000000",
+          "minimum_equity": "94.51047081028100000000000000",
+          "net_pnl": "-0.104486342947200000000000000",
+          "plan": {
+            "decision_ms": 1745250300000,
+            "entry": "5.00260",
+            "exits": [
+              {
+                "price": "4.95070",
+                "quantity": "7.3",
+                "role": "STOP"
+              },
+              {
+                "price": "5.09770",
+                "quantity": "7.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7.3",
+            "side": "BUY",
+            "signal_key": "2c297cc68ea0e87293f9f5d36c1244d232a380d36564c757c39159a14d961ec2",
+            "stop": "4.95070",
+            "symbol": "APTUSDT",
+            "tp1": "5.09770",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20199,
+          "stress_net_pnl": "-0.162843126947200000000000000"
+        },
+        {
+          "day_start_equity": "95.14830480228100000000000000",
+          "entry_ms": 1745968500000,
+          "exit_ms": 1745975700000,
+          "exit_price": "5.377300000000000000",
+          "fees": "0.03098995200000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.005296248048000000000000000",
+          "gross_pnl": "-0.0835200000000000000",
+          "minimum_equity": "94.63520105032900000000000000",
+          "net_pnl": "-0.109213703952000000000000000",
+          "plan": {
+            "decision_ms": 1745968500000,
+            "entry": "5.38600",
+            "exits": [
+              {
+                "price": "5.35110",
+                "quantity": "9.6",
+                "role": "STOP"
+              },
+              {
+                "price": "5.44990",
+                "quantity": "9.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.6",
+            "side": "BUY",
+            "signal_key": "9c9b9dcc8abea02e1fbeff51d41ed6610aab36e041f927a5c463008023b46986",
+            "stop": "5.35110",
+            "symbol": "APTUSDT",
+            "tp1": "5.44990",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.191867495952000000000000000"
+        },
+        {
+          "day_start_equity": "95.14830480228100000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746021600000,
+          "exit_price": "5.17920",
+          "fees": "0.0261744000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.356160",
+          "minimum_equity": "94.31009993032900000000000000",
+          "net_pnl": "-0.3823344000",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "5.22160",
+            "exits": [
+              {
+                "price": "5.17920",
+                "quantity": "8.4",
+                "role": "STOP"
+              },
+              {
+                "price": "5.29930",
+                "quantity": "8.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.4",
+            "side": "BUY",
+            "signal_key": "f89da33fc8e4377cfba4c03b86340d5d0ab1095f99a5114130ab38cfec21b762",
+            "stop": "5.17920",
+            "symbol": "APTUSDT",
+            "tp1": "5.29930",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.4521921600"
+        },
+        {
+          "day_start_equity": "94.29269781832900000000000000",
+          "entry_ms": 1747102500000,
+          "exit_ms": 1747104000000,
+          "exit_price": "5.55530",
+          "fees": "0.0217400300",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.371800",
+          "minimum_equity": "93.91360156832900000000000000",
+          "net_pnl": "-0.3935400300",
+          "plan": {
+            "decision_ms": 1747102500000,
+            "entry": "5.61250",
+            "exits": [
+              {
+                "price": "5.55530",
+                "quantity": "6.5",
+                "role": "STOP"
+              },
+              {
+                "price": "5.71720",
+                "quantity": "6.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.5",
+            "side": "BUY",
+            "signal_key": "1f4f572d38fa0ea98ce794f27d63b354ef47d5a9ac1cd80e0134e630d470cf66",
+            "stop": "5.55530",
+            "symbol": "APTUSDT",
+            "tp1": "5.71720",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20221,
+          "stress_net_pnl": "-0.4515754100"
+        },
+        {
+          "day_start_equity": "93.89915778832900000000000000",
+          "entry_ms": 1747448100000,
+          "exit_ms": 1747451100000,
+          "exit_price": "5.15420",
+          "fees": "0.0134690160",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.690360",
+          "minimum_equity": "93.88655231632900000000000000",
+          "net_pnl": "0.6768909840",
+          "plan": {
+            "decision_ms": 1747448100000,
+            "entry": "5.04960",
+            "exits": [
+              {
+                "price": "4.99250",
+                "quantity": "6.6",
+                "role": "STOP"
+              },
+              {
+                "price": "5.15420",
+                "quantity": "6.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.6",
+            "side": "BUY",
+            "signal_key": "27eb74eba27fc554fa178a24969854c59b864da6c6d78e9f3147f9de15c912b1",
+            "stop": "4.99250",
+            "symbol": "APTUSDT",
+            "tp1": "5.15420",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20225,
+          "stress_net_pnl": "0.6297494280"
+        },
+        {
+          "day_start_equity": "94.57604877232900000000000000",
+          "entry_ms": 1747592100000,
+          "exit_ms": 1747592400000,
+          "exit_price": "5.04600",
+          "fees": "0.0224792760",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.375180",
+          "minimum_equity": "94.19332565632900000000000000",
+          "net_pnl": "-0.3976592760",
+          "plan": {
+            "decision_ms": 1747592100000,
+            "entry": "5.09670",
+            "exits": [
+              {
+                "price": "5.04600",
+                "quantity": "7.4",
+                "role": "STOP"
+              },
+              {
+                "price": "5.18950",
+                "quantity": "7.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7.4",
+            "side": "BUY",
+            "signal_key": "99fb71fcbc04fb572465854a6e1c4fdb57a5edb8183e63b7037ac19b7d407318",
+            "stop": "5.04600",
+            "symbol": "APTUSDT",
+            "tp1": "5.18950",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20226,
+          "stress_net_pnl": "-0.4576665420"
+        },
+        {
+          "day_start_equity": "94.17838949632900000000000000",
+          "entry_ms": 1748003400000,
+          "exit_ms": 1748010600000,
+          "exit_price": "5.596700000000000000",
+          "fees": "0.01608633600000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.1608000000000000000",
+          "minimum_equity": "93.89896882432900000000000000",
+          "net_pnl": "0.14471366400000000000000",
+          "plan": {
+            "decision_ms": 1748003400000,
+            "entry": "5.56320",
+            "exits": [
+              {
+                "price": "5.47990",
+                "quantity": "4.8",
+                "role": "STOP"
+              },
+              {
+                "price": "5.71570",
+                "quantity": "4.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4.8",
+            "side": "BUY",
+            "signal_key": "63866de418234c8df63d9f08c0c1b80a8d9f97d718c687161741d9a70ee01b40",
+            "stop": "5.47990",
+            "symbol": "APTUSDT",
+            "tp1": "5.71570",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20231,
+          "stress_net_pnl": "0.10184356800000000000000"
+        },
+        {
+          "day_start_equity": "94.35546800232900000000000000",
+          "entry_ms": 1748043900000,
+          "exit_ms": 1748051100000,
+          "exit_price": "5.356400000000000000",
+          "fees": "0.02342584600000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.002473994776200000000000000",
+          "gross_pnl": "0.1759300000000000000",
+          "minimum_equity": "94.11939400755280000000000000",
+          "net_pnl": "0.150030159223800000000000000",
+          "plan": {
+            "decision_ms": 1748043900000,
+            "entry": "5.33230",
+            "exits": [
+              {
+                "price": "5.28230",
+                "quantity": "7.3",
+                "role": "STOP"
+              },
+              {
+                "price": "5.42380",
+                "quantity": "7.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7.3",
+            "side": "BUY",
+            "signal_key": "b7ba09e1b84d4ff1292bcb31023210591f901a4606ce25ef9f75d8088b975584",
+            "stop": "5.28230",
+            "symbol": "APTUSDT",
+            "tp1": "5.42380",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20232,
+          "stress_net_pnl": "0.087590558223800000000000000"
+        },
+        {
+          "day_start_equity": "94.47313331955280000000000000",
+          "entry_ms": 1749679200000,
+          "exit_ms": 1749680700000,
+          "exit_price": "4.94820",
+          "fees": "0.0261976000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.355520",
+          "minimum_equity": "94.10883338355280000000000000",
+          "net_pnl": "-0.3817176000",
+          "plan": {
+            "decision_ms": 1749679200000,
+            "entry": "4.98860",
+            "exits": [
+              {
+                "price": "4.94820",
+                "quantity": "8.8",
+                "role": "STOP"
+              },
+              {
+                "price": "5.06260",
+                "quantity": "8.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.8",
+            "side": "BUY",
+            "signal_key": "862c93e71bc2fb4cdfe4a428cfb57d4c1c4d1b70b8b9acf265f724dd7da26036",
+            "stop": "4.94820",
+            "symbol": "APTUSDT",
+            "tp1": "5.06260",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20250,
+          "stress_net_pnl": "-0.4516371200"
+        },
+        {
+          "day_start_equity": "94.09141571955280000000000000",
+          "entry_ms": 1750119300000,
+          "exit_ms": 1750122000000,
+          "exit_price": "4.70640",
+          "fees": "0.0128497320",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.699660",
+          "minimum_equity": "93.92774081955280000000000000",
+          "net_pnl": "0.6868102680",
+          "plan": {
+            "decision_ms": 1750119300000,
+            "entry": "4.60500",
+            "exits": [
+              {
+                "price": "4.54960",
+                "quantity": "6.9",
+                "role": "STOP"
+              },
+              {
+                "price": "4.70640",
+                "quantity": "6.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.9",
+            "side": "BUY",
+            "signal_key": "bd983027f6a8737d857b3e3bfe048a9d4cea3a7ea1dcdf2f452cd2be305de138",
+            "stop": "4.54960",
+            "symbol": "APTUSDT",
+            "tp1": "4.70640",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20256,
+          "stress_net_pnl": "0.6418362060"
+        }
+      ],
+      "unfilled": 9
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 14,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "94.77822598755280000000000000",
+          "entry_ms": 1753713000000,
+          "exit_ms": 1753720200000,
+          "exit_price": "4.740100000000000000",
+          "fees": "0.02302506000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.003833649000000000000000000",
+          "gross_pnl": "0.0591300000000000000",
+          "minimum_equity": "94.45568520255280000000000000",
+          "net_pnl": "0.032271291000000000000000000",
+          "plan": {
+            "decision_ms": 1753713000000,
+            "entry": "4.73280",
+            "exits": [
+              {
+                "price": "4.68690",
+                "quantity": "8.1",
+                "role": "STOP"
+              },
+              {
+                "price": "4.81690",
+                "quantity": "8.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.1",
+            "side": "BUY",
+            "signal_key": "438dbe94b6032b79ecd96a241b7aa2a81413a8316d9ab04bccd3689bb3ac5623",
+            "stop": "4.68690",
+            "symbol": "APTUSDT",
+            "tp1": "4.81690",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20297,
+          "stress_net_pnl": "-0.029119014000000000000000000"
+        },
+        {
+          "day_start_equity": "94.81049727855280000000000000",
+          "entry_ms": 1753969500000,
+          "exit_ms": 1753971600000,
+          "exit_price": "4.40670",
+          "fees": "0.0259835240",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.360640",
+          "minimum_equity": "94.44114801855280000000000000",
+          "net_pnl": "-0.3866235240",
+          "plan": {
+            "decision_ms": 1753969500000,
+            "entry": "4.44350",
+            "exits": [
+              {
+                "price": "4.40670",
+                "quantity": "9.8",
+                "role": "STOP"
+              },
+              {
+                "price": "4.51080",
+                "quantity": "9.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.8",
+            "side": "BUY",
+            "signal_key": "be01d339312a01bc153439999a1fa4a0d48e0e4b33d0abcc06948d7871256e5f",
+            "stop": "4.40670",
+            "symbol": "APTUSDT",
+            "tp1": "4.51080",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.4559730280"
+        },
+        {
+          "day_start_equity": "94.42387375455280000000000000",
+          "entry_ms": 1754811900000,
+          "exit_ms": 1754813100000,
+          "exit_price": "4.65670",
+          "fees": "0.0291266560",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.004835792000000000000000000",
+          "gross_pnl": "-0.344240",
+          "minimum_equity": "94.06987897055280000000000000",
+          "net_pnl": "-0.378202448000000000000000000",
+          "plan": {
+            "decision_ms": 1754811900000,
+            "entry": "4.68980",
+            "exits": [
+              {
+                "price": "4.65670",
+                "quantity": "10.4",
+                "role": "STOP"
+              },
+              {
+                "price": "4.75040",
+                "quantity": "10.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.4",
+            "side": "BUY",
+            "signal_key": "4eda90712f3f8c5b8c44de154ec664951f1f82678770af798a482752d2dcc28b",
+            "stop": "4.65670",
+            "symbol": "APTUSDT",
+            "tp1": "4.75040",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20310,
+          "stress_net_pnl": "-0.455930904000000000000000000"
+        },
+        {
+          "day_start_equity": "94.42387375455280000000000000",
+          "entry_ms": 1754813700000,
+          "exit_ms": 1754820900000,
+          "exit_price": "4.689500000000000000",
+          "fees": "0.02724439000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.2425000000000000000",
+          "minimum_equity": "94.00849217655280000000000000",
+          "net_pnl": "0.21525561000000000000000",
+          "plan": {
+            "decision_ms": 1754813700000,
+            "entry": "4.66450",
+            "exits": [
+              {
+                "price": "4.62840",
+                "quantity": "9.7",
+                "role": "STOP"
+              },
+              {
+                "price": "4.73060",
+                "quantity": "9.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.7",
+            "side": "BUY",
+            "signal_key": "44274fade5393a0b7606cfae1279005a0c80e71d8ba8301ce756bc202141530b",
+            "stop": "4.62840",
+            "symbol": "APTUSDT",
+            "tp1": "4.73060",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20310,
+          "stress_net_pnl": "0.14264432000000000000000"
+        },
+        {
+          "day_start_equity": "94.26092691655280000000000000",
+          "entry_ms": 1757924100000,
+          "exit_ms": 1757926200000,
+          "exit_price": "4.39140",
+          "fees": "0.0243128400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.361560",
+          "minimum_equity": "93.89121442855280000000000000",
+          "net_pnl": "-0.3858728400",
+          "plan": {
+            "decision_ms": 1757924100000,
+            "entry": "4.43070",
+            "exits": [
+              {
+                "price": "4.39140",
+                "quantity": "9.2",
+                "role": "STOP"
+              },
+              {
+                "price": "4.50260",
+                "quantity": "9.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.2",
+            "side": "BUY",
+            "signal_key": "b893b26311f2e49f86845e7928cff73aeea69690ee2644a14c7b652bb420f9c5",
+            "stop": "4.39140",
+            "symbol": "APTUSDT",
+            "tp1": "4.50260",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20346,
+          "stress_net_pnl": "-0.4507673400"
+        },
+        {
+          "day_start_equity": "93.87505407655280000000000000",
+          "entry_ms": 1759977000000,
+          "exit_ms": 1759977600000,
+          "exit_price": "5.01320",
+          "fees": "0.0283430680",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.343100",
+          "minimum_equity": "93.52246064055280000000000000",
+          "net_pnl": "-0.3714430680",
+          "plan": {
+            "decision_ms": 1759977000000,
+            "entry": "5.04970",
+            "exits": [
+              {
+                "price": "5.01320",
+                "quantity": "9.4",
+                "role": "STOP"
+              },
+              {
+                "price": "5.11660",
+                "quantity": "9.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.4",
+            "side": "BUY",
+            "signal_key": "0f223bd885415987d44036b9f3cfbae953b6f98bd460655f6fc49fca2605626a",
+            "stop": "5.01320",
+            "symbol": "APTUSDT",
+            "tp1": "5.11660",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20370,
+          "stress_net_pnl": "-0.4470817660"
+        },
+        {
+          "day_start_equity": "93.87505407655280000000000000",
+          "entry_ms": 1759977900000,
+          "exit_ms": 1759980600000,
+          "exit_price": "5.06500",
+          "fees": "0.0172939120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.648440",
+          "minimum_equity": "93.41504889655280000000000000",
+          "net_pnl": "0.6311460880",
+          "plan": {
+            "decision_ms": 1759977900000,
+            "entry": "4.98960",
+            "exits": [
+              {
+                "price": "4.94840",
+                "quantity": "8.6",
+                "role": "STOP"
+              },
+              {
+                "price": "5.06500",
+                "quantity": "8.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.6",
+            "side": "BUY",
+            "signal_key": "11d338aa2e38487542acfbf0ebf97d081c79128421789bba134407b4610abeb7",
+            "stop": "4.94840",
+            "symbol": "APTUSDT",
+            "tp1": "5.06500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20370,
+          "stress_net_pnl": "0.5706173960"
+        },
+        {
+          "day_start_equity": "93.87505407655280000000000000",
+          "entry_ms": 1760018400000,
+          "exit_ms": 1760021700000,
+          "exit_price": "4.90220",
+          "fees": "0.0183036800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.642960",
+          "minimum_equity": "93.81358955255280000000000000",
+          "net_pnl": "0.6246563200",
+          "plan": {
+            "decision_ms": 1760018400000,
+            "entry": "4.83380",
+            "exits": [
+              {
+                "price": "4.79640",
+                "quantity": "9.4",
+                "role": "STOP"
+              },
+              {
+                "price": "4.90220",
+                "quantity": "9.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.4",
+            "side": "BUY",
+            "signal_key": "588ff6e8dfbe2574ccc9f41c9dc9bc50bfa59192acb6a52125e4f1926e0dd502",
+            "stop": "4.79640",
+            "symbol": "APTUSDT",
+            "tp1": "4.90220",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20370,
+          "stress_net_pnl": "0.5605934400"
+        },
+        {
+          "day_start_equity": "94.75941341655280000000000000",
+          "entry_ms": 1768447800000,
+          "exit_ms": 1768455000000,
+          "exit_price": "1.895400000000000000",
+          "fees": "0.02644084000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.2842600000000000000",
+          "minimum_equity": "94.63180770455280000000000000",
+          "net_pnl": "0.25781916000000000000000",
+          "plan": {
+            "decision_ms": 1768447800000,
+            "entry": "1.88320",
+            "exits": [
+              {
+                "price": "1.86780",
+                "quantity": "23.3",
+                "role": "STOP"
+              },
+              {
+                "price": "1.91140",
+                "quantity": "23.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "23.3",
+            "side": "BUY",
+            "signal_key": "e949d52488224ba3eeac3051a99f4cbb6720251eb1a86d1acfbc7e8f0b27a582",
+            "stop": "1.86780",
+            "symbol": "APTUSDT",
+            "tp1": "1.91140",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20468,
+          "stress_net_pnl": "0.18735763000000000000000"
+        },
+        {
+          "day_start_equity": "94.75941341655280000000000000",
+          "entry_ms": 1768491900000,
+          "exit_ms": 1768492200000,
+          "exit_price": "1.83580",
+          "fees": "0.0228755700",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.374670",
+          "minimum_equity": "94.63488743055280000000000000",
+          "net_pnl": "-0.3975455700",
+          "plan": {
+            "decision_ms": 1768491900000,
+            "entry": "1.85390",
+            "exits": [
+              {
+                "price": "1.83580",
+                "quantity": "20.7",
+                "role": "STOP"
+              },
+              {
+                "price": "1.88700",
+                "quantity": "20.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "20.7",
+            "side": "BUY",
+            "signal_key": "f81ba3862649e68355fbcf79e4335172886d525936f635db8885adc897584b15",
+            "stop": "1.83580",
+            "symbol": "APTUSDT",
+            "tp1": "1.88700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20468,
+          "stress_net_pnl": "-0.4586095350"
+        }
+      ],
+      "unfilled": 4
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 15,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "94.61968700655280000000000000",
+          "entry_ms": 1775958300000,
+          "exit_ms": 1775958600000,
+          "exit_price": "0.83090",
+          "fees": "0.0278888400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.351540",
+          "minimum_equity": "94.25880385455280000000000000",
+          "net_pnl": "-0.3794288400",
+          "plan": {
+            "decision_ms": 1775958300000,
+            "entry": "0.83720",
+            "exits": [
+              {
+                "price": "0.83090",
+                "quantity": "55.8",
+                "role": "STOP"
+              },
+              {
+                "price": "0.84860",
+                "quantity": "55.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "55.8",
+            "side": "BUY",
+            "signal_key": "d5fa6143531742c2e53ca988d3a8a40e8902212740ff7a81e6094749ae60b828",
+            "stop": "0.83090",
+            "symbol": "APTUSDT",
+            "tp1": "0.84860",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.4538576700"
+        },
+        {
+          "day_start_equity": "94.24025816655280000000000000",
+          "entry_ms": 1776519900000,
+          "exit_ms": 1776520800000,
+          "exit_price": "0.94830",
+          "fees": "0.0210444120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.608220",
+          "minimum_equity": "94.21305678255280000000000000",
+          "net_pnl": "0.5871755880",
+          "plan": {
+            "decision_ms": 1776519900000,
+            "entry": "0.93740",
+            "exits": [
+              {
+                "price": "0.93140",
+                "quantity": "55.8",
+                "role": "STOP"
+              },
+              {
+                "price": "0.94830",
+                "quantity": "55.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "55.8",
+            "side": "BUY",
+            "signal_key": "66f355a8dc07d9fb9e6d4255a05590b827b65cf736c1ad662924d710fb8d1647",
+            "stop": "0.93140",
+            "symbol": "APTUSDT",
+            "tp1": "0.94830",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20561,
+          "stress_net_pnl": "0.5135201460"
+        },
+        {
+          "day_start_equity": "94.82743375455280000000000000",
+          "entry_ms": 1777267800000,
+          "exit_ms": 1777269300000,
+          "exit_price": "0.96020",
+          "fees": "0.0341714240",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.325600",
+          "minimum_equity": "94.49039986655280000000000000",
+          "net_pnl": "-0.3597714240",
+          "plan": {
+            "decision_ms": 1777267800000,
+            "entry": "0.96570",
+            "exits": [
+              {
+                "price": "0.96020",
+                "quantity": "59.2",
+                "role": "STOP"
+              },
+              {
+                "price": "0.97560",
+                "quantity": "59.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "59.2",
+            "side": "BUY",
+            "signal_key": "80c92717e4f670d38a20769e6828fdebdb39ad99025dc35201c406ab53b20ca4",
+            "stop": "0.96020",
+            "symbol": "APTUSDT",
+            "tp1": "0.97560",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.4509494880"
+        },
+        {
+          "day_start_equity": "94.82743375455280000000000000",
+          "entry_ms": 1777272300000,
+          "exit_ms": 1777275600000,
+          "exit_price": "0.94780",
+          "fees": "0.0290150360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.346120",
+          "minimum_equity": "94.11182450255280000000000000",
+          "net_pnl": "-0.3751350360",
+          "plan": {
+            "decision_ms": 1777272300000,
+            "entry": "0.95460",
+            "exits": [
+              {
+                "price": "0.94780",
+                "quantity": "50.9",
+                "role": "STOP"
+              },
+              {
+                "price": "0.96680",
+                "quantity": "50.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "50.9",
+            "side": "BUY",
+            "signal_key": "6ce2cfc42921b680dc7ab004bf68ec6a2e4560eeba525a7cb934727e08263c87",
+            "stop": "0.94780",
+            "symbol": "APTUSDT",
+            "tp1": "0.96680",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.4525661520"
+        },
+        {
+          "day_start_equity": "94.09252729455280000000000000",
+          "entry_ms": 1777771800000,
+          "exit_ms": 1777773300000,
+          "exit_price": "0.97840",
+          "fees": "0.0376320000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.307200",
+          "minimum_equity": "93.77274233455280000000000000",
+          "net_pnl": "-0.3448320000",
+          "plan": {
+            "decision_ms": 1777771800000,
+            "entry": "0.98320",
+            "exits": [
+              {
+                "price": "0.97840",
+                "quantity": "64.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.99190",
+                "quantity": "64.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "64.0",
+            "side": "BUY",
+            "signal_key": "2a90fadd5d4c16db69fbda379d082009e88b955628972d237538af07e22e1e63",
+            "stop": "0.97840",
+            "symbol": "APTUSDT",
+            "tp1": "0.99190",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20576,
+          "stress_net_pnl": "-0.4452352000"
+        },
+        {
+          "day_start_equity": "94.09252729455280000000000000",
+          "entry_ms": 1777773600000,
+          "exit_ms": 1777777500000,
+          "exit_price": "0.97390",
+          "fees": "0.0313870880",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.332320",
+          "minimum_equity": "93.40486862255280000000000000",
+          "net_pnl": "-0.3637070880",
+          "plan": {
+            "decision_ms": 1777773600000,
+            "entry": "0.98010",
+            "exits": [
+              {
+                "price": "0.97390",
+                "quantity": "53.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.99130",
+                "quantity": "53.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "53.6",
+            "side": "BUY",
+            "signal_key": "4bc0c29695a72112f58aa7015ed6b96549705db2b9b5acf79c7b98df9c0c090a",
+            "stop": "0.97390",
+            "symbol": "APTUSDT",
+            "tp1": "0.99130",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20576,
+          "stress_net_pnl": "-0.4474613760"
+        },
+        {
+          "day_start_equity": "93.38398820655280000000000000",
+          "entry_ms": 1777889700000,
+          "exit_ms": 1777896900000,
+          "exit_price": "0.973200000000000000",
+          "fees": "0.02540659200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.2616000000000000000",
+          "minimum_equity": "93.03111422255280000000000000",
+          "net_pnl": "0.23619340800000000000000",
+          "plan": {
+            "decision_ms": 1777889700000,
+            "entry": "0.96720",
+            "exits": [
+              {
+                "price": "0.95900",
+                "quantity": "43.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.98210",
+                "quantity": "43.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "43.6",
+            "side": "BUY",
+            "signal_key": "6a5f6e37a0a637ff2aaf775eed5a33e4cb1d2dac7ac8c8624b9036c3ae4627b3",
+            "stop": "0.95900",
+            "symbol": "APTUSDT",
+            "tp1": "0.98210",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20577,
+          "stress_net_pnl": "0.16848609600000000000000"
+        },
+        {
+          "day_start_equity": "93.62018161455280000000000000",
+          "entry_ms": 1778376600000,
+          "exit_ms": 1778381400000,
+          "exit_price": "1.09580",
+          "fees": "0.0205669280",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.608880",
+          "minimum_equity": "93.60523903855280000000000000",
+          "net_pnl": "0.5883130720",
+          "plan": {
+            "decision_ms": 1778376600000,
+            "entry": "1.08290",
+            "exits": [
+              {
+                "price": "1.07580",
+                "quantity": "47.2",
+                "role": "STOP"
+              },
+              {
+                "price": "1.09580",
+                "quantity": "47.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "47.2",
+            "side": "BUY",
+            "signal_key": "44542b6c2cd5f626d97fb6fa9a4bc3679e81d3209fadbb4680a9ab5fbd874e6c",
+            "stop": "1.07580",
+            "symbol": "APTUSDT",
+            "tp1": "1.09580",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20583,
+          "stress_net_pnl": "0.5163288240"
+        },
+        {
+          "day_start_equity": "94.20849468655280000000000000",
+          "entry_ms": 1778823900000,
+          "exit_ms": 1778830200000,
+          "exit_price": "1.02930",
+          "fees": "0.0177801900",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.648150",
+          "minimum_equity": "93.91256940655280000000000000",
+          "net_pnl": "0.6303698100",
+          "plan": {
+            "decision_ms": 1778823900000,
+            "entry": "1.01440",
+            "exits": [
+              {
+                "price": "1.00620",
+                "quantity": "43.5",
+                "role": "STOP"
+              },
+              {
+                "price": "1.02930",
+                "quantity": "43.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "43.5",
+            "side": "BUY",
+            "signal_key": "42cb158c6d87e9101218f720c82e28e3de0eead0dc932b4b0ddc3cf917811825",
+            "stop": "1.00620",
+            "symbol": "APTUSDT",
+            "tp1": "1.02930",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20588,
+          "stress_net_pnl": "0.5681391450"
+        }
+      ],
+      "unfilled": 6
+    }
+  ]
+}

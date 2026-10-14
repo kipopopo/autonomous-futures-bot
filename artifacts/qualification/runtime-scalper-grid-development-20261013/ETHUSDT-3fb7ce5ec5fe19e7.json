@@ -1,0 +1,1635 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-3.5",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "1.5",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": true,
+    "positive_net_edge": false,
+    "profit_factor": false,
+    "stress_positive": false,
+    "sufficient_oos_samples": true,
+    "window_consistency": true
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "2.9026321330000000000000000",
+    "net_pnl": "-0.671549053156000000000000000",
+    "profitable_windows": 3,
+    "stress_net_pnl": "-3.852416166156000000000000000",
+    "trade_count": 36
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {},
+  "report_hash": "3fb7ce5ec5fe19e7fb95a9c211976c2f53299feb37808e941e807949fec5193d",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-3.5",
+      "target_atr_multiplier": "1.5"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/ETHUSDT-fafb1b6732f6c6ac.json",
+    "reference_report_sha256": "d7c3abecca965249798f8e9756d5c084523afe051c27c2719452d089029c2c81",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "d3d81ccad25d15bef978f99d2d3379d3a762d411649b034486fbb4a11f3bdb17",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/ETHUSDT-5m.parquet",
+      "rows": 376704,
+      "sha256": "d860caabdd85c82a3b259daebb3929d3c5fcfd0437402428a823f259e05787a0"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/ETHUSDT-funding.csv",
+      "sha256": "3c9a8dc5b8d6cd516ed8b881203b3f68668d93a24f3f98fbf62f1daf20cdb7a9"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "79b86b671c70b85e01ae214041b0692cc989eab9ae5f487febfb0e2ee0a61e52",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/ETHUSDT-15m.parquet",
+      "rows": 125568,
+      "sha256": "00a163be9d322ae14c3c5c5ad92e6d2c2f5b80de4e6c0bfd9a6b6440a1a3437c"
+    }
+  },
+  "symbol": "ETHUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 11,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704284100000,
+          "exit_ms": 1704286500000,
+          "exit_price": "2229.01",
+          "fees": "0.010593240",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.53004",
+          "minimum_equity": "99.803596384000000000000",
+          "net_pnl": "0.519446760",
+          "plan": {
+            "decision_ms": 1704284100000,
+            "entry": "2184.84",
+            "exits": [
+              {
+                "price": "2149.49",
+                "quantity": "0.012",
+                "role": "STOP"
+              },
+              {
+                "price": "2229.01",
+                "quantity": "0.012",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.012",
+            "side": "BUY",
+            "signal_key": "4ad5fd9586eb0fda56674acdabba6b30043fcf2a8630a86e05abc4a0fda84a8b",
+            "stop": "2149.49",
+            "symbol": "ETHUSDT",
+            "tp1": "2229.01",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19725,
+          "stress_net_pnl": "0.482370420"
+        },
+        {
+          "day_start_equity": "100.519446760",
+          "entry_ms": 1707074100000,
+          "exit_ms": 1707079800000,
+          "exit_price": "2285.32",
+          "fees": "0.032838624",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.34992",
+          "minimum_equity": "100.400102440000000000000",
+          "net_pnl": "0.317081376",
+          "plan": {
+            "decision_ms": 1707074100000,
+            "entry": "2275.60",
+            "exits": [
+              {
+                "price": "2267.81",
+                "quantity": "0.036",
+                "role": "STOP"
+              },
+              {
+                "price": "2285.32",
+                "quantity": "0.036",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.036",
+            "side": "BUY",
+            "signal_key": "e6c03659981c15c6eff431cc8b354ee29c34ccd263f2556bdf575cfa3785fa7e",
+            "stop": "2267.81",
+            "symbol": "ETHUSDT",
+            "tp1": "2285.32",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19757,
+          "stress_net_pnl": "0.202146192"
+        },
+        {
+          "day_start_equity": "100.836528136",
+          "entry_ms": 1708499700000,
+          "exit_ms": 1708504200000,
+          "exit_price": "2953.88",
+          "fees": "0.023546920",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00694403715600000000000000000",
+          "gross_pnl": "0.42060",
+          "minimum_equity": "100.619796736000000000000",
+          "net_pnl": "0.3901090428440000000000000000",
+          "plan": {
+            "decision_ms": 1708499700000,
+            "entry": "2932.85",
+            "exits": [
+              {
+                "price": "2916.02",
+                "quantity": "0.020",
+                "role": "STOP"
+              },
+              {
+                "price": "2953.88",
+                "quantity": "0.020",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.020",
+            "side": "BUY",
+            "signal_key": "69dc0415b598a35b9ea3ea81be0662f94fad8ceeea311500d1ca9f6bc925e44e",
+            "stop": "2916.02",
+            "symbol": "ETHUSDT",
+            "tp1": "2953.88",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19774,
+          "stress_net_pnl": "0.3076948228440000000000000000"
+        },
+        {
+          "day_start_equity": "101.2266371788440000000000000",
+          "entry_ms": 1710109800000,
+          "exit_ms": 1710110700000,
+          "exit_price": "3833.62",
+          "fees": "0.046063920",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.30240",
+          "minimum_equity": "100.9088422188440000000000000",
+          "net_pnl": "-0.348463920",
+          "plan": {
+            "decision_ms": 1710109800000,
+            "entry": "3848.74",
+            "exits": [
+              {
+                "price": "3833.62",
+                "quantity": "0.020",
+                "role": "STOP"
+              },
+              {
+                "price": "3867.63",
+                "quantity": "0.020",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.020",
+            "side": "BUY",
+            "signal_key": "87acf07ebe56358679fa6f680ed489537701b6982d702c93f4343730d6023729",
+            "stop": "3833.62",
+            "symbol": "ETHUSDT",
+            "tp1": "3867.63",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19792,
+          "stress_net_pnl": "-0.471351440"
+        },
+        {
+          "day_start_equity": "101.2266371788440000000000000",
+          "entry_ms": 1710110700000,
+          "exit_ms": 1710111600000,
+          "exit_price": "3815.52",
+          "fees": "0.043559552",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.31312",
+          "minimum_equity": "100.5504916588440000000000000",
+          "net_pnl": "-0.356679552",
+          "plan": {
+            "decision_ms": 1710110700000,
+            "entry": "3832.00",
+            "exits": [
+              {
+                "price": "3815.52",
+                "quantity": "0.019",
+                "role": "STOP"
+              },
+              {
+                "price": "3852.59",
+                "quantity": "0.019",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.019",
+            "side": "BUY",
+            "signal_key": "ca6f379e17c55c8ed7d195d0c5d56aeba69a64cd6e13a046e8b81ac153c9ba18",
+            "stop": "3815.52",
+            "symbol": "ETHUSDT",
+            "tp1": "3852.59",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19792,
+          "stress_net_pnl": "-0.472890544"
+        },
+        {
+          "day_start_equity": "100.5214937068440000000000000",
+          "entry_ms": 1710470700000,
+          "exit_ms": 1710471000000,
+          "exit_price": "3745.54",
+          "fees": "0.027039120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.35616",
+          "minimum_equity": "100.1562731788440000000000000",
+          "net_pnl": "-0.383199120",
+          "plan": {
+            "decision_ms": 1710470700000,
+            "entry": "3775.22",
+            "exits": [
+              {
+                "price": "3745.54",
+                "quantity": "0.012",
+                "role": "STOP"
+              },
+              {
+                "price": "3812.31",
+                "quantity": "0.012",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.012",
+            "side": "BUY",
+            "signal_key": "9bf7816fe640ae44b5e49afa5a2c71b4a86d574b4230cb84e6185a28923d0d9d",
+            "stop": "3745.54",
+            "symbol": "ETHUSDT",
+            "tp1": "3812.31",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19797,
+          "stress_net_pnl": "-0.455362800"
+        },
+        {
+          "day_start_equity": "100.1382945868440000000000000",
+          "entry_ms": 1712025900000,
+          "exit_ms": 1712033100000,
+          "exit_price": "3376.310000000000000000",
+          "fees": "0.0262764840000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.293670000000000000000",
+          "minimum_equity": "100.0570349148440000000000000",
+          "net_pnl": "0.2673935160000000000000000",
+          "plan": {
+            "decision_ms": 1712025900000,
+            "entry": "3353.72",
+            "exits": [
+              {
+                "price": "3324.53",
+                "quantity": "0.013",
+                "role": "STOP"
+              },
+              {
+                "price": "3390.19",
+                "quantity": "0.013",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.013",
+            "side": "BUY",
+            "signal_key": "8ef8fd0e81e891532fdb653c1477afc92932ab97272544a362bca024864b6917",
+            "stop": "3324.53",
+            "symbol": "ETHUSDT",
+            "tp1": "3390.19",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19815,
+          "stress_net_pnl": "0.1973718370000000000000000"
+        },
+        {
+          "day_start_equity": "100.4056881028440000000000000",
+          "entry_ms": 1712673900000,
+          "exit_ms": 1712674200000,
+          "exit_price": "3499.92",
+          "fees": "0.027370512",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.35568",
+          "minimum_equity": "100.0408371748440000000000000",
+          "net_pnl": "-0.383050512",
+          "plan": {
+            "decision_ms": 1712673900000,
+            "entry": "3527.28",
+            "exits": [
+              {
+                "price": "3499.92",
+                "quantity": "0.013",
+                "role": "STOP"
+              },
+              {
+                "price": "3561.46",
+                "quantity": "0.013",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.013",
+            "side": "BUY",
+            "signal_key": "53cf02a938885750e77dc1497edfaf5e23960cb21dfab50cbd02bc32c4f0d991",
+            "stop": "3499.92",
+            "symbol": "ETHUSDT",
+            "tp1": "3561.46",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19822,
+          "stress_net_pnl": "-0.456097824"
+        },
+        {
+          "day_start_equity": "100.0226375908440000000000000",
+          "entry_ms": 1717784100000,
+          "exit_ms": 1717784700000,
+          "exit_price": "3655.51",
+          "fees": "0.015993164",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.45540",
+          "minimum_equity": "100.0036865488440000000000000",
+          "net_pnl": "0.439406836",
+          "plan": {
+            "decision_ms": 1717784100000,
+            "entry": "3614.11",
+            "exits": [
+              {
+                "price": "3580.98",
+                "quantity": "0.011",
+                "role": "STOP"
+              },
+              {
+                "price": "3655.51",
+                "quantity": "0.011",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.011",
+            "side": "BUY",
+            "signal_key": "a32c76b9c814585d902a69032f591f818bf8bd50a733af2a0b49682c1bd618a3",
+            "stop": "3580.98",
+            "symbol": "ETHUSDT",
+            "tp1": "3655.51",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19881,
+          "stress_net_pnl": "0.383430762"
+        }
+      ],
+      "unfilled": 2
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 9,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "100.4620444268440000000000000",
+          "entry_ms": 1722262500000,
+          "exit_ms": 1722264000000,
+          "exit_price": "3338.96",
+          "fees": "0.027968136",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.39564",
+          "minimum_equity": "100.3611599228440000000000000",
+          "net_pnl": "0.367671864",
+          "plan": {
+            "decision_ms": 1722262500000,
+            "entry": "3320.12",
+            "exits": [
+              {
+                "price": "3305.04",
+                "quantity": "0.021",
+                "role": "STOP"
+              },
+              {
+                "price": "3338.96",
+                "quantity": "0.021",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.021",
+            "side": "BUY",
+            "signal_key": "ad273d0c65b8b8d58176561856cd3b0b723a4aaf11fd9ba274284f99b3c0e8cf",
+            "stop": "3305.04",
+            "symbol": "ETHUSDT",
+            "tp1": "3338.96",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19933,
+          "stress_net_pnl": "0.269783388"
+        },
+        {
+          "day_start_equity": "100.8297162908440000000000000",
+          "entry_ms": 1726654500000,
+          "exit_ms": 1726655700000,
+          "exit_price": "2296.23",
+          "fees": "0.027474660",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.40050",
+          "minimum_equity": "100.5871190108440000000000000",
+          "net_pnl": "0.373025340",
+          "plan": {
+            "decision_ms": 1726654500000,
+            "entry": "2282.88",
+            "exits": [
+              {
+                "price": "2272.19",
+                "quantity": "0.030",
+                "role": "STOP"
+              },
+              {
+                "price": "2296.23",
+                "quantity": "0.030",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.030",
+            "side": "BUY",
+            "signal_key": "26d33e9e0027e713aa67e3ff43c3fde693a001e5af88b6bb564003cfcd995861",
+            "stop": "2272.19",
+            "symbol": "ETHUSDT",
+            "tp1": "2296.23",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19984,
+          "stress_net_pnl": "0.276864030"
+        },
+        {
+          "day_start_equity": "101.2027416308440000000000000",
+          "entry_ms": 1729557900000,
+          "exit_ms": 1729560300000,
+          "exit_price": "2646.60",
+          "fees": "0.029564136",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.38892",
+          "minimum_equity": "101.0132784548440000000000000",
+          "net_pnl": "0.359355864",
+          "plan": {
+            "decision_ms": 1729557900000,
+            "entry": "2632.71",
+            "exits": [
+              {
+                "price": "2621.59",
+                "quantity": "0.028",
+                "role": "STOP"
+              },
+              {
+                "price": "2646.60",
+                "quantity": "0.028",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.028",
+            "side": "BUY",
+            "signal_key": "5398b5a66791f80b94daf2df0d1c19388ce7fd86399987e49d60ad3dd5c6f7c3",
+            "stop": "2621.59",
+            "symbol": "ETHUSDT",
+            "tp1": "2646.60",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20018,
+          "stress_net_pnl": "0.255881388"
+        },
+        {
+          "day_start_equity": "101.5620974948440000000000000",
+          "entry_ms": 1730386800000,
+          "exit_ms": 1730394000000,
+          "exit_price": "2553.160000000000000000",
+          "fees": "0.0321819540000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00538206900000000000000000000",
+          "gross_pnl": "-0.060690000000000000000",
+          "minimum_equity": "101.3139300158440000000000000",
+          "net_pnl": "-0.09825402300000000000000000000",
+          "plan": {
+            "decision_ms": 1730386800000,
+            "entry": "2556.05",
+            "exits": [
+              {
+                "price": "2538.93",
+                "quantity": "0.021",
+                "role": "STOP"
+              },
+              {
+                "price": "2577.44",
+                "quantity": "0.021",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.021",
+            "side": "BUY",
+            "signal_key": "02bc66b0737207e3d45b8189532e3c6edb8a9964d1bf3229c11eab25d77e4940",
+            "stop": "2538.93",
+            "symbol": "ETHUSDT",
+            "tp1": "2577.44",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20027,
+          "stress_net_pnl": "-0.1840826820000000000000000000"
+        },
+        {
+          "day_start_equity": "101.4638434718440000000000000",
+          "entry_ms": 1731809700000,
+          "exit_ms": 1731812400000,
+          "exit_price": "3070.73",
+          "fees": "0.018334620",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.44880",
+          "minimum_equity": "101.3675710418440000000000000",
+          "net_pnl": "0.430465380",
+          "plan": {
+            "decision_ms": 1731809700000,
+            "entry": "3040.81",
+            "exits": [
+              {
+                "price": "3016.86",
+                "quantity": "0.015",
+                "role": "STOP"
+              },
+              {
+                "price": "3070.73",
+                "quantity": "0.015",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.015",
+            "side": "BUY",
+            "signal_key": "cb8a1e352a43f0532b1bf255ff1be350247576f3d4cd95424dc4a3466bdebc45",
+            "stop": "3016.86",
+            "symbol": "ETHUSDT",
+            "tp1": "3070.73",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20044,
+          "stress_net_pnl": "0.366294210"
+        },
+        {
+          "day_start_equity": "101.8943088518440000000000000",
+          "entry_ms": 1734298200000,
+          "exit_ms": 1734298800000,
+          "exit_price": "3866.62",
+          "fees": "0.032405772",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.36918",
+          "minimum_equity": "101.7534028838440000000000000",
+          "net_pnl": "0.336774228",
+          "plan": {
+            "decision_ms": 1734298200000,
+            "entry": "3849.04",
+            "exits": [
+              {
+                "price": "3834.97",
+                "quantity": "0.021",
+                "role": "STOP"
+              },
+              {
+                "price": "3866.62",
+                "quantity": "0.021",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.021",
+            "side": "BUY",
+            "signal_key": "ff835bdad98803fafce84207891fd5333fea76b84bbe913f0bab65104146b624",
+            "stop": "3834.97",
+            "symbol": "ETHUSDT",
+            "tp1": "3866.62",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20072,
+          "stress_net_pnl": "0.223354026"
+        },
+        {
+          "day_start_equity": "102.2310830798440000000000000",
+          "entry_ms": 1736262900000,
+          "exit_ms": 1736264400000,
+          "exit_price": "3498.50",
+          "fees": "0.025263984",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.37392",
+          "minimum_equity": "101.8486918958440000000000000",
+          "net_pnl": "-0.399183984",
+          "plan": {
+            "decision_ms": 1736262900000,
+            "entry": "3529.66",
+            "exits": [
+              {
+                "price": "3498.50",
+                "quantity": "0.012",
+                "role": "STOP"
+              },
+              {
+                "price": "3568.60",
+                "quantity": "0.012",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.012",
+            "side": "BUY",
+            "signal_key": "ee40094abad1a7a9a620aefc6b877cfd34d1e77d9032e47182a5ebd44ce8f3a7",
+            "stop": "3498.50",
+            "symbol": "ETHUSDT",
+            "tp1": "3568.60",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.466616928"
+        },
+        {
+          "day_start_equity": "102.2310830798440000000000000",
+          "entry_ms": 1736264700000,
+          "exit_ms": 1736271900000,
+          "exit_price": "3450.240000000000000000",
+          "fees": "0.0186335100000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00311076900000000000000000000",
+          "gross_pnl": "-0.011070000000000000000",
+          "minimum_equity": "101.5834064498440000000000000",
+          "net_pnl": "-0.03281427900000000000000000000",
+          "plan": {
+            "decision_ms": 1736264700000,
+            "entry": "3451.47",
+            "exits": [
+              {
+                "price": "3408.54",
+                "quantity": "0.009",
+                "role": "STOP"
+              },
+              {
+                "price": "3505.12",
+                "quantity": "0.009",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.009",
+            "side": "BUY",
+            "signal_key": "4522b9e26b5c1517745d299fec5e9aaf5cf8c47187ef850ef507dfd3ea222c13",
+            "stop": "3408.54",
+            "symbol": "ETHUSDT",
+            "tp1": "3505.12",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.08250548400000000000000000000"
+        }
+      ],
+      "unfilled": 1
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 11,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "101.7990848168440000000000000",
+          "entry_ms": 1737172800000,
+          "exit_ms": 1737174000000,
+          "exit_price": "3361.34",
+          "fees": "0.032337504",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34320",
+          "minimum_equity": "101.4450598888440000000000000",
+          "net_pnl": "-0.375537504",
+          "plan": {
+            "decision_ms": 1737172800000,
+            "entry": "3382.79",
+            "exits": [
+              {
+                "price": "3361.34",
+                "quantity": "0.016",
+                "role": "STOP"
+              },
+              {
+                "price": "3409.59",
+                "quantity": "0.016",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.016",
+            "side": "BUY",
+            "signal_key": "e10c5c68e23789ab73f40bb1b9e01a619e048075f17984d62f31949d64a9c21c",
+            "stop": "3361.34",
+            "symbol": "ETHUSDT",
+            "tp1": "3409.59",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20106,
+          "stress_net_pnl": "-0.461828048"
+        },
+        {
+          "day_start_equity": "101.4235473128440000000000000",
+          "entry_ms": 1737278100000,
+          "exit_ms": 1737278400000,
+          "exit_price": "3147.99",
+          "fees": "0.028405230",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.36660",
+          "minimum_equity": "101.0474300228440000000000000",
+          "net_pnl": "-0.395005230",
+          "plan": {
+            "decision_ms": 1737278100000,
+            "entry": "3172.43",
+            "exits": [
+              {
+                "price": "3147.99",
+                "quantity": "0.015",
+                "role": "STOP"
+              },
+              {
+                "price": "3202.96",
+                "quantity": "0.015",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.015",
+            "side": "BUY",
+            "signal_key": "58f78ca62304fd4d9429c8871d915b8b2cdfe69316e665d3c242ea2841a39332",
+            "stop": "3147.99",
+            "symbol": "ETHUSDT",
+            "tp1": "3202.96",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.470813610"
+        },
+        {
+          "day_start_equity": "101.4235473128440000000000000",
+          "entry_ms": 1737279000000,
+          "exit_ms": 1737280200000,
+          "exit_price": "3205.40",
+          "fees": "0.017859884",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.45178",
+          "minimum_equity": "100.9271173188440000000000000",
+          "net_pnl": "0.433920116",
+          "plan": {
+            "decision_ms": 1737279000000,
+            "entry": "3173.13",
+            "exits": [
+              {
+                "price": "3147.31",
+                "quantity": "0.014",
+                "role": "STOP"
+              },
+              {
+                "price": "3205.40",
+                "quantity": "0.014",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.014",
+            "side": "BUY",
+            "signal_key": "e05e510598883297e9d1a69f53714c2343cd20495a1debba091c034aa91fe40e",
+            "stop": "3147.31",
+            "symbol": "ETHUSDT",
+            "tp1": "3205.40",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20107,
+          "stress_net_pnl": "0.371410522"
+        },
+        {
+          "day_start_equity": "101.4624621988440000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746020700000,
+          "exit_price": "1750.22",
+          "fees": "0.034724118",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34881",
+          "minimum_equity": "101.1020309848440000000000000",
+          "net_pnl": "-0.383534118",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "1760.79",
+            "exits": [
+              {
+                "price": "1750.22",
+                "quantity": "0.033",
+                "role": "STOP"
+              },
+              {
+                "price": "1773.99",
+                "quantity": "0.033",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.033",
+            "side": "BUY",
+            "signal_key": "cdc4c8ca22400228878fe3e8ea2cc3b51f2f4b7fe6507c94e08e0f0450ac1a47",
+            "stop": "1750.22",
+            "symbol": "ETHUSDT",
+            "tp1": "1773.99",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.476189901"
+        },
+        {
+          "day_start_equity": "101.0789280808440000000000000",
+          "entry_ms": 1748001600000,
+          "exit_ms": 1748001900000,
+          "exit_price": "2542.46",
+          "fees": "0.026010816",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.38862",
+          "minimum_equity": "100.6815859928440000000000000",
+          "net_pnl": "-0.414630816",
+          "plan": {
+            "decision_ms": 1748001600000,
+            "entry": "2565.32",
+            "exits": [
+              {
+                "price": "2542.46",
+                "quantity": "0.017",
+                "role": "STOP"
+              },
+              {
+                "price": "2593.89",
+                "quantity": "0.017",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.017",
+            "side": "BUY",
+            "signal_key": "0c2c1fdc49952b8514d1b6e4d1522ffd3fc70e9ff3092eb377d0025cf6c25f35",
+            "stop": "2542.46",
+            "symbol": "ETHUSDT",
+            "tp1": "2593.89",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.484057762"
+        },
+        {
+          "day_start_equity": "101.0789280808440000000000000",
+          "entry_ms": 1748002500000,
+          "exit_ms": 1748002800000,
+          "exit_price": "2517.02",
+          "fees": "0.022730460",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.38640",
+          "minimum_equity": "100.2702689248440000000000000",
+          "net_pnl": "-0.409130460",
+          "plan": {
+            "decision_ms": 1748002500000,
+            "entry": "2542.78",
+            "exits": [
+              {
+                "price": "2517.02",
+                "quantity": "0.015",
+                "role": "STOP"
+              },
+              {
+                "price": "2574.97",
+                "quantity": "0.015",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.015",
+            "side": "BUY",
+            "signal_key": "9890e24cf78df9fc330ffe7a38683f793a9601e920a305e64bfa6e1d63b4b01d",
+            "stop": "2517.02",
+            "symbol": "ETHUSDT",
+            "tp1": "2574.97",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.469809420"
+        },
+        {
+          "day_start_equity": "101.0789280808440000000000000",
+          "entry_ms": 1748003400000,
+          "exit_ms": 1748007600000,
+          "exit_price": "2581.13",
+          "fees": "0.013326820",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.47528",
+          "minimum_equity": "100.1085409228440000000000000",
+          "net_pnl": "0.461953180",
+          "plan": {
+            "decision_ms": 1748003400000,
+            "entry": "2544.57",
+            "exits": [
+              {
+                "price": "2515.31",
+                "quantity": "0.013",
+                "role": "STOP"
+              },
+              {
+                "price": "2581.13",
+                "quantity": "0.013",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.013",
+            "side": "BUY",
+            "signal_key": "ceb5eab14a372e50b24e1c17be4bd9a7775e090f8f8dd64e730d071bf72c3b3c",
+            "stop": "2515.31",
+            "symbol": "ETHUSDT",
+            "tp1": "2581.13",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20231,
+          "stress_net_pnl": "0.415309310"
+        }
+      ],
+      "unfilled": 4
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 4,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "100.7171199848440000000000000",
+          "entry_ms": 1757926800000,
+          "exit_ms": 1757934000000,
+          "exit_price": "4527.790000000000000000",
+          "fees": "0.0325532400000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.234240000000000000000",
+          "minimum_equity": "100.5557001368440000000000000",
+          "net_pnl": "0.2016867600000000000000000",
+          "plan": {
+            "decision_ms": 1757926800000,
+            "entry": "4508.27",
+            "exits": [
+              {
+                "price": "4480.84",
+                "quantity": "0.012",
+                "role": "STOP"
+              },
+              {
+                "price": "4542.54",
+                "quantity": "0.012",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.012",
+            "side": "BUY",
+            "signal_key": "5154640309c9ee02eb2a9d14d94ec04966791a86e2f18c272389633da6be5399",
+            "stop": "4480.84",
+            "symbol": "ETHUSDT",
+            "tp1": "4542.54",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20346,
+          "stress_net_pnl": "0.1149171600000000000000000"
+        },
+        {
+          "day_start_equity": "100.9188067448440000000000000",
+          "entry_ms": 1759977900000,
+          "exit_ms": 1759982100000,
+          "exit_price": "4448.27",
+          "fees": "0.024831156",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.39578",
+          "minimum_equity": "100.6264307448440000000000000",
+          "net_pnl": "0.370948844",
+          "plan": {
+            "decision_ms": 1759977900000,
+            "entry": "4420.00",
+            "exits": [
+              {
+                "price": "4397.37",
+                "quantity": "0.014",
+                "role": "STOP"
+              },
+              {
+                "price": "4448.27",
+                "quantity": "0.014",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.014",
+            "side": "BUY",
+            "signal_key": "e9c79295335194f1f630bd7ac5c9884b45013dfb266d90af85780d038e32f981",
+            "stop": "4397.37",
+            "symbol": "ETHUSDT",
+            "tp1": "4448.27",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20370,
+          "stress_net_pnl": "0.284039798"
+        },
+        {
+          "day_start_equity": "100.9188067448440000000000000",
+          "entry_ms": 1759998600000,
+          "exit_ms": 1760005800000,
+          "exit_price": "4328.200000000000000000",
+          "fees": "0.0337854140000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.127270000000000000000",
+          "minimum_equity": "101.0002768148440000000000000",
+          "net_pnl": "-0.1610554140000000000000000",
+          "plan": {
+            "decision_ms": 1759998600000,
+            "entry": "4337.99",
+            "exits": [
+              {
+                "price": "4313.01",
+                "quantity": "0.013",
+                "role": "STOP"
+              },
+              {
+                "price": "4369.21",
+                "quantity": "0.013",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.013",
+            "side": "BUY",
+            "signal_key": "b8e823e95cd790cb02cb677ee50a9cfa219a777a7c37b4ba1a76813321c5dd5e",
+            "stop": "4313.01",
+            "symbol": "ETHUSDT",
+            "tp1": "4369.21",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20370,
+          "stress_net_pnl": "-0.2511710630000000000000000"
+        },
+        {
+          "day_start_equity": "101.1287001748440000000000000",
+          "entry_ms": 1767779100000,
+          "exit_ms": 1767780300000,
+          "exit_price": "3195.67",
+          "fees": "0.046078752",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.30552",
+          "minimum_equity": "100.8077798548440000000000000",
+          "net_pnl": "-0.351598752",
+          "plan": {
+            "decision_ms": 1767779100000,
+            "entry": "3208.40",
+            "exits": [
+              {
+                "price": "3195.67",
+                "quantity": "0.024",
+                "role": "STOP"
+              },
+              {
+                "price": "3224.30",
+                "quantity": "0.024",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.024",
+            "side": "BUY",
+            "signal_key": "8f59b9e6541b0b3cf1a7c01e35dc35a0a96a2adc78f406b9f43d4e3998414254",
+            "stop": "3195.67",
+            "symbol": "ETHUSDT",
+            "tp1": "3224.30",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20460,
+          "stress_net_pnl": "-0.474526344"
+        }
+      ],
+      "unfilled": 0
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 14,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "100.7771014228440000000000000",
+          "entry_ms": 1773836100000,
+          "exit_ms": 1773837300000,
+          "exit_price": "2244.33",
+          "fees": "0.032389728",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.35688",
+          "minimum_equity": "100.4093772628440000000000000",
+          "net_pnl": "-0.389269728",
+          "plan": {
+            "decision_ms": 1773836100000,
+            "entry": "2259.20",
+            "exits": [
+              {
+                "price": "2244.33",
+                "quantity": "0.024",
+                "role": "STOP"
+              },
+              {
+                "price": "2277.77",
+                "quantity": "0.024",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.024",
+            "side": "BUY",
+            "signal_key": "3c1bc9da2228c2a9f9bf005767073cc124a501c4746e3c0e459a64be0a0658af",
+            "stop": "2244.33",
+            "symbol": "ETHUSDT",
+            "tp1": "2277.77",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.475701816"
+        },
+        {
+          "day_start_equity": "100.3878316948440000000000000",
+          "entry_ms": 1777267800000,
+          "exit_ms": 1777268400000,
+          "exit_price": "2321.37",
+          "fees": "0.039062800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.31892",
+          "minimum_equity": "100.0558482388440000000000000",
+          "net_pnl": "-0.357982800",
+          "plan": {
+            "decision_ms": 1777267800000,
+            "entry": "2332.76",
+            "exits": [
+              {
+                "price": "2321.37",
+                "quantity": "0.028",
+                "role": "STOP"
+              },
+              {
+                "price": "2346.98",
+                "quantity": "0.028",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.028",
+            "side": "BUY",
+            "signal_key": "e00b5bc7470d84ff3a905efbb214b614818b0f56929e4de35ad9de896addf1bd",
+            "stop": "2321.37",
+            "symbol": "ETHUSDT",
+            "tp1": "2346.98",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.462203420"
+        },
+        {
+          "day_start_equity": "100.3878316948440000000000000",
+          "entry_ms": 1777268700000,
+          "exit_ms": 1777271700000,
+          "exit_price": "2312.00",
+          "fees": "0.037520010",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.32805",
+          "minimum_equity": "99.6892484848440000000000000",
+          "net_pnl": "-0.365570010",
+          "plan": {
+            "decision_ms": 1777268700000,
+            "entry": "2324.15",
+            "exits": [
+              {
+                "price": "2312.00",
+                "quantity": "0.027",
+                "role": "STOP"
+              },
+              {
+                "price": "2339.33",
+                "quantity": "0.027",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.027",
+            "side": "BUY",
+            "signal_key": "80c3037d54351b89979fc0282423f926b9c78f98d0e5d19989615b2d79b8db5e",
+            "stop": "2312.00",
+            "symbol": "ETHUSDT",
+            "tp1": "2339.33",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.465678045"
+        },
+        {
+          "day_start_equity": "99.6642788848440000000000000",
+          "entry_ms": 1777890600000,
+          "exit_ms": 1777891200000,
+          "exit_price": "2337.87",
+          "fees": "0.026101880",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.41132",
+          "minimum_equity": "99.5793090768440000000000000",
+          "net_pnl": "0.385218120",
+          "plan": {
+            "decision_ms": 1777890600000,
+            "entry": "2323.18",
+            "exits": [
+              {
+                "price": "2311.42",
+                "quantity": "0.028",
+                "role": "STOP"
+              },
+              {
+                "price": "2337.87",
+                "quantity": "0.028",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.028",
+            "side": "BUY",
+            "signal_key": "62ed9bc9bb5ab8938de84bf52edebb6560bb7e6e160735da3658c2f91a716d18",
+            "stop": "2311.42",
+            "symbol": "ETHUSDT",
+            "tp1": "2337.87",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20577,
+          "stress_net_pnl": "0.293861540"
+        },
+        {
+          "day_start_equity": "100.0494970048440000000000000",
+          "entry_ms": 1778573700000,
+          "exit_ms": 1778578500000,
+          "exit_price": "2292.19",
+          "fees": "0.035692410",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.32877",
+          "minimum_equity": "99.8230336768440000000000000",
+          "net_pnl": "0.293077590",
+          "plan": {
+            "decision_ms": 1778573700000,
+            "entry": "2283.76",
+            "exits": [
+              {
+                "price": "2277.01",
+                "quantity": "0.039",
+                "role": "STOP"
+              },
+              {
+                "price": "2292.19",
+                "quantity": "0.039",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.039",
+            "side": "BUY",
+            "signal_key": "79c2b1d475208898b126a02d9b95a0a2bdba2084adfca5fe6a6faa683819fdae",
+            "stop": "2277.01",
+            "symbol": "ETHUSDT",
+            "tp1": "2292.19",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20585,
+          "stress_net_pnl": "0.168154155"
+        },
+        {
+          "day_start_equity": "100.3425745948440000000000000",
+          "entry_ms": 1784189700000,
+          "exit_ms": 1784190000000,
+          "exit_price": "1876.02",
+          "fees": "0.041710840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.31598",
+          "minimum_equity": "100.0126488508440000000000000",
+          "net_pnl": "-0.357690840",
+          "plan": {
+            "decision_ms": 1784189700000,
+            "entry": "1884.56",
+            "exits": [
+              {
+                "price": "1876.02",
+                "quantity": "0.037",
+                "role": "STOP"
+              },
+              {
+                "price": "1895.22",
+                "quantity": "0.037",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.037",
+            "side": "BUY",
+            "signal_key": "262c983f07380cc3d13ae55d3f0900d8b757635443b9394872dd5445ab9577f5",
+            "stop": "1876.02",
+            "symbol": "ETHUSDT",
+            "tp1": "1895.22",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20650,
+          "stress_net_pnl": "-0.468972410"
+        },
+        {
+          "day_start_equity": "99.9848837548440000000000000",
+          "entry_ms": 1784810700000,
+          "exit_ms": 1784811000000,
+          "exit_price": "1897.71",
+          "fees": "0.052429696",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.26450",
+          "minimum_equity": "99.7028719228440000000000000",
+          "net_pnl": "-0.316929696",
+          "plan": {
+            "decision_ms": 1784810700000,
+            "entry": "1903.46",
+            "exits": [
+              {
+                "price": "1897.71",
+                "quantity": "0.046",
+                "role": "STOP"
+              },
+              {
+                "price": "1910.63",
+                "quantity": "0.046",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.046",
+            "side": "BUY",
+            "signal_key": "6fd314790710368a7a778c53a64c400183cc3951c735983c90171e1d875e303d",
+            "stop": "1897.71",
+            "symbol": "ETHUSDT",
+            "tp1": "1910.63",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-0.456786302"
+        },
+        {
+          "day_start_equity": "99.6679540588440000000000000",
+          "entry_ms": 1785192300000,
+          "exit_ms": 1785192600000,
+          "exit_price": "1906.16",
+          "fees": "0.044663112",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.29484",
+          "minimum_equity": "99.3581870428440000000000000",
+          "net_pnl": "-0.339503112",
+          "plan": {
+            "decision_ms": 1785192300000,
+            "entry": "1913.72",
+            "exits": [
+              {
+                "price": "1906.16",
+                "quantity": "0.039",
+                "role": "STOP"
+              },
+              {
+                "price": "1923.15",
+                "quantity": "0.039",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.039",
+            "side": "BUY",
+            "signal_key": "57329c481478be6b8b50df3f72fb09d42ea30efc6944be85f2b72467db221607",
+            "stop": "1906.16",
+            "symbol": "ETHUSDT",
+            "tp1": "1923.15",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20661,
+          "stress_net_pnl": "-0.458653884"
+        }
+      ],
+      "unfilled": 6
+    }
+  ]
+}

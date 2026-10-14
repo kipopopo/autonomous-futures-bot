@@ -1,0 +1,1268 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-4.0",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "2.0",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": true,
+    "positive_net_edge": true,
+    "profit_factor": false,
+    "stress_positive": false,
+    "sufficient_oos_samples": false,
+    "window_consistency": true
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "1.9308182400000000000000000",
+    "net_pnl": "0.364749593155000000000000000",
+    "profitable_windows": 3,
+    "stress_net_pnl": "-2.366800686845000000000000000",
+    "trade_count": 27
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {
+    "No permitted leverage can fund the position with a stop buffer": 1
+  },
+  "report_hash": "def396eee01411e629659ac07b0fff7b90bfdb0207fec4242bc56e98be1e060c",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-4.0",
+      "target_atr_multiplier": "2.0"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/BNBUSDT-2cb406c49f6a1e8a.json",
+    "reference_report_sha256": "5615efe022adcc644054cd30cf21156a161672652a4dbb3019f74ec63351daca",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "ddbb39b52c7a841a29a2d369113a16ca4aabacea43980b09e527b1e13e05ca67",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/BNBUSDT-5m.parquet",
+      "rows": 376704,
+      "sha256": "8b8f518c85c6febc067f148c8f471a1caa9790de5c037ea08535326109cd401a"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/BNBUSDT-funding.csv",
+      "sha256": "7c8afe093e71fd2e111d34e961811e024892fedb3b603781afb678ac864ad09b"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "b4108417169827ddccb5a29fb7c0a741101b9e788154892c66734efaaefaa330",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/BNBUSDT-15m.parquet",
+      "rows": 125568,
+      "sha256": "c7f532802ff5b03813b252a04b0cf246594f7430aa69780a98cb63d19e0995a8"
+    }
+  },
+  "symbol": "BNBUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 7,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704501000000,
+          "exit_ms": 1704508200000,
+          "exit_price": "308.520000000000000000",
+          "fees": "0.029559040000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.29440000000000000000",
+          "minimum_equity": "99.72458624000000000000",
+          "net_pnl": "0.264840960000000000000000",
+          "plan": {
+            "decision_ms": 1704501000000,
+            "entry": "306.680",
+            "exits": [
+              {
+                "price": "304.360",
+                "quantity": "0.16",
+                "role": "STOP"
+              },
+              {
+                "price": "310.540",
+                "quantity": "0.16",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.16",
+            "side": "BUY",
+            "signal_key": "f7673ef37254a61ff457deaf559c55622b4c9c4838df082ebb996636b1ef34ed",
+            "stop": "304.360",
+            "symbol": "BNBUSDT",
+            "tp1": "310.540",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19728,
+          "stress_net_pnl": "0.186065920000000000000000"
+        },
+        {
+          "day_start_equity": "100.264840960000000000000000",
+          "entry_ms": 1704891600000,
+          "exit_ms": 1704898800000,
+          "exit_price": "292.120000000000000000",
+          "fees": "0.031536360000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.06300000000000000000",
+          "minimum_equity": "99.998737240000000000000000",
+          "net_pnl": "0.031463640000000000000000",
+          "plan": {
+            "decision_ms": 1704891600000,
+            "entry": "291.770",
+            "exits": [
+              {
+                "price": "289.830",
+                "quantity": "0.18",
+                "role": "STOP"
+              },
+              {
+                "price": "294.990",
+                "quantity": "0.18",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.18",
+            "side": "BUY",
+            "signal_key": "7025df65dc271c5278a061250b568d580835b1bb5c8272e2a157ed400d7dced4",
+            "stop": "289.830",
+            "symbol": "BNBUSDT",
+            "tp1": "294.990",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19732,
+          "stress_net_pnl": "-0.052622820000000000000000"
+        },
+        {
+          "day_start_equity": "100.296304600000000000000000",
+          "entry_ms": 1707562800000,
+          "exit_ms": 1707566400000,
+          "exit_price": "320.470",
+          "fees": "0.035807520",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.42560",
+          "minimum_equity": "100.270043400000000000000000",
+          "net_pnl": "0.389792480",
+          "plan": {
+            "decision_ms": 1707562800000,
+            "entry": "318.950",
+            "exits": [
+              {
+                "price": "318.030",
+                "quantity": "0.28",
+                "role": "STOP"
+              },
+              {
+                "price": "320.470",
+                "quantity": "0.28",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.28",
+            "side": "BUY",
+            "signal_key": "4206b77793620b0a4dada0359354a780416f6da0f83aec1b6494d14f8e6b3ec9",
+            "stop": "318.030",
+            "symbol": "BNBUSDT",
+            "tp1": "320.470",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19763,
+          "stress_net_pnl": "0.264466160"
+        },
+        {
+          "day_start_equity": "100.686097080000000000000000",
+          "entry_ms": 1711463400000,
+          "exit_ms": 1711463700000,
+          "exit_price": "572.090",
+          "fees": "0.030959460",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.33300",
+          "minimum_equity": "100.342732860000000000000000",
+          "net_pnl": "-0.363959460",
+          "plan": {
+            "decision_ms": 1711463400000,
+            "entry": "575.790",
+            "exits": [
+              {
+                "price": "572.090",
+                "quantity": "0.09",
+                "role": "STOP"
+              },
+              {
+                "price": "581.950",
+                "quantity": "0.09",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.09",
+            "side": "BUY",
+            "signal_key": "3eeb2e16db022e5e10cc9159c285d0d7ab2e7d9e5830f9e7b0a04a988e6223a8",
+            "stop": "572.090",
+            "symbol": "BNBUSDT",
+            "tp1": "581.950",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19808,
+          "stress_net_pnl": "-0.446573520"
+        },
+        {
+          "day_start_equity": "100.322137620000000000000000",
+          "entry_ms": 1711950300000,
+          "exit_ms": 1711950600000,
+          "exit_price": "584.860",
+          "fees": "0.038664120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.31680",
+          "minimum_equity": "99.992407340000000000000000",
+          "net_pnl": "-0.355464120",
+          "plan": {
+            "decision_ms": 1711950300000,
+            "entry": "587.740",
+            "exits": [
+              {
+                "price": "584.860",
+                "quantity": "0.11",
+                "role": "STOP"
+              },
+              {
+                "price": "592.520",
+                "quantity": "0.11",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.11",
+            "side": "BUY",
+            "signal_key": "d8b686609e281fec52767dcf4d9f646ad522383a9a60e8671e017d3e859132ea",
+            "stop": "584.860",
+            "symbol": "BNBUSDT",
+            "tp1": "592.520",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19814,
+          "stress_net_pnl": "-0.458621240"
+        },
+        {
+          "day_start_equity": "99.966673500000000000000000",
+          "entry_ms": 1712025900000,
+          "exit_ms": 1712033100000,
+          "exit_price": "560.330000000000000000",
+          "fees": "0.023500120000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.16870000000000000000",
+          "minimum_equity": "99.881862620000000000000000",
+          "net_pnl": "0.145199880000000000000000",
+          "plan": {
+            "decision_ms": 1712025900000,
+            "entry": "557.920",
+            "exits": [
+              {
+                "price": "553.020",
+                "quantity": "0.07",
+                "role": "STOP"
+              },
+              {
+                "price": "566.070",
+                "quantity": "0.07",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.07",
+            "side": "BUY",
+            "signal_key": "b4dc50c93522041c5563113a634bfa05293b4c16eed694425c42ec9e9d1acf4c",
+            "stop": "553.020",
+            "symbol": "BNBUSDT",
+            "tp1": "566.070",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19815,
+          "stress_net_pnl": "0.082561010000000000000000"
+        }
+      ],
+      "unfilled": 1
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 9,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "100.111873380000000000000000",
+          "entry_ms": 1729585800000,
+          "exit_ms": 1729587900000,
+          "exit_price": "587.750",
+          "fees": "0.049426440",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.27720",
+          "minimum_equity": "99.818160940000000000000000",
+          "net_pnl": "-0.326626440",
+          "plan": {
+            "decision_ms": 1729585800000,
+            "entry": "589.730",
+            "exits": [
+              {
+                "price": "587.750",
+                "quantity": "0.14",
+                "role": "STOP"
+              },
+              {
+                "price": "593.020",
+                "quantity": "0.14",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.14",
+            "side": "BUY",
+            "signal_key": "4a17a5bf7128cb6c2b1d72bdb8160f9c89df8fb97b77150894bf20defe8ff9c8",
+            "stop": "587.750",
+            "symbol": "BNBUSDT",
+            "tp1": "593.020",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20018,
+          "stress_net_pnl": "-0.458476480"
+        },
+        {
+          "day_start_equity": "99.785246940000000000000000",
+          "entry_ms": 1730363400000,
+          "exit_ms": 1730370000000,
+          "exit_price": "585.550",
+          "fees": "0.035051100",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.40950",
+          "minimum_equity": "99.607262340000000000000000",
+          "net_pnl": "0.374448900",
+          "plan": {
+            "decision_ms": 1730363400000,
+            "entry": "582.820",
+            "exits": [
+              {
+                "price": "581.180",
+                "quantity": "0.15",
+                "role": "STOP"
+              },
+              {
+                "price": "585.550",
+                "quantity": "0.15",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.15",
+            "side": "BUY",
+            "signal_key": "87bdc201a0043163e473923c9b38c60f617bcab29d9220de7a5074d9b3fa1931",
+            "stop": "581.180",
+            "symbol": "BNBUSDT",
+            "tp1": "585.550",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20027,
+          "stress_net_pnl": "0.251770050"
+        },
+        {
+          "day_start_equity": "100.159695840000000000000000",
+          "entry_ms": 1731809700000,
+          "exit_ms": 1731814800000,
+          "exit_price": "613.770",
+          "fees": "0.017074540",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.55510",
+          "minimum_equity": "100.106414080000000000000000",
+          "net_pnl": "0.538025460",
+          "plan": {
+            "decision_ms": 1731809700000,
+            "entry": "605.840",
+            "exits": [
+              {
+                "price": "601.070",
+                "quantity": "0.07",
+                "role": "STOP"
+              },
+              {
+                "price": "613.770",
+                "quantity": "0.07",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.07",
+            "side": "BUY",
+            "signal_key": "b39891c1249f3fad8b96d0e485269d565ec533dd180e0160c6af30f3668edced",
+            "stop": "601.070",
+            "symbol": "BNBUSDT",
+            "tp1": "613.770",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20044,
+          "stress_net_pnl": "0.478264570"
+        },
+        {
+          "day_start_equity": "100.697721300000000000000000",
+          "entry_ms": 1732157100000,
+          "exit_ms": 1732158000000,
+          "exit_price": "599.400",
+          "fees": "0.023871800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.52100",
+          "minimum_equity": "100.683837500000000000000000",
+          "net_pnl": "0.497128200",
+          "plan": {
+            "decision_ms": 1732157100000,
+            "entry": "594.190",
+            "exits": [
+              {
+                "price": "591.060",
+                "quantity": "0.10",
+                "role": "STOP"
+              },
+              {
+                "price": "599.400",
+                "quantity": "0.10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.10",
+            "side": "BUY",
+            "signal_key": "9b2173ec261d6540fc7c5490e586e1e3c9ad5a10b0f240696cd2da6af51b9b62",
+            "stop": "591.060",
+            "symbol": "BNBUSDT",
+            "tp1": "599.400",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20048,
+          "stress_net_pnl": "0.413576900"
+        },
+        {
+          "day_start_equity": "101.194849500000000000000000",
+          "entry_ms": 1733361300000,
+          "exit_ms": 1733366100000,
+          "exit_price": "713.740",
+          "fees": "0.011294960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.62440",
+          "minimum_equity": "100.864064460000000000000000",
+          "net_pnl": "0.613105040",
+          "plan": {
+            "decision_ms": 1733361300000,
+            "entry": "698.130",
+            "exits": [
+              {
+                "price": "688.760",
+                "quantity": "0.04",
+                "role": "STOP"
+              },
+              {
+                "price": "713.740",
+                "quantity": "0.04",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.04",
+            "side": "BUY",
+            "signal_key": "88f8ce00dcc8e0d4cbfbacbb88656d47b84696887c76b1dcd393384c1c3304cd",
+            "stop": "688.760",
+            "symbol": "BNBUSDT",
+            "tp1": "713.740",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20062,
+          "stress_net_pnl": "0.573572680"
+        },
+        {
+          "day_start_equity": "101.807954540000000000000000",
+          "entry_ms": 1736262900000,
+          "exit_ms": 1736263200000,
+          "exit_price": "705.410",
+          "fees": "0.038154420",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.31140",
+          "minimum_equity": "101.483794880000000000000000",
+          "net_pnl": "-0.349554420",
+          "plan": {
+            "decision_ms": 1736262900000,
+            "entry": "708.870",
+            "exits": [
+              {
+                "price": "705.410",
+                "quantity": "0.09",
+                "role": "STOP"
+              },
+              {
+                "price": "714.620",
+                "quantity": "0.09",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.09",
+            "side": "BUY",
+            "signal_key": "018ce68f9a4c7d01e16d6680cea56d84371e6f6fd59ead8a7e031b8643716687",
+            "stop": "705.410",
+            "symbol": "BNBUSDT",
+            "tp1": "714.620",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.451351440"
+        },
+        {
+          "day_start_equity": "101.807954540000000000000000",
+          "entry_ms": 1736264700000,
+          "exit_ms": 1736265900000,
+          "exit_price": "709.000",
+          "fees": "0.019746440",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.0037302731550000000000000000",
+          "gross_pnl": "0.52780",
+          "minimum_equity": "101.259579680000000000000000",
+          "net_pnl": "0.5117838331550000000000000000",
+          "plan": {
+            "decision_ms": 1736264700000,
+            "entry": "701.460",
+            "exits": [
+              {
+                "price": "696.930",
+                "quantity": "0.07",
+                "role": "STOP"
+              },
+              {
+                "price": "709.000",
+                "quantity": "0.07",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.07",
+            "side": "BUY",
+            "signal_key": "3bbe103eb7bfc12ac7329c438b8e523d7a52411b449f6ed7df00ff176d32be51",
+            "stop": "696.930",
+            "symbol": "BNBUSDT",
+            "tp1": "709.000",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20095,
+          "stress_net_pnl": "0.4426712931550000000000000000"
+        }
+      ],
+      "unfilled": 2
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 1,
+      "signals": 10,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "101.9701839531550000000000000",
+          "entry_ms": 1737171000000,
+          "exit_ms": 1737171900000,
+          "exit_price": "710.820",
+          "fees": "0.055493620",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.24830",
+          "minimum_equity": "101.7033529731550000000000000",
+          "net_pnl": "-0.303793620",
+          "plan": {
+            "decision_ms": 1737171000000,
+            "entry": "712.730",
+            "exits": [
+              {
+                "price": "710.820",
+                "quantity": "0.13",
+                "role": "STOP"
+              },
+              {
+                "price": "715.900",
+                "quantity": "0.13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.13",
+            "side": "BUY",
+            "signal_key": "4830830500dba88e10d4fe3592baa8607bc42a3e2d4d123e8a1d3e7d7e872b27",
+            "stop": "710.820",
+            "symbol": "BNBUSDT",
+            "tp1": "715.900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20106,
+          "stress_net_pnl": "-0.451817990"
+        },
+        {
+          "day_start_equity": "101.9701839531550000000000000",
+          "entry_ms": 1737171900000,
+          "exit_ms": 1737174000000,
+          "exit_price": "705.650",
+          "fees": "0.046626140",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.26620",
+          "minimum_equity": "101.3846127931550000000000000",
+          "net_pnl": "-0.312826140",
+          "plan": {
+            "decision_ms": 1737171900000,
+            "entry": "708.070",
+            "exits": [
+              {
+                "price": "705.650",
+                "quantity": "0.11",
+                "role": "STOP"
+              },
+              {
+                "price": "712.090",
+                "quantity": "0.11",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.11",
+            "side": "BUY",
+            "signal_key": "83346cb69d601bdbb7f09f2769af7cd64adf48afae4f828eaa60f572b478859b",
+            "stop": "705.650",
+            "symbol": "BNBUSDT",
+            "tp1": "712.090",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20106,
+          "stress_net_pnl": "-0.437206880"
+        },
+        {
+          "day_start_equity": "101.3535641931550000000000000",
+          "entry_ms": 1737278100000,
+          "exit_ms": 1737280500000,
+          "exit_price": "694.580",
+          "fees": "0.024898500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.53190",
+          "minimum_equity": "101.0576681331550000000000000",
+          "net_pnl": "0.507001500",
+          "plan": {
+            "decision_ms": 1737278100000,
+            "entry": "688.670",
+            "exits": [
+              {
+                "price": "685.110",
+                "quantity": "0.09",
+                "role": "STOP"
+              },
+              {
+                "price": "694.580",
+                "quantity": "0.09",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.09",
+            "side": "BUY",
+            "signal_key": "bb260d2c0d2371571239011e3e9dffbf89d299d5ec948bd0db3c9780a1526846",
+            "stop": "685.110",
+            "symbol": "BNBUSDT",
+            "tp1": "694.580",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20107,
+          "stress_net_pnl": "0.419856750"
+        },
+        {
+          "day_start_equity": "101.8605656931550000000000000",
+          "entry_ms": 1737932400000,
+          "exit_ms": 1737932700000,
+          "exit_price": "671.570",
+          "fees": "0.056459480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.23800",
+          "minimum_equity": "101.6037141331550000000000000",
+          "net_pnl": "-0.294459480",
+          "plan": {
+            "decision_ms": 1737932400000,
+            "entry": "673.270",
+            "exits": [
+              {
+                "price": "671.570",
+                "quantity": "0.14",
+                "role": "STOP"
+              },
+              {
+                "price": "676.080",
+                "quantity": "0.14",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.14",
+            "side": "BUY",
+            "signal_key": "507b50f177860648c7c0185b728db8e8dc9a19fe068660c9f32ea6be393808a2",
+            "stop": "671.570",
+            "symbol": "BNBUSDT",
+            "tp1": "676.080",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.445057760"
+        },
+        {
+          "day_start_equity": "101.8605656931550000000000000",
+          "entry_ms": 1737933300000,
+          "exit_ms": 1737933600000,
+          "exit_price": "665.570",
+          "fees": "0.047975280",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.27120",
+          "minimum_equity": "101.2788782931550000000000000",
+          "net_pnl": "-0.319175280",
+          "plan": {
+            "decision_ms": 1737933300000,
+            "entry": "667.830",
+            "exits": [
+              {
+                "price": "665.570",
+                "quantity": "0.12",
+                "role": "STOP"
+              },
+              {
+                "price": "671.580",
+                "quantity": "0.12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.12",
+            "side": "BUY",
+            "signal_key": "758fe5352c7ff3f5014891666f8805e0305964812ed3d522a3419b9d8284e1b9",
+            "stop": "665.570",
+            "symbol": "BNBUSDT",
+            "tp1": "671.580",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.447154560"
+        },
+        {
+          "day_start_equity": "101.2168617731550000000000000",
+          "entry_ms": 1737934200000,
+          "exit_ms": 1737936300000,
+          "exit_price": "664.230",
+          "fees": "0.043895280",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0E-28",
+          "gross_pnl": "-0.28050",
+          "minimum_equity": "100.9517617731550000000000000",
+          "net_pnl": "-0.3243952800000000000000000000",
+          "plan": {
+            "decision_ms": 1737934200000,
+            "entry": "666.780",
+            "exits": [
+              {
+                "price": "664.230",
+                "quantity": "0.11",
+                "role": "STOP"
+              },
+              {
+                "price": "671.020",
+                "quantity": "0.11",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.11",
+            "side": "BUY",
+            "signal_key": "886df1c58df0e02b188f70f50a00edb1766e27138fd1185a0b28ed3daaafe4d9",
+            "stop": "664.230",
+            "symbol": "BNBUSDT",
+            "tp1": "671.020",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20115,
+          "stress_net_pnl": "-0.4414961100000000000000000000"
+        },
+        {
+          "day_start_equity": "100.9225356531550000000000000",
+          "entry_ms": 1748001600000,
+          "exit_ms": 1748001900000,
+          "exit_price": "669.580",
+          "fees": "0.044253660",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.30690",
+          "minimum_equity": "100.6008435131550000000000000",
+          "net_pnl": "-0.351153660",
+          "plan": {
+            "decision_ms": 1748001600000,
+            "entry": "672.370",
+            "exits": [
+              {
+                "price": "669.580",
+                "quantity": "0.11",
+                "role": "STOP"
+              },
+              {
+                "price": "677.000",
+                "quantity": "0.11",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.11",
+            "side": "BUY",
+            "signal_key": "027a9e4d5a5d9d1eafd0722b58c95e85f99292cfcc01c744a0e39195d5f4ee17",
+            "stop": "669.580",
+            "symbol": "BNBUSDT",
+            "tp1": "677.000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.469214570"
+        },
+        {
+          "day_start_equity": "100.9225356531550000000000000",
+          "entry_ms": 1748002500000,
+          "exit_ms": 1748002800000,
+          "exit_price": "664.600",
+          "fees": "0.039939800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.31900",
+          "minimum_equity": "100.2390261931550000000000000",
+          "net_pnl": "-0.358939800",
+          "plan": {
+            "decision_ms": 1748002500000,
+            "entry": "667.790",
+            "exits": [
+              {
+                "price": "664.600",
+                "quantity": "0.10",
+                "role": "STOP"
+              },
+              {
+                "price": "673.100",
+                "quantity": "0.10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.10",
+            "side": "BUY",
+            "signal_key": "3ef26cfa1986719c85fbed4e0eb9a03a9faf0de6914f827626b7a3aafd325863",
+            "stop": "664.600",
+            "symbol": "BNBUSDT",
+            "tp1": "673.100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.465499100"
+        },
+        {
+          "day_start_equity": "100.9225356531550000000000000",
+          "entry_ms": 1748003400000,
+          "exit_ms": 1748008800000,
+          "exit_price": "671.680",
+          "fees": "0.024066720",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.56880",
+          "minimum_equity": "100.0393657131550000000000000",
+          "net_pnl": "0.544733280",
+          "plan": {
+            "decision_ms": 1748003400000,
+            "entry": "665.360",
+            "exits": [
+              {
+                "price": "661.560",
+                "quantity": "0.09",
+                "role": "STOP"
+              },
+              {
+                "price": "671.680",
+                "quantity": "0.09",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.09",
+            "side": "BUY",
+            "signal_key": "5c65d55cce556fc3c42095d122b52b551bed6e9b7b0412f15efb93a4c4f1f4fe",
+            "stop": "661.560",
+            "symbol": "BNBUSDT",
+            "tp1": "671.680",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20231,
+          "stress_net_pnl": "0.460499760"
+        }
+      ],
+      "unfilled": 0
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 2,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "100.7571754731550000000000000",
+          "entry_ms": 1754911800000,
+          "exit_ms": 1754912100000,
+          "exit_price": "795.560",
+          "fees": "0.038245120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.29120",
+          "minimum_equity": "100.4531882731550000000000000",
+          "net_pnl": "-0.329445120",
+          "plan": {
+            "decision_ms": 1754911800000,
+            "entry": "799.200",
+            "exits": [
+              {
+                "price": "795.560",
+                "quantity": "0.08",
+                "role": "STOP"
+              },
+              {
+                "price": "805.250",
+                "quantity": "0.08",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.08",
+            "side": "BUY",
+            "signal_key": "dace5eda6a5bf71f1e992bddcddc3359a85b735719b8a442e2c9eb566ff9eeea",
+            "stop": "795.560",
+            "symbol": "BNBUSDT",
+            "tp1": "805.250",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20311,
+          "stress_net_pnl": "-0.431480640"
+        },
+        {
+          "day_start_equity": "100.4277303531550000000000000",
+          "entry_ms": 1757926800000,
+          "exit_ms": 1757927400000,
+          "exit_price": "917.900",
+          "fees": "0.025608800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.46200",
+          "minimum_equity": "100.3939721531550000000000000",
+          "net_pnl": "0.436391200",
+          "plan": {
+            "decision_ms": 1757926800000,
+            "entry": "911.300",
+            "exits": [
+              {
+                "price": "907.340",
+                "quantity": "0.07",
+                "role": "STOP"
+              },
+              {
+                "price": "917.900",
+                "quantity": "0.07",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.07",
+            "side": "BUY",
+            "signal_key": "0739e99312defa11efe0bf6529454301e03291122fdae2bb168ab7f6223c1dae",
+            "stop": "907.340",
+            "symbol": "BNBUSDT",
+            "tp1": "917.900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20346,
+          "stress_net_pnl": "0.346760400"
+        }
+      ],
+      "unfilled": 0
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 5,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "100.8641215531550000000000000",
+          "entry_ms": 1773837900000,
+          "exit_ms": 1773844200000,
+          "exit_price": "653.480",
+          "fees": "0.035348940",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.30510",
+          "minimum_equity": "100.5471978931550000000000000",
+          "net_pnl": "-0.340448940",
+          "plan": {
+            "decision_ms": 1773837900000,
+            "entry": "656.870",
+            "exits": [
+              {
+                "price": "653.480",
+                "quantity": "0.09",
+                "role": "STOP"
+              },
+              {
+                "price": "662.520",
+                "quantity": "0.09",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.09",
+            "side": "BUY",
+            "signal_key": "410c3134dfa115bfd2d7fad97490f51038e6ae83f3675e06c69b4ebaa928c589",
+            "stop": "653.480",
+            "symbol": "BNBUSDT",
+            "tp1": "662.520",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.434763630"
+        },
+        {
+          "day_start_equity": "100.5236726131550000000000000",
+          "entry_ms": 1775959200000,
+          "exit_ms": 1775966400000,
+          "exit_price": "595.760000000000000000",
+          "fees": "0.039277260000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.21450000000000000000",
+          "minimum_equity": "100.3412087931550000000000000",
+          "net_pnl": "0.175222740000000000000000",
+          "plan": {
+            "decision_ms": 1775959200000,
+            "entry": "593.810",
+            "exits": [
+              {
+                "price": "590.800",
+                "quantity": "0.11",
+                "role": "STOP"
+              },
+              {
+                "price": "598.810",
+                "quantity": "0.11",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.11",
+            "side": "BUY",
+            "signal_key": "7abe12e1e39e5da14b42c7e6f17c91ca1a7d603d27d9ac972a69386dd819c927",
+            "stop": "590.800",
+            "symbol": "BNBUSDT",
+            "tp1": "598.810",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20555,
+          "stress_net_pnl": "0.070519130000000000000000"
+        },
+        {
+          "day_start_equity": "100.6988953531550000000000000",
+          "entry_ms": 1776501900000,
+          "exit_ms": 1776507000000,
+          "exit_price": "633.190",
+          "fees": "0.049445760",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.28470",
+          "minimum_equity": "100.3976754731550000000000000",
+          "net_pnl": "-0.334145760",
+          "plan": {
+            "decision_ms": 1776501900000,
+            "entry": "635.380",
+            "exits": [
+              {
+                "price": "633.190",
+                "quantity": "0.13",
+                "role": "STOP"
+              },
+              {
+                "price": "639.020",
+                "quantity": "0.13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.13",
+            "side": "BUY",
+            "signal_key": "ab080ed4a1240acc5c4d14a74e75cdead1971f1dde2727c56697b5d8240f29ac",
+            "stop": "633.190",
+            "symbol": "BNBUSDT",
+            "tp1": "639.020",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20561,
+          "stress_net_pnl": "-0.466048570"
+        }
+      ],
+      "unfilled": 2
+    }
+  ]
+}

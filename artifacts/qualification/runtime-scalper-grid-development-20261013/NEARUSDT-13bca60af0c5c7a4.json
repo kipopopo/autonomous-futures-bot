@@ -1,0 +1,5776 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-2.0",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "3.0",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": false,
+    "positive_net_edge": false,
+    "profit_factor": false,
+    "stress_positive": false,
+    "sufficient_oos_samples": true,
+    "window_consistency": false
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "8.32300472730000000000000000",
+    "net_pnl": "-5.20155730148000000000000000",
+    "profitable_windows": 1,
+    "stress_net_pnl": "-14.03530170148000000000000000",
+    "trade_count": 137
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {},
+  "report_hash": "13bca60af0c5c7a4028708c728360f1847040b18ba8f35a27405d6ec4205b5a2",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-2.0",
+      "target_atr_multiplier": "3.0"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/NEARUSDT-220737ce4f99ce43.json",
+    "reference_report_sha256": "c15891d6dfe18af5d5dd2edc5015389b24801b9d05760fa011dccb89af424aa8",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "d5ee912c8baf1fc4fbc5e7add6ed8d9cacba88ed296bfa644ebfb3722a792248",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/NEARUSDT-5m.parquet",
+      "rows": 376704,
+      "sha256": "03e878d16b41dc345ca8c2bbe652071b631c52baffd2a0faf6253d7c6361b3b3"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/NEARUSDT-funding.csv",
+      "sha256": "5e14caf48f2e89b2dcaf3c3c4418fa0d4cb4fbe2d3994394d07b325a1c417525"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "3438a3148f735c3f31fd902ecf9776b973fb226a099e86b8942705194d4fd3f3",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/NEARUSDT-15m.parquet",
+      "rows": 125568,
+      "sha256": "734fbfcae2029486fd7bb0ae8f9b0113c89f9bab7d44de8fe7edd59ff9341c0f"
+    }
+  },
+  "symbol": "NEARUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 41,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704283200000,
+          "exit_ms": 1704283500000,
+          "exit_price": "3.7660",
+          "fees": "0.01589560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3920",
+          "minimum_equity": "99.60264920",
+          "net_pnl": "-0.40789560",
+          "plan": {
+            "decision_ms": 1704283200000,
+            "entry": "3.8220",
+            "exits": [
+              {
+                "price": "3.7660",
+                "quantity": "7",
+                "role": "STOP"
+              },
+              {
+                "price": "3.9600",
+                "quantity": "7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7",
+            "side": "BUY",
+            "signal_key": "b48ff9ccffeebe557f5c0126f04a0d6b868d5032288ef0e61178a4e193d9ff62",
+            "stop": "3.7660",
+            "symbol": "NEARUSDT",
+            "tp1": "3.9600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19725,
+          "stress_net_pnl": "-0.45034920"
+        },
+        {
+          "day_start_equity": "99.59210440",
+          "entry_ms": 1704519000000,
+          "exit_ms": 1704520500000,
+          "exit_price": "3.2280",
+          "fees": "0.01944600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3900",
+          "minimum_equity": "99.19557040",
+          "net_pnl": "-0.40944600",
+          "plan": {
+            "decision_ms": 1704519000000,
+            "entry": "3.2670",
+            "exits": [
+              {
+                "price": "3.2280",
+                "quantity": "10",
+                "role": "STOP"
+              },
+              {
+                "price": "3.3630",
+                "quantity": "10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10",
+            "side": "BUY",
+            "signal_key": "a8709224502c1d024e0f90f76d2e66f0e5fa303a9f275f8238b7e0bdcf37053b",
+            "stop": "3.2280",
+            "symbol": "NEARUSDT",
+            "tp1": "3.3630",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.46136700"
+        },
+        {
+          "day_start_equity": "99.59210440",
+          "entry_ms": 1704520800000,
+          "exit_ms": 1704522300000,
+          "exit_price": "3.2100",
+          "fees": "0.01740960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "98.79880480",
+          "net_pnl": "-0.39540960",
+          "plan": {
+            "decision_ms": 1704520800000,
+            "entry": "3.2520",
+            "exits": [
+              {
+                "price": "3.2100",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "3.3540",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "3243f0bd2a9b5d43c596ba990fbc6ffa5c9e0e1c3d961b4f0caf8f155182a5e7",
+            "stop": "3.2100",
+            "symbol": "NEARUSDT",
+            "tp1": "3.3540",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.44189820"
+        },
+        {
+          "day_start_equity": "98.78724880",
+          "entry_ms": 1704646800000,
+          "exit_ms": 1704652500000,
+          "exit_price": "3.3880",
+          "fees": "0.01336600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.9300",
+          "minimum_equity": "98.610658800000000000",
+          "net_pnl": "0.91663400",
+          "plan": {
+            "decision_ms": 1704646800000,
+            "entry": "3.2950",
+            "exits": [
+              {
+                "price": "3.2570",
+                "quantity": "10",
+                "role": "STOP"
+              },
+              {
+                "price": "3.3880",
+                "quantity": "10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10",
+            "side": "BUY",
+            "signal_key": "a1c165ac45e1d00e637785e98d14f9b1991f8f840b478bde66de0c0b15c92113",
+            "stop": "3.2570",
+            "symbol": "NEARUSDT",
+            "tp1": "3.3880",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19729,
+          "stress_net_pnl": "0.86985300"
+        },
+        {
+          "day_start_equity": "98.78724880",
+          "entry_ms": 1704666600000,
+          "exit_ms": 1704666900000,
+          "exit_price": "3.2010",
+          "fees": "0.02311920",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "99.33612840",
+          "net_pnl": "-0.38311920",
+          "plan": {
+            "decision_ms": 1704666600000,
+            "entry": "3.2310",
+            "exits": [
+              {
+                "price": "3.2010",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "3.3040",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "08b951541e3a8c8d2def1066bc38f8c6fbecd76abe76c4e38d015ebc75da30fe",
+            "stop": "3.2010",
+            "symbol": "NEARUSDT",
+            "tp1": "3.3040",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.44483040"
+        },
+        {
+          "day_start_equity": "99.854445600000000000",
+          "entry_ms": 1704670200000,
+          "exit_ms": 1704676800000,
+          "exit_price": "3.1190",
+          "fees": "0.01879400",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00321300000000000000000000",
+          "gross_pnl": "-0.4000",
+          "minimum_equity": "98.91123260000000000000000000",
+          "net_pnl": "-0.42200700000000000000000000",
+          "plan": {
+            "decision_ms": 1704670200000,
+            "entry": "3.1590",
+            "exits": [
+              {
+                "price": "3.1190",
+                "quantity": "10",
+                "role": "STOP"
+              },
+              {
+                "price": "3.2570",
+                "quantity": "10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10",
+            "side": "BUY",
+            "signal_key": "96037cf19eaa071881eb3774aa82b742e68bade8204faac0f2d0aaf54c55b979",
+            "stop": "3.1190",
+            "symbol": "NEARUSDT",
+            "tp1": "3.2570",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19730,
+          "stress_net_pnl": "-0.47219100000000000000000000"
+        },
+        {
+          "day_start_equity": "98.89875660000000000000000000",
+          "entry_ms": 1704794400000,
+          "exit_ms": 1704801600000,
+          "exit_price": "3.335000000000000000",
+          "fees": "0.0159968000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.056000000000000000",
+          "minimum_equity": "98.74943180000000000000000000",
+          "net_pnl": "0.0400032000000000000000",
+          "plan": {
+            "decision_ms": 1704794400000,
+            "entry": "3.3280",
+            "exits": [
+              {
+                "price": "3.2800",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "3.4470",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "f17e85878dce5c1863329ff8bacfcb668c5b41059d8da17af690d24d7abe605d",
+            "stop": "3.2800",
+            "symbol": "NEARUSDT",
+            "tp1": "3.4470",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19731,
+          "stress_net_pnl": "-0.0026456000000000000000"
+        },
+        {
+          "day_start_equity": "98.93875980000000000000000000",
+          "entry_ms": 1704891600000,
+          "exit_ms": 1704898800000,
+          "exit_price": "3.106000000000000000",
+          "fees": "0.0130648000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.098000000000000000",
+          "minimum_equity": "98.76639180000000000000000000",
+          "net_pnl": "-0.1110648000000000000000",
+          "plan": {
+            "decision_ms": 1704891600000,
+            "entry": "3.1200",
+            "exits": [
+              {
+                "price": "3.0650",
+                "quantity": "7",
+                "role": "STOP"
+              },
+              {
+                "price": "3.2570",
+                "quantity": "7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7",
+            "side": "BUY",
+            "signal_key": "742ceedb8c609643b3de6b2f31cee6b377b012b5f7b44aa09047782323ef625f",
+            "stop": "3.0650",
+            "symbol": "NEARUSDT",
+            "tp1": "3.2570",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19732,
+          "stress_net_pnl": "-0.1459206000000000000000"
+        },
+        {
+          "day_start_equity": "98.82769500000000000000000000",
+          "entry_ms": 1707831900000,
+          "exit_ms": 1707833700000,
+          "exit_price": "3.2280",
+          "fees": "0.02331360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "98.45987580000000000000000000",
+          "net_pnl": "-0.38331360",
+          "plan": {
+            "decision_ms": 1707831900000,
+            "entry": "3.2580",
+            "exits": [
+              {
+                "price": "3.2280",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "3.3310",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "960bb843efc5fa95d368a89b6353d12e13ee273eb0f61c06224154aa58c99d5b",
+            "stop": "3.2280",
+            "symbol": "NEARUSDT",
+            "tp1": "3.3310",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19766,
+          "stress_net_pnl": "-0.44554320"
+        },
+        {
+          "day_start_equity": "98.44438140000000000000000000",
+          "entry_ms": 1708093800000,
+          "exit_ms": 1708095000000,
+          "exit_price": "3.2640",
+          "fees": "0.02553460",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3770",
+          "minimum_equity": "98.05881960000000000000000000",
+          "net_pnl": "-0.40253460",
+          "plan": {
+            "decision_ms": 1708093800000,
+            "entry": "3.2930",
+            "exits": [
+              {
+                "price": "3.2640",
+                "quantity": "13",
+                "role": "STOP"
+              },
+              {
+                "price": "3.3640",
+                "quantity": "13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13",
+            "side": "BUY",
+            "signal_key": "9d24d4a9f2d24fcf99fb344d786e0c54d74b2a17075577c6137fd4b82d9f172c",
+            "stop": "3.2640",
+            "symbol": "NEARUSDT",
+            "tp1": "3.3640",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19769,
+          "stress_net_pnl": "-0.47068970"
+        },
+        {
+          "day_start_equity": "98.44438140000000000000000000",
+          "entry_ms": 1708096500000,
+          "exit_ms": 1708100700000,
+          "exit_price": "3.2860",
+          "fees": "0.01294600",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00323400000000000000000000",
+          "gross_pnl": "0.9900",
+          "minimum_equity": "98.02547280000000000000000000",
+          "net_pnl": "0.97382000000000000000000000",
+          "plan": {
+            "decision_ms": 1708096500000,
+            "entry": "3.1870",
+            "exits": [
+              {
+                "price": "3.1470",
+                "quantity": "10",
+                "role": "STOP"
+              },
+              {
+                "price": "3.2860",
+                "quantity": "10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10",
+            "side": "BUY",
+            "signal_key": "e6d0ca824283228ab76004edeb3c9bc0f62009652eda25121bcf8fe4bf159cea",
+            "stop": "3.1470",
+            "symbol": "NEARUSDT",
+            "tp1": "3.2860",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19769,
+          "stress_net_pnl": "0.92850900000000000000000000"
+        },
+        {
+          "day_start_equity": "99.01566680000000000000000000",
+          "entry_ms": 1708498800000,
+          "exit_ms": 1708499100000,
+          "exit_price": "3.2180",
+          "fees": "0.02903400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "98.64594080000000000000000000",
+          "net_pnl": "-0.38903400",
+          "plan": {
+            "decision_ms": 1708498800000,
+            "entry": "3.2420",
+            "exits": [
+              {
+                "price": "3.2180",
+                "quantity": "15",
+                "role": "STOP"
+              },
+              {
+                "price": "3.3000",
+                "quantity": "15",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "15",
+            "side": "BUY",
+            "signal_key": "ad34520f11e478f2d17ef51b4fde11a634d74dc1f12232264afd408fe8927061",
+            "stop": "3.2180",
+            "symbol": "NEARUSDT",
+            "tp1": "3.3000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19774,
+          "stress_net_pnl": "-0.46651800"
+        },
+        {
+          "day_start_equity": "99.01566680000000000000000000",
+          "entry_ms": 1708499700000,
+          "exit_ms": 1708506900000,
+          "exit_price": "3.235000000000000000",
+          "fees": "0.0271432000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.01201203360000000000000000",
+          "gross_pnl": "0.154000000000000000",
+          "minimum_equity": "98.53360560000000000000000000",
+          "net_pnl": "0.11484476640000000000000000",
+          "plan": {
+            "decision_ms": 1708499700000,
+            "entry": "3.2240",
+            "exits": [
+              {
+                "price": "3.1990",
+                "quantity": "14",
+                "role": "STOP"
+              },
+              {
+                "price": "3.2860",
+                "quantity": "14",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "14",
+            "side": "BUY",
+            "signal_key": "74e083d1357f7b5e7ade8482215773706aedc9599feab50e80830f99a236d250",
+            "stop": "3.1990",
+            "symbol": "NEARUSDT",
+            "tp1": "3.2860",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19774,
+          "stress_net_pnl": "0.04248856640000000000000000"
+        },
+        {
+          "day_start_equity": "99.01566680000000000000000000",
+          "entry_ms": 1708508700000,
+          "exit_ms": 1708509600000,
+          "exit_price": "3.1610",
+          "fees": "0.02283360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3720",
+          "minimum_equity": "98.36181676640000000000000000",
+          "net_pnl": "-0.39483360",
+          "plan": {
+            "decision_ms": 1708508700000,
+            "entry": "3.1920",
+            "exits": [
+              {
+                "price": "3.1610",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "3.2680",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "d674143765b368b5bce76360d7d4156f77f4277bc6dba7e2ddf48a384b830b6b",
+            "stop": "3.1610",
+            "symbol": "NEARUSDT",
+            "tp1": "3.2680",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19774,
+          "stress_net_pnl": "-0.45578520"
+        },
+        {
+          "day_start_equity": "98.34664396640000000000000000",
+          "entry_ms": 1709446500000,
+          "exit_ms": 1709448000000,
+          "exit_price": "4.2210",
+          "fees": "0.02793120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3630",
+          "minimum_equity": "97.97428516640000000000000000",
+          "net_pnl": "-0.39093120",
+          "plan": {
+            "decision_ms": 1709446500000,
+            "entry": "4.2540",
+            "exits": [
+              {
+                "price": "4.2210",
+                "quantity": "11",
+                "role": "STOP"
+              },
+              {
+                "price": "4.3360",
+                "quantity": "11",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11",
+            "side": "BUY",
+            "signal_key": "f4463dd6d6ceb6f57d226d9ed9f7a5cc54263b75565ab7c33bcc91c2c6819ca6",
+            "stop": "4.2210",
+            "symbol": "NEARUSDT",
+            "tp1": "4.3360",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19785,
+          "stress_net_pnl": "-0.46547490"
+        },
+        {
+          "day_start_equity": "98.34664396640000000000000000",
+          "entry_ms": 1709450100000,
+          "exit_ms": 1709450400000,
+          "exit_price": "4.1560",
+          "fees": "0.02251800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "97.57015636640000000000000000",
+          "net_pnl": "-0.40051800",
+          "plan": {
+            "decision_ms": 1709450100000,
+            "entry": "4.1980",
+            "exits": [
+              {
+                "price": "4.1560",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "4.3000",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "6420c29b266781e08115151df350206a37cee0a677c2511e0f8298ce285fbd6c",
+            "stop": "4.1560",
+            "symbol": "NEARUSDT",
+            "tp1": "4.3000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19785,
+          "stress_net_pnl": "-0.46062900"
+        },
+        {
+          "day_start_equity": "98.34664396640000000000000000",
+          "entry_ms": 1709451000000,
+          "exit_ms": 1709457300000,
+          "exit_price": "4.2210",
+          "fees": "0.00825300",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.01834339775000000000000000",
+          "gross_pnl": "0.9450",
+          "minimum_equity": "97.39616276640000000000000000",
+          "net_pnl": "0.91840360225000000000000000",
+          "plan": {
+            "decision_ms": 1709451000000,
+            "entry": "4.0320",
+            "exits": [
+              {
+                "price": "3.9560",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "4.2210",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "048e0327ff25e75fd172a238afa08d72ab13d00523ad8835d3210c2532bc7dd0",
+            "stop": "3.9560",
+            "symbol": "NEARUSDT",
+            "tp1": "4.2210",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19785,
+          "stress_net_pnl": "0.88951810225000000000000000"
+        },
+        {
+          "day_start_equity": "98.72962436865000000000000000",
+          "entry_ms": 1710196200000,
+          "exit_ms": 1710203100000,
+          "exit_price": "6.7920",
+          "fees": "0.01612440",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.03290265588000000000000000",
+          "gross_pnl": "0.8820",
+          "minimum_equity": "98.23762436865000000000000000",
+          "net_pnl": "0.83297294412000000000000000",
+          "plan": {
+            "decision_ms": 1710196200000,
+            "entry": "6.6450",
+            "exits": [
+              {
+                "price": "6.5860",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "6.7920",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "329fb03ed52cb01d54dc4aad92bda9b49e6fa5a0bf6f25dd28b0f63ab132dba5",
+            "stop": "6.5860",
+            "symbol": "NEARUSDT",
+            "tp1": "6.7920",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19794,
+          "stress_net_pnl": "0.77653754412000000000000000"
+        },
+        {
+          "day_start_equity": "99.30657131277000000000000000",
+          "entry_ms": 1711699200000,
+          "exit_ms": 1711706400000,
+          "exit_price": "6.981000000000000000",
+          "fees": "0.0251016000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.150000000000000000",
+          "minimum_equity": "99.22622411277000000000000000",
+          "net_pnl": "0.1248984000000000000000",
+          "plan": {
+            "decision_ms": 1711699200000,
+            "entry": "6.9560",
+            "exits": [
+              {
+                "price": "6.8940",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "7.1080",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "21b68a99482a9e95d7a4fa16ac4ab2b3d934cb72218a63bff14222d9e3f24971",
+            "stop": "6.8940",
+            "symbol": "NEARUSDT",
+            "tp1": "7.1080",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19811,
+          "stress_net_pnl": "0.0579858000000000000000"
+        },
+        {
+          "day_start_equity": "99.43146971277000000000000000",
+          "entry_ms": 1712025900000,
+          "exit_ms": 1712033100000,
+          "exit_price": "6.382000000000000000",
+          "fees": "0.0152736000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.216000000000000000",
+          "minimum_equity": "99.36240731277000000000000000",
+          "net_pnl": "0.2007264000000000000000",
+          "plan": {
+            "decision_ms": 1712025900000,
+            "entry": "6.3280",
+            "exits": [
+              {
+                "price": "6.2420",
+                "quantity": "4",
+                "role": "STOP"
+              },
+              {
+                "price": "6.5410",
+                "quantity": "4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4",
+            "side": "BUY",
+            "signal_key": "347e20d424f5b83bb9c6a224019a59d8844f5040846b44360b7317a83aacb330",
+            "stop": "6.2420",
+            "symbol": "NEARUSDT",
+            "tp1": "6.5410",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19815,
+          "stress_net_pnl": "0.1600328000000000000000"
+        },
+        {
+          "day_start_equity": "99.63219611277000000000000000",
+          "entry_ms": 1712928600000,
+          "exit_ms": 1712929500000,
+          "exit_price": "6.5330",
+          "fees": "0.02358480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3300",
+          "minimum_equity": "99.29429051277000000000000000",
+          "net_pnl": "-0.35358480",
+          "plan": {
+            "decision_ms": 1712928600000,
+            "entry": "6.5880",
+            "exits": [
+              {
+                "price": "6.5330",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "6.7240",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "837f7115de1f822177cf25abfb4c7afd8296793c0c8289cb319565c105cba9ea",
+            "stop": "6.5330",
+            "symbol": "NEARUSDT",
+            "tp1": "6.7240",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.41653260"
+        },
+        {
+          "day_start_equity": "99.27861131277000000000000000",
+          "entry_ms": 1716117300000,
+          "exit_ms": 1716121800000,
+          "exit_price": "7.6700",
+          "fees": "0.02768160",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3480",
+          "minimum_equity": "98.92133771277000000000000000",
+          "net_pnl": "-0.37568160",
+          "plan": {
+            "decision_ms": 1716117300000,
+            "entry": "7.7280",
+            "exits": [
+              {
+                "price": "7.6700",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "7.8710",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "4d773b9c8a81e38abf0fc518826f2fc30a396912c72da20757a768b04ce4db5d",
+            "stop": "7.6700",
+            "symbol": "NEARUSDT",
+            "tp1": "7.8710",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19862,
+          "stress_net_pnl": "-0.44955720"
+        },
+        {
+          "day_start_equity": "99.27861131277000000000000000",
+          "entry_ms": 1716121800000,
+          "exit_ms": 1716127800000,
+          "exit_price": "7.8440",
+          "fees": "0.01864440",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.9060",
+          "minimum_equity": "98.73169811277000000000000000",
+          "net_pnl": "0.88735560",
+          "plan": {
+            "decision_ms": 1716121800000,
+            "entry": "7.6930",
+            "exits": [
+              {
+                "price": "7.6320",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "7.8440",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "3b11a13ba9a82477481dc9965108938ffe2aecc2d5b025cfe2b6d7fe15956229",
+            "stop": "7.6320",
+            "symbol": "NEARUSDT",
+            "tp1": "7.8440",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19862,
+          "stress_net_pnl": "0.82210020"
+        },
+        {
+          "day_start_equity": "99.79028531277000000000000000",
+          "entry_ms": 1716840000000,
+          "exit_ms": 1716847200000,
+          "exit_price": "7.876000000000000000",
+          "fees": "0.0282036000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.750000000000000000",
+          "minimum_equity": "99.69098411277000000000000000",
+          "net_pnl": "0.7217964000000000000000",
+          "plan": {
+            "decision_ms": 1716840000000,
+            "entry": "7.7510",
+            "exits": [
+              {
+                "price": "7.6920",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "7.8960",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "248e56e701b722bed515082b495a12a951dea47d7f787f1c06964ce21cf39602",
+            "stop": "7.6920",
+            "symbol": "NEARUSDT",
+            "tp1": "7.8960",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19870,
+          "stress_net_pnl": "0.6467118000000000000000"
+        },
+        {
+          "day_start_equity": "100.5120817127700000000000000",
+          "entry_ms": 1717648200000,
+          "exit_ms": 1717655100000,
+          "exit_price": "7.5080",
+          "fees": "0.04510800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3000",
+          "minimum_equity": "100.1970057127700000000000000",
+          "net_pnl": "-0.34510800",
+          "plan": {
+            "decision_ms": 1717648200000,
+            "entry": "7.5380",
+            "exits": [
+              {
+                "price": "7.5080",
+                "quantity": "10",
+                "role": "STOP"
+              },
+              {
+                "price": "7.6130",
+                "quantity": "10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10",
+            "side": "BUY",
+            "signal_key": "c6f36128901cbeb4acab50fe288bf2694fec2c72de8e3428ba364a6386b91f7f",
+            "stop": "7.5080",
+            "symbol": "NEARUSDT",
+            "tp1": "7.6130",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19880,
+          "stress_net_pnl": "-0.46544600"
+        },
+        {
+          "day_start_equity": "100.5120817127700000000000000",
+          "entry_ms": 1717703100000,
+          "exit_ms": 1717703700000,
+          "exit_price": "7.3110",
+          "fees": "0.03515520",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3120",
+          "minimum_equity": "99.8432137127700000000000000",
+          "net_pnl": "-0.34715520",
+          "plan": {
+            "decision_ms": 1717703100000,
+            "entry": "7.3500",
+            "exits": [
+              {
+                "price": "7.3110",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "7.4460",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "f6288d27def30ae7425ea524197fe3cd2c9be049b771f09969d3190dba5b2c97",
+            "stop": "7.3110",
+            "symbol": "NEARUSDT",
+            "tp1": "7.4460",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19880,
+          "stress_net_pnl": "-0.44095440"
+        },
+        {
+          "day_start_equity": "100.5120817127700000000000000",
+          "entry_ms": 1717704000000,
+          "exit_ms": 1717704300000,
+          "exit_price": "7.2610",
+          "fees": "0.03491840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3280",
+          "minimum_equity": "99.4801353127700000000000000",
+          "net_pnl": "-0.36291840",
+          "plan": {
+            "decision_ms": 1717704000000,
+            "entry": "7.3020",
+            "exits": [
+              {
+                "price": "7.2610",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "7.4020",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "3d1622fbaf9ea880ba7d87113be92f73153623e6ae0d9a3a0bf8335e04eb59a9",
+            "stop": "7.2610",
+            "symbol": "NEARUSDT",
+            "tp1": "7.4020",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19880,
+          "stress_net_pnl": "-0.45608880"
+        },
+        {
+          "day_start_equity": "100.5120817127700000000000000",
+          "entry_ms": 1717704900000,
+          "exit_ms": 1717712100000,
+          "exit_price": "7.320000000000000000",
+          "fees": "0.0350736000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.312000000000000000",
+          "minimum_equity": "99.4292505127700000000000000",
+          "net_pnl": "0.2769264000000000000000",
+          "plan": {
+            "decision_ms": 1717704900000,
+            "entry": "7.2810",
+            "exits": [
+              {
+                "price": "7.2380",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "7.3860",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "751bdb091e6eaf0167ba8aca6e291b0a726b2444b50441fe226e5f4425f1ace5",
+            "stop": "7.2380",
+            "symbol": "NEARUSDT",
+            "tp1": "7.3860",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19880,
+          "stress_net_pnl": "0.1834488000000000000000"
+        },
+        {
+          "day_start_equity": "99.7338265127700000000000000",
+          "entry_ms": 1717784100000,
+          "exit_ms": 1717784400000,
+          "exit_price": "6.0110",
+          "fees": "0.01090560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4290",
+          "minimum_equity": "99.3011341127700000000000000",
+          "net_pnl": "-0.43990560",
+          "plan": {
+            "decision_ms": 1717784100000,
+            "entry": "6.1540",
+            "exits": [
+              {
+                "price": "6.0110",
+                "quantity": "3",
+                "role": "STOP"
+              },
+              {
+                "price": "6.5090",
+                "quantity": "3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3",
+            "side": "BUY",
+            "signal_key": "977957153236522f07f85ffbb331965a8b142500ab154e254b8ace7ba667a377",
+            "stop": "6.0110",
+            "symbol": "NEARUSDT",
+            "tp1": "6.5090",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19881,
+          "stress_net_pnl": "-0.46905870"
+        }
+      ],
+      "unfilled": 12
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 48,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "99.2939209127700000000000000",
+          "entry_ms": 1721709900000,
+          "exit_ms": 1721711400000,
+          "exit_price": "5.9050",
+          "fees": "0.02840800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3200",
+          "minimum_equity": "98.9644089127700000000000000",
+          "net_pnl": "-0.34840800",
+          "plan": {
+            "decision_ms": 1721709900000,
+            "entry": "5.9450",
+            "exits": [
+              {
+                "price": "5.9050",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "6.0440",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "f5b8ea92cb5831696615206b2eb2a94d355dc23e033e0cfea93f57d8464e9d62",
+            "stop": "5.9050",
+            "symbol": "NEARUSDT",
+            "tp1": "6.0440",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19927,
+          "stress_net_pnl": "-0.42421600"
+        },
+        {
+          "day_start_equity": "99.2939209127700000000000000",
+          "entry_ms": 1721711700000,
+          "exit_ms": 1721712300000,
+          "exit_price": "5.8590",
+          "fees": "0.02818880",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3280",
+          "minimum_equity": "98.6080729127700000000000000",
+          "net_pnl": "-0.35618880",
+          "plan": {
+            "decision_ms": 1721711700000,
+            "entry": "5.9000",
+            "exits": [
+              {
+                "price": "5.8590",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "6.0020",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "a944d5a0636259450ca167d9b59223038bdfaf0e4970c9bd817d8258baa42d0a",
+            "stop": "5.8590",
+            "symbol": "NEARUSDT",
+            "tp1": "6.0020",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19927,
+          "stress_net_pnl": "-0.43141360"
+        },
+        {
+          "day_start_equity": "99.2939209127700000000000000",
+          "entry_ms": 1721712600000,
+          "exit_ms": 1721712900000,
+          "exit_price": "5.8310",
+          "fees": "0.02805920",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3520",
+          "minimum_equity": "98.2279241127700000000000000",
+          "net_pnl": "-0.38005920",
+          "plan": {
+            "decision_ms": 1721712600000,
+            "entry": "5.8750",
+            "exits": [
+              {
+                "price": "5.8310",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "5.9840",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "303cbe0fb87e48be36788b0276cbc10b36f7d29521876e9c5e48afc177f2471a",
+            "stop": "5.8310",
+            "symbol": "NEARUSDT",
+            "tp1": "5.9840",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19927,
+          "stress_net_pnl": "-0.45494240"
+        },
+        {
+          "day_start_equity": "99.2939209127700000000000000",
+          "entry_ms": 1721713500000,
+          "exit_ms": 1721720700000,
+          "exit_price": "5.851000000000000000",
+          "fees": "0.0280592000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.128000000000000000",
+          "minimum_equity": "97.9759289127700000000000000",
+          "net_pnl": "0.0999408000000000000000",
+          "plan": {
+            "decision_ms": 1721713500000,
+            "entry": "5.8350",
+            "exits": [
+              {
+                "price": "5.7900",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "5.9450",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "cf2bee5a342727a924ac6e5df348ee6c1b9556da9ae7a83644ee12a340f71871",
+            "stop": "5.7900",
+            "symbol": "NEARUSDT",
+            "tp1": "5.9450",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19927,
+          "stress_net_pnl": "0.0251376000000000000000"
+        },
+        {
+          "day_start_equity": "98.3092057127700000000000000",
+          "entry_ms": 1721857500000,
+          "exit_ms": 1721861100000,
+          "exit_price": "5.5760",
+          "fees": "0.02348920",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3500",
+          "minimum_equity": "97.9513293127700000000000000",
+          "net_pnl": "-0.37348920",
+          "plan": {
+            "decision_ms": 1721857500000,
+            "entry": "5.6260",
+            "exits": [
+              {
+                "price": "5.5760",
+                "quantity": "7",
+                "role": "STOP"
+              },
+              {
+                "price": "5.7500",
+                "quantity": "7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7",
+            "side": "BUY",
+            "signal_key": "cd70e9d1af53ca2b16993d2b2f50de9ae422aac6f6ceccbdc959f4e97a65ab59",
+            "stop": "5.5760",
+            "symbol": "NEARUSDT",
+            "tp1": "5.7500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19928,
+          "stress_net_pnl": "-0.43618540"
+        },
+        {
+          "day_start_equity": "97.9357165127700000000000000",
+          "entry_ms": 1722179700000,
+          "exit_ms": 1722186900000,
+          "exit_price": "5.472000000000000000",
+          "fees": "0.0294894000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00427509747000000000000000",
+          "gross_pnl": "0.297000000000000000",
+          "minimum_equity": "97.8359263127700000000000000",
+          "net_pnl": "0.26323550253000000000000000",
+          "plan": {
+            "decision_ms": 1722179700000,
+            "entry": "5.4390",
+            "exits": [
+              {
+                "price": "5.4040",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "5.5260",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "14d8eb4c581e995af5399be8afdfb5b9a6411e509ece880deb8cfc496ef41cee",
+            "stop": "5.4040",
+            "symbol": "NEARUSDT",
+            "tp1": "5.5260",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19932,
+          "stress_net_pnl": "0.18464660253000000000000000"
+        },
+        {
+          "day_start_equity": "98.19895201530000000000000000",
+          "entry_ms": 1722267000000,
+          "exit_ms": 1722270900000,
+          "exit_price": "5.2950",
+          "fees": "0.01913520",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00223904280000000000000000",
+          "gross_pnl": "-0.3660",
+          "minimum_equity": "97.82428577250000000000000000",
+          "net_pnl": "-0.38737424280000000000000000",
+          "plan": {
+            "decision_ms": 1722267000000,
+            "entry": "5.3560",
+            "exits": [
+              {
+                "price": "5.2950",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "5.5070",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "42ac96e2003953f55e4be16c3fc2f0e5c1ad099232bc2d57a74d851085aa544b",
+            "stop": "5.2950",
+            "symbol": "NEARUSDT",
+            "tp1": "5.5070",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19933,
+          "stress_net_pnl": "-0.43846244280000000000000000"
+        },
+        {
+          "day_start_equity": "97.81157777250000000000000000",
+          "entry_ms": 1724571900000,
+          "exit_ms": 1724579100000,
+          "exit_price": "4.844000000000000000",
+          "fees": "0.0260712000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00434430000000000000000000",
+          "gross_pnl": "0.432000000000000000",
+          "minimum_equity": "97.63194497250000000000000000",
+          "net_pnl": "0.40158450000000000000000000",
+          "plan": {
+            "decision_ms": 1724571900000,
+            "entry": "4.7960",
+            "exits": [
+              {
+                "price": "4.7550",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "4.8960",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "c6dda60e3044f9701ceb2f5c8ed27549723d4083b9c94d71c0e95aa2a03ee2d7",
+            "stop": "4.7550",
+            "symbol": "NEARUSDT",
+            "tp1": "4.8960",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19960,
+          "stress_net_pnl": "0.33213330000000000000000000"
+        },
+        {
+          "day_start_equity": "98.13831607250000000000000000",
+          "entry_ms": 1726442100000,
+          "exit_ms": 1726445700000,
+          "exit_price": "3.9890",
+          "fees": "0.02639780",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00441650000000000000000000",
+          "gross_pnl": "-0.3520",
+          "minimum_equity": "97.84789957250000000000000000",
+          "net_pnl": "-0.38281430000000000000000000",
+          "plan": {
+            "decision_ms": 1726442100000,
+            "entry": "4.0210",
+            "exits": [
+              {
+                "price": "3.9890",
+                "quantity": "11",
+                "role": "STOP"
+              },
+              {
+                "price": "4.1000",
+                "quantity": "11",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11",
+            "side": "BUY",
+            "signal_key": "ec7a171f5a6f3e65888ea7cba03fc925114c52c5e7c1d784623849ac0bb0db8b",
+            "stop": "3.9890",
+            "symbol": "NEARUSDT",
+            "tp1": "4.1000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19982,
+          "stress_net_pnl": "-0.45326710000000000000000000"
+        },
+        {
+          "day_start_equity": "98.13831607250000000000000000",
+          "entry_ms": 1726455600000,
+          "exit_ms": 1726462800000,
+          "exit_price": "3.926000000000000000",
+          "fees": "0.0235040000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.260000000000000000",
+          "minimum_equity": "97.73254797250000000000000000",
+          "net_pnl": "0.2364960000000000000000",
+          "plan": {
+            "decision_ms": 1726455600000,
+            "entry": "3.9000",
+            "exits": [
+              {
+                "price": "3.8650",
+                "quantity": "10",
+                "role": "STOP"
+              },
+              {
+                "price": "3.9860",
+                "quantity": "10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10",
+            "side": "BUY",
+            "signal_key": "4d20690a2301b32e7a02b0da8020351b5f80cc2f0ef1e5ba3199fd2adff0a371",
+            "stop": "3.8650",
+            "symbol": "NEARUSDT",
+            "tp1": "3.9860",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19982,
+          "stress_net_pnl": "0.1738620000000000000000"
+        },
+        {
+          "day_start_equity": "98.06684397250000000000000000",
+          "entry_ms": 1726653600000,
+          "exit_ms": 1726660800000,
+          "exit_price": "3.969000000000000000",
+          "fees": "0.0309374000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.104000000000000000",
+          "minimum_equity": "97.84854537250000000000000000",
+          "net_pnl": "0.0730626000000000000000",
+          "plan": {
+            "decision_ms": 1726653600000,
+            "entry": "3.9610",
+            "exits": [
+              {
+                "price": "3.9350",
+                "quantity": "13",
+                "role": "STOP"
+              },
+              {
+                "price": "4.0250",
+                "quantity": "13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13",
+            "side": "BUY",
+            "signal_key": "53efb5edeecba0f0a5ba76f3c8daf6a26321e8d69177b576fa8d744b01da30fe",
+            "stop": "3.9350",
+            "symbol": "NEARUSDT",
+            "tp1": "4.0250",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19984,
+          "stress_net_pnl": "-0.0094198000000000000000"
+        },
+        {
+          "day_start_equity": "98.26146177250000000000000000",
+          "entry_ms": 1726784100000,
+          "exit_ms": 1726791300000,
+          "exit_price": "4.334000000000000000",
+          "fees": "0.0312480000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00523560000000000000000000",
+          "gross_pnl": "-0.216000000000000000",
+          "minimum_equity": "97.86022617250000000000000000",
+          "net_pnl": "-0.25248360000000000000000000",
+          "plan": {
+            "decision_ms": 1726784100000,
+            "entry": "4.3520",
+            "exits": [
+              {
+                "price": "4.3230",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "4.4230",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "2f45f8383d7950b6a86d55308f3a99b7c23894120fede640026189f7a13ca032",
+            "stop": "4.3230",
+            "symbol": "NEARUSDT",
+            "tp1": "4.4230",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19986,
+          "stress_net_pnl": "-0.33584760000000000000000000"
+        },
+        {
+          "day_start_equity": "97.88742297250000000000000000",
+          "entry_ms": 1728819900000,
+          "exit_ms": 1728827100000,
+          "exit_price": "4.732000000000000000",
+          "fees": "0.0339672000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.516000000000000000",
+          "minimum_equity": "97.78016937250000000000000000",
+          "net_pnl": "0.4820328000000000000000",
+          "plan": {
+            "decision_ms": 1728819900000,
+            "entry": "4.6890",
+            "exits": [
+              {
+                "price": "4.6620",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "4.7550",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "a036338612221b89b92fa0e95df5e9f4114f7744a41b3967d4b7bf8b1d5c1765",
+            "stop": "4.6620",
+            "symbol": "NEARUSDT",
+            "tp1": "4.7550",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20009,
+          "stress_net_pnl": "0.3915396000000000000000"
+        },
+        {
+          "day_start_equity": "98.36945577250000000000000000",
+          "entry_ms": 1729150200000,
+          "exit_ms": 1729157400000,
+          "exit_price": "4.842000000000000000",
+          "fees": "0.0261396000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00436230000000000000000000",
+          "gross_pnl": "0.036000000000000000",
+          "minimum_equity": "98.05938507250000000000000000",
+          "net_pnl": "0.00549810000000000000000000",
+          "plan": {
+            "decision_ms": 1729150200000,
+            "entry": "4.8380",
+            "exits": [
+              {
+                "price": "4.8000",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "4.9320",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "a46d80b5c0b95d52670fdf5f94b12a455d66beba18c0c510e2d3aa48fd6e76a8",
+            "stop": "4.8000",
+            "symbol": "NEARUSDT",
+            "tp1": "4.9320",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20013,
+          "stress_net_pnl": "-0.06420150000000000000000000"
+        },
+        {
+          "day_start_equity": "98.37495387250000000000000000",
+          "entry_ms": 1729338300000,
+          "exit_ms": 1729343100000,
+          "exit_price": "4.8020",
+          "fees": "0.03463680",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3120",
+          "minimum_equity": "98.05136667250000000000000000",
+          "net_pnl": "-0.34663680",
+          "plan": {
+            "decision_ms": 1729338300000,
+            "entry": "4.8280",
+            "exits": [
+              {
+                "price": "4.8020",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "4.8910",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "39a319bdb90a3d8ac23e7d4edaa80bf1318e4a1e6ee85ffae2277c3aca4b56c5",
+            "stop": "4.8020",
+            "symbol": "NEARUSDT",
+            "tp1": "4.8910",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20015,
+          "stress_net_pnl": "-0.43905360"
+        },
+        {
+          "day_start_equity": "98.02831707250000000000000000",
+          "entry_ms": 1729519200000,
+          "exit_ms": 1729526400000,
+          "exit_price": "4.812000000000000000",
+          "fees": "0.0230512000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00384960000000000000000000",
+          "gross_pnl": "0.232000000000000000",
+          "minimum_equity": "97.84466427250000000000000000",
+          "net_pnl": "0.20509920000000000000000000",
+          "plan": {
+            "decision_ms": 1729519200000,
+            "entry": "4.7830",
+            "exits": [
+              {
+                "price": "4.7380",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "4.8940",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "c2f059e29adbcc66c766d8e5e86587c5abe216151affb30abd7efbd6cfb5fe67",
+            "stop": "4.7380",
+            "symbol": "NEARUSDT",
+            "tp1": "4.8940",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20017,
+          "stress_net_pnl": "0.14366800000000000000000000"
+        },
+        {
+          "day_start_equity": "98.23341627250000000000000000",
+          "entry_ms": 1729557900000,
+          "exit_ms": 1729560300000,
+          "exit_price": "4.8100",
+          "fees": "0.02101000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7700",
+          "minimum_equity": "98.21198827250000000000000000",
+          "net_pnl": "0.74899000",
+          "plan": {
+            "decision_ms": 1729557900000,
+            "entry": "4.7400",
+            "exits": [
+              {
+                "price": "4.7110",
+                "quantity": "11",
+                "role": "STOP"
+              },
+              {
+                "price": "4.8100",
+                "quantity": "11",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11",
+            "side": "BUY",
+            "signal_key": "d80ab5c3b70a5023ef7bc0d74fbe0a13d57ae9ee29ffd20eb2600c6897fa8a80",
+            "stop": "4.7110",
+            "symbol": "NEARUSDT",
+            "tp1": "4.8100",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20018,
+          "stress_net_pnl": "0.67545500"
+        },
+        {
+          "day_start_equity": "98.98240627250000000000000000",
+          "entry_ms": 1729830600000,
+          "exit_ms": 1729837800000,
+          "exit_price": "4.574000000000000000",
+          "fees": "0.0301092000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.396000000000000000",
+          "minimum_equity": "98.81842267250000000000000000",
+          "net_pnl": "0.3658908000000000000000",
+          "plan": {
+            "decision_ms": 1729830600000,
+            "entry": "4.5380",
+            "exits": [
+              {
+                "price": "4.5060",
+                "quantity": "11",
+                "role": "STOP"
+              },
+              {
+                "price": "4.6150",
+                "quantity": "11",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11",
+            "side": "BUY",
+            "signal_key": "3d40e099ded6ca5b545be7b65a04077e88277a404b87e102569b7e378874fe7d",
+            "stop": "4.5060",
+            "symbol": "NEARUSDT",
+            "tp1": "4.6150",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20021,
+          "stress_net_pnl": "0.2856656000000000000000"
+        },
+        {
+          "day_start_equity": "99.34829707250000000000000000",
+          "entry_ms": 1730364300000,
+          "exit_ms": 1730371500000,
+          "exit_price": "4.232000000000000000",
+          "fees": "0.0354592000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.448000000000000000",
+          "minimum_equity": "99.30853707250000000000000000",
+          "net_pnl": "0.4125408000000000000000",
+          "plan": {
+            "decision_ms": 1730364300000,
+            "entry": "4.2000",
+            "exits": [
+              {
+                "price": "4.1770",
+                "quantity": "14",
+                "role": "STOP"
+              },
+              {
+                "price": "4.2550",
+                "quantity": "14",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "14",
+            "side": "BUY",
+            "signal_key": "4c126137d4bedc10017319319ab70c45723bc883b709415027ddae7c9a562bfb",
+            "stop": "4.1770",
+            "symbol": "NEARUSDT",
+            "tp1": "4.2550",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20027,
+          "stress_net_pnl": "0.3180576000000000000000"
+        },
+        {
+          "day_start_equity": "99.76083787250000000000000000",
+          "entry_ms": 1730905200000,
+          "exit_ms": 1730912400000,
+          "exit_price": "4.103000000000000000",
+          "fees": "0.0220572000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00365850000000000000000000",
+          "gross_pnl": "0.495000000000000000",
+          "minimum_equity": "99.68155147250000000000000000",
+          "net_pnl": "0.46928430000000000000000000",
+          "plan": {
+            "decision_ms": 1730905200000,
+            "entry": "4.0480",
+            "exits": [
+              {
+                "price": "4.0080",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "4.1460",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "660ae1618296c0e3d7fa4d2169ae164c158a29dae1812149ee406ef986f63e16",
+            "stop": "4.0080",
+            "symbol": "NEARUSDT",
+            "tp1": "4.1460",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20033,
+          "stress_net_pnl": "0.41054760000000000000000000"
+        },
+        {
+          "day_start_equity": "100.2301221725000000000000000",
+          "entry_ms": 1731273300000,
+          "exit_ms": 1731277500000,
+          "exit_price": "4.7420",
+          "fees": "0.00927500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "1.0450",
+          "minimum_equity": "100.2155891725000000000000000",
+          "net_pnl": "1.03572500",
+          "plan": {
+            "decision_ms": 1731273300000,
+            "entry": "4.5330",
+            "exits": [
+              {
+                "price": "4.4490",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "4.7420",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "ce59335602d22fc41138e1eea6a6ade20495592f470393e16c2843366d2ecc85",
+            "stop": "4.4490",
+            "symbol": "NEARUSDT",
+            "tp1": "4.7420",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20037,
+          "stress_net_pnl": "1.00326250"
+        },
+        {
+          "day_start_equity": "101.2658471725000000000000000",
+          "entry_ms": 1731526200000,
+          "exit_ms": 1731526800000,
+          "exit_price": "5.1030",
+          "fees": "0.01231920",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "100.9016927725000000000000000",
+          "net_pnl": "-0.37231920",
+          "plan": {
+            "decision_ms": 1731526200000,
+            "entry": "5.1930",
+            "exits": [
+              {
+                "price": "5.1030",
+                "quantity": "4",
+                "role": "STOP"
+              },
+              {
+                "price": "5.4160",
+                "quantity": "4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4",
+            "side": "BUY",
+            "signal_key": "1cc63e97277a850fc05260ed1476e5d2a69cb935a2238c91c52f89b0c6de10ad",
+            "stop": "5.1030",
+            "symbol": "NEARUSDT",
+            "tp1": "5.4160",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20040,
+          "stress_net_pnl": "-0.40523040"
+        },
+        {
+          "day_start_equity": "100.8935279725000000000000000",
+          "entry_ms": 1731773700000,
+          "exit_ms": 1731780900000,
+          "exit_price": "5.929000000000000000",
+          "fees": "0.0176350000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.760000000000000000",
+          "minimum_equity": "100.8727509725000000000000000",
+          "net_pnl": "0.7423650000000000000000",
+          "plan": {
+            "decision_ms": 1731773700000,
+            "entry": "5.7770",
+            "exits": [
+              {
+                "price": "5.6990",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "5.9700",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "9378d12624bbe5a5ac00cf7149821a6753964346ff290681534a3b70957c4c11",
+            "stop": "5.6990",
+            "symbol": "NEARUSDT",
+            "tp1": "5.9700",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20043,
+          "stress_net_pnl": "0.6954650000000000000000"
+        },
+        {
+          "day_start_equity": "101.6358929725000000000000000",
+          "entry_ms": 1732071600000,
+          "exit_ms": 1732073700000,
+          "exit_price": "5.5150",
+          "fees": "0.01992960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "101.2511993725000000000000000",
+          "net_pnl": "-0.39792960",
+          "plan": {
+            "decision_ms": 1732071600000,
+            "entry": "5.5780",
+            "exits": [
+              {
+                "price": "5.5150",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "5.7340",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "86a65d9a49567c3c2dcaacec5e4fae10669245a85f58479f7d51b4f7ff62f629",
+            "stop": "5.5150",
+            "symbol": "NEARUSDT",
+            "tp1": "5.7340",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20047,
+          "stress_net_pnl": "-0.45113820"
+        },
+        {
+          "day_start_equity": "101.2379633725000000000000000",
+          "entry_ms": 1732446900000,
+          "exit_ms": 1732451700000,
+          "exit_price": "6.2180",
+          "fees": "0.01500960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4320",
+          "minimum_equity": "100.8009025725000000000000000",
+          "net_pnl": "-0.44700960",
+          "plan": {
+            "decision_ms": 1732446900000,
+            "entry": "6.3260",
+            "exits": [
+              {
+                "price": "6.2180",
+                "quantity": "4",
+                "role": "STOP"
+              },
+              {
+                "price": "6.5960",
+                "quantity": "4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4",
+            "side": "BUY",
+            "signal_key": "56020e30caac66bd796ab57da20254764d81e64cdc980185217b321a8e28ca45",
+            "stop": "6.2180",
+            "symbol": "NEARUSDT",
+            "tp1": "6.5960",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20051,
+          "stress_net_pnl": "-0.48710720"
+        },
+        {
+          "day_start_equity": "100.7909537725000000000000000",
+          "entry_ms": 1733362200000,
+          "exit_ms": 1733366700000,
+          "exit_price": "7.4060",
+          "fees": "0.00871560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8580",
+          "minimum_equity": "100.6516817725000000000000000",
+          "net_pnl": "0.84928440",
+          "plan": {
+            "decision_ms": 1733362200000,
+            "entry": "7.1200",
+            "exits": [
+              {
+                "price": "7.0050",
+                "quantity": "3",
+                "role": "STOP"
+              },
+              {
+                "price": "7.4060",
+                "quantity": "3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3",
+            "side": "BUY",
+            "signal_key": "9a4d72f751c41d491d85913759e60c069450b2499c16b12df6e74174b3231fa4",
+            "stop": "7.0050",
+            "symbol": "NEARUSDT",
+            "tp1": "7.4060",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20062,
+          "stress_net_pnl": "0.81877980"
+        },
+        {
+          "day_start_equity": "101.6402381725000000000000000",
+          "entry_ms": 1733736600000,
+          "exit_ms": 1733743800000,
+          "exit_price": "7.147000000000000000",
+          "fees": "0.0128514000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.066000000000000000",
+          "minimum_equity": "101.5339631725000000000000000",
+          "net_pnl": "0.0531486000000000000000",
+          "plan": {
+            "decision_ms": 1733736600000,
+            "entry": "7.1250",
+            "exits": [
+              {
+                "price": "7.0140",
+                "quantity": "3",
+                "role": "STOP"
+              },
+              {
+                "price": "7.4010",
+                "quantity": "3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3",
+            "side": "BUY",
+            "signal_key": "9ecedf1ad2e081609ed27d596895c18c91d16b1b181dfa5d911733935173a6a1",
+            "stop": "7.0140",
+            "symbol": "NEARUSDT",
+            "tp1": "7.4010",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20066,
+          "stress_net_pnl": "0.0188892000000000000000"
+        },
+        {
+          "day_start_equity": "101.6933867725000000000000000",
+          "entry_ms": 1734074100000,
+          "exit_ms": 1734081300000,
+          "exit_price": "6.863000000000000000",
+          "fees": "0.0204970000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00340950000000000000000000",
+          "gross_pnl": "0.460000000000000000",
+          "minimum_equity": "101.6416157725000000000000000",
+          "net_pnl": "0.43609350000000000000000000",
+          "plan": {
+            "decision_ms": 1734074100000,
+            "entry": "6.7710",
+            "exits": [
+              {
+                "price": "6.6990",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "6.9500",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "872ac69f27e188bae8dbde82565ed9a7e04dfda473e70c956679f62d308ffb74",
+            "stop": "6.6990",
+            "symbol": "NEARUSDT",
+            "tp1": "6.9500",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20070,
+          "stress_net_pnl": "0.38151150000000000000000000"
+        },
+        {
+          "day_start_equity": "102.1294802725000000000000000",
+          "entry_ms": 1734180300000,
+          "exit_ms": 1734181200000,
+          "exit_price": "6.6450",
+          "fees": "0.03196960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3680",
+          "minimum_equity": "101.7507746725000000000000000",
+          "net_pnl": "-0.39996960",
+          "plan": {
+            "decision_ms": 1734180300000,
+            "entry": "6.6910",
+            "exits": [
+              {
+                "price": "6.6450",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "6.8050",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "03b91ab4b8540583fec1ba71b6725339130fdc8dc795c220142e60e5ec31dcba",
+            "stop": "6.6450",
+            "symbol": "NEARUSDT",
+            "tp1": "6.8050",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20071,
+          "stress_net_pnl": "-0.48528320"
+        },
+        {
+          "day_start_equity": "102.1294802725000000000000000",
+          "entry_ms": 1734183000000,
+          "exit_ms": 1734190200000,
+          "exit_price": "6.655000000000000000",
+          "fees": "0.0238632000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.474000000000000000",
+          "minimum_equity": "101.6376194725000000000000000",
+          "net_pnl": "0.4501368000000000000000",
+          "plan": {
+            "decision_ms": 1734183000000,
+            "entry": "6.5760",
+            "exits": [
+              {
+                "price": "6.5180",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "6.7190",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "e14f7bc538ba7028aa9aae5b4a998563ca1a1a2800f98be5ffb265136674e7df",
+            "stop": "6.5180",
+            "symbol": "NEARUSDT",
+            "tp1": "6.7190",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20071,
+          "stress_net_pnl": "0.3865806000000000000000"
+        },
+        {
+          "day_start_equity": "102.1796474725000000000000000",
+          "entry_ms": 1734248700000,
+          "exit_ms": 1734252600000,
+          "exit_price": "6.6120",
+          "fees": "0.01832180",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00308304668000000000000000",
+          "gross_pnl": "0.9590",
+          "minimum_equity": "102.1635824725000000000000000",
+          "net_pnl": "0.93759515332000000000000000",
+          "plan": {
+            "decision_ms": 1734248700000,
+            "entry": "6.4750",
+            "exits": [
+              {
+                "price": "6.4200",
+                "quantity": "7",
+                "role": "STOP"
+              },
+              {
+                "price": "6.6120",
+                "quantity": "7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7",
+            "side": "BUY",
+            "signal_key": "7cb96a4ec6de0b82288f8e881ba3f29db92e8378981ade0f2e1eb814967f586c",
+            "stop": "6.4200",
+            "symbol": "NEARUSDT",
+            "tp1": "6.6120",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20072,
+          "stress_net_pnl": "0.87346885332000000000000000"
+        },
+        {
+          "day_start_equity": "103.2959006258200000000000000",
+          "entry_ms": 1734477300000,
+          "exit_ms": 1734484500000,
+          "exit_price": "6.342000000000000000",
+          "fees": "0.0190260000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00318950000000000000000000",
+          "gross_pnl": "0E-18",
+          "minimum_equity": "102.7627111258200000000000000",
+          "net_pnl": "-0.02221550000000000000000000",
+          "plan": {
+            "decision_ms": 1734477300000,
+            "entry": "6.3420",
+            "exits": [
+              {
+                "price": "6.2680",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "6.5240",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "938d00661f75e8afdbe168bda0353056b63d06b84ef54165490784a1b7058cb6",
+            "stop": "6.2680",
+            "symbol": "NEARUSDT",
+            "tp1": "6.5240",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20075,
+          "stress_net_pnl": "-0.07295150000000000000000000"
+        },
+        {
+          "day_start_equity": "103.0950271258200000000000000",
+          "entry_ms": 1736262900000,
+          "exit_ms": 1736263200000,
+          "exit_price": "5.5610",
+          "fees": "0.01675800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3750",
+          "minimum_equity": "102.7143911258200000000000000",
+          "net_pnl": "-0.39175800",
+          "plan": {
+            "decision_ms": 1736262900000,
+            "entry": "5.6360",
+            "exits": [
+              {
+                "price": "5.5610",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "5.8230",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "7fa62845e80e4d366370f8374570a8f7dd220e30bba1bdcf94fdaa635ea53ff3",
+            "stop": "5.5610",
+            "symbol": "NEARUSDT",
+            "tp1": "5.8230",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.43650850"
+        },
+        {
+          "day_start_equity": "103.0950271258200000000000000",
+          "entry_ms": 1736264700000,
+          "exit_ms": 1736271900000,
+          "exit_price": "5.511000000000000000",
+          "fees": "0.0132544000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00221600000000000000000000",
+          "gross_pnl": "-0.140000000000000000",
+          "minimum_equity": "102.5246163258200000000000000",
+          "net_pnl": "-0.15547040000000000000000000",
+          "plan": {
+            "decision_ms": 1736264700000,
+            "entry": "5.5460",
+            "exits": [
+              {
+                "price": "5.4520",
+                "quantity": "4",
+                "role": "STOP"
+              },
+              {
+                "price": "5.7800",
+                "quantity": "4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4",
+            "side": "BUY",
+            "signal_key": "4c15fe7b9bac31f1dfac7d9154545d56cad17cde32a9e649941b03407276da11",
+            "stop": "5.4520",
+            "symbol": "NEARUSDT",
+            "tp1": "5.7800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.19083880000000000000000000"
+        }
+      ],
+      "unfilled": 14
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 44,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "102.5477987258200000000000000",
+          "entry_ms": 1737275400000,
+          "exit_ms": 1737277500000,
+          "exit_price": "5.0760",
+          "fees": "0.02139900",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3990",
+          "minimum_equity": "102.1416125258200000000000000",
+          "net_pnl": "-0.42039900",
+          "plan": {
+            "decision_ms": 1737275400000,
+            "entry": "5.1330",
+            "exits": [
+              {
+                "price": "5.0760",
+                "quantity": "7",
+                "role": "STOP"
+              },
+              {
+                "price": "5.2730",
+                "quantity": "7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7",
+            "side": "BUY",
+            "signal_key": "365f4f19a9afb1c41970684f54c8398f91c0d8dffa3c59b7d8da49e9b8240c79",
+            "stop": "5.0760",
+            "symbol": "NEARUSDT",
+            "tp1": "5.2730",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.47752950"
+        },
+        {
+          "day_start_equity": "102.5477987258200000000000000",
+          "entry_ms": 1737278100000,
+          "exit_ms": 1737278700000,
+          "exit_price": "5.0020",
+          "fees": "0.02109100",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4130",
+          "minimum_equity": "101.7073143258200000000000000",
+          "net_pnl": "-0.43409100",
+          "plan": {
+            "decision_ms": 1737278100000,
+            "entry": "5.0610",
+            "exits": [
+              {
+                "price": "5.0020",
+                "quantity": "7",
+                "role": "STOP"
+              },
+              {
+                "price": "5.2060",
+                "quantity": "7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7",
+            "side": "BUY",
+            "signal_key": "4dc5945d455de477a4108262e28467cdb140f5422e2904c7891d737ccbb6709b",
+            "stop": "5.0020",
+            "symbol": "NEARUSDT",
+            "tp1": "5.2060",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.49040250"
+        },
+        {
+          "day_start_equity": "102.5477987258200000000000000",
+          "entry_ms": 1737322200000,
+          "exit_ms": 1737322500000,
+          "exit_price": "5.2080",
+          "fees": "0.01882080",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "101.3269871258200000000000000",
+          "net_pnl": "-0.37882080",
+          "plan": {
+            "decision_ms": 1737322200000,
+            "entry": "5.2680",
+            "exits": [
+              {
+                "price": "5.2080",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "5.4170",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "74f917b3a6b996a908ec3abc02bf5f0be623b62ac09ef8c51106c8df074888b3",
+            "stop": "5.2080",
+            "symbol": "NEARUSDT",
+            "tp1": "5.4170",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.42906960"
+        },
+        {
+          "day_start_equity": "102.5477987258200000000000000",
+          "entry_ms": 1737323100000,
+          "exit_ms": 1737323700000,
+          "exit_price": "5.1390",
+          "fees": "0.01857960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3960",
+          "minimum_equity": "100.9122419258200000000000000",
+          "net_pnl": "-0.41457960",
+          "plan": {
+            "decision_ms": 1737323100000,
+            "entry": "5.2050",
+            "exits": [
+              {
+                "price": "5.1390",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "5.3680",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "96bbb5b27a1a4aa78f6aaa90a3157b95ca2598d02383fad0b6bdd317b957c669",
+            "stop": "5.1390",
+            "symbol": "NEARUSDT",
+            "tp1": "5.3680",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.46419120"
+        },
+        {
+          "day_start_equity": "102.5477987258200000000000000",
+          "entry_ms": 1737324000000,
+          "exit_ms": 1737324900000,
+          "exit_price": "5.0450",
+          "fees": "0.01520700",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "100.5347913258200000000000000",
+          "net_pnl": "-0.37520700",
+          "plan": {
+            "decision_ms": 1737324000000,
+            "entry": "5.1170",
+            "exits": [
+              {
+                "price": "5.0450",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "5.2950",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "c58ed0eef8b72e6ff886d53a44b6b3866d852ec91dbdfe32c5d23f89ae0aa4d7",
+            "stop": "5.0450",
+            "symbol": "NEARUSDT",
+            "tp1": "5.2950",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.41581900"
+        },
+        {
+          "day_start_equity": "100.5247013258200000000000000",
+          "entry_ms": 1737395100000,
+          "exit_ms": 1737402300000,
+          "exit_price": "5.120000000000000000",
+          "fees": "0.0090930000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.615000000000000000",
+          "minimum_equity": "100.4767523258200000000000000",
+          "net_pnl": "0.6059070000000000000000",
+          "plan": {
+            "decision_ms": 1737395100000,
+            "entry": "4.9150",
+            "exits": [
+              {
+                "price": "4.7950",
+                "quantity": "3",
+                "role": "STOP"
+              },
+              {
+                "price": "5.2130",
+                "quantity": "3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3",
+            "side": "BUY",
+            "signal_key": "33dabe3e64d41cd2f8a7b815e63a59bbdebff7a2b79a92128c0ac9b905757b7f",
+            "stop": "4.7950",
+            "symbol": "NEARUSDT",
+            "tp1": "5.2130",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20108,
+          "stress_net_pnl": "0.5817615000000000000000"
+        },
+        {
+          "day_start_equity": "101.1306083258200000000000000",
+          "entry_ms": 1737753300000,
+          "exit_ms": 1737760500000,
+          "exit_price": "4.981000000000000000",
+          "fees": "0.0269028000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.027000000000000000",
+          "minimum_equity": "100.9506371258200000000000000",
+          "net_pnl": "-0.0539028000000000000000",
+          "plan": {
+            "decision_ms": 1737753300000,
+            "entry": "4.9840",
+            "exits": [
+              {
+                "price": "4.9450",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "5.0790",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "e9110ed751c2036638e76bc614e8341faa967d225addae8c1ccde1ba77d9d0bf",
+            "stop": "4.9450",
+            "symbol": "NEARUSDT",
+            "tp1": "5.0790",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20112,
+          "stress_net_pnl": "-0.1256481000000000000000"
+        },
+        {
+          "day_start_equity": "101.0767055258200000000000000",
+          "entry_ms": 1737788400000,
+          "exit_ms": 1737794400000,
+          "exit_price": "4.8680",
+          "fees": "0.03511680",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00166778064000000000000000",
+          "gross_pnl": "-0.3360",
+          "minimum_equity": "100.7272873451800000000000000",
+          "net_pnl": "-0.37278458064000000000000000",
+          "plan": {
+            "decision_ms": 1737788400000,
+            "entry": "4.8960",
+            "exits": [
+              {
+                "price": "4.8680",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "4.9630",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "0aa872ab88f7ca9eb05b0fc4d4b3821c1110ebb7d016e292763c775f517c5067",
+            "stop": "4.8680",
+            "symbol": "NEARUSDT",
+            "tp1": "4.9630",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20113,
+          "stress_net_pnl": "-0.46648538064000000000000000"
+        },
+        {
+          "day_start_equity": "100.7039209451800000000000000",
+          "entry_ms": 1737927000000,
+          "exit_ms": 1737928500000,
+          "exit_price": "4.9020",
+          "fees": "0.03535920",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3240",
+          "minimum_equity": "100.3680913451800000000000000",
+          "net_pnl": "-0.35935920",
+          "plan": {
+            "decision_ms": 1737927000000,
+            "entry": "4.9290",
+            "exits": [
+              {
+                "price": "4.9020",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "4.9940",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "2c243be9b7f7101a97af3e28f7a54643af850187e69bf771cbea6b27f01d9314",
+            "stop": "4.9020",
+            "symbol": "NEARUSDT",
+            "tp1": "4.9940",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.45370440"
+        },
+        {
+          "day_start_equity": "100.7039209451800000000000000",
+          "entry_ms": 1737929700000,
+          "exit_ms": 1737933000000,
+          "exit_price": "4.8480",
+          "fees": "0.03497280",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3360",
+          "minimum_equity": "99.9968593451800000000000000",
+          "net_pnl": "-0.37097280",
+          "plan": {
+            "decision_ms": 1737929700000,
+            "entry": "4.8760",
+            "exits": [
+              {
+                "price": "4.8480",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "4.9430",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "750fb59fe2cad1e863612a075f20859fd2c16c500cb5b956b962a3edd1835e6a",
+            "stop": "4.8480",
+            "symbol": "NEARUSDT",
+            "tp1": "4.9430",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.46428960"
+        },
+        {
+          "day_start_equity": "100.7039209451800000000000000",
+          "entry_ms": 1737933300000,
+          "exit_ms": 1737933600000,
+          "exit_price": "4.7980",
+          "fees": "0.02886000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "99.6039209451800000000000000",
+          "net_pnl": "-0.38886000",
+          "plan": {
+            "decision_ms": 1737933300000,
+            "entry": "4.8340",
+            "exits": [
+              {
+                "price": "4.7980",
+                "quantity": "10",
+                "role": "STOP"
+              },
+              {
+                "price": "4.9230",
+                "quantity": "10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10",
+            "side": "BUY",
+            "signal_key": "ec442e5dfc32fc73c3a0182b11061963b0f756c621a2144290660cbefd41809d",
+            "stop": "4.7980",
+            "symbol": "NEARUSDT",
+            "tp1": "4.9230",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.46588000"
+        },
+        {
+          "day_start_equity": "100.7039209451800000000000000",
+          "entry_ms": 1737934200000,
+          "exit_ms": 1737935400000,
+          "exit_price": "4.7590",
+          "fees": "0.02577420",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "99.1980871451800000000000000",
+          "net_pnl": "-0.40377420",
+          "plan": {
+            "decision_ms": 1737934200000,
+            "entry": "4.8010",
+            "exits": [
+              {
+                "price": "4.7590",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "4.9030",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "beb309ab6c9ee2c83091d13b072ede3f8a6f6c76e67f7a12b3844a0a82263776",
+            "stop": "4.7590",
+            "symbol": "NEARUSDT",
+            "tp1": "4.9030",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.47256840"
+        },
+        {
+          "day_start_equity": "99.4814991451800000000000000",
+          "entry_ms": 1745279100000,
+          "exit_ms": 1745281200000,
+          "exit_price": "2.1900",
+          "fees": "0.03423160",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00573560000000000000000000",
+          "gross_pnl": "-0.3380",
+          "minimum_equity": "98.82576354518000000000000000",
+          "net_pnl": "-0.37796720000000000000000000",
+          "plan": {
+            "decision_ms": 1745279100000,
+            "entry": "2.2030",
+            "exits": [
+              {
+                "price": "2.1900",
+                "quantity": "26",
+                "role": "STOP"
+              },
+              {
+                "price": "2.2350",
+                "quantity": "26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26",
+            "side": "BUY",
+            "signal_key": "b6d168320e2137d33ea0c5c7e741f144323fcf86a7ad0254837bed225933aec5",
+            "stop": "2.1900",
+            "symbol": "NEARUSDT",
+            "tp1": "2.2350",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20200,
+          "stress_net_pnl": "-0.46930780000000000000000000"
+        },
+        {
+          "day_start_equity": "98.80298754518000000000000000",
+          "entry_ms": 1745672400000,
+          "exit_ms": 1745679600000,
+          "exit_price": "2.582000000000000000",
+          "fees": "0.0247552000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.160000000000000000",
+          "minimum_equity": "98.45875714518000000000000000",
+          "net_pnl": "0.1352448000000000000000",
+          "plan": {
+            "decision_ms": 1745672400000,
+            "entry": "2.5720",
+            "exits": [
+              {
+                "price": "2.5480",
+                "quantity": "16",
+                "role": "STOP"
+              },
+              {
+                "price": "2.6310",
+                "quantity": "16",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16",
+            "side": "BUY",
+            "signal_key": "7a8716f97fae073a14024ca9320a693c7efccbb17ad995a467ad43d72a701038",
+            "stop": "2.5480",
+            "symbol": "NEARUSDT",
+            "tp1": "2.6310",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20204,
+          "stress_net_pnl": "0.0692576000000000000000"
+        },
+        {
+          "day_start_equity": "98.93823234518000000000000000",
+          "entry_ms": 1745803800000,
+          "exit_ms": 1745804400000,
+          "exit_price": "2.4230",
+          "fees": "0.02478940",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3740",
+          "minimum_equity": "98.55591934518000000000000000",
+          "net_pnl": "-0.39878940",
+          "plan": {
+            "decision_ms": 1745803800000,
+            "entry": "2.4450",
+            "exits": [
+              {
+                "price": "2.4230",
+                "quantity": "17",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4990",
+                "quantity": "17",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "17",
+            "side": "BUY",
+            "signal_key": "3e518293dcb758ff8b12db316e3b44fe9fa231c935f3748daab18fa99391c53a",
+            "stop": "2.4230",
+            "symbol": "NEARUSDT",
+            "tp1": "2.4990",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20206,
+          "stress_net_pnl": "-0.46495680"
+        },
+        {
+          "day_start_equity": "98.93823234518000000000000000",
+          "entry_ms": 1745804700000,
+          "exit_ms": 1745810700000,
+          "exit_price": "2.4830",
+          "fees": "0.01571200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8960",
+          "minimum_equity": "98.51567654518000000000000000",
+          "net_pnl": "0.88028800",
+          "plan": {
+            "decision_ms": 1745804700000,
+            "entry": "2.4270",
+            "exits": [
+              {
+                "price": "2.4040",
+                "quantity": "16",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4830",
+                "quantity": "16",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16",
+            "side": "BUY",
+            "signal_key": "d3655b42704a1e4c98d4185fcfbe39afbf4d01a87abd44941d9e63be011c270c",
+            "stop": "2.4040",
+            "symbol": "NEARUSDT",
+            "tp1": "2.4830",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20206,
+          "stress_net_pnl": "0.82529600"
+        },
+        {
+          "day_start_equity": "99.82772454518000000000000000",
+          "entry_ms": 1745966700000,
+          "exit_ms": 1745973900000,
+          "exit_price": "2.526000000000000000",
+          "fees": "0.0241728000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00207172416000000000000000",
+          "gross_pnl": "0.384000000000000000",
+          "minimum_equity": "99.12372454518000000000000000",
+          "net_pnl": "0.36189892416000000000000000",
+          "plan": {
+            "decision_ms": 1745966700000,
+            "entry": "2.5020",
+            "exits": [
+              {
+                "price": "2.4790",
+                "quantity": "16",
+                "role": "STOP"
+              },
+              {
+                "price": "2.5570",
+                "quantity": "16",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16",
+            "side": "BUY",
+            "signal_key": "354d91cea8cb71914a52efeec2977ae5159d064bb6bae9c913519b21464965f9",
+            "stop": "2.4790",
+            "symbol": "NEARUSDT",
+            "tp1": "2.5570",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20208,
+          "stress_net_pnl": "0.29750212416000000000000000"
+        },
+        {
+          "day_start_equity": "99.82772454518000000000000000",
+          "entry_ms": 1746018000000,
+          "exit_ms": 1746018600000,
+          "exit_price": "2.4450",
+          "fees": "0.02941200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "99.41177786934000000000000000",
+          "net_pnl": "-0.38941200",
+          "plan": {
+            "decision_ms": 1746018000000,
+            "entry": "2.4630",
+            "exits": [
+              {
+                "price": "2.4450",
+                "quantity": "20",
+                "role": "STOP"
+              },
+              {
+                "price": "2.5070",
+                "quantity": "20",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "20",
+            "side": "BUY",
+            "signal_key": "60add51c419a9379a34da1f8f129f55279125eff3f8fe9940b0969d33627e534",
+            "stop": "2.4450",
+            "symbol": "NEARUSDT",
+            "tp1": "2.5070",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.46790400"
+        },
+        {
+          "day_start_equity": "99.82772454518000000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746020700000,
+          "exit_price": "2.4040",
+          "fees": "0.02603880",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "99.00548786934000000000000000",
+          "net_pnl": "-0.40403880",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "2.4250",
+            "exits": [
+              {
+                "price": "2.4040",
+                "quantity": "18",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4750",
+                "quantity": "18",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "18",
+            "side": "BUY",
+            "signal_key": "b22ae04fc597b88414d0183b79817a7052c2da629e36f545610e42fc8e41539d",
+            "stop": "2.4040",
+            "symbol": "NEARUSDT",
+            "tp1": "2.4750",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.47353860"
+        },
+        {
+          "day_start_equity": "98.98817906934000000000000000",
+          "entry_ms": 1746223200000,
+          "exit_ms": 1746230400000,
+          "exit_price": "2.508000000000000000",
+          "fees": "0.0315630000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00499081968000000000000000",
+          "gross_pnl": "0.189000000000000000",
+          "minimum_equity": "98.76768326934000000000000000",
+          "net_pnl": "0.15244618032000000000000000",
+          "plan": {
+            "decision_ms": 1746223200000,
+            "entry": "2.4990",
+            "exits": [
+              {
+                "price": "2.4820",
+                "quantity": "21",
+                "role": "STOP"
+              },
+              {
+                "price": "2.5410",
+                "quantity": "21",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "21",
+            "side": "BUY",
+            "signal_key": "3e54e3017765422720bcf83669f8c46c001ed22e7fa43b88abe8faa9a17bbc1a",
+            "stop": "2.4820",
+            "symbol": "NEARUSDT",
+            "tp1": "2.5410",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20210,
+          "stress_net_pnl": "0.06830968032000000000000000"
+        },
+        {
+          "day_start_equity": "99.14062524966000000000000000",
+          "entry_ms": 1746234900000,
+          "exit_ms": 1746242100000,
+          "exit_price": "2.477000000000000000",
+          "fees": "0.0356544000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.072000000000000000",
+          "minimum_equity": "98.86475004966000000000000000",
+          "net_pnl": "0.0363456000000000000000",
+          "plan": {
+            "decision_ms": 1746234900000,
+            "entry": "2.4740",
+            "exits": [
+              {
+                "price": "2.4600",
+                "quantity": "24",
+                "role": "STOP"
+              },
+              {
+                "price": "2.5070",
+                "quantity": "24",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "24",
+            "side": "BUY",
+            "signal_key": "34324413a87a52c3bc1b846d0e24d46381d53d16ea67dc3f74e888f699c87790",
+            "stop": "2.4600",
+            "symbol": "NEARUSDT",
+            "tp1": "2.5070",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20211,
+          "stress_net_pnl": "-0.0587208000000000000000"
+        },
+        {
+          "day_start_equity": "99.14062524966000000000000000",
+          "entry_ms": 1746292500000,
+          "exit_ms": 1746299700000,
+          "exit_price": "2.446000000000000000",
+          "fees": "0.0306852000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.672000000000000000",
+          "minimum_equity": "98.91483204966000000000000000",
+          "net_pnl": "0.6413148000000000000000",
+          "plan": {
+            "decision_ms": 1746292500000,
+            "entry": "2.4140",
+            "exits": [
+              {
+                "price": "2.3970",
+                "quantity": "21",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4550",
+                "quantity": "21",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "21",
+            "side": "BUY",
+            "signal_key": "c8566ea057e64187ef5315e7ca79c488d4c650491e827fb1bb9c675e86906694",
+            "stop": "2.3970",
+            "symbol": "NEARUSDT",
+            "tp1": "2.4550",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20211,
+          "stress_net_pnl": "0.5595996000000000000000"
+        },
+        {
+          "day_start_equity": "99.81828564966000000000000000",
+          "entry_ms": 1747102500000,
+          "exit_ms": 1747107000000,
+          "exit_price": "3.0020",
+          "fees": "0.01809000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3900",
+          "minimum_equity": "99.42220364966000000000000000",
+          "net_pnl": "-0.40809000",
+          "plan": {
+            "decision_ms": 1747102500000,
+            "entry": "3.0410",
+            "exits": [
+              {
+                "price": "3.0020",
+                "quantity": "10",
+                "role": "STOP"
+              },
+              {
+                "price": "3.1360",
+                "quantity": "10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10",
+            "side": "BUY",
+            "signal_key": "ea324f67451ad43af7e83a1eb0fad1a54eedac241a56e4b5c5979ee3c3f6f390",
+            "stop": "3.0020",
+            "symbol": "NEARUSDT",
+            "tp1": "3.1360",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20221,
+          "stress_net_pnl": "-0.45639500"
+        },
+        {
+          "day_start_equity": "99.41019564966000000000000000",
+          "entry_ms": 1747599300000,
+          "exit_ms": 1747604100000,
+          "exit_price": "2.7690",
+          "fees": "0.00977760",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.9540",
+          "minimum_equity": "99.35140224966000000000000000",
+          "net_pnl": "0.94422240",
+          "plan": {
+            "decision_ms": 1747599300000,
+            "entry": "2.6630",
+            "exits": [
+              {
+                "price": "2.6200",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "2.7690",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "54913bd5ea021a553b06aae077cf56a2fa3a9b03374601b55053d6867b0e73ee",
+            "stop": "2.6200",
+            "symbol": "NEARUSDT",
+            "tp1": "2.7690",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20226,
+          "stress_net_pnl": "0.91000080"
+        },
+        {
+          "day_start_equity": "100.3544180496600000000000000",
+          "entry_ms": 1748002500000,
+          "exit_ms": 1748002800000,
+          "exit_price": "2.8410",
+          "fees": "0.01713000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4200",
+          "minimum_equity": "99.9286520496600000000000000",
+          "net_pnl": "-0.43713000",
+          "plan": {
+            "decision_ms": 1748002500000,
+            "entry": "2.8830",
+            "exits": [
+              {
+                "price": "2.8410",
+                "quantity": "10",
+                "role": "STOP"
+              },
+              {
+                "price": "2.9880",
+                "quantity": "10",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10",
+            "side": "BUY",
+            "signal_key": "338fca31c3cef571ab6104837d06068fc2ba44c7a890b0e11677f90ec0444902",
+            "stop": "2.8410",
+            "symbol": "NEARUSDT",
+            "tp1": "2.9880",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.48288000"
+        },
+        {
+          "day_start_equity": "100.3544180496600000000000000",
+          "entry_ms": 1748003400000,
+          "exit_ms": 1748010600000,
+          "exit_price": "2.937000000000000000",
+          "fees": "0.0157932000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.333000000000000000",
+          "minimum_equity": "99.6870680496600000000000000",
+          "net_pnl": "0.3172068000000000000000",
+          "plan": {
+            "decision_ms": 1748003400000,
+            "entry": "2.9000",
+            "exits": [
+              {
+                "price": "2.8540",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "3.0120",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "3ae15b20d9c7eb9b5c5cc371e18c389e46540539c76a8faca4a78183d944f3ca",
+            "stop": "2.8540",
+            "symbol": "NEARUSDT",
+            "tp1": "3.0120",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20231,
+          "stress_net_pnl": "0.2751471000000000000000"
+        },
+        {
+          "day_start_equity": "100.3544180496600000000000000",
+          "entry_ms": 1748043000000,
+          "exit_ms": 1748043600000,
+          "exit_price": "2.7950",
+          "fees": "0.02355360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "99.8485932496600000000000000",
+          "net_pnl": "-0.40155360",
+          "plan": {
+            "decision_ms": 1748043000000,
+            "entry": "2.8220",
+            "exits": [
+              {
+                "price": "2.7950",
+                "quantity": "14",
+                "role": "STOP"
+              },
+              {
+                "price": "2.8870",
+                "quantity": "14",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "14",
+            "side": "BUY",
+            "signal_key": "81a9771e6b60b5786cddadd6163ede11151a7b89e3bcc132e49c0390f8262414",
+            "stop": "2.7950",
+            "symbol": "NEARUSDT",
+            "tp1": "2.8870",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.46442620"
+        },
+        {
+          "day_start_equity": "99.8516794496600000000000000",
+          "entry_ms": 1748043900000,
+          "exit_ms": 1748051100000,
+          "exit_price": "2.822000000000000000",
+          "fees": "0.0219362000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00362310000000000000000000",
+          "gross_pnl": "0.377000000000000000",
+          "minimum_equity": "99.6696794496600000000000000",
+          "net_pnl": "0.35144070000000000000000000",
+          "plan": {
+            "decision_ms": 1748043900000,
+            "entry": "2.7930",
+            "exits": [
+              {
+                "price": "2.7640",
+                "quantity": "13",
+                "role": "STOP"
+              },
+              {
+                "price": "2.8630",
+                "quantity": "13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13",
+            "side": "BUY",
+            "signal_key": "99257bf36af15e1274048f03bd1601db1f92e3c1a07d51b688110940e22a5552",
+            "stop": "2.7640",
+            "symbol": "NEARUSDT",
+            "tp1": "2.8630",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20232,
+          "stress_net_pnl": "0.29300700000000000000000000"
+        },
+        {
+          "day_start_equity": "100.1843819496600000000000000",
+          "entry_ms": 1750114800000,
+          "exit_ms": 1750117800000,
+          "exit_price": "2.2890",
+          "fees": "0.02479680",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "99.7980659496600000000000000",
+          "net_pnl": "-0.40279680",
+          "plan": {
+            "decision_ms": 1750114800000,
+            "entry": "2.3100",
+            "exits": [
+              {
+                "price": "2.2890",
+                "quantity": "18",
+                "role": "STOP"
+              },
+              {
+                "price": "2.3620",
+                "quantity": "18",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "18",
+            "side": "BUY",
+            "signal_key": "028e60f05b38ccb67b9da9148136c3c41d2b8961aa21d831baeb18c8a648f636",
+            "stop": "2.2890",
+            "symbol": "NEARUSDT",
+            "tp1": "2.3620",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20255,
+          "stress_net_pnl": "-0.46898460"
+        },
+        {
+          "day_start_equity": "99.7815851496600000000000000",
+          "entry_ms": 1750119300000,
+          "exit_ms": 1750123200000,
+          "exit_price": "2.2910",
+          "fees": "0.01172080",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.9620",
+          "minimum_equity": "99.6588209496600000000000000",
+          "net_pnl": "0.95027920",
+          "plan": {
+            "decision_ms": 1750119300000,
+            "entry": "2.2170",
+            "exits": [
+              {
+                "price": "2.1870",
+                "quantity": "13",
+                "role": "STOP"
+              },
+              {
+                "price": "2.2910",
+                "quantity": "13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13",
+            "side": "BUY",
+            "signal_key": "ddee6c54ab994ce2e39db66658d5a589439e05fe84f7f48b1af70e71f4648abc",
+            "stop": "2.1870",
+            "symbol": "NEARUSDT",
+            "tp1": "2.2910",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20256,
+          "stress_net_pnl": "0.90925640"
+        },
+        {
+          "day_start_equity": "100.7318643496600000000000000",
+          "entry_ms": 1751347800000,
+          "exit_ms": 1751354400000,
+          "exit_price": "2.0870",
+          "fees": "0.03387960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3510",
+          "minimum_equity": "100.3695243496600000000000000",
+          "net_pnl": "-0.38487960",
+          "plan": {
+            "decision_ms": 1751347800000,
+            "entry": "2.1000",
+            "exits": [
+              {
+                "price": "2.0870",
+                "quantity": "27",
+                "role": "STOP"
+              },
+              {
+                "price": "2.1310",
+                "quantity": "27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "27",
+            "side": "BUY",
+            "signal_key": "6471fc0f2bf1f0ef0e284ae3bf39ebbb9193b99d5211e0f17eb3c69ad3c3b726",
+            "stop": "2.0870",
+            "symbol": "NEARUSDT",
+            "tp1": "2.1310",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20270,
+          "stress_net_pnl": "-0.47528370"
+        },
+        {
+          "day_start_equity": "100.3469847496600000000000000",
+          "entry_ms": 1751610600000,
+          "exit_ms": 1751613300000,
+          "exit_price": "2.1870",
+          "fees": "0.03156480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "99.9764151496600000000000000",
+          "net_pnl": "-0.39156480",
+          "plan": {
+            "decision_ms": 1751610600000,
+            "entry": "2.2020",
+            "exits": [
+              {
+                "price": "2.1870",
+                "quantity": "24",
+                "role": "STOP"
+              },
+              {
+                "price": "2.2390",
+                "quantity": "24",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "24",
+            "side": "BUY",
+            "signal_key": "819f884b04a9da5f6e4a8add94ead852048b9eb2766c132264f570000157b7f1",
+            "stop": "2.1870",
+            "symbol": "NEARUSDT",
+            "tp1": "2.2390",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20273,
+          "stress_net_pnl": "-0.47579760"
+        },
+        {
+          "day_start_equity": "99.9554199496600000000000000",
+          "entry_ms": 1752270300000,
+          "exit_ms": 1752272700000,
+          "exit_price": "2.4860",
+          "fees": "0.02096360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4060",
+          "minimum_equity": "99.5423779496600000000000000",
+          "net_pnl": "-0.42696360",
+          "plan": {
+            "decision_ms": 1752270300000,
+            "entry": "2.5150",
+            "exits": [
+              {
+                "price": "2.4860",
+                "quantity": "14",
+                "role": "STOP"
+              },
+              {
+                "price": "2.5850",
+                "quantity": "14",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "14",
+            "side": "BUY",
+            "signal_key": "4e8a8ed1c31458ff6c7e39ea6ceefefbe525757c0bfe17791b2477b77aefc000",
+            "stop": "2.4860",
+            "symbol": "NEARUSDT",
+            "tp1": "2.5850",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20280,
+          "stress_net_pnl": "-0.48293420"
+        },
+        {
+          "day_start_equity": "99.9785331496600000000000000",
+          "entry_ms": 1752273000000,
+          "exit_ms": 1752280200000,
+          "exit_price": "2.492000000000000000",
+          "fees": "0.0178848000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00300720000000000000000000",
+          "gross_pnl": "0.288000000000000000",
+          "minimum_equity": "99.4505331496600000000000000",
+          "net_pnl": "0.26710800000000000000000000",
+          "plan": {
+            "decision_ms": 1752273000000,
+            "entry": "2.4680",
+            "exits": [
+              {
+                "price": "2.4340",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "2.5520",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "38399728d7141109b7a3cc0584a69a0134bca4352811ee051135189c5f477fff",
+            "stop": "2.4340",
+            "symbol": "NEARUSDT",
+            "tp1": "2.5520",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20281,
+          "stress_net_pnl": "0.21946320000000000000000000"
+        }
+      ],
+      "unfilled": 10
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 29,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "99.79556434966000000000000000",
+          "entry_ms": 1753709400000,
+          "exit_ms": 1753711500000,
+          "exit_price": "2.8810",
+          "fees": "0.02773120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3680",
+          "minimum_equity": "99.41827154966000000000000000",
+          "net_pnl": "-0.39573120",
+          "plan": {
+            "decision_ms": 1753709400000,
+            "entry": "2.9040",
+            "exits": [
+              {
+                "price": "2.8810",
+                "quantity": "16",
+                "role": "STOP"
+              },
+              {
+                "price": "2.9600",
+                "quantity": "16",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16",
+            "side": "BUY",
+            "signal_key": "dd56fac46d46a3529b34ae1aee1e78db057b2834f61e0e6702d0c9a22ed89982",
+            "stop": "2.8810",
+            "symbol": "NEARUSDT",
+            "tp1": "2.9600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20297,
+          "stress_net_pnl": "-0.46974240"
+        },
+        {
+          "day_start_equity": "99.79556434966000000000000000",
+          "entry_ms": 1753713000000,
+          "exit_ms": 1753718100000,
+          "exit_price": "2.8060",
+          "fees": "0.02196480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3900",
+          "minimum_equity": "99.00245954966000000000000000",
+          "net_pnl": "-0.41196480",
+          "plan": {
+            "decision_ms": 1753713000000,
+            "entry": "2.8360",
+            "exits": [
+              {
+                "price": "2.8060",
+                "quantity": "13",
+                "role": "STOP"
+              },
+              {
+                "price": "2.9080",
+                "quantity": "13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13",
+            "side": "BUY",
+            "signal_key": "4f195c2abd7563e858f154d2476bc6d87fe8a35b666b9bafbf0c6494355bc0d4",
+            "stop": "2.8060",
+            "symbol": "NEARUSDT",
+            "tp1": "2.9080",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20297,
+          "stress_net_pnl": "-0.47060260"
+        },
+        {
+          "day_start_equity": "98.98786834966000000000000000",
+          "entry_ms": 1753967700000,
+          "exit_ms": 1753968900000,
+          "exit_price": "2.6180",
+          "fees": "0.02834640",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "98.61837154966000000000000000",
+          "net_pnl": "-0.38834640",
+          "plan": {
+            "decision_ms": 1753967700000,
+            "entry": "2.6380",
+            "exits": [
+              {
+                "price": "2.6180",
+                "quantity": "18",
+                "role": "STOP"
+              },
+              {
+                "price": "2.6860",
+                "quantity": "18",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "18",
+            "side": "BUY",
+            "signal_key": "7cf615ddc2ec9f4d8eed7792452c59b8a7f10a23a339c1a0256525eba5972f5e",
+            "stop": "2.6180",
+            "symbol": "NEARUSDT",
+            "tp1": "2.6860",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.46399680"
+        },
+        {
+          "day_start_equity": "98.98786834966000000000000000",
+          "entry_ms": 1753969500000,
+          "exit_ms": 1753971900000,
+          "exit_price": "2.5930",
+          "fees": "0.02652340",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3740",
+          "minimum_equity": "98.21663094966000000000000000",
+          "net_pnl": "-0.40052340",
+          "plan": {
+            "decision_ms": 1753969500000,
+            "entry": "2.6150",
+            "exits": [
+              {
+                "price": "2.5930",
+                "quantity": "17",
+                "role": "STOP"
+              },
+              {
+                "price": "2.6690",
+                "quantity": "17",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "17",
+            "side": "BUY",
+            "signal_key": "de18756286ba02a08d861fcbb299267038a6ac4565582ace55a5d681f4281cd7",
+            "stop": "2.5930",
+            "symbol": "NEARUSDT",
+            "tp1": "2.6690",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.47131480"
+        },
+        {
+          "day_start_equity": "98.98786834966000000000000000",
+          "entry_ms": 1753972200000,
+          "exit_ms": 1753978800000,
+          "exit_price": "2.6530",
+          "fees": "0.01572600",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00203843250000000000000000",
+          "gross_pnl": "0.9600",
+          "minimum_equity": "98.14623154966000000000000000",
+          "net_pnl": "0.94223556750000000000000000",
+          "plan": {
+            "decision_ms": 1753972200000,
+            "entry": "2.5890",
+            "exits": [
+              {
+                "price": "2.5630",
+                "quantity": "15",
+                "role": "STOP"
+              },
+              {
+                "price": "2.6530",
+                "quantity": "15",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "15",
+            "side": "BUY",
+            "signal_key": "b74d9438fc166b6adf9b27c9c7de776e496093b1f24fc3953a66565e984759eb",
+            "stop": "2.5630",
+            "symbol": "NEARUSDT",
+            "tp1": "2.6530",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20300,
+          "stress_net_pnl": "0.88719456750000000000000000"
+        },
+        {
+          "day_start_equity": "99.14123411716000000000000000",
+          "entry_ms": 1754811900000,
+          "exit_ms": 1754813100000,
+          "exit_price": "2.7100",
+          "fees": "0.02608960",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00432480000000000000000000",
+          "gross_pnl": "-0.3680",
+          "minimum_equity": "98.76448851716000000000000000",
+          "net_pnl": "-0.39841440000000000000000000",
+          "plan": {
+            "decision_ms": 1754811900000,
+            "entry": "2.7330",
+            "exits": [
+              {
+                "price": "2.7100",
+                "quantity": "16",
+                "role": "STOP"
+              },
+              {
+                "price": "2.7880",
+                "quantity": "16",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16",
+            "side": "BUY",
+            "signal_key": "05349f5039f6d80d56a127c72dc780137a5a832bb7aaafa40b8d6bf2e7a53d30",
+            "stop": "2.7100",
+            "symbol": "NEARUSDT",
+            "tp1": "2.7880",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20310,
+          "stress_net_pnl": "-0.46804800000000000000000000"
+        },
+        {
+          "day_start_equity": "99.14123411716000000000000000",
+          "entry_ms": 1754813700000,
+          "exit_ms": 1754820900000,
+          "exit_price": "2.757000000000000000",
+          "fees": "0.0246780000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.675000000000000000",
+          "minimum_equity": "98.71968371716000000000000000",
+          "net_pnl": "0.6503220000000000000000",
+          "plan": {
+            "decision_ms": 1754813700000,
+            "entry": "2.7120",
+            "exits": [
+              {
+                "price": "2.6870",
+                "quantity": "15",
+                "role": "STOP"
+              },
+              {
+                "price": "2.7720",
+                "quantity": "15",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "15",
+            "side": "BUY",
+            "signal_key": "96a67d636d25225fc7c3ad4cc3a920e25a5d223748bfa182901b923895287750",
+            "stop": "2.6870",
+            "symbol": "NEARUSDT",
+            "tp1": "2.7720",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20310,
+          "stress_net_pnl": "0.5846265000000000000000"
+        },
+        {
+          "day_start_equity": "99.39314171716000000000000000",
+          "entry_ms": 1754911800000,
+          "exit_ms": 1754913300000,
+          "exit_price": "2.6500",
+          "fees": "0.02710480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3740",
+          "minimum_equity": "99.01005691716000000000000000",
+          "net_pnl": "-0.40110480",
+          "plan": {
+            "decision_ms": 1754911800000,
+            "entry": "2.6720",
+            "exits": [
+              {
+                "price": "2.6500",
+                "quantity": "17",
+                "role": "STOP"
+              },
+              {
+                "price": "2.7260",
+                "quantity": "17",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "17",
+            "side": "BUY",
+            "signal_key": "f744a61c86012912cc4e316d20005d8d794de887d305d27033debb419156f783",
+            "stop": "2.6500",
+            "symbol": "NEARUSDT",
+            "tp1": "2.7260",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20311,
+          "stress_net_pnl": "-0.47344660"
+        },
+        {
+          "day_start_equity": "99.39314171716000000000000000",
+          "entry_ms": 1754913600000,
+          "exit_ms": 1754920800000,
+          "exit_price": "2.683000000000000000",
+          "fees": "0.0256736000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.416000000000000000",
+          "minimum_equity": "98.64753451716000000000000000",
+          "net_pnl": "0.3903264000000000000000",
+          "plan": {
+            "decision_ms": 1754913600000,
+            "entry": "2.6570",
+            "exits": [
+              {
+                "price": "2.6330",
+                "quantity": "16",
+                "role": "STOP"
+              },
+              {
+                "price": "2.7160",
+                "quantity": "16",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16",
+            "side": "BUY",
+            "signal_key": "c9ba41b76e557420f4fa1bb729a1422f6c738249d68fe21febf2a46a6e87113d",
+            "stop": "2.6330",
+            "symbol": "NEARUSDT",
+            "tp1": "2.7160",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20311,
+          "stress_net_pnl": "0.3219328000000000000000"
+        },
+        {
+          "day_start_equity": "99.38236331716000000000000000",
+          "entry_ms": 1755175500000,
+          "exit_ms": 1755176400000,
+          "exit_price": "2.7940",
+          "fees": "0.01516860",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4050",
+          "minimum_equity": "98.97225311716000000000000000",
+          "net_pnl": "-0.42016860",
+          "plan": {
+            "decision_ms": 1755175500000,
+            "entry": "2.8390",
+            "exits": [
+              {
+                "price": "2.7940",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "2.9510",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "dc09ecad508c3ad58f41d0d0a63bd3bf68130f61bc759ac2c836ab35b4ccb7fb",
+            "stop": "2.7940",
+            "symbol": "NEARUSDT",
+            "tp1": "2.9510",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20314,
+          "stress_net_pnl": "-0.46068570"
+        },
+        {
+          "day_start_equity": "99.38236331716000000000000000",
+          "entry_ms": 1755176400000,
+          "exit_ms": 1755177000000,
+          "exit_price": "2.7360",
+          "fees": "0.01321120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3920",
+          "minimum_equity": "98.56573871716000000000000000",
+          "net_pnl": "-0.40521120",
+          "plan": {
+            "decision_ms": 1755176400000,
+            "entry": "2.7850",
+            "exits": [
+              {
+                "price": "2.7360",
+                "quantity": "8",
+                "role": "STOP"
+              },
+              {
+                "price": "2.9070",
+                "quantity": "8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8",
+            "side": "BUY",
+            "signal_key": "86133f2bd39f4de9c4a1254d116c320f3c4d4c05431067228d351602861fb888",
+            "stop": "2.7360",
+            "symbol": "NEARUSDT",
+            "tp1": "2.9070",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20314,
+          "stress_net_pnl": "-0.44050640"
+        },
+        {
+          "day_start_equity": "98.55698351716000000000000000",
+          "entry_ms": 1757783700000,
+          "exit_ms": 1757790900000,
+          "exit_price": "2.801000000000000000",
+          "fees": "0.0200880000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.396000000000000000",
+          "minimum_equity": "98.53834031716000000000000000",
+          "net_pnl": "0.3759120000000000000000",
+          "plan": {
+            "decision_ms": 1757783700000,
+            "entry": "2.7680",
+            "exits": [
+              {
+                "price": "2.7360",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "2.8470",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "de47e84e657e0c1f6815d3ee7da319220c0b293ab39d866b7d5871b1084086fc",
+            "stop": "2.7360",
+            "symbol": "NEARUSDT",
+            "tp1": "2.8470",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20344,
+          "stress_net_pnl": "0.3224100000000000000000"
+        },
+        {
+          "day_start_equity": "98.93289551716000000000000000",
+          "entry_ms": 1757854800000,
+          "exit_ms": 1757858400000,
+          "exit_price": "2.6880",
+          "fees": "0.03232400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3400",
+          "minimum_equity": "98.58207551716000000000000000",
+          "net_pnl": "-0.37232400",
+          "plan": {
+            "decision_ms": 1757854800000,
+            "entry": "2.7050",
+            "exits": [
+              {
+                "price": "2.6880",
+                "quantity": "20",
+                "role": "STOP"
+              },
+              {
+                "price": "2.7450",
+                "quantity": "20",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "20",
+            "side": "BUY",
+            "signal_key": "353cffc794f74e129a7e61e8558bfa8e48846a36936ec2acd7ede689c0200be8",
+            "stop": "2.6880",
+            "symbol": "NEARUSDT",
+            "tp1": "2.7450",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20345,
+          "stress_net_pnl": "-0.45857800"
+        },
+        {
+          "day_start_equity": "98.56057151716000000000000000",
+          "entry_ms": 1757924100000,
+          "exit_ms": 1757926500000,
+          "exit_price": "2.6060",
+          "fees": "0.02040480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3900",
+          "minimum_equity": "98.16371791716000000000000000",
+          "net_pnl": "-0.41040480",
+          "plan": {
+            "decision_ms": 1757924100000,
+            "entry": "2.6360",
+            "exits": [
+              {
+                "price": "2.6060",
+                "quantity": "13",
+                "role": "STOP"
+              },
+              {
+                "price": "2.7110",
+                "quantity": "13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13",
+            "side": "BUY",
+            "signal_key": "21df5e79a2cb5ee29b40d2c40b6ef7b3100cd695d3ef8eb6689aa70a806dfb66",
+            "stop": "2.6060",
+            "symbol": "NEARUSDT",
+            "tp1": "2.7110",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20346,
+          "stress_net_pnl": "-0.46488260"
+        },
+        {
+          "day_start_equity": "98.56057151716000000000000000",
+          "entry_ms": 1757926800000,
+          "exit_ms": 1757934000000,
+          "exit_price": "2.628000000000000000",
+          "fees": "0.0188496000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.360000000000000000",
+          "minimum_equity": "98.11993151716000000000000000",
+          "net_pnl": "0.3411504000000000000000",
+          "plan": {
+            "decision_ms": 1757926800000,
+            "entry": "2.5980",
+            "exits": [
+              {
+                "price": "2.5660",
+                "quantity": "12",
+                "role": "STOP"
+              },
+              {
+                "price": "2.6760",
+                "quantity": "12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12",
+            "side": "BUY",
+            "signal_key": "e16253aa85b402af0a44f4a0ad951c9811697ed797efc751422129a441207297",
+            "stop": "2.5660",
+            "symbol": "NEARUSDT",
+            "tp1": "2.6760",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20346,
+          "stress_net_pnl": "0.2909448000000000000000"
+        },
+        {
+          "day_start_equity": "98.49131711716000000000000000",
+          "entry_ms": 1759977900000,
+          "exit_ms": 1759985100000,
+          "exit_price": "2.920000000000000000",
+          "fees": "0.0261660000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.570000000000000000",
+          "minimum_equity": "98.28767111716000000000000000",
+          "net_pnl": "0.5438340000000000000000",
+          "plan": {
+            "decision_ms": 1759977900000,
+            "entry": "2.8820",
+            "exits": [
+              {
+                "price": "2.8580",
+                "quantity": "15",
+                "role": "STOP"
+              },
+              {
+                "price": "2.9400",
+                "quantity": "15",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "15",
+            "side": "BUY",
+            "signal_key": "9a61768538c79ac9dd62423666dc872c3696d722d4573d0af4e1bc6cba5de64e",
+            "stop": "2.8580",
+            "symbol": "NEARUSDT",
+            "tp1": "2.9400",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20370,
+          "stress_net_pnl": "0.4741530000000000000000"
+        },
+        {
+          "day_start_equity": "98.49131711716000000000000000",
+          "entry_ms": 1759998600000,
+          "exit_ms": 1760005800000,
+          "exit_price": "2.844000000000000000",
+          "fees": "0.0273440000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.208000000000000000",
+          "minimum_equity": "98.67400871716000000000000000",
+          "net_pnl": "-0.2353440000000000000000",
+          "plan": {
+            "decision_ms": 1759998600000,
+            "entry": "2.8570",
+            "exits": [
+              {
+                "price": "2.8340",
+                "quantity": "16",
+                "role": "STOP"
+              },
+              {
+                "price": "2.9120",
+                "quantity": "16",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16",
+            "side": "BUY",
+            "signal_key": "3283cf4d046c1139d6b6e8def1074ca509670a30599a3c3114648cee2bff199e",
+            "stop": "2.8340",
+            "symbol": "NEARUSDT",
+            "tp1": "2.9120",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20370,
+          "stress_net_pnl": "-0.3082960000000000000000"
+        },
+        {
+          "day_start_equity": "98.79980711716000000000000000",
+          "entry_ms": 1767425400000,
+          "exit_ms": 1767432600000,
+          "exit_price": "1.669000000000000000",
+          "fees": "0.0260000000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00358956936000000000000000",
+          "gross_pnl": "0.182000000000000000",
+          "minimum_equity": "98.66116471716000000000000000",
+          "net_pnl": "0.15241043064000000000000000",
+          "plan": {
+            "decision_ms": 1767425400000,
+            "entry": "1.6620",
+            "exits": [
+              {
+                "price": "1.6480",
+                "quantity": "26",
+                "role": "STOP"
+              },
+              {
+                "price": "1.6950",
+                "quantity": "26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26",
+            "side": "BUY",
+            "signal_key": "e5bfd4d992be7352541c171ea6354cc35b767f8104a2b029bf5b7d9a28ef5751",
+            "stop": "1.6480",
+            "symbol": "NEARUSDT",
+            "tp1": "1.6950",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20456,
+          "stress_net_pnl": "0.08310743064000000000000000"
+        },
+        {
+          "day_start_equity": "98.95221754780000000000000000",
+          "entry_ms": 1767604500000,
+          "exit_ms": 1767611700000,
+          "exit_price": "1.713000000000000000",
+          "fees": "0.0226204000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.044000000000000000",
+          "minimum_equity": "98.74667154780000000000000000",
+          "net_pnl": "-0.0666204000000000000000",
+          "plan": {
+            "decision_ms": 1767604500000,
+            "entry": "1.7150",
+            "exits": [
+              {
+                "price": "1.6970",
+                "quantity": "22",
+                "role": "STOP"
+              },
+              {
+                "price": "1.7590",
+                "quantity": "22",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "22",
+            "side": "BUY",
+            "signal_key": "5dad22be28de6477f3c0444ffef0e45676113be3663c48b22140d3c817eda267",
+            "stop": "1.6970",
+            "symbol": "NEARUSDT",
+            "tp1": "1.7590",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20458,
+          "stress_net_pnl": "-0.1269488000000000000000"
+        },
+        {
+          "day_start_equity": "98.88559714780000000000000000",
+          "entry_ms": 1767722400000,
+          "exit_ms": 1767729600000,
+          "exit_price": "1.751000000000000000",
+          "fees": "0.0146552000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.266000000000000000",
+          "minimum_equity": "98.79674754780000000000000000",
+          "net_pnl": "0.2513448000000000000000",
+          "plan": {
+            "decision_ms": 1767722400000,
+            "entry": "1.7320",
+            "exits": [
+              {
+                "price": "1.7030",
+                "quantity": "14",
+                "role": "STOP"
+              },
+              {
+                "price": "1.8030",
+                "quantity": "14",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "14",
+            "side": "BUY",
+            "signal_key": "566ea4989dcbd179c41bcfd16030b19c4eb23b51bab1d96c4bf77de4bce5813d",
+            "stop": "1.7030",
+            "symbol": "NEARUSDT",
+            "tp1": "1.8030",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20459,
+          "stress_net_pnl": "0.2123086000000000000000"
+        },
+        {
+          "day_start_equity": "99.13694194780000000000000000",
+          "entry_ms": 1767795300000,
+          "exit_ms": 1767796500000,
+          "exit_price": "1.7180",
+          "fees": "0.02687360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3640",
+          "minimum_equity": "98.76393554780000000000000000",
+          "net_pnl": "-0.39087360",
+          "plan": {
+            "decision_ms": 1767795300000,
+            "entry": "1.7320",
+            "exits": [
+              {
+                "price": "1.7180",
+                "quantity": "26",
+                "role": "STOP"
+              },
+              {
+                "price": "1.7650",
+                "quantity": "26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26",
+            "side": "BUY",
+            "signal_key": "54f76a361adea09d83a586670dfb315c464b26b7734ef29646f46476d9d1a128",
+            "stop": "1.7180",
+            "symbol": "NEARUSDT",
+            "tp1": "1.7650",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20460,
+          "stress_net_pnl": "-0.46259720"
+        },
+        {
+          "day_start_equity": "98.74606834780000000000000000",
+          "entry_ms": 1768447800000,
+          "exit_ms": 1768448700000,
+          "exit_price": "1.7440",
+          "fees": "0.02623500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3750",
+          "minimum_equity": "98.36227334780000000000000000",
+          "net_pnl": "-0.40123500",
+          "plan": {
+            "decision_ms": 1768447800000,
+            "entry": "1.7590",
+            "exits": [
+              {
+                "price": "1.7440",
+                "quantity": "25",
+                "role": "STOP"
+              },
+              {
+                "price": "1.7950",
+                "quantity": "25",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "25",
+            "side": "BUY",
+            "signal_key": "77945b25fad63202ee9bbb128b2b466db38227c61231bdddf11e858bd7cf20fb",
+            "stop": "1.7440",
+            "symbol": "NEARUSDT",
+            "tp1": "1.7950",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20468,
+          "stress_net_pnl": "-0.47125750"
+        },
+        {
+          "day_start_equity": "98.74606834780000000000000000",
+          "entry_ms": 1768448700000,
+          "exit_ms": 1768455900000,
+          "exit_price": "1.755000000000000000",
+          "fees": "0.0241868000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.161000000000000000",
+          "minimum_equity": "98.24479254780000000000000000",
+          "net_pnl": "0.1368132000000000000000",
+          "plan": {
+            "decision_ms": 1768448700000,
+            "entry": "1.7480",
+            "exits": [
+              {
+                "price": "1.7320",
+                "quantity": "23",
+                "role": "STOP"
+              },
+              {
+                "price": "1.7870",
+                "quantity": "23",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "23",
+            "side": "BUY",
+            "signal_key": "90b0dd1f64b622f7498d70f066ebb10bdf4d16edf4ec2845254c4d76b3fa4369",
+            "stop": "1.7320",
+            "symbol": "NEARUSDT",
+            "tp1": "1.7870",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20468,
+          "stress_net_pnl": "0.0723419000000000000000"
+        },
+        {
+          "day_start_equity": "98.74606834780000000000000000",
+          "entry_ms": 1768491900000,
+          "exit_ms": 1768492200000,
+          "exit_price": "1.7210",
+          "fees": "0.02176020",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "98.09634274780000000000000000",
+          "net_pnl": "-0.39976020",
+          "plan": {
+            "decision_ms": 1768491900000,
+            "entry": "1.7390",
+            "exits": [
+              {
+                "price": "1.7210",
+                "quantity": "21",
+                "role": "STOP"
+              },
+              {
+                "price": "1.7820",
+                "quantity": "21",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "21",
+            "side": "BUY",
+            "signal_key": "78b5a8335f956a9731206296db3bcdf1f56de659d7c1e9c8b7bf36ab6479b2e4",
+            "stop": "1.7210",
+            "symbol": "NEARUSDT",
+            "tp1": "1.7820",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20468,
+          "stress_net_pnl": "-0.45785040"
+        },
+        {
+          "day_start_equity": "98.08188634780000000000000000",
+          "entry_ms": 1768577400000,
+          "exit_ms": 1768577700000,
+          "exit_price": "1.6740",
+          "fees": "0.02819600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3640",
+          "minimum_equity": "97.70843914780000000000000000",
+          "net_pnl": "-0.39219600",
+          "plan": {
+            "decision_ms": 1768577400000,
+            "entry": "1.6870",
+            "exits": [
+              {
+                "price": "1.6740",
+                "quantity": "28",
+                "role": "STOP"
+              },
+              {
+                "price": "1.7180",
+                "quantity": "28",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "28",
+            "side": "BUY",
+            "signal_key": "a612d5c8e96387ac91536fbe8493833d2ca7c5ab3eaa354e3567b2e74ec62cac",
+            "stop": "1.6740",
+            "symbol": "NEARUSDT",
+            "tp1": "1.7180",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20469,
+          "stress_net_pnl": "-0.46744600"
+        },
+        {
+          "day_start_equity": "98.08188634780000000000000000",
+          "entry_ms": 1768578300000,
+          "exit_ms": 1768585500000,
+          "exit_price": "1.695000000000000000",
+          "fees": "0.0263848000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00109504928000000000000000",
+          "gross_pnl": "0.286000000000000000",
+          "minimum_equity": "97.39383849852000000000000000",
+          "net_pnl": "0.25852015072000000000000000",
+          "plan": {
+            "decision_ms": 1768578300000,
+            "entry": "1.6840",
+            "exits": [
+              {
+                "price": "1.6700",
+                "quantity": "26",
+                "role": "STOP"
+              },
+              {
+                "price": "1.7180",
+                "quantity": "26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26",
+            "side": "BUY",
+            "signal_key": "4dc844d7d90ed58293ee6106b39825889a74acacd1a3717581e07e38bad8a152",
+            "stop": "1.6700",
+            "symbol": "NEARUSDT",
+            "tp1": "1.7180",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20469,
+          "stress_net_pnl": "0.18820835072000000000000000"
+        },
+        {
+          "day_start_equity": "97.94821049852000000000000000",
+          "entry_ms": 1768704300000,
+          "exit_ms": 1768711500000,
+          "exit_price": "1.716000000000000000",
+          "fees": "0.0267748000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.026000000000000000",
+          "minimum_equity": "97.78328209852000000000000000",
+          "net_pnl": "-0.0527748000000000000000",
+          "plan": {
+            "decision_ms": 1768704300000,
+            "entry": "1.7170",
+            "exits": [
+              {
+                "price": "1.7030",
+                "quantity": "26",
+                "role": "STOP"
+              },
+              {
+                "price": "1.7490",
+                "quantity": "26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26",
+            "side": "BUY",
+            "signal_key": "8202a032d98a5258115022867c31eb187b03e2bc6b2ec75517dbc18bed10c6ae",
+            "stop": "1.7030",
+            "symbol": "NEARUSDT",
+            "tp1": "1.7490",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20471,
+          "stress_net_pnl": "-0.1241786000000000000000"
+        }
+      ],
+      "unfilled": 2
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 15,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "97.89543569852000000000000000",
+          "entry_ms": 1774502100000,
+          "exit_ms": 1774503900000,
+          "exit_price": "1.2330",
+          "fees": "0.03188020",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3440",
+          "minimum_equity": "97.54076309852000000000000000",
+          "net_pnl": "-0.37588020",
+          "plan": {
+            "decision_ms": 1774502100000,
+            "entry": "1.2410",
+            "exits": [
+              {
+                "price": "1.2330",
+                "quantity": "43",
+                "role": "STOP"
+              },
+              {
+                "price": "1.2580",
+                "quantity": "43",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "43",
+            "side": "BUY",
+            "signal_key": "4ce970796bf24a0beeeb1b06d8bfff6cdd4a00ee6878b6b73d41412559788f30",
+            "stop": "1.2330",
+            "symbol": "NEARUSDT",
+            "tp1": "1.2580",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20538,
+          "stress_net_pnl": "-0.46095140"
+        },
+        {
+          "day_start_equity": "97.51955549852000000000000000",
+          "entry_ms": 1775958300000,
+          "exit_ms": 1775959500000,
+          "exit_price": "1.3400",
+          "fees": "0.02178360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "97.13424389852000000000000000",
+          "net_pnl": "-0.39978360",
+          "plan": {
+            "decision_ms": 1775958300000,
+            "entry": "1.3540",
+            "exits": [
+              {
+                "price": "1.3400",
+                "quantity": "27",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3870",
+                "quantity": "27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "27",
+            "side": "BUY",
+            "signal_key": "df4a35933b72a1c4a90839ab39932d312a2315861f58f1630c55974a91efe34a",
+            "stop": "1.3400",
+            "symbol": "NEARUSDT",
+            "tp1": "1.3870",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.45793620"
+        },
+        {
+          "day_start_equity": "97.51955549852000000000000000",
+          "entry_ms": 1775960100000,
+          "exit_ms": 1775967300000,
+          "exit_price": "1.338000000000000000",
+          "fees": "0.0217296000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.270000000000000000",
+          "minimum_equity": "96.81549269852000000000000000",
+          "net_pnl": "-0.2917296000000000000000",
+          "plan": {
+            "decision_ms": 1775960100000,
+            "entry": "1.3480",
+            "exits": [
+              {
+                "price": "1.3340",
+                "quantity": "27",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3820",
+                "quantity": "27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "27",
+            "side": "BUY",
+            "signal_key": "0e87405970e7c55c3f8514c9da7d1c096e7a8c77423f03f49bc2bb6d48851495",
+            "stop": "1.3340",
+            "symbol": "NEARUSDT",
+            "tp1": "1.3820",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.3497202000000000000000"
+        },
+        {
+          "day_start_equity": "96.82804229852000000000000000",
+          "entry_ms": 1776348000000,
+          "exit_ms": 1776349200000,
+          "exit_price": "1.3690",
+          "fees": "0.02717880",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3630",
+          "minimum_equity": "96.45593429852000000000000000",
+          "net_pnl": "-0.39017880",
+          "plan": {
+            "decision_ms": 1776348000000,
+            "entry": "1.3800",
+            "exits": [
+              {
+                "price": "1.3690",
+                "quantity": "33",
+                "role": "STOP"
+              },
+              {
+                "price": "1.4050",
+                "quantity": "33",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "33",
+            "side": "BUY",
+            "signal_key": "8f34557eba5b277521cbccb8206c49acf7b7d51371ea0300436e360d308311ac",
+            "stop": "1.3690",
+            "symbol": "NEARUSDT",
+            "tp1": "1.4050",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20559,
+          "stress_net_pnl": "-0.46271610"
+        },
+        {
+          "day_start_equity": "96.43786349852000000000000000",
+          "entry_ms": 1777267800000,
+          "exit_ms": 1777271700000,
+          "exit_price": "1.3670",
+          "fees": "0.03123600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3420",
+          "minimum_equity": "96.08540589852000000000000000",
+          "net_pnl": "-0.37323600",
+          "plan": {
+            "decision_ms": 1777267800000,
+            "entry": "1.3760",
+            "exits": [
+              {
+                "price": "1.3670",
+                "quantity": "38",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3970",
+                "quantity": "38",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "38",
+            "side": "BUY",
+            "signal_key": "ee94780710fe74bbaf7c04c911c09751d8972f4a2d0ef750215b07d539f25365",
+            "stop": "1.3670",
+            "symbol": "NEARUSDT",
+            "tp1": "1.3970",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.45658900"
+        },
+        {
+          "day_start_equity": "96.06462749852000000000000000",
+          "entry_ms": 1777890600000,
+          "exit_ms": 1777897800000,
+          "exit_price": "1.258000000000000000",
+          "fees": "0.0248820000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.132000000000000000",
+          "minimum_equity": "95.79235109852000000000000000",
+          "net_pnl": "0.1071180000000000000000",
+          "plan": {
+            "decision_ms": 1777890600000,
+            "entry": "1.2540",
+            "exits": [
+              {
+                "price": "1.2430",
+                "quantity": "33",
+                "role": "STOP"
+              },
+              {
+                "price": "1.2790",
+                "quantity": "33",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "33",
+            "side": "BUY",
+            "signal_key": "d4d2d4a7ab73696a442f3ce77e2a6a101ae2d1eb6f868e3ffe1bf6a76e30b2ad",
+            "stop": "1.2430",
+            "symbol": "NEARUSDT",
+            "tp1": "1.2790",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20577,
+          "stress_net_pnl": "0.0407880000000000000000"
+        },
+        {
+          "day_start_equity": "96.17174549852000000000000000",
+          "entry_ms": 1778550300000,
+          "exit_ms": 1778557500000,
+          "exit_price": "1.523000000000000000",
+          "fees": "0.0273600000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.270000000000000000",
+          "minimum_equity": "96.04266149852000000000000000",
+          "net_pnl": "0.2426400000000000000000",
+          "plan": {
+            "decision_ms": 1778550300000,
+            "entry": "1.5140",
+            "exits": [
+              {
+                "price": "1.5020",
+                "quantity": "30",
+                "role": "STOP"
+              },
+              {
+                "price": "1.5420",
+                "quantity": "30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "30",
+            "side": "BUY",
+            "signal_key": "d56e902f9d40f422820ebaff0d38ab7e97d16724f3ff92738d5599e7213c7a85",
+            "stop": "1.5020",
+            "symbol": "NEARUSDT",
+            "tp1": "1.5420",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20585,
+          "stress_net_pnl": "0.1697250000000000000000"
+        },
+        {
+          "day_start_equity": "96.41438549852000000000000000",
+          "entry_ms": 1784651400000,
+          "exit_ms": 1784655000000,
+          "exit_price": "1.9210",
+          "fees": "0.02773440",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "96.04509269852000000000000000",
+          "net_pnl": "-0.38773440",
+          "plan": {
+            "decision_ms": 1784651400000,
+            "entry": "1.9360",
+            "exits": [
+              {
+                "price": "1.9210",
+                "quantity": "24",
+                "role": "STOP"
+              },
+              {
+                "price": "1.9720",
+                "quantity": "24",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "24",
+            "side": "BUY",
+            "signal_key": "0c3eeb7c437408a88110ec9651c2071f1c410a208fe50ff36baa9bc8b152735c",
+            "stop": "1.9210",
+            "symbol": "NEARUSDT",
+            "tp1": "1.9720",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20655,
+          "stress_net_pnl": "-0.46175280"
+        },
+        {
+          "day_start_equity": "96.02665109852000000000000000",
+          "entry_ms": 1784692800000,
+          "exit_ms": 1784700000000,
+          "exit_price": "1.906000000000000000",
+          "fees": "0.0343380000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.150000000000000000",
+          "minimum_equity": "95.83518509852000000000000000",
+          "net_pnl": "-0.1843380000000000000000",
+          "plan": {
+            "decision_ms": 1784692800000,
+            "entry": "1.9110",
+            "exits": [
+              {
+                "price": "1.9000",
+                "quantity": "30",
+                "role": "STOP"
+              },
+              {
+                "price": "1.9380",
+                "quantity": "30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "30",
+            "side": "BUY",
+            "signal_key": "27df153d276c69226b6c6996342f2a438c1553b7a570ead6f5fa3f1e5c799f55",
+            "stop": "1.9000",
+            "symbol": "NEARUSDT",
+            "tp1": "1.9380",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20656,
+          "stress_net_pnl": "-0.2759310000000000000000"
+        },
+        {
+          "day_start_equity": "96.02665109852000000000000000",
+          "entry_ms": 1784704500000,
+          "exit_ms": 1784706000000,
+          "exit_price": "1.8660",
+          "fees": "0.02694240",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3600",
+          "minimum_equity": "95.47328429852000000000000000",
+          "net_pnl": "-0.38694240",
+          "plan": {
+            "decision_ms": 1784704500000,
+            "entry": "1.8810",
+            "exits": [
+              {
+                "price": "1.8660",
+                "quantity": "24",
+                "role": "STOP"
+              },
+              {
+                "price": "1.9160",
+                "quantity": "24",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "24",
+            "side": "BUY",
+            "signal_key": "9921457cadaf1092e88610900ba65a69cac50735a299d94363c5876405f2677c",
+            "stop": "1.8660",
+            "symbol": "NEARUSDT",
+            "tp1": "1.9160",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20656,
+          "stress_net_pnl": "-0.45884880"
+        },
+        {
+          "day_start_equity": "95.45537069852000000000000000",
+          "entry_ms": 1784897100000,
+          "exit_ms": 1784897400000,
+          "exit_price": "1.8530",
+          "fees": "0.03342000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3300",
+          "minimum_equity": "95.11418669852000000000000000",
+          "net_pnl": "-0.36342000",
+          "plan": {
+            "decision_ms": 1784897100000,
+            "entry": "1.8640",
+            "exits": [
+              {
+                "price": "1.8530",
+                "quantity": "30",
+                "role": "STOP"
+              },
+              {
+                "price": "1.8890",
+                "quantity": "30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "30",
+            "side": "BUY",
+            "signal_key": "cee0dbcddf13a03c670a77f88cb61ecda70bc237793ec98dc36c170bac33258f",
+            "stop": "1.8530",
+            "symbol": "NEARUSDT",
+            "tp1": "1.8890",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20658,
+          "stress_net_pnl": "-0.45259500"
+        },
+        {
+          "day_start_equity": "95.09195069852000000000000000",
+          "entry_ms": 1785163500000,
+          "exit_ms": 1785170700000,
+          "exit_price": "1.779000000000000000",
+          "fees": "0.0234608000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00390720000000000000000000",
+          "gross_pnl": "0.110000000000000000",
+          "minimum_equity": "94.79423789852000000000000000",
+          "net_pnl": "0.08263200000000000000000000",
+          "plan": {
+            "decision_ms": 1785163500000,
+            "entry": "1.7740",
+            "exits": [
+              {
+                "price": "1.7570",
+                "quantity": "22",
+                "role": "STOP"
+              },
+              {
+                "price": "1.8150",
+                "quantity": "22",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "22",
+            "side": "BUY",
+            "signal_key": "0ae535a6f298f91869b4590ea318c76b6e97edea0369bf48d0676080fa510fc5",
+            "stop": "1.7570",
+            "symbol": "NEARUSDT",
+            "tp1": "1.8150",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20661,
+          "stress_net_pnl": "0.02008820000000000000000000"
+        },
+        {
+          "day_start_equity": "95.09195069852000000000000000",
+          "entry_ms": 1785177000000,
+          "exit_ms": 1785177600000,
+          "exit_price": "1.7380",
+          "fees": "0.02614000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3500",
+          "minimum_equity": "94.81582269852000000000000000",
+          "net_pnl": "-0.37614000",
+          "plan": {
+            "decision_ms": 1785177000000,
+            "entry": "1.7520",
+            "exits": [
+              {
+                "price": "1.7380",
+                "quantity": "25",
+                "role": "STOP"
+              },
+              {
+                "price": "1.7850",
+                "quantity": "25",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "25",
+            "side": "BUY",
+            "signal_key": "3beabd8843965afca361d4a5eacb27697a21dc707a90d184d57886f6ba11c023",
+            "stop": "1.7380",
+            "symbol": "NEARUSDT",
+            "tp1": "1.7850",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20661,
+          "stress_net_pnl": "-0.44590500"
+        }
+      ],
+      "unfilled": 2
+    }
+  ]
+}

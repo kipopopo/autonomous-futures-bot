@@ -1,0 +1,1514 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-3.5",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "2.2",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": true,
+    "positive_net_edge": false,
+    "profit_factor": false,
+    "stress_positive": false,
+    "sufficient_oos_samples": true,
+    "window_consistency": false
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "3.84900990000000000000000000",
+    "net_pnl": "-2.99539192904000000000000000",
+    "profitable_windows": 1,
+    "stress_net_pnl": "-5.10147172904000000000000000",
+    "trade_count": 33
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {
+    "Exchange minimum order size exceeds the percentage risk budget": 10
+  },
+  "report_hash": "463131892fc687e7a3f56ba4032488daadc8cb66dbeba9dbfccab16308174c59",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-3.5",
+      "target_atr_multiplier": "2.2"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/AVAXUSDT-504ba431fd8a552d.json",
+    "reference_report_sha256": "f0fcc56410b5bb3dd631322368b3b601889e596d7f332a0da54aac294a38db68",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "a0de08cf3c1fa332eccea70224bc6995d9858726a9fa48462941670eeb8cf840",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/AVAXUSDT-5m.parquet",
+      "rows": 376704,
+      "sha256": "d666b617bcfbaca14de3f56780b8a4d050d117a16d6eb6cca5fe8e2e4fd9a554"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/AVAXUSDT-funding.csv",
+      "sha256": "5390b89d32ab691886b646a18377ef585bca2acf625ed79ea262a0e0c6eaffa5"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "bdd269ed4298655d61bd2bb6d8a3e1b6998f700aac0f604086c6f3c57f6eb283",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/AVAXUSDT-15m.parquet",
+      "rows": 125568,
+      "sha256": "b55a052d748bfc9f69d6b3a1efbc6ba3c41265c2c83185c8b89352b98c7cf4af"
+    }
+  },
+  "symbol": "AVAXUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 5,
+      "signals": 13,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704519000000,
+          "exit_ms": 1704520500000,
+          "exit_price": "34.0660",
+          "fees": "0.02050640",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3340",
+          "minimum_equity": "99.65912000",
+          "net_pnl": "-0.35450640",
+          "plan": {
+            "decision_ms": 1704519000000,
+            "entry": "34.4000",
+            "exits": [
+              {
+                "price": "34.0660",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "35.0110",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "348e0d18569e422f6a416e9852eff8156d3a43f1add404db0d5e334b75bdf3a9",
+            "stop": "34.0660",
+            "symbol": "AVAXUSDT",
+            "tp1": "35.0110",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.40924580"
+        },
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704520800000,
+          "exit_ms": 1704521700000,
+          "exit_price": "33.7480",
+          "fees": "0.02032620",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3870",
+          "minimum_equity": "99.25166660",
+          "net_pnl": "-0.40732620",
+          "plan": {
+            "decision_ms": 1704520800000,
+            "entry": "34.1350",
+            "exits": [
+              {
+                "price": "33.7480",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "34.8420",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "b96956337c77b648168dd4ff75e37255db78739404f855fbc6466de8584d4d77",
+            "stop": "33.7480",
+            "symbol": "AVAXUSDT",
+            "tp1": "34.8420",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.46159390"
+        },
+        {
+          "day_start_equity": "99.23816740",
+          "entry_ms": 1712927700000,
+          "exit_ms": 1712928300000,
+          "exit_price": "44.7160",
+          "fees": "0.02688620",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.2830",
+          "minimum_equity": "98.94616760",
+          "net_pnl": "-0.30988620",
+          "plan": {
+            "decision_ms": 1712927700000,
+            "entry": "44.9990",
+            "exits": [
+              {
+                "price": "44.7160",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "45.5170",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "a3ecb338e01ea59a07ad238e0b9b4e1d68c3dfe74ee6347cde70ac2c640d7f16",
+            "stop": "44.7160",
+            "symbol": "AVAXUSDT",
+            "tp1": "45.5170",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.38162990"
+        },
+        {
+          "day_start_equity": "98.92828120",
+          "entry_ms": 1716382800000,
+          "exit_ms": 1716386100000,
+          "exit_price": "39.9650",
+          "fees": "0.01586060",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.6270",
+          "minimum_equity": "98.881413600000000000",
+          "net_pnl": "0.61113940",
+          "plan": {
+            "decision_ms": 1716382800000,
+            "entry": "39.3380",
+            "exits": [
+              {
+                "price": "38.9950",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "39.9650",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "c08a9a61d71555395a390806360ce70d7bbc8a29f22a74c7548a538c6e4f2ff1",
+            "stop": "38.9950",
+            "symbol": "AVAXUSDT",
+            "tp1": "39.9650",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19865,
+          "stress_net_pnl": "0.55562730"
+        }
+      ],
+      "unfilled": 4
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 3,
+      "signals": 8,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "99.53942060",
+          "entry_ms": 1726654500000,
+          "exit_ms": 1726657200000,
+          "exit_price": "23.2940",
+          "fees": "0.01855200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.4160",
+          "minimum_equity": "99.458186200000000000",
+          "net_pnl": "0.39744800",
+          "plan": {
+            "decision_ms": 1726654500000,
+            "entry": "23.0860",
+            "exits": [
+              {
+                "price": "22.9720",
+                "quantity": "2",
+                "role": "STOP"
+              },
+              {
+                "price": "23.2940",
+                "quantity": "2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2",
+            "side": "BUY",
+            "signal_key": "9caf6423ae121f063d659015cde778fbe67a46043c3df2b0e45867ffabf1da9a",
+            "stop": "22.9720",
+            "symbol": "AVAXUSDT",
+            "tp1": "23.2940",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19984,
+          "stress_net_pnl": "0.33251600"
+        },
+        {
+          "day_start_equity": "99.93686860",
+          "entry_ms": 1727505900000,
+          "exit_ms": 1727511000000,
+          "exit_price": "29.2660",
+          "fees": "0.03518640",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00587020000000000000000000",
+          "gross_pnl": "-0.3360",
+          "minimum_equity": "99.58322480000000000000000000",
+          "net_pnl": "-0.37705660000000000000000000",
+          "plan": {
+            "decision_ms": 1727505900000,
+            "entry": "29.4340",
+            "exits": [
+              {
+                "price": "29.2660",
+                "quantity": "2",
+                "role": "STOP"
+              },
+              {
+                "price": "29.7410",
+                "quantity": "2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2",
+            "side": "BUY",
+            "signal_key": "635c7e055885df073e0bf1b7cc470b7d7e3e248fabe9073e9376f2e0735cb1c2",
+            "stop": "29.2660",
+            "symbol": "AVAXUSDT",
+            "tp1": "29.7410",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19994,
+          "stress_net_pnl": "-0.47094300000000000000000000"
+        },
+        {
+          "day_start_equity": "99.55981200000000000000000000",
+          "entry_ms": 1729830600000,
+          "exit_ms": 1729837800000,
+          "exit_price": "26.313000000000000000",
+          "fees": "0.0315152000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.302000000000000000",
+          "minimum_equity": "99.42734720000000000000000000",
+          "net_pnl": "0.2704848000000000000000",
+          "plan": {
+            "decision_ms": 1729830600000,
+            "entry": "26.1620",
+            "exits": [
+              {
+                "price": "26.0190",
+                "quantity": "2",
+                "role": "STOP"
+              },
+              {
+                "price": "26.4230",
+                "quantity": "2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2",
+            "side": "BUY",
+            "signal_key": "eab38d533c021f4a9358539367a93d24c0f6c47df6e07227f5d333c16778024e",
+            "stop": "26.0190",
+            "symbol": "AVAXUSDT",
+            "tp1": "26.4230",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20021,
+          "stress_net_pnl": "0.1864946000000000000000"
+        },
+        {
+          "day_start_equity": "99.83029680000000000000000000",
+          "entry_ms": 1732157100000,
+          "exit_ms": 1732159500000,
+          "exit_price": "33.0610",
+          "fees": "0.01308860",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.6790",
+          "minimum_equity": "99.81982040000000000000000000",
+          "net_pnl": "0.66591140",
+          "plan": {
+            "decision_ms": 1732157100000,
+            "entry": "32.3820",
+            "exits": [
+              {
+                "price": "32.0110",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "33.0610",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "ad1145e3c9ed87d62aacccd93de657f74673b77c92189ddf7df090e53a5c4d38",
+            "stop": "32.0110",
+            "symbol": "AVAXUSDT",
+            "tp1": "33.0610",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20048,
+          "stress_net_pnl": "0.62010130"
+        }
+      ],
+      "unfilled": 1
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 2,
+      "signals": 12,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "100.4962082000000000000000000",
+          "entry_ms": 1737275400000,
+          "exit_ms": 1737277800000,
+          "exit_price": "37.3070",
+          "fees": "0.02245980",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3780",
+          "minimum_equity": "100.1106712000000000000000000",
+          "net_pnl": "-0.40045980",
+          "plan": {
+            "decision_ms": 1737275400000,
+            "entry": "37.6850",
+            "exits": [
+              {
+                "price": "37.3070",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "38.3770",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "36369175e75af7931298c1ed9739089e39a0059051564b157618a469d672750c",
+            "stop": "37.3070",
+            "symbol": "AVAXUSDT",
+            "tp1": "38.3770",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.46041560"
+        },
+        {
+          "day_start_equity": "100.4962082000000000000000000",
+          "entry_ms": 1737278100000,
+          "exit_ms": 1737278700000,
+          "exit_price": "36.8070",
+          "fees": "0.02216340",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3960",
+          "minimum_equity": "99.6923078000000000000000000",
+          "net_pnl": "-0.41816340",
+          "plan": {
+            "decision_ms": 1737278100000,
+            "entry": "37.2030",
+            "exits": [
+              {
+                "price": "36.8070",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "37.9280",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "a2c6d39cb8621e3cffc90f2869cc7fe639e13cbc82f30eb9fa6e471ef0afff0a",
+            "stop": "36.8070",
+            "symbol": "AVAXUSDT",
+            "tp1": "37.9280",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.47733180"
+        },
+        {
+          "day_start_equity": "100.4962082000000000000000000",
+          "entry_ms": 1737279000000,
+          "exit_ms": 1737280500000,
+          "exit_price": "37.7420",
+          "fees": "0.01495060",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7310",
+          "minimum_equity": "99.5271828000000000000000000",
+          "net_pnl": "0.71604940",
+          "plan": {
+            "decision_ms": 1737279000000,
+            "entry": "37.0110",
+            "exits": [
+              {
+                "price": "36.6120",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "37.7420",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "56e10e914f43237c82a54c2b06b109aba646a79d257f11b1536e5b8419916ee3",
+            "stop": "36.6120",
+            "symbol": "AVAXUSDT",
+            "tp1": "37.7420",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20107,
+          "stress_net_pnl": "0.66372230"
+        },
+        {
+          "day_start_equity": "100.3936344000000000000000000",
+          "entry_ms": 1737934200000,
+          "exit_ms": 1737936000000,
+          "exit_price": "35.7260",
+          "fees": "0.02150140",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00357240000000000000000000",
+          "gross_pnl": "-0.3290",
+          "minimum_equity": "100.0574234000000000000000000",
+          "net_pnl": "-0.35407380000000000000000000",
+          "plan": {
+            "decision_ms": 1737934200000,
+            "entry": "36.0550",
+            "exits": [
+              {
+                "price": "35.7260",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "36.6570",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "b85b6ee553bac74eb7f5e3b5d0d2651d0ce04c0eca5afe895e03dfdb4bb69aef",
+            "stop": "35.7260",
+            "symbol": "AVAXUSDT",
+            "tp1": "36.6570",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.41146570000000000000000000"
+        },
+        {
+          "day_start_equity": "100.0395606000000000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746020700000,
+          "exit_price": "20.7170",
+          "fees": "0.02492560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3260",
+          "minimum_equity": "99.7052086000000000000000000",
+          "net_pnl": "-0.35092560",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "20.8800",
+            "exits": [
+              {
+                "price": "20.7170",
+                "quantity": "2",
+                "role": "STOP"
+              },
+              {
+                "price": "21.1770",
+                "quantity": "2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2",
+            "side": "BUY",
+            "signal_key": "09370a030b10b17f7752a262c7838090dac70a9a08e274200994935c49661f71",
+            "stop": "20.7170",
+            "symbol": "AVAXUSDT",
+            "tp1": "21.1770",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.41744820"
+        },
+        {
+          "day_start_equity": "100.0395606000000000000000000",
+          "entry_ms": 1746020700000,
+          "exit_ms": 1746021600000,
+          "exit_price": "20.5640",
+          "fees": "0.01237860",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.2010",
+          "minimum_equity": "99.4834820000000000000000000",
+          "net_pnl": "-0.21337860",
+          "plan": {
+            "decision_ms": 1746020700000,
+            "entry": "20.7650",
+            "exits": [
+              {
+                "price": "20.5640",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "21.1310",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "6e86af9c8a1aa3f259f934472f88a32742b88d94d97414b4afdb921d4e15dbdc",
+            "stop": "20.5640",
+            "symbol": "AVAXUSDT",
+            "tp1": "21.1310",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.24642170"
+        },
+        {
+          "day_start_equity": "99.5236544000000000000000000",
+          "entry_ms": 1748043900000,
+          "exit_ms": 1748051100000,
+          "exit_price": "23.170000000000000000",
+          "fees": "0.0138700000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00229600000000000000000000",
+          "gross_pnl": "0.160000000000000000",
+          "minimum_equity": "99.3726544000000000000000000",
+          "net_pnl": "0.14383400000000000000000000",
+          "plan": {
+            "decision_ms": 1748043900000,
+            "entry": "23.0100",
+            "exits": [
+              {
+                "price": "22.7750",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "23.4400",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "312d401e7bbfba1b9234b8d5db7963a87739f5c9418ad563462ceca9f069109b",
+            "stop": "22.7750",
+            "symbol": "AVAXUSDT",
+            "tp1": "23.4400",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20232,
+          "stress_net_pnl": "0.10687400000000000000000000"
+        },
+        {
+          "day_start_equity": "99.61909040000000000000000000",
+          "entry_ms": 1750119300000,
+          "exit_ms": 1750122000000,
+          "exit_price": "19.2200",
+          "fees": "0.00760060",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.4370",
+          "minimum_equity": "99.51233380000000000000000000",
+          "net_pnl": "0.42939940",
+          "plan": {
+            "decision_ms": 1750119300000,
+            "entry": "18.7830",
+            "exits": [
+              {
+                "price": "18.5440",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "19.2200",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "46e6c8f6e532660c64aedf55ac6f5aae360aa2a086b4285271eeb93854df5325",
+            "stop": "18.5440",
+            "symbol": "AVAXUSDT",
+            "tp1": "19.2200",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20256,
+          "stress_net_pnl": "0.40279730"
+        }
+      ],
+      "unfilled": 2
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 14,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "100.0484898000000000000000000",
+          "entry_ms": 1754811900000,
+          "exit_ms": 1754813100000,
+          "exit_price": "23.3910",
+          "fees": "0.02813760",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00465740000000000000000000",
+          "gross_pnl": "-0.3420",
+          "minimum_equity": "99.6970650000000000000000000",
+          "net_pnl": "-0.37479500000000000000000000",
+          "plan": {
+            "decision_ms": 1754811900000,
+            "entry": "23.5620",
+            "exits": [
+              {
+                "price": "23.3910",
+                "quantity": "2",
+                "role": "STOP"
+              },
+              {
+                "price": "23.8750",
+                "quantity": "2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2",
+            "side": "BUY",
+            "signal_key": "cf2a79ca22fb989dfa44d0d34804d0f1706f887b1e6472c93b20f7fef924afe3",
+            "stop": "23.3910",
+            "symbol": "AVAXUSDT",
+            "tp1": "23.8750",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20310,
+          "stress_net_pnl": "-0.44988560000000000000000000"
+        },
+        {
+          "day_start_equity": "100.0484898000000000000000000",
+          "entry_ms": 1754813700000,
+          "exit_ms": 1754820900000,
+          "exit_price": "23.602000000000000000",
+          "fees": "0.0141222000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.195000000000000000",
+          "minimum_equity": "99.65101340000000000000000000",
+          "net_pnl": "0.1808778000000000000000",
+          "plan": {
+            "decision_ms": 1754813700000,
+            "entry": "23.4070",
+            "exits": [
+              {
+                "price": "23.2170",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "23.7540",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "22b5d37332893213ee5ec28ff40253702fddd45ccf1a3f8c4a1543a957661f46",
+            "stop": "23.2170",
+            "symbol": "AVAXUSDT",
+            "tp1": "23.7540",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20310,
+          "stress_net_pnl": "0.1432511000000000000000"
+        },
+        {
+          "day_start_equity": "99.85457260000000000000000000",
+          "entry_ms": 1754911800000,
+          "exit_ms": 1754913300000,
+          "exit_price": "23.2890",
+          "fees": "0.01401160",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.1910",
+          "minimum_equity": "99.65887660000000000000000000",
+          "net_pnl": "-0.20501160",
+          "plan": {
+            "decision_ms": 1754911800000,
+            "entry": "23.4800",
+            "exits": [
+              {
+                "price": "23.2890",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "23.8290",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "3d06e96a69580a5df5e126ae2515cef3bf2f8e4afb3d7e84a18221196a4aec45",
+            "stop": "23.2890",
+            "symbol": "AVAXUSDT",
+            "tp1": "23.8290",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20311,
+          "stress_net_pnl": "-0.24240770"
+        },
+        {
+          "day_start_equity": "99.64956100000000000000000000",
+          "entry_ms": 1758367800000,
+          "exit_ms": 1758375000000,
+          "exit_price": "33.036000000000000000",
+          "fees": "0.0198152000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.032000000000000000",
+          "minimum_equity": "99.51896020000000000000000000",
+          "net_pnl": "0.0121848000000000000000",
+          "plan": {
+            "decision_ms": 1758367800000,
+            "entry": "33.0040",
+            "exits": [
+              {
+                "price": "32.8190",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "33.3430",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "a6cab691c0c88b64f21adff9ab85d8f61be12be989dd9a4f3c6bd68366e0c069",
+            "stop": "32.8190",
+            "symbol": "AVAXUSDT",
+            "tp1": "33.3430",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20351,
+          "stress_net_pnl": "-0.0406504000000000000000"
+        },
+        {
+          "day_start_equity": "99.66174580000000000000000000",
+          "entry_ms": 1759846500000,
+          "exit_ms": 1759847400000,
+          "exit_price": "28.8400",
+          "fees": "0.01734840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.2220",
+          "minimum_equity": "99.43393340000000000000000000",
+          "net_pnl": "-0.23934840",
+          "plan": {
+            "decision_ms": 1759846500000,
+            "entry": "29.0620",
+            "exits": [
+              {
+                "price": "28.8400",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "29.4680",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "0e5546cfc9bc09abda4cf5b1d6adaf57019fc705361bb1613f02e727e1317127",
+            "stop": "28.8400",
+            "symbol": "AVAXUSDT",
+            "tp1": "29.4680",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20368,
+          "stress_net_pnl": "-0.28564780"
+        },
+        {
+          "day_start_equity": "99.66174580000000000000000000",
+          "entry_ms": 1759847400000,
+          "exit_ms": 1759849800000,
+          "exit_price": "28.5890",
+          "fees": "0.01720200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.2430",
+          "minimum_equity": "99.17363100000000000000000000",
+          "net_pnl": "-0.26020200",
+          "plan": {
+            "decision_ms": 1759847400000,
+            "entry": "28.8320",
+            "exits": [
+              {
+                "price": "28.5890",
+                "quantity": "1",
+                "role": "STOP"
+              },
+              {
+                "price": "29.2760",
+                "quantity": "1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1",
+            "side": "BUY",
+            "signal_key": "d293eabfc5997b596bd9cee5a1ce08f1475134f54dd76c08153a0ccaa85e0fe9",
+            "stop": "28.5890",
+            "symbol": "AVAXUSDT",
+            "tp1": "29.2760",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20368,
+          "stress_net_pnl": "-0.30611450"
+        },
+        {
+          "day_start_equity": "99.16219540000000000000000000",
+          "entry_ms": 1768447800000,
+          "exit_ms": 1768455000000,
+          "exit_price": "14.241000000000000000",
+          "fees": "0.0255954000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.192000000000000000",
+          "minimum_equity": "98.95868920000000000000000000",
+          "net_pnl": "0.1664046000000000000000",
+          "plan": {
+            "decision_ms": 1768447800000,
+            "entry": "14.1770",
+            "exits": [
+              {
+                "price": "14.0850",
+                "quantity": "3",
+                "role": "STOP"
+              },
+              {
+                "price": "14.3450",
+                "quantity": "3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3",
+            "side": "BUY",
+            "signal_key": "b0034eb3ac1e9897a9bb8f623d0151ab8b3ad93eacd37acecb73fb72c08fb68e",
+            "stop": "14.0850",
+            "symbol": "AVAXUSDT",
+            "tp1": "14.3450",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20468,
+          "stress_net_pnl": "0.0981822000000000000000"
+        },
+        {
+          "day_start_equity": "99.32860000000000000000000000",
+          "entry_ms": 1768578300000,
+          "exit_ms": 1768578600000,
+          "exit_price": "13.4190",
+          "fees": "0.03226320",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.2880",
+          "minimum_equity": "99.02980720000000000000000000",
+          "net_pnl": "-0.32026320",
+          "plan": {
+            "decision_ms": 1768578300000,
+            "entry": "13.4910",
+            "exits": [
+              {
+                "price": "13.4190",
+                "quantity": "4",
+                "role": "STOP"
+              },
+              {
+                "price": "13.6210",
+                "quantity": "4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4",
+            "side": "BUY",
+            "signal_key": "0b6a31a22a8d5bd6a24219a1cab468905ffce1f7d011f2bf5bfea824f5f0aa74",
+            "stop": "13.4190",
+            "symbol": "AVAXUSDT",
+            "tp1": "13.6210",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20469,
+          "stress_net_pnl": "-0.40634640"
+        },
+        {
+          "day_start_equity": "99.32860000000000000000000000",
+          "entry_ms": 1768579200000,
+          "exit_ms": 1768579500000,
+          "exit_price": "13.3140",
+          "fees": "0.03202000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00451690000000000000000000",
+          "gross_pnl": "-0.3320",
+          "minimum_equity": "98.66561920000000000000000000",
+          "net_pnl": "-0.35950310000000000000000000",
+          "plan": {
+            "decision_ms": 1768579200000,
+            "entry": "13.3970",
+            "exits": [
+              {
+                "price": "13.3140",
+                "quantity": "4",
+                "role": "STOP"
+              },
+              {
+                "price": "13.5480",
+                "quantity": "4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4",
+            "side": "BUY",
+            "signal_key": "9e37de75455be3c4fa0f77a868464313c1f155ebc9a23672cc04e930f9fd92c0",
+            "stop": "13.3140",
+            "symbol": "AVAXUSDT",
+            "tp1": "13.5480",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20469,
+          "stress_net_pnl": "-0.44494510000000000000000000"
+        }
+      ],
+      "unfilled": 5
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 11,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "98.64883370000000000000000000",
+          "entry_ms": 1773834300000,
+          "exit_ms": 1773835500000,
+          "exit_price": "9.9500",
+          "fees": "0.03588600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3300",
+          "minimum_equity": "98.30682770000000000000000000",
+          "net_pnl": "-0.36588600",
+          "plan": {
+            "decision_ms": 1773834300000,
+            "entry": "10.0050",
+            "exits": [
+              {
+                "price": "9.9500",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "10.1040",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "b7e1b53b9b5ddf529499dc4131085f180c4c8fa7df6cc20c53b1829877452fff",
+            "stop": "9.9500",
+            "symbol": "AVAXUSDT",
+            "tp1": "10.1040",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.46163700"
+        },
+        {
+          "day_start_equity": "98.64883370000000000000000000",
+          "entry_ms": 1773836100000,
+          "exit_ms": 1773837300000,
+          "exit_price": "9.8290",
+          "fees": "0.02955200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3250",
+          "minimum_equity": "97.94805370000000000000000000",
+          "net_pnl": "-0.35455200",
+          "plan": {
+            "decision_ms": 1773836100000,
+            "entry": "9.8940",
+            "exits": [
+              {
+                "price": "9.8290",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "10.0120",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "4241045870d523cef99c8e445e4b35fd87a85a7f4756312d4e6dafa7a317f0f5",
+            "stop": "9.8290",
+            "symbol": "AVAXUSDT",
+            "tp1": "10.0120",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.43341150"
+        },
+        {
+          "day_start_equity": "98.64883370000000000000000000",
+          "entry_ms": 1773837900000,
+          "exit_ms": 1773844200000,
+          "exit_price": "9.7170",
+          "fees": "0.02338240",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3080",
+          "minimum_equity": "97.61256050000000000000000000",
+          "net_pnl": "-0.33138240",
+          "plan": {
+            "decision_ms": 1773837900000,
+            "entry": "9.7940",
+            "exits": [
+              {
+                "price": "9.7170",
+                "quantity": "4",
+                "role": "STOP"
+              },
+              {
+                "price": "9.9340",
+                "quantity": "4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4",
+            "side": "BUY",
+            "signal_key": "e0b340ec9a96c69c7927347ea6c6aacd3ea8414aa3b787730b3292fc149c1a1a",
+            "stop": "9.7170",
+            "symbol": "AVAXUSDT",
+            "tp1": "9.9340",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.39378680"
+        },
+        {
+          "day_start_equity": "97.59701330000000000000000000",
+          "entry_ms": 1775958300000,
+          "exit_ms": 1775958600000,
+          "exit_price": "9.0440",
+          "fees": "0.02719900",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3350",
+          "minimum_equity": "97.25290230000000000000000000",
+          "net_pnl": "-0.36219900",
+          "plan": {
+            "decision_ms": 1775958300000,
+            "entry": "9.1110",
+            "exits": [
+              {
+                "price": "9.0440",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "9.2320",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "9cf3877c8a0d46dac7f31be88ca54258e50e44647cc83407fc1e9f9983b224ca",
+            "stop": "9.0440",
+            "symbol": "AVAXUSDT",
+            "tp1": "9.2320",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.43478550"
+        },
+        {
+          "day_start_equity": "97.59701330000000000000000000",
+          "entry_ms": 1775959200000,
+          "exit_ms": 1775966400000,
+          "exit_price": "9.078000000000000000",
+          "fees": "0.0272280000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.030000000000000000",
+          "minimum_equity": "96.96574230000000000000000000",
+          "net_pnl": "0.0027720000000000000000",
+          "plan": {
+            "decision_ms": 1775959200000,
+            "entry": "9.0720",
+            "exits": [
+              {
+                "price": "9.0010",
+                "quantity": "5",
+                "role": "STOP"
+              },
+              {
+                "price": "9.2010",
+                "quantity": "5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5",
+            "side": "BUY",
+            "signal_key": "9354f42ec4e3a6a80c214faff98ec9ce36410394d5d2d3239e35e9d1dbc287b7",
+            "stop": "9.0010",
+            "symbol": "AVAXUSDT",
+            "tp1": "9.2010",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.0698310000000000000000"
+        },
+        {
+          "day_start_equity": "97.23758630000000000000000000",
+          "entry_ms": 1777268700000,
+          "exit_ms": 1777270200000,
+          "exit_price": "9.2320",
+          "fees": "0.03329640",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3060",
+          "minimum_equity": "96.92044670000000000000000000",
+          "net_pnl": "-0.33929640",
+          "plan": {
+            "decision_ms": 1777268700000,
+            "entry": "9.2830",
+            "exits": [
+              {
+                "price": "9.2320",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "9.3740",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "05e7c11d8eeccf86b544e3a4d1ba8b84027a091baa64f844a1f0e0713ea7b727",
+            "stop": "9.2320",
+            "symbol": "AVAXUSDT",
+            "tp1": "9.3740",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.42813780"
+        },
+        {
+          "day_start_equity": "97.23758630000000000000000000",
+          "entry_ms": 1777270500000,
+          "exit_ms": 1777277700000,
+          "exit_price": "9.233000000000000000",
+          "fees": "0.0332508000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.01005597096000000000000000",
+          "gross_pnl": "-0.060000000000000000",
+          "minimum_equity": "96.64719830000000000000000000",
+          "net_pnl": "-0.08319482904000000000000000",
+          "plan": {
+            "decision_ms": 1777270500000,
+            "entry": "9.2430",
+            "exits": [
+              {
+                "price": "9.1910",
+                "quantity": "6",
+                "role": "STOP"
+              },
+              {
+                "price": "9.3370",
+                "quantity": "6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6",
+            "side": "BUY",
+            "signal_key": "cf2bc6d6bbc863c1bc07166b9b268c55749e219b47bbf04bf2d45b0d1b5a11d9",
+            "stop": "9.1910",
+            "symbol": "AVAXUSDT",
+            "tp1": "9.3370",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.17187362904000000000000000"
+        },
+        {
+          "day_start_equity": "96.81509507096000000000000000",
+          "entry_ms": 1784189700000,
+          "exit_ms": 1784196900000,
+          "exit_price": "6.580000000000000000",
+          "fees": "0.0354870000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.225000000000000000",
+          "minimum_equity": "96.71329607096000000000000000",
+          "net_pnl": "0.1895130000000000000000",
+          "plan": {
+            "decision_ms": 1784189700000,
+            "entry": "6.5550",
+            "exits": [
+              {
+                "price": "6.5200",
+                "quantity": "9",
+                "role": "STOP"
+              },
+              {
+                "price": "6.6170",
+                "quantity": "9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9",
+            "side": "BUY",
+            "signal_key": "a49f5ef5983d29b1b059f456cef2ece26d1fc884e5697e6cb77932a6b3acf0f4",
+            "stop": "6.5200",
+            "symbol": "AVAXUSDT",
+            "tp1": "6.6170",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20650,
+          "stress_net_pnl": "0.0949185000000000000000"
+        }
+      ],
+      "unfilled": 3
+    }
+  ]
+}

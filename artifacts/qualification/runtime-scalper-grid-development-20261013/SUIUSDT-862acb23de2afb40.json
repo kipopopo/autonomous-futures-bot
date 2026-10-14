@@ -1,0 +1,5776 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-2.0",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "2.5",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": false,
+    "positive_net_edge": false,
+    "profit_factor": false,
+    "stress_positive": false,
+    "sufficient_oos_samples": true,
+    "window_consistency": false
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "8.67162849832320000000000000",
+    "net_pnl": "-5.50262747085710000000000000",
+    "profitable_windows": 1,
+    "stress_net_pnl": "-14.68200124685710000000000000",
+    "trade_count": 137
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {},
+  "report_hash": "862acb23de2afb408f7eedf79ae7b3cf136868c3e06db573a23b751022a0f78a",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-2.0",
+      "target_atr_multiplier": "2.5"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/SUIUSDT-5d0d92acc003a8ab.json",
+    "reference_report_sha256": "68569bf06d6cec19d16c3c64eef1d516e4afaf7d3a9e06bf0eaec2fbe4cd2a2c",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1683129600000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "aa555cf55930e548ac81778999a12635e229c3c4dfc81b6e1bd322def266116c",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/SUIUSDT-5m.parquet",
+      "rows": 341376,
+      "sha256": "65f190834568bed2b332f7bbc0613daa2f5b422ed2e3ed1e733201c19eefe2a4"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/SUIUSDT-funding.csv",
+      "sha256": "9fae4cc71ec0aabce4bc63675ae1306fdc62f0130aba02e135c8908cdadb7a63"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1683129600000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "94136434a1a136396501bdde2998c016fafc64e14c8b4a0c27dac3a35652a0ef",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/SUIUSDT-15m.parquet",
+      "rows": 113792,
+      "sha256": "f7f6fae509d1cb58f31021a1be297056f7000842fadbb51d3209c1188584b757"
+    }
+  },
+  "symbol": "SUIUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 45,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704283200000,
+          "exit_ms": 1704283500000,
+          "exit_price": "0.839500",
+          "fees": "0.01675786800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4269900",
+          "minimum_equity": "99.56736711200",
+          "net_pnl": "-0.44374786800",
+          "plan": {
+            "decision_ms": 1704283200000,
+            "entry": "0.852400",
+            "exits": [
+              {
+                "price": "0.839500",
+                "quantity": "33.1",
+                "role": "STOP"
+              },
+              {
+                "price": "0.879100",
+                "quantity": "33.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "33.1",
+            "side": "BUY",
+            "signal_key": "e3725f7752b3c2af295b93a48b14aa0ac5e3ca511bad6f48a5996ca3c2712551",
+            "stop": "0.839500",
+            "symbol": "SUIUSDT",
+            "tp1": "0.879100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19725,
+          "stress_net_pnl": "-0.48850668100"
+        },
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704285000000,
+          "exit_ms": 1704292200000,
+          "exit_price": "0.783000000000000000",
+          "fees": "0.00722290800000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.0600600000000000000",
+          "minimum_equity": "99.3598125040000000000",
+          "net_pnl": "0.05283709200000000000000",
+          "plan": {
+            "decision_ms": 1704285000000,
+            "entry": "0.779100",
+            "exits": [
+              {
+                "price": "0.748900",
+                "quantity": "15.4",
+                "role": "STOP"
+              },
+              {
+                "price": "0.841900",
+                "quantity": "15.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "15.4",
+            "side": "BUY",
+            "signal_key": "a4bea31d5b3fc0eacdd0c63d5d683ad7dbfaaab6c2d87175af81e07f22aa22d1",
+            "stop": "0.748900",
+            "symbol": "SUIUSDT",
+            "tp1": "0.841900",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19725,
+          "stress_net_pnl": "0.03358601400000000000000"
+        },
+        {
+          "day_start_equity": "99.88571369600000000000000",
+          "entry_ms": 1704670200000,
+          "exit_ms": 1704675300000,
+          "exit_price": "0.780500",
+          "fees": "0.01703716800",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.002896000000000000000000000",
+          "gross_pnl": "-0.4235400",
+          "minimum_equity": "99.17691769600000000000000000",
+          "net_pnl": "-0.443473168000000000000000000",
+          "plan": {
+            "decision_ms": 1704670200000,
+            "entry": "0.792200",
+            "exits": [
+              {
+                "price": "0.780500",
+                "quantity": "36.2",
+                "role": "STOP"
+              },
+              {
+                "price": "0.816500",
+                "quantity": "36.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "36.2",
+            "side": "BUY",
+            "signal_key": "982f54bf5afd4441a3b78c2501048070f304e99c7b72cae3645e1617f3006a0f",
+            "stop": "0.780500",
+            "symbol": "SUIUSDT",
+            "tp1": "0.816500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19730,
+          "stress_net_pnl": "-0.488976206000000000000000000"
+        },
+        {
+          "day_start_equity": "99.16561605600000000000000000",
+          "entry_ms": 1707660900000,
+          "exit_ms": 1707668100000,
+          "exit_price": "1.683600000000000000",
+          "fees": "0.02708140000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.004520356000000000000000000",
+          "gross_pnl": "-0.0455600000000000000",
+          "minimum_equity": "98.85374284800000000000000000",
+          "net_pnl": "-0.077161756000000000000000000",
+          "plan": {
+            "decision_ms": 1707660900000,
+            "entry": "1.685300",
+            "exits": [
+              {
+                "price": "1.671200",
+                "quantity": "26.8",
+                "role": "STOP"
+              },
+              {
+                "price": "1.714500",
+                "quantity": "26.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26.8",
+            "side": "BUY",
+            "signal_key": "47f45ef910fe2b90fa150ef9305b23a3fb79b1dd75dee219c0dd9f00171f3b02",
+            "stop": "1.671200",
+            "symbol": "SUIUSDT",
+            "tp1": "1.714500",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19764,
+          "stress_net_pnl": "-0.149386416000000000000000000"
+        },
+        {
+          "day_start_equity": "99.08845430000000000000000000",
+          "entry_ms": 1707796800000,
+          "exit_ms": 1707802800000,
+          "exit_price": "1.774200",
+          "fees": "0.01644598800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8026200",
+          "minimum_equity": "99.06393156800000000000000000",
+          "net_pnl": "0.78617401200",
+          "plan": {
+            "decision_ms": 1707796800000,
+            "entry": "1.739900",
+            "exits": [
+              {
+                "price": "1.723300",
+                "quantity": "23.4",
+                "role": "STOP"
+              },
+              {
+                "price": "1.774200",
+                "quantity": "23.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "23.4",
+            "side": "BUY",
+            "signal_key": "363d25218cdf5aa794fd26e1c53d6f60376db85e17d1921ec96bff6806c6fc31",
+            "stop": "1.723300",
+            "symbol": "SUIUSDT",
+            "tp1": "1.774200",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19766,
+          "stress_net_pnl": "0.72861305400"
+        },
+        {
+          "day_start_equity": "99.87462831200000000000000000",
+          "entry_ms": 1707976800000,
+          "exit_ms": 1707984000000,
+          "exit_price": "1.861500000000000000",
+          "fees": "0.02929160000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.004877130000000000000000000",
+          "gross_pnl": "-0.1441000000000000000",
+          "minimum_equity": "99.56878523200000000000000000",
+          "net_pnl": "-0.178268730000000000000000000",
+          "plan": {
+            "decision_ms": 1707976800000,
+            "entry": "1.867000",
+            "exits": [
+              {
+                "price": "1.852800",
+                "quantity": "26.2",
+                "role": "STOP"
+              },
+              {
+                "price": "1.896500",
+                "quantity": "26.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26.2",
+            "side": "BUY",
+            "signal_key": "e8cb4a01768ec2380d5a28e6ec245063e3b7476f45e026cb703a78caabb935a1",
+            "stop": "1.852800",
+            "symbol": "SUIUSDT",
+            "tp1": "1.896500",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19768,
+          "stress_net_pnl": "-0.256403680000000000000000000"
+        },
+        {
+          "day_start_equity": "99.69635958200000000000000000",
+          "entry_ms": 1708070400000,
+          "exit_ms": 1708074600000,
+          "exit_price": "1.803700",
+          "fees": "0.02929392000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3699000",
+          "minimum_equity": "99.31664562200000000000000000",
+          "net_pnl": "-0.39919392000",
+          "plan": {
+            "decision_ms": 1708070400000,
+            "entry": "1.817400",
+            "exits": [
+              {
+                "price": "1.803700",
+                "quantity": "27.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.845800",
+                "quantity": "27.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "27.0",
+            "side": "BUY",
+            "signal_key": "11855cf32f9cc9fda8b3b3c9cfe2249cd2617c9d895601affbf6525b53cf3bb4",
+            "stop": "1.803700",
+            "symbol": "SUIUSDT",
+            "tp1": "1.845800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19769,
+          "stress_net_pnl": "-0.47737269000"
+        },
+        {
+          "day_start_equity": "99.69635958200000000000000000",
+          "entry_ms": 1708095600000,
+          "exit_ms": 1708096500000,
+          "exit_price": "1.752000",
+          "fees": "0.02425580000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3910000",
+          "minimum_equity": "98.89802826200000000000000000",
+          "net_pnl": "-0.41525580000",
+          "plan": {
+            "decision_ms": 1708095600000,
+            "entry": "1.769000",
+            "exits": [
+              {
+                "price": "1.752000",
+                "quantity": "23.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.804300",
+                "quantity": "23.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "23.0",
+            "side": "BUY",
+            "signal_key": "52cb11ba929f41eeeb8e4a58483ade6c9646f69d90fe275e55eb766ccbb177bf",
+            "stop": "1.752000",
+            "symbol": "SUIUSDT",
+            "tp1": "1.804300",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19769,
+          "stress_net_pnl": "-0.48000310000"
+        },
+        {
+          "day_start_equity": "99.69635958200000000000000000",
+          "entry_ms": 1708096500000,
+          "exit_ms": 1708099500000,
+          "exit_price": "1.791500",
+          "fees": "0.01502783200",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.003793740000000000000000000",
+          "gross_pnl": "0.8204400",
+          "minimum_equity": "98.85327799000000000000000000",
+          "net_pnl": "0.801618428000000000000000000",
+          "plan": {
+            "decision_ms": 1708096500000,
+            "entry": "1.752800",
+            "exits": [
+              {
+                "price": "1.734100",
+                "quantity": "21.2",
+                "role": "STOP"
+              },
+              {
+                "price": "1.791500",
+                "quantity": "21.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "21.2",
+            "side": "BUY",
+            "signal_key": "47ef1d39bb9dfab4e3651a15a56285050757e9672aa329ed6c076bf9ac0b60a7",
+            "stop": "1.734100",
+            "symbol": "SUIUSDT",
+            "tp1": "1.791500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19769,
+          "stress_net_pnl": "0.749021016000000000000000000"
+        },
+        {
+          "day_start_equity": "99.68352829000000000000000000",
+          "entry_ms": 1708182000000,
+          "exit_ms": 1708184100000,
+          "exit_price": "1.746900",
+          "fees": "0.01772902400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7961600",
+          "minimum_equity": "99.49298339400000000000000000",
+          "net_pnl": "0.77843097600",
+          "plan": {
+            "decision_ms": 1708182000000,
+            "entry": "1.715800",
+            "exits": [
+              {
+                "price": "1.700800",
+                "quantity": "25.6",
+                "role": "STOP"
+              },
+              {
+                "price": "1.746900",
+                "quantity": "25.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "25.6",
+            "side": "BUY",
+            "signal_key": "982463315e0d38d9aade58c99b2192064e11a7a4bba02980a735b2b0b6de3194",
+            "stop": "1.700800",
+            "symbol": "SUIUSDT",
+            "tp1": "1.746900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19770,
+          "stress_net_pnl": "0.71637939200"
+        },
+        {
+          "day_start_equity": "100.4619592660000000000000000",
+          "entry_ms": 1708422300000,
+          "exit_ms": 1708422600000,
+          "exit_price": "1.691000",
+          "fees": "0.03223509600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3613800",
+          "minimum_equity": "100.0897860500000000000000000",
+          "net_pnl": "-0.39361509600",
+          "plan": {
+            "decision_ms": 1708422300000,
+            "entry": "1.702400",
+            "exits": [
+              {
+                "price": "1.691000",
+                "quantity": "31.7",
+                "role": "STOP"
+              },
+              {
+                "price": "1.726100",
+                "quantity": "31.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "31.7",
+            "side": "BUY",
+            "signal_key": "78b120508e4a82003137f9bc8d73a5d8259495ef8f3487adf7b736e4912da376",
+            "stop": "1.691000",
+            "symbol": "SUIUSDT",
+            "tp1": "1.726100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19773,
+          "stress_net_pnl": "-0.47963558200"
+        },
+        {
+          "day_start_equity": "100.0683441700000000000000000",
+          "entry_ms": 1708499700000,
+          "exit_ms": 1708506900000,
+          "exit_price": "1.661600000000000000",
+          "fees": "0.03094387800000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.012803300838900000000000000",
+          "gross_pnl": "0.3078900000000000000",
+          "minimum_equity": "99.9896505960000000000000000",
+          "net_pnl": "0.264142821161100000000000000",
+          "plan": {
+            "decision_ms": 1708499700000,
+            "entry": "1.651700",
+            "exits": [
+              {
+                "price": "1.639900",
+                "quantity": "31.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.676100",
+                "quantity": "31.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "31.1",
+            "side": "BUY",
+            "signal_key": "5dca518500f0857b8ebe09d8d18c81e4f6882a5c511c20d845844fbe9c5e6adb",
+            "stop": "1.639900",
+            "symbol": "SUIUSDT",
+            "tp1": "1.676100",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19774,
+          "stress_net_pnl": "0.181677128161100000000000000"
+        },
+        {
+          "day_start_equity": "100.3324869911611000000000000",
+          "entry_ms": 1709050500000,
+          "exit_ms": 1709057700000,
+          "exit_price": "1.611600000000000000",
+          "fees": "0.02091706400000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.3298400000000000000",
+          "minimum_equity": "100.2062086151611000000000000",
+          "net_pnl": "0.30892293600000000000000",
+          "plan": {
+            "decision_ms": 1709050500000,
+            "entry": "1.596400",
+            "exits": [
+              {
+                "price": "1.577500",
+                "quantity": "21.7",
+                "role": "STOP"
+              },
+              {
+                "price": "1.635700",
+                "quantity": "21.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "21.7",
+            "side": "BUY",
+            "signal_key": "54ef471e8714e34e807e0ff58c10008483acef475e87f71c773cd073df0af124",
+            "stop": "1.577500",
+            "symbol": "SUIUSDT",
+            "tp1": "1.635700",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19780,
+          "stress_net_pnl": "0.25319907200000000000000"
+        },
+        {
+          "day_start_equity": "100.6414099271611000000000000",
+          "entry_ms": 1709145000000,
+          "exit_ms": 1709152200000,
+          "exit_price": "1.527100000000000000",
+          "fees": "0.00740583000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.0793800000000000000",
+          "minimum_equity": "100.5992619011611000000000000",
+          "net_pnl": "0.07197417000000000000000",
+          "plan": {
+            "decision_ms": 1709145000000,
+            "entry": "1.517300",
+            "exits": [
+              {
+                "price": "1.459400",
+                "quantity": "8.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.637700",
+                "quantity": "8.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.1",
+            "side": "BUY",
+            "signal_key": "054dd030239070f34aec0422e9d7929130d649ddf57eb40212653d34fa78e2da",
+            "stop": "1.459400",
+            "symbol": "SUIUSDT",
+            "tp1": "1.637700",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19781,
+          "stress_net_pnl": "0.05223852000000000000000"
+        },
+        {
+          "day_start_equity": "100.7133840971611000000000000",
+          "entry_ms": 1709343000000,
+          "exit_ms": 1709348700000,
+          "exit_price": "1.679800",
+          "fees": "0.01737477000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8117100",
+          "minimum_equity": "100.6604078831611000000000000",
+          "net_pnl": "0.79433523000",
+          "plan": {
+            "decision_ms": 1709343000000,
+            "entry": "1.648700",
+            "exits": [
+              {
+                "price": "1.633700",
+                "quantity": "26.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.679800",
+                "quantity": "26.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26.1",
+            "side": "BUY",
+            "signal_key": "2dc2262456717db15086a4fed5735bdada99f3fc4e4cbe340e301f76817fb354",
+            "stop": "1.633700",
+            "symbol": "SUIUSDT",
+            "tp1": "1.679800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19784,
+          "stress_net_pnl": "0.73352353500"
+        },
+        {
+          "day_start_equity": "101.5077193271611000000000000",
+          "entry_ms": 1709914500000,
+          "exit_ms": 1709921700000,
+          "exit_price": "1.526000000000000000",
+          "fees": "0.01570494000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.6747000000000000000",
+          "minimum_equity": "101.4991143071611000000000000",
+          "net_pnl": "0.65899506000000000000000",
+          "plan": {
+            "decision_ms": 1709914500000,
+            "entry": "1.487000",
+            "exits": [
+              {
+                "price": "1.461600",
+                "quantity": "17.3",
+                "role": "STOP"
+              },
+              {
+                "price": "1.539700",
+                "quantity": "17.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "17.3",
+            "side": "BUY",
+            "signal_key": "6818ab9cd2399f4c51e004c7633879645b686e179511ac26751e8f9335616d26",
+            "stop": "1.461600",
+            "symbol": "SUIUSDT",
+            "tp1": "1.539700",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19790,
+          "stress_net_pnl": "0.61722767000000000000000"
+        },
+        {
+          "day_start_equity": "102.1667143871611000000000000",
+          "entry_ms": 1710423900000,
+          "exit_ms": 1710424500000,
+          "exit_price": "1.518000",
+          "fees": "0.01948481400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4238700",
+          "minimum_equity": "101.7362929331611000000000000",
+          "net_pnl": "-0.44335481400",
+          "plan": {
+            "decision_ms": 1710423900000,
+            "entry": "1.537900",
+            "exits": [
+              {
+                "price": "1.518000",
+                "quantity": "21.3",
+                "role": "STOP"
+              },
+              {
+                "price": "1.579200",
+                "quantity": "21.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "21.3",
+            "side": "BUY",
+            "signal_key": "95f3e41a3984e87166604869432dfb78e9821b5c550e4cd23e56ffe52519b3a8",
+            "stop": "1.518000",
+            "symbol": "SUIUSDT",
+            "tp1": "1.579200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19796,
+          "stress_net_pnl": "-0.49538496300"
+        },
+        {
+          "day_start_equity": "102.1667143871611000000000000",
+          "entry_ms": 1710424800000,
+          "exit_ms": 1710432000000,
+          "exit_price": "1.527800000000000000",
+          "fees": "0.01789008000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.019408063545000000000000000",
+          "gross_pnl": "-0.0741000000000000000",
+          "minimum_equity": "101.2981363331611000000000000",
+          "net_pnl": "-0.111398143545000000000000000",
+          "plan": {
+            "decision_ms": 1710424800000,
+            "entry": "1.531600",
+            "exits": [
+              {
+                "price": "1.509500",
+                "quantity": "19.5",
+                "role": "STOP"
+              },
+              {
+                "price": "1.577600",
+                "quantity": "19.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "19.5",
+            "side": "BUY",
+            "signal_key": "2fca477ca921436f12ac5ab00dc839b086d846961fff21039e11c2c15aa326a0",
+            "stop": "1.509500",
+            "symbol": "SUIUSDT",
+            "tp1": "1.577600",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19796,
+          "stress_net_pnl": "-0.159117373545000000000000000"
+        },
+        {
+          "day_start_equity": "101.6119614296161000000000000",
+          "entry_ms": 1711724400000,
+          "exit_ms": 1711727100000,
+          "exit_price": "1.938100",
+          "fees": "0.02275728000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4075500",
+          "minimum_equity": "101.1967713296161000000000000",
+          "net_pnl": "-0.43030728000",
+          "plan": {
+            "decision_ms": 1711724400000,
+            "entry": "1.959000",
+            "exits": [
+              {
+                "price": "1.938100",
+                "quantity": "19.5",
+                "role": "STOP"
+              },
+              {
+                "price": "2.002400",
+                "quantity": "19.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "19.5",
+            "side": "BUY",
+            "signal_key": "cdad62c6987918e23135fe3ae97440b3a4e787eb07de6fb07565f4849c339a8b",
+            "stop": "1.938100",
+            "symbol": "SUIUSDT",
+            "tp1": "2.002400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19811,
+          "stress_net_pnl": "-0.49106128500"
+        },
+        {
+          "day_start_equity": "101.1816541496161000000000000",
+          "entry_ms": 1711758600000,
+          "exit_ms": 1711760700000,
+          "exit_price": "1.911800",
+          "fees": "0.01995644000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7784800",
+          "minimum_equity": "101.1691237776161000000000000",
+          "net_pnl": "0.75852356000",
+          "plan": {
+            "decision_ms": 1711758600000,
+            "entry": "1.882200",
+            "exits": [
+              {
+                "price": "1.867900",
+                "quantity": "26.3",
+                "role": "STOP"
+              },
+              {
+                "price": "1.911800",
+                "quantity": "26.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26.3",
+            "side": "BUY",
+            "signal_key": "9ba4299702e23d82ba43f40217f70f6db12cebd9d377732c1951daf976a2796e",
+            "stop": "1.867900",
+            "symbol": "SUIUSDT",
+            "tp1": "1.911800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19812,
+          "stress_net_pnl": "0.68867602000"
+        },
+        {
+          "day_start_equity": "101.9401777096161000000000000",
+          "entry_ms": 1712717100000,
+          "exit_ms": 1712724300000,
+          "exit_price": "1.546300000000000000",
+          "fees": "0.02210128600000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.3632800000000000000",
+          "minimum_equity": "101.5719690516161000000000000",
+          "net_pnl": "0.34117871400000000000000",
+          "plan": {
+            "decision_ms": 1712717100000,
+            "entry": "1.531100",
+            "exits": [
+              {
+                "price": "1.513800",
+                "quantity": "23.9",
+                "role": "STOP"
+              },
+              {
+                "price": "1.567000",
+                "quantity": "23.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "23.9",
+            "side": "BUY",
+            "signal_key": "afd460ea593c2312148a8095ba7a8055c344cb8bd175b90438805c08299e3a62",
+            "stop": "1.513800",
+            "symbol": "SUIUSDT",
+            "tp1": "1.567000",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19823,
+          "stress_net_pnl": "0.28230249800000000000000"
+        },
+        {
+          "day_start_equity": "102.2813564236161000000000000",
+          "entry_ms": 1712836800000,
+          "exit_ms": 1712844000000,
+          "exit_price": "1.504900000000000000",
+          "fees": "0.02493443200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.3850300000000000000",
+          "minimum_equity": "102.0542662836161000000000000",
+          "net_pnl": "0.36009556800000000000000",
+          "plan": {
+            "decision_ms": 1712836800000,
+            "entry": "1.491000",
+            "exits": [
+              {
+                "price": "1.476400",
+                "quantity": "27.7",
+                "role": "STOP"
+              },
+              {
+                "price": "1.521200",
+                "quantity": "27.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "27.7",
+            "side": "BUY",
+            "signal_key": "15995a99d161073ce62788fb5b82ba9b2a8cdccb0865de955a04bcc9bf49a08f",
+            "stop": "1.476400",
+            "symbol": "SUIUSDT",
+            "tp1": "1.521200",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19824,
+          "stress_net_pnl": "0.29366792100000000000000"
+        },
+        {
+          "day_start_equity": "102.6414519916161000000000000",
+          "entry_ms": 1712909700000,
+          "exit_ms": 1712915400000,
+          "exit_price": "1.463800",
+          "fees": "0.03151760400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3759000",
+          "minimum_equity": "102.2549960036161000000000000",
+          "net_pnl": "-0.40741760400",
+          "plan": {
+            "decision_ms": 1712909700000,
+            "entry": "1.474300",
+            "exits": [
+              {
+                "price": "1.463800",
+                "quantity": "35.8",
+                "role": "STOP"
+              },
+              {
+                "price": "1.496000",
+                "quantity": "35.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "35.8",
+            "side": "BUY",
+            "signal_key": "7346bc3ed51af9242a317053a493a34a314350dfb3484aa6d24b4780293c3876",
+            "stop": "1.463800",
+            "symbol": "SUIUSDT",
+            "tp1": "1.496000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.49152719800"
+        },
+        {
+          "day_start_equity": "102.6414519916161000000000000",
+          "entry_ms": 1712928600000,
+          "exit_ms": 1712929500000,
+          "exit_price": "1.418100",
+          "fees": "0.02654074000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3949700",
+          "minimum_equity": "101.8301648116161000000000000",
+          "net_pnl": "-0.42151074000",
+          "plan": {
+            "decision_ms": 1712928600000,
+            "entry": "1.430800",
+            "exits": [
+              {
+                "price": "1.418100",
+                "quantity": "31.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.457000",
+                "quantity": "31.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "31.1",
+            "side": "BUY",
+            "signal_key": "3d8719638a6367b78de33e5d0e28bf3f59165336afcca6244440e11c4e5bc258",
+            "stop": "1.418100",
+            "symbol": "SUIUSDT",
+            "tp1": "1.457000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.49235187500"
+        },
+        {
+          "day_start_equity": "102.6414519916161000000000000",
+          "entry_ms": 1712929500000,
+          "exit_ms": 1712936700000,
+          "exit_price": "1.415300000000000000",
+          "fees": "0.02387488400000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.0646300000000000000",
+          "minimum_equity": "101.6106667356161000000000000",
+          "net_pnl": "-0.08850488400000000000000",
+          "plan": {
+            "decision_ms": 1712929500000,
+            "entry": "1.417600",
+            "exits": [
+              {
+                "price": "1.403200",
+                "quantity": "28.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.447400",
+                "quantity": "28.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "28.1",
+            "side": "BUY",
+            "signal_key": "2e49242f956024f595fb05662fc6ab11447ac297045095ee213a8bb469733030",
+            "stop": "1.403200",
+            "symbol": "SUIUSDT",
+            "tp1": "1.447400",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.15218201300000000000000"
+        },
+        {
+          "day_start_equity": "101.7240187636161000000000000",
+          "entry_ms": 1716039900000,
+          "exit_ms": 1716040500000,
+          "exit_price": "1.055800",
+          "fees": "0.03446964000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3583800",
+          "minimum_equity": "101.3541010996161000000000000",
+          "net_pnl": "-0.39284964000",
+          "plan": {
+            "decision_ms": 1716039900000,
+            "entry": "1.062400",
+            "exits": [
+              {
+                "price": "1.055800",
+                "quantity": "54.3",
+                "role": "STOP"
+              },
+              {
+                "price": "1.076000",
+                "quantity": "54.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "54.3",
+            "side": "BUY",
+            "signal_key": "31f4e8d3e082ae7501b97ae0be30ea8a1e9d41580d6d79ec4c1ec042e42498ad",
+            "stop": "1.055800",
+            "symbol": "SUIUSDT",
+            "tp1": "1.076000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19861,
+          "stress_net_pnl": "-0.48482841000"
+        },
+        {
+          "day_start_equity": "101.3311691236161000000000000",
+          "entry_ms": 1716379200000,
+          "exit_ms": 1716381900000,
+          "exit_price": "1.099700",
+          "fees": "0.03049238400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3734100",
+          "minimum_equity": "100.9475452076161000000000000",
+          "net_pnl": "-0.40390238400",
+          "plan": {
+            "decision_ms": 1716379200000,
+            "entry": "1.107800",
+            "exits": [
+              {
+                "price": "1.099700",
+                "quantity": "46.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.124500",
+                "quantity": "46.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "46.1",
+            "side": "BUY",
+            "signal_key": "faa7f89bf81386d539ec6c5f21014e60f7f4b091f491cf9be5358434e57ca246",
+            "stop": "1.099700",
+            "symbol": "SUIUSDT",
+            "tp1": "1.124500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19865,
+          "stress_net_pnl": "-0.48527764300"
+        },
+        {
+          "day_start_equity": "101.3311691236161000000000000",
+          "entry_ms": 1716382800000,
+          "exit_ms": 1716390000000,
+          "exit_price": "1.098000000000000000",
+          "fees": "0.02503017600000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.3505200000000000000",
+          "minimum_equity": "100.6141700836161000000000000",
+          "net_pnl": "0.32548982400000000000000",
+          "plan": {
+            "decision_ms": 1716382800000,
+            "entry": "1.088800",
+            "exits": [
+              {
+                "price": "1.078400",
+                "quantity": "38.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.110300",
+                "quantity": "38.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "38.1",
+            "side": "BUY",
+            "signal_key": "6b0f006d54452fe02fe94b4fb2173ff2e01cccb5dace961a2860ee4186263dd8",
+            "stop": "1.078400",
+            "symbol": "SUIUSDT",
+            "tp1": "1.110300",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19865,
+          "stress_net_pnl": "0.25880110800000000000000"
+        },
+        {
+          "day_start_equity": "101.2527565636161000000000000",
+          "entry_ms": 1716840000000,
+          "exit_ms": 1716844500000,
+          "exit_price": "1.070500",
+          "fees": "0.02379104000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7267000",
+          "minimum_equity": "101.1906237136161000000000000",
+          "net_pnl": "0.70290896000",
+          "plan": {
+            "decision_ms": 1716840000000,
+            "entry": "1.057500",
+            "exits": [
+              {
+                "price": "1.051200",
+                "quantity": "55.9",
+                "role": "STOP"
+              },
+              {
+                "price": "1.070500",
+                "quantity": "55.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "55.9",
+            "side": "BUY",
+            "signal_key": "5f89092de13c05e0c100e7c50033410cfebe7a0f6ea0c7f5669aa89b06d36a7b",
+            "stop": "1.051200",
+            "symbol": "SUIUSDT",
+            "tp1": "1.070500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19870,
+          "stress_net_pnl": "0.61964032000"
+        },
+        {
+          "day_start_equity": "101.9556655236161000000000000",
+          "entry_ms": 1717425900000,
+          "exit_ms": 1717433100000,
+          "exit_price": "1.035000000000000000",
+          "fees": "0.03201780000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.005370528000000000000000000",
+          "gross_pnl": "0.1290000000000000000",
+          "minimum_equity": "101.6405701236161000000000000",
+          "net_pnl": "0.091611672000000000000000000",
+          "plan": {
+            "decision_ms": 1717425900000,
+            "entry": "1.032500",
+            "exits": [
+              {
+                "price": "1.025300",
+                "quantity": "51.6",
+                "role": "STOP"
+              },
+              {
+                "price": "1.047300",
+                "quantity": "51.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "51.6",
+            "side": "BUY",
+            "signal_key": "762ce1f6caddf98c0d7cdb273c27ec1b662a4b6c3c8c7424a57f0280dd24c34f",
+            "stop": "1.025300",
+            "symbol": "SUIUSDT",
+            "tp1": "1.047300",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19877,
+          "stress_net_pnl": "0.006252372000000000000000000"
+        },
+        {
+          "day_start_equity": "102.0472771956161000000000000",
+          "entry_ms": 1717501500000,
+          "exit_ms": 1717508700000,
+          "exit_price": "1.022700000000000000",
+          "fees": "0.03883250000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.3550400000000000000",
+          "minimum_equity": "101.7364003676161000000000000",
+          "net_pnl": "0.31620750000000000000000",
+          "plan": {
+            "decision_ms": 1717501500000,
+            "entry": "1.017100",
+            "exits": [
+              {
+                "price": "1.011700",
+                "quantity": "63.4",
+                "role": "STOP"
+              },
+              {
+                "price": "1.028200",
+                "quantity": "63.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "63.4",
+            "side": "BUY",
+            "signal_key": "0ef70337c2ad68e1fb41d6a35995f51ef686ab6a9c5eafb1955ac861066f2972",
+            "stop": "1.011700",
+            "symbol": "SUIUSDT",
+            "tp1": "1.028200",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19878,
+          "stress_net_pnl": "0.21271334000000000000000"
+        }
+      ],
+      "unfilled": 14
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 43,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "102.3634846956161000000000000",
+          "entry_ms": 1721543400000,
+          "exit_ms": 1721545500000,
+          "exit_price": "0.832700",
+          "fees": "0.03953792000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3397000",
+          "minimum_equity": "102.0105600956161000000000000",
+          "net_pnl": "-0.37923792000",
+          "plan": {
+            "decision_ms": 1721543400000,
+            "entry": "0.837000",
+            "exits": [
+              {
+                "price": "0.832700",
+                "quantity": "79.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.845800",
+                "quantity": "79.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "79.0",
+            "side": "BUY",
+            "signal_key": "bd47c38288ffae5b5b92274a53096c677ee10ce5a935fea8755fe9f347c5340f",
+            "stop": "0.832700",
+            "symbol": "SUIUSDT",
+            "tp1": "0.845800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19925,
+          "stress_net_pnl": "-0.48472899000"
+        },
+        {
+          "day_start_equity": "102.3634846956161000000000000",
+          "entry_ms": 1721546100000,
+          "exit_ms": 1721553300000,
+          "exit_price": "0.839500000000000000",
+          "fees": "0.03679617600000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.006109272000000000000000000",
+          "gross_pnl": "0.3733200000000000000",
+          "minimum_equity": "101.8768711596161000000000000",
+          "net_pnl": "0.330414552000000000000000000",
+          "plan": {
+            "decision_ms": 1721546100000,
+            "entry": "0.834400",
+            "exits": [
+              {
+                "price": "0.829600",
+                "quantity": "73.2",
+                "role": "STOP"
+              },
+              {
+                "price": "0.844300",
+                "quantity": "73.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "73.2",
+            "side": "BUY",
+            "signal_key": "ed048d3cd100810d902f114ccf0f60f2b67d7316fec8e2a1a57b9f30bcb71eb2",
+            "stop": "0.829600",
+            "symbol": "SUIUSDT",
+            "tp1": "0.844300",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19925,
+          "stress_net_pnl": "0.232353636000000000000000000"
+        },
+        {
+          "day_start_equity": "102.3146613276161000000000000",
+          "entry_ms": 1721855700000,
+          "exit_ms": 1721856600000,
+          "exit_price": "0.780200",
+          "fees": "0.02811825800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3893500",
+          "minimum_equity": "101.9158866616161000000000000",
+          "net_pnl": "-0.41746825800",
+          "plan": {
+            "decision_ms": 1721855700000,
+            "entry": "0.786700",
+            "exits": [
+              {
+                "price": "0.780200",
+                "quantity": "59.9",
+                "role": "STOP"
+              },
+              {
+                "price": "0.800000",
+                "quantity": "59.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "59.9",
+            "side": "BUY",
+            "signal_key": "9486c7efa3852426e45904856b66788f79cecfe940b31662de11c70c8cb2693a",
+            "stop": "0.780200",
+            "symbol": "SUIUSDT",
+            "tp1": "0.800000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19928,
+          "stress_net_pnl": "-0.49251517100"
+        },
+        {
+          "day_start_equity": "102.3146613276161000000000000",
+          "entry_ms": 1721856600000,
+          "exit_ms": 1721857200000,
+          "exit_price": "0.771600",
+          "fees": "0.02535733200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3985800",
+          "minimum_equity": "101.4901074816161000000000000",
+          "net_pnl": "-0.42393733200",
+          "plan": {
+            "decision_ms": 1721856600000,
+            "entry": "0.778900",
+            "exits": [
+              {
+                "price": "0.771600",
+                "quantity": "54.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.794000",
+                "quantity": "54.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "54.6",
+            "side": "BUY",
+            "signal_key": "c0cdfcaeb28e982f47d0c0050e9bab1fbdb88c462853bd56401a178301165245",
+            "stop": "0.771600",
+            "symbol": "SUIUSDT",
+            "tp1": "0.794000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19928,
+          "stress_net_pnl": "-0.49162331400"
+        },
+        {
+          "day_start_equity": "101.4732557376161000000000000",
+          "entry_ms": 1722143700000,
+          "exit_ms": 1722149100000,
+          "exit_price": "0.769600",
+          "fees": "0.02436237600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7084400",
+          "minimum_equity": "101.2382653936161000000000000",
+          "net_pnl": "0.68407762400",
+          "plan": {
+            "decision_ms": 1722143700000,
+            "entry": "0.760700",
+            "exits": [
+              {
+                "price": "0.756300",
+                "quantity": "79.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.769600",
+                "quantity": "79.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "79.6",
+            "side": "BUY",
+            "signal_key": "abc77cbe22557f9a0af2a2ab1c5c6ef686c45bbbeebd9f62e595423e6a8b4157",
+            "stop": "0.756300",
+            "symbol": "SUIUSDT",
+            "tp1": "0.769600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19932,
+          "stress_net_pnl": "0.59880930800"
+        },
+        {
+          "day_start_equity": "101.4732557376161000000000000",
+          "entry_ms": 1722201300000,
+          "exit_ms": 1722204600000,
+          "exit_price": "0.746700",
+          "fees": "0.04365656400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3210900",
+          "minimum_equity": "101.8216483616161000000000000",
+          "net_pnl": "-0.36474656400",
+          "plan": {
+            "decision_ms": 1722201300000,
+            "entry": "0.750000",
+            "exits": [
+              {
+                "price": "0.746700",
+                "quantity": "97.3",
+                "role": "STOP"
+              },
+              {
+                "price": "0.756800",
+                "quantity": "97.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "97.3",
+            "side": "BUY",
+            "signal_key": "0de1e98f9aea37b12d4eb39e27d9fed28dc603876322c5ed6c634c92a61290d3",
+            "stop": "0.746700",
+            "symbol": "SUIUSDT",
+            "tp1": "0.756800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19932,
+          "stress_net_pnl": "-0.48121758300"
+        },
+        {
+          "day_start_equity": "101.7925867976161000000000000",
+          "entry_ms": 1724571000000,
+          "exit_ms": 1724571900000,
+          "exit_price": "0.961700",
+          "fees": "0.02696742000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3914400",
+          "minimum_equity": "101.3921054656161000000000000",
+          "net_pnl": "-0.41840742000",
+          "plan": {
+            "decision_ms": 1724571000000,
+            "entry": "0.970100",
+            "exits": [
+              {
+                "price": "0.961700",
+                "quantity": "46.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.987400",
+                "quantity": "46.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "46.6",
+            "side": "BUY",
+            "signal_key": "82e297708fbd8964bcf201bdd1791533e9d867623c70b32a31abea51d8431dcb",
+            "stop": "0.961700",
+            "symbol": "SUIUSDT",
+            "tp1": "0.987400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19960,
+          "stress_net_pnl": "-0.49038578000"
+        },
+        {
+          "day_start_equity": "101.7925867976161000000000000",
+          "entry_ms": 1724571900000,
+          "exit_ms": 1724575200000,
+          "exit_price": "0.979000",
+          "fees": "0.01773342800",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.004419647000000000000000000",
+          "gross_pnl": "0.8134600",
+          "minimum_equity": "101.3198443626161000000000000",
+          "net_pnl": "0.791306925000000000000000000",
+          "plan": {
+            "decision_ms": 1724571900000,
+            "entry": "0.961200",
+            "exits": [
+              {
+                "price": "0.952600",
+                "quantity": "45.7",
+                "role": "STOP"
+              },
+              {
+                "price": "0.979000",
+                "quantity": "45.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "45.7",
+            "side": "BUY",
+            "signal_key": "2d69d0a4586c95f2da596a71c23815b02cba16e1328f1dbf5a16b543f5e34d40",
+            "stop": "0.952600",
+            "symbol": "SUIUSDT",
+            "tp1": "0.979000",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19960,
+          "stress_net_pnl": "0.729239927000000000000000000"
+        },
+        {
+          "day_start_equity": "102.1654863026161000000000000",
+          "entry_ms": 1727658900000,
+          "exit_ms": 1727665200000,
+          "exit_price": "1.703000",
+          "fees": "0.02000973000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4231500",
+          "minimum_equity": "101.7356099726161000000000000",
+          "net_pnl": "-0.44315973000",
+          "plan": {
+            "decision_ms": 1727658900000,
+            "entry": "1.724700",
+            "exits": [
+              {
+                "price": "1.703000",
+                "quantity": "19.5",
+                "role": "STOP"
+              },
+              {
+                "price": "1.769800",
+                "quantity": "19.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "19.5",
+            "side": "BUY",
+            "signal_key": "ccbda375f5303af4885b7c6f0d713b5879f4048b14ae33e8df3df47b05dbcc71",
+            "stop": "1.703000",
+            "symbol": "SUIUSDT",
+            "tp1": "1.769800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19996,
+          "stress_net_pnl": "-0.49658953500"
+        },
+        {
+          "day_start_equity": "101.7223265726161000000000000",
+          "entry_ms": 1728993600000,
+          "exit_ms": 1728994500000,
+          "exit_price": "2.078100",
+          "fees": "0.01554860800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4377200",
+          "minimum_equity": "101.2793653406161000000000000",
+          "net_pnl": "-0.45326860800",
+          "plan": {
+            "decision_ms": 1728993600000,
+            "entry": "2.113400",
+            "exits": [
+              {
+                "price": "2.078100",
+                "quantity": "12.4",
+                "role": "STOP"
+              },
+              {
+                "price": "2.186800",
+                "quantity": "12.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12.4",
+            "side": "BUY",
+            "signal_key": "07c35b4aac51bee4cdbfe91c7408496ff147035a5d8064491347a3191b15e70b",
+            "stop": "2.078100",
+            "symbol": "SUIUSDT",
+            "tp1": "2.186800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20011,
+          "stress_net_pnl": "-0.49480451600"
+        },
+        {
+          "day_start_equity": "101.7223265726161000000000000",
+          "entry_ms": 1728994500000,
+          "exit_ms": 1728999900000,
+          "exit_price": "2.161600",
+          "fees": "0.00984584800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.9198800",
+          "minimum_equity": "101.2630670286161000000000000",
+          "net_pnl": "0.91003415200",
+          "plan": {
+            "decision_ms": 1728994500000,
+            "entry": "2.082300",
+            "exits": [
+              {
+                "price": "2.044100",
+                "quantity": "11.6",
+                "role": "STOP"
+              },
+              {
+                "price": "2.161600",
+                "quantity": "11.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.6",
+            "side": "BUY",
+            "signal_key": "df81cbcc53cde291c2b23dd90e79f85b06ff98fe23bdf1cd558ef516c39a6241",
+            "stop": "2.044100",
+            "symbol": "SUIUSDT",
+            "tp1": "2.161600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20011,
+          "stress_net_pnl": "0.87557368400"
+        },
+        {
+          "day_start_equity": "102.1790921166161000000000000",
+          "entry_ms": 1729161900000,
+          "exit_ms": 1729164300000,
+          "exit_price": "2.021900",
+          "fees": "0.02410135200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4059000",
+          "minimum_equity": "101.7651042126161000000000000",
+          "net_pnl": "-0.43000135200",
+          "plan": {
+            "decision_ms": 1729161900000,
+            "entry": "2.042400",
+            "exits": [
+              {
+                "price": "2.021900",
+                "quantity": "19.8",
+                "role": "STOP"
+              },
+              {
+                "price": "2.085000",
+                "quantity": "19.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "19.8",
+            "side": "BUY",
+            "signal_key": "c6a59d9b3acf30debc073ad90d97fbd7eca55456c01a8fe2371bc40e9f276958",
+            "stop": "2.021900",
+            "symbol": "SUIUSDT",
+            "tp1": "2.085000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20013,
+          "stress_net_pnl": "-0.49433927400"
+        },
+        {
+          "day_start_equity": "101.7490907646161000000000000",
+          "entry_ms": 1729517400000,
+          "exit_ms": 1729518000000,
+          "exit_price": "2.023500",
+          "fees": "0.03091281600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3733800",
+          "minimum_equity": "101.3653567086161000000000000",
+          "net_pnl": "-0.40429281600",
+          "plan": {
+            "decision_ms": 1729517400000,
+            "entry": "2.038200",
+            "exits": [
+              {
+                "price": "2.023500",
+                "quantity": "25.4",
+                "role": "STOP"
+              },
+              {
+                "price": "2.068700",
+                "quantity": "25.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "25.4",
+            "side": "BUY",
+            "signal_key": "ad62f4142a903ba032f20e0cfd12e0314fa5869baf0e6cf47a07cfa480e55457",
+            "stop": "2.023500",
+            "symbol": "SUIUSDT",
+            "tp1": "2.068700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20017,
+          "stress_net_pnl": "-0.48678922200"
+        },
+        {
+          "day_start_equity": "101.3447979486161000000000000",
+          "entry_ms": 1729830600000,
+          "exit_ms": 1729836600000,
+          "exit_price": "1.920300",
+          "fees": "0.02266466400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7425000",
+          "minimum_equity": "101.2355298666161000000000000",
+          "net_pnl": "0.71983533600",
+          "plan": {
+            "decision_ms": 1729830600000,
+            "entry": "1.895300",
+            "exits": [
+              {
+                "price": "1.883200",
+                "quantity": "29.7",
+                "role": "STOP"
+              },
+              {
+                "price": "1.920300",
+                "quantity": "29.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "29.7",
+            "side": "BUY",
+            "signal_key": "dd9fef9f6549c0b383034a29a344fd1118e5051cde13117cab1151097584804d",
+            "stop": "1.883200",
+            "symbol": "SUIUSDT",
+            "tp1": "1.920300",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20021,
+          "stress_net_pnl": "0.64050901200"
+        },
+        {
+          "day_start_equity": "101.3447979486161000000000000",
+          "entry_ms": 1729874700000,
+          "exit_ms": 1729876500000,
+          "exit_price": "1.835400",
+          "fees": "0.02155725000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4153500",
+          "minimum_equity": "101.6420421546161000000000000",
+          "net_pnl": "-0.43690725000",
+          "plan": {
+            "decision_ms": 1729874700000,
+            "entry": "1.856700",
+            "exits": [
+              {
+                "price": "1.835400",
+                "quantity": "19.5",
+                "role": "STOP"
+              },
+              {
+                "price": "1.901000",
+                "quantity": "19.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "19.5",
+            "side": "BUY",
+            "signal_key": "54f12aabd53eefd6095ea1fa82a3b1fcb075022518e38ed548340fcb1049c824",
+            "stop": "1.835400",
+            "symbol": "SUIUSDT",
+            "tp1": "1.901000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20021,
+          "stress_net_pnl": "-0.49446247500"
+        },
+        {
+          "day_start_equity": "101.6277260346161000000000000",
+          "entry_ms": 1730087100000,
+          "exit_ms": 1730087700000,
+          "exit_price": "1.667000",
+          "fees": "0.02318593200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4065600",
+          "minimum_equity": "101.2133831826161000000000000",
+          "net_pnl": "-0.42974593200",
+          "plan": {
+            "decision_ms": 1730087100000,
+            "entry": "1.684600",
+            "exits": [
+              {
+                "price": "1.667000",
+                "quantity": "23.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.721100",
+                "quantity": "23.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "23.1",
+            "side": "BUY",
+            "signal_key": "90d8268603837d2c8be67064d928bed8b6d21d9c2c09f6018a064f27776078a5",
+            "stop": "1.667000",
+            "symbol": "SUIUSDT",
+            "tp1": "1.721100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20024,
+          "stress_net_pnl": "-0.49164284400"
+        },
+        {
+          "day_start_equity": "101.6277260346161000000000000",
+          "entry_ms": 1730088000000,
+          "exit_ms": 1730093700000,
+          "exit_price": "1.656000",
+          "fees": "0.02243745000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4072500",
+          "minimum_equity": "100.7831966526161000000000000",
+          "net_pnl": "-0.42968745000",
+          "plan": {
+            "decision_ms": 1730088000000,
+            "entry": "1.674100",
+            "exits": [
+              {
+                "price": "1.656000",
+                "quantity": "22.5",
+                "role": "STOP"
+              },
+              {
+                "price": "1.711700",
+                "quantity": "22.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "22.5",
+            "side": "BUY",
+            "signal_key": "64408f86692749c74acf52914d1688843b89b1573f75024efbe90f1b14d58318",
+            "stop": "1.656000",
+            "symbol": "SUIUSDT",
+            "tp1": "1.711700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20024,
+          "stress_net_pnl": "-0.48958852500"
+        },
+        {
+          "day_start_equity": "100.7682926526161000000000000",
+          "entry_ms": 1731928500000,
+          "exit_ms": 1731931800000,
+          "exit_price": "3.645700",
+          "fees": "0.02304813000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4011000",
+          "minimum_equity": "100.3594564626161000000000000",
+          "net_pnl": "-0.42414813000",
+          "plan": {
+            "decision_ms": 1731928500000,
+            "entry": "3.683900",
+            "exits": [
+              {
+                "price": "3.645700",
+                "quantity": "10.5",
+                "role": "STOP"
+              },
+              {
+                "price": "3.763400",
+                "quantity": "10.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.5",
+            "side": "BUY",
+            "signal_key": "e161f6643f159ad6224f6f2766965dfe744bc3ab8a6a1f691ca5cdba85e14e46",
+            "stop": "3.645700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.763400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20045,
+          "stress_net_pnl": "-0.48567666000"
+        },
+        {
+          "day_start_equity": "100.7682926526161000000000000",
+          "entry_ms": 1731932100000,
+          "exit_ms": 1731939300000,
+          "exit_price": "3.669100000000000000",
+          "fees": "0.02168397000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.5524200000000000000",
+          "minimum_equity": "100.3013501886161000000000000",
+          "net_pnl": "0.53073603000000000000000",
+          "plan": {
+            "decision_ms": 1731932100000,
+            "entry": "3.613300",
+            "exits": [
+              {
+                "price": "3.572200",
+                "quantity": "9.9",
+                "role": "STOP"
+              },
+              {
+                "price": "3.698800",
+                "quantity": "9.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.9",
+            "side": "BUY",
+            "signal_key": "562cfd9f4b1613794989bb65c202f28e6f942f9dd4192b0f0fb2bd32fde332a4",
+            "stop": "3.572200",
+            "symbol": "SUIUSDT",
+            "tp1": "3.698800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20045,
+          "stress_net_pnl": "0.47300418000000000000000"
+        },
+        {
+          "day_start_equity": "100.8748805526161000000000000",
+          "entry_ms": 1732101300000,
+          "exit_ms": 1732104900000,
+          "exit_price": "3.626500",
+          "fees": "0.01944881400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4165200",
+          "minimum_equity": "100.4518220786161000000000000",
+          "net_pnl": "-0.43596881400",
+          "plan": {
+            "decision_ms": 1732101300000,
+            "entry": "3.673300",
+            "exits": [
+              {
+                "price": "3.626500",
+                "quantity": "8.9",
+                "role": "STOP"
+              },
+              {
+                "price": "3.770600",
+                "quantity": "8.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.9",
+            "side": "BUY",
+            "signal_key": "91679dcdd6c5e2605a28bb0d9cebad890934ffb06a6c5929e72ff1ebe7b7e99a",
+            "stop": "3.626500",
+            "symbol": "SUIUSDT",
+            "tp1": "3.770600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20047,
+          "stress_net_pnl": "-0.48790173800"
+        },
+        {
+          "day_start_equity": "100.4389117386161000000000000",
+          "entry_ms": 1732184100000,
+          "exit_ms": 1732184400000,
+          "exit_price": "3.433200",
+          "fees": "0.02417968800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3931200",
+          "minimum_equity": "100.0376794266161000000000000",
+          "net_pnl": "-0.41729968800",
+          "plan": {
+            "decision_ms": 1732184100000,
+            "entry": "3.466800",
+            "exits": [
+              {
+                "price": "3.433200",
+                "quantity": "11.7",
+                "role": "STOP"
+              },
+              {
+                "price": "3.536600",
+                "quantity": "11.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.7",
+            "side": "BUY",
+            "signal_key": "cd27c4f20867efe3ea3a7f05b58a2a7d015375340567df3a85c530ea06bd2561",
+            "stop": "3.433200",
+            "symbol": "SUIUSDT",
+            "tp1": "3.536600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20048,
+          "stress_net_pnl": "-0.48184437600"
+        },
+        {
+          "day_start_equity": "100.4389117386161000000000000",
+          "entry_ms": 1732185000000,
+          "exit_ms": 1732188600000,
+          "exit_price": "3.447100",
+          "fees": "0.01306387200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8649600",
+          "minimum_equity": "99.9959666106161000000000000",
+          "net_pnl": "0.85189612800",
+          "plan": {
+            "decision_ms": 1732185000000,
+            "entry": "3.357000",
+            "exits": [
+              {
+                "price": "3.313700",
+                "quantity": "9.6",
+                "role": "STOP"
+              },
+              {
+                "price": "3.447100",
+                "quantity": "9.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.6",
+            "side": "BUY",
+            "signal_key": "0e6aec7fa68214474a18bcec9ef75907a6d624eb8d7bd0b5b1d88a385c2ec368",
+            "stop": "3.313700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.447100",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20048,
+          "stress_net_pnl": "0.80617257600"
+        },
+        {
+          "day_start_equity": "100.8735081786161000000000000",
+          "entry_ms": 1732239900000,
+          "exit_ms": 1732244400000,
+          "exit_price": "3.580700",
+          "fees": "0.01472598400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8486400",
+          "minimum_equity": "100.8069500506161000000000000",
+          "net_pnl": "0.83391401600",
+          "plan": {
+            "decision_ms": 1732239900000,
+            "entry": "3.499100",
+            "exits": [
+              {
+                "price": "3.459900",
+                "quantity": "10.4",
+                "role": "STOP"
+              },
+              {
+                "price": "3.580700",
+                "quantity": "10.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.4",
+            "side": "BUY",
+            "signal_key": "307bec4fafb16bccd2a52f9504f40857bdc9cffb04fc5833677fe8ddc4838d50",
+            "stop": "3.459900",
+            "symbol": "SUIUSDT",
+            "tp1": "3.580700",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20049,
+          "stress_net_pnl": "0.78237307200"
+        },
+        {
+          "day_start_equity": "101.7074221946161000000000000",
+          "entry_ms": 1732446900000,
+          "exit_ms": 1732449300000,
+          "exit_price": "3.317800",
+          "fees": "0.02197976000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4114000",
+          "minimum_equity": "101.2886407546161000000000000",
+          "net_pnl": "-0.43337976000",
+          "plan": {
+            "decision_ms": 1732446900000,
+            "entry": "3.355200",
+            "exits": [
+              {
+                "price": "3.317800",
+                "quantity": "11.0",
+                "role": "STOP"
+              },
+              {
+                "price": "3.433000",
+                "quantity": "11.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.0",
+            "side": "BUY",
+            "signal_key": "9ecd88bc2305cc969ddf49be056e7d6e63b0b38cbecf8dfb708a96bdddf627b7",
+            "stop": "3.317800",
+            "symbol": "SUIUSDT",
+            "tp1": "3.433000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20051,
+          "stress_net_pnl": "-0.49206102000"
+        },
+        {
+          "day_start_equity": "101.7074221946161000000000000",
+          "entry_ms": 1732452300000,
+          "exit_ms": 1732455000000,
+          "exit_price": "3.302000",
+          "fees": "0.00932644800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.9165600",
+          "minimum_equity": "101.1823508666161000000000000",
+          "net_pnl": "0.90723355200",
+          "plan": {
+            "decision_ms": 1732452300000,
+            "entry": "3.174700",
+            "exits": [
+              {
+                "price": "3.113500",
+                "quantity": "7.2",
+                "role": "STOP"
+              },
+              {
+                "price": "3.302000",
+                "quantity": "7.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7.2",
+            "side": "BUY",
+            "signal_key": "faf40d9ee1bbe0bf38fa9c23ae7d91603e41bd1240b24feced3f03ed210330a5",
+            "stop": "3.113500",
+            "symbol": "SUIUSDT",
+            "tp1": "3.302000",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20051,
+          "stress_net_pnl": "0.87459098400"
+        },
+        {
+          "day_start_equity": "102.1812759866161000000000000",
+          "entry_ms": 1733021100000,
+          "exit_ms": 1733028300000,
+          "exit_price": "3.368100000000000000",
+          "fees": "0.02177388000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.2570400000000000000",
+          "minimum_equity": "102.0800922986161000000000000",
+          "net_pnl": "0.23526612000000000000000",
+          "plan": {
+            "decision_ms": 1733021100000,
+            "entry": "3.344300",
+            "exits": [
+              {
+                "price": "3.305700",
+                "quantity": "10.8",
+                "role": "STOP"
+              },
+              {
+                "price": "3.424500",
+                "quantity": "10.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.8",
+            "side": "BUY",
+            "signal_key": "6f20576b1f30c150dbb74c710543af68bd5755f91fc16f7ffefde0910c6951ce",
+            "stop": "3.305700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.424500",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20058,
+          "stress_net_pnl": "0.17724528000000000000000"
+        },
+        {
+          "day_start_equity": "102.4165421066161000000000000",
+          "entry_ms": 1733646600000,
+          "exit_ms": 1733648400000,
+          "exit_price": "4.161400",
+          "fees": "0.02829181000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3875900",
+          "minimum_equity": "102.0194698246161000000000000",
+          "net_pnl": "-0.41588181000",
+          "plan": {
+            "decision_ms": 1733646600000,
+            "entry": "4.195700",
+            "exits": [
+              {
+                "price": "4.161400",
+                "quantity": "11.3",
+                "role": "STOP"
+              },
+              {
+                "price": "4.266900",
+                "quantity": "11.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.3",
+            "side": "BUY",
+            "signal_key": "9528f092e8604a54c051b3bdd5468e4fc6de3ae42cf28be4177f8ccef026cfcb",
+            "stop": "4.161400",
+            "symbol": "SUIUSDT",
+            "tp1": "4.266900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20065,
+          "stress_net_pnl": "-0.49139123500"
+        },
+        {
+          "day_start_equity": "102.0006602966161000000000000",
+          "entry_ms": 1734201900000,
+          "exit_ms": 1734202500000,
+          "exit_price": "4.390000",
+          "fees": "0.02483968800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4004400",
+          "minimum_equity": "101.5918870086161000000000000",
+          "net_pnl": "-0.42527968800",
+          "plan": {
+            "decision_ms": 1734201900000,
+            "entry": "4.432600",
+            "exits": [
+              {
+                "price": "4.390000",
+                "quantity": "9.4",
+                "role": "STOP"
+              },
+              {
+                "price": "4.521100",
+                "quantity": "9.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.4",
+            "side": "BUY",
+            "signal_key": "0133546c84369e05301f85d0ce1cfa9f0bbee118d92dffdac0a78de27cccd129",
+            "stop": "4.390000",
+            "symbol": "SUIUSDT",
+            "tp1": "4.521100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20071,
+          "stress_net_pnl": "-0.49158559600"
+        },
+        {
+          "day_start_equity": "102.0006602966161000000000000",
+          "entry_ms": 1734202800000,
+          "exit_ms": 1734204000000,
+          "exit_price": "4.359900",
+          "fees": "0.02362446000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4050000",
+          "minimum_equity": "101.1624517886161000000000000",
+          "net_pnl": "-0.42862446000",
+          "plan": {
+            "decision_ms": 1734202800000,
+            "entry": "4.404900",
+            "exits": [
+              {
+                "price": "4.359900",
+                "quantity": "9.0",
+                "role": "STOP"
+              },
+              {
+                "price": "4.498500",
+                "quantity": "9.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.0",
+            "side": "BUY",
+            "signal_key": "b44bdf86742b3c1784a86a8f84d2312f63b9fc685fd0a37f2655dcb4145630d6",
+            "stop": "4.359900",
+            "symbol": "SUIUSDT",
+            "tp1": "4.498500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20071,
+          "stress_net_pnl": "-0.49169052000"
+        },
+        {
+          "day_start_equity": "101.1467561486161000000000000",
+          "entry_ms": 1734394500000,
+          "exit_ms": 1734401700000,
+          "exit_price": "4.611300000000000000",
+          "fees": "0.02984990400000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.1566000000000000000",
+          "minimum_equity": "100.7728670606161000000000000",
+          "net_pnl": "0.12675009600000000000000",
+          "plan": {
+            "decision_ms": 1734394500000,
+            "entry": "4.596800",
+            "exits": [
+              {
+                "price": "4.562300",
+                "quantity": "10.8",
+                "role": "STOP"
+              },
+              {
+                "price": "4.668500",
+                "quantity": "10.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.8",
+            "side": "BUY",
+            "signal_key": "9bf999673959557110018bea31efca0ecd5cc8f61a6af53d14c62aeb3176d52d",
+            "stop": "4.562300",
+            "symbol": "SUIUSDT",
+            "tp1": "4.668500",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20074,
+          "stress_net_pnl": "0.04717645200000000000000"
+        },
+        {
+          "day_start_equity": "101.2735062446161000000000000",
+          "entry_ms": 1736262000000,
+          "exit_ms": 1736262300000,
+          "exit_price": "4.938600",
+          "fees": "0.02289733600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4050200",
+          "minimum_equity": "100.8607997966161000000000000",
+          "net_pnl": "-0.42791733600",
+          "plan": {
+            "decision_ms": 1736262000000,
+            "entry": "4.991200",
+            "exits": [
+              {
+                "price": "4.938600",
+                "quantity": "7.7",
+                "role": "STOP"
+              },
+              {
+                "price": "5.100500",
+                "quantity": "7.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7.7",
+            "side": "BUY",
+            "signal_key": "721d28f09f23100b2d7203f2ac130a27c55ae8589efe3ad27d233b67efccbe2b",
+            "stop": "4.938600",
+            "symbol": "SUIUSDT",
+            "tp1": "5.100500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.48904440200"
+        },
+        {
+          "day_start_equity": "101.2735062446161000000000000",
+          "entry_ms": 1736263800000,
+          "exit_ms": 1736264400000,
+          "exit_price": "4.844700",
+          "fees": "0.01810710000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4240800",
+          "minimum_equity": "100.4154166646161000000000000",
+          "net_pnl": "-0.44218710000",
+          "plan": {
+            "decision_ms": 1736263800000,
+            "entry": "4.913100",
+            "exits": [
+              {
+                "price": "4.844700",
+                "quantity": "6.2",
+                "role": "STOP"
+              },
+              {
+                "price": "5.055400",
+                "quantity": "6.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.2",
+            "side": "BUY",
+            "signal_key": "b92b71cc16a059c3d97095ba7d90f7a36b0c9932eb638f855fe5c56123535d0f",
+            "stop": "4.844700",
+            "symbol": "SUIUSDT",
+            "tp1": "5.055400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.49054338000"
+        },
+        {
+          "day_start_equity": "101.2735062446161000000000000",
+          "entry_ms": 1736264700000,
+          "exit_ms": 1736271900000,
+          "exit_price": "4.824900000000000000",
+          "fees": "0.01592514000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.002690490000000000000000000",
+          "gross_pnl": "-0.0148500000000000000",
+          "minimum_equity": "100.2462914486161000000000000",
+          "net_pnl": "-0.033465630000000000000000000",
+          "plan": {
+            "decision_ms": 1736264700000,
+            "entry": "4.827600",
+            "exits": [
+              {
+                "price": "4.750400",
+                "quantity": "5.5",
+                "role": "STOP"
+              },
+              {
+                "price": "4.988300",
+                "quantity": "5.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.5",
+            "side": "BUY",
+            "signal_key": "8c8d594881ef94d1647f9438a555c90650d711c2418d1bab5bac0047e8703336",
+            "stop": "4.750400",
+            "symbol": "SUIUSDT",
+            "tp1": "4.988300",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.075935145000000000000000000"
+        }
+      ],
+      "unfilled": 10
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 52,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "100.3699361786161000000000000",
+          "entry_ms": 1737177300000,
+          "exit_ms": 1737184500000,
+          "exit_price": "4.696400000000000000",
+          "fees": "0.01856910000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.1432200000000000000",
+          "minimum_equity": "100.0496055746161000000000000",
+          "net_pnl": "0.12465090000000000000000",
+          "plan": {
+            "decision_ms": 1737177300000,
+            "entry": "4.674700",
+            "exits": [
+              {
+                "price": "4.611200",
+                "quantity": "6.6",
+                "role": "STOP"
+              },
+              {
+                "price": "4.806900",
+                "quantity": "6.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.6",
+            "side": "BUY",
+            "signal_key": "388ac0659825c3096bd3337729dfe2d7513a36fc4e4e64cac29f4806e215a19c",
+            "stop": "4.611200",
+            "symbol": "SUIUSDT",
+            "tp1": "4.806900",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20106,
+          "stress_net_pnl": "0.07515717000000000000000"
+        },
+        {
+          "day_start_equity": "100.4945870786161000000000000",
+          "entry_ms": 1737263700000,
+          "exit_ms": 1737270300000,
+          "exit_price": "4.889500",
+          "fees": "0.01587290400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8232800",
+          "minimum_equity": "100.3678329546161000000000000",
+          "net_pnl": "0.80740709600",
+          "plan": {
+            "decision_ms": 1737263700000,
+            "entry": "4.789100",
+            "exits": [
+              {
+                "price": "4.740800",
+                "quantity": "8.2",
+                "role": "STOP"
+              },
+              {
+                "price": "4.889500",
+                "quantity": "8.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.2",
+            "side": "BUY",
+            "signal_key": "38bb5f475980e67760d08497cf33b7cbebd19ff30f50c08049813cac4a87f409",
+            "stop": "4.740800",
+            "symbol": "SUIUSDT",
+            "tp1": "4.889500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20107,
+          "stress_net_pnl": "0.75185193200"
+        },
+        {
+          "day_start_equity": "100.4945870786161000000000000",
+          "entry_ms": 1737323100000,
+          "exit_ms": 1737324300000,
+          "exit_price": "4.692500",
+          "fees": "0.01922999200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4229600",
+          "minimum_equity": "100.8725677826161000000000000",
+          "net_pnl": "-0.44218999200",
+          "plan": {
+            "decision_ms": 1737323100000,
+            "entry": "4.754700",
+            "exits": [
+              {
+                "price": "4.692500",
+                "quantity": "6.8",
+                "role": "STOP"
+              },
+              {
+                "price": "4.884100",
+                "quantity": "6.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.8",
+            "side": "BUY",
+            "signal_key": "afda52159cf3cbdbc4c5b55dd461b21924b9dcd4f90968d8b1838a3f63fa509e",
+            "stop": "4.692500",
+            "symbol": "SUIUSDT",
+            "tp1": "4.884100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.49354046400"
+        },
+        {
+          "day_start_equity": "100.4945870786161000000000000",
+          "entry_ms": 1737327600000,
+          "exit_ms": 1737327900000,
+          "exit_price": "4.554000",
+          "fees": "0.01374980000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4390000",
+          "minimum_equity": "100.4161623826161000000000000",
+          "net_pnl": "-0.45274980000",
+          "plan": {
+            "decision_ms": 1737327600000,
+            "entry": "4.641800",
+            "exits": [
+              {
+                "price": "4.554000",
+                "quantity": "5.0",
+                "role": "STOP"
+              },
+              {
+                "price": "4.824500",
+                "quantity": "5.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.0",
+            "side": "BUY",
+            "signal_key": "0eeb1404e088eb67e58a49fd0bbe4fc4d0297cda76cc1cf2a753c467cb79f270",
+            "stop": "4.554000",
+            "symbol": "SUIUSDT",
+            "tp1": "4.824500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.48948910000"
+        },
+        {
+          "day_start_equity": "100.6569995746161000000000000",
+          "entry_ms": 1737329400000,
+          "exit_ms": 1737334200000,
+          "exit_price": "4.339000",
+          "fees": "0.01102432800",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.001892772000000000000000000",
+          "gross_pnl": "-0.4502400",
+          "minimum_equity": "99.9511868026161000000000000",
+          "net_pnl": "-0.463157100000000000000000000",
+          "plan": {
+            "decision_ms": 1737329400000,
+            "entry": "4.446200",
+            "exits": [
+              {
+                "price": "4.339000",
+                "quantity": "4.2",
+                "role": "STOP"
+              },
+              {
+                "price": "4.669500",
+                "quantity": "4.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4.2",
+            "side": "BUY",
+            "signal_key": "af1a100d3cf81c53de00341ef38da8361be32e80df6c0d81f509a4b0dee0357e",
+            "stop": "4.339000",
+            "symbol": "SUIUSDT",
+            "tp1": "4.669500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20108,
+          "stress_net_pnl": "-0.492630348000000000000000000"
+        },
+        {
+          "day_start_equity": "100.6569995746161000000000000",
+          "entry_ms": 1737395100000,
+          "exit_ms": 1737402300000,
+          "exit_price": "4.390800000000000000",
+          "fees": "0.01205098800000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.3381000000000000000",
+          "minimum_equity": "99.86034536661610000000000000",
+          "net_pnl": "0.32604901200000000000000",
+          "plan": {
+            "decision_ms": 1737395100000,
+            "entry": "4.317300",
+            "exits": [
+              {
+                "price": "4.221100",
+                "quantity": "4.6",
+                "role": "STOP"
+              },
+              {
+                "price": "4.517600",
+                "quantity": "4.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4.6",
+            "side": "BUY",
+            "signal_key": "ad200b044ac254b2c76d93d76a2e1c4ff93ef5235a7aa6a230fcd2528af4c9f0",
+            "stop": "4.221100",
+            "symbol": "SUIUSDT",
+            "tp1": "4.517600",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20108,
+          "stress_net_pnl": "0.29396939400000000000000"
+        },
+        {
+          "day_start_equity": "100.2699462946161000000000000",
+          "entry_ms": 1737597600000,
+          "exit_ms": 1737598800000,
+          "exit_price": "4.337300",
+          "fees": "0.02662138800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3855600",
+          "minimum_equity": "99.8754610906161000000000000",
+          "net_pnl": "-0.41218138800",
+          "plan": {
+            "decision_ms": 1737597600000,
+            "entry": "4.375100",
+            "exits": [
+              {
+                "price": "4.337300",
+                "quantity": "10.2",
+                "role": "STOP"
+              },
+              {
+                "price": "4.453600",
+                "quantity": "10.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.2",
+            "side": "BUY",
+            "signal_key": "90b91069e790cf94b79c6786cefbe60d3c43af6374d70d3cdd9cdb4c5137323c",
+            "stop": "4.337300",
+            "symbol": "SUIUSDT",
+            "tp1": "4.453600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20111,
+          "stress_net_pnl": "-0.48323601600"
+        },
+        {
+          "day_start_equity": "99.8577649066161000000000000",
+          "entry_ms": 1737751500000,
+          "exit_ms": 1737752400000,
+          "exit_price": "4.271400",
+          "fees": "0.02800973000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3738700",
+          "minimum_equity": "99.4745084806161000000000000",
+          "net_pnl": "-0.40187973000",
+          "plan": {
+            "decision_ms": 1737751500000,
+            "entry": "4.305700",
+            "exits": [
+              {
+                "price": "4.271400",
+                "quantity": "10.9",
+                "role": "STOP"
+              },
+              {
+                "price": "4.376900",
+                "quantity": "10.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.9",
+            "side": "BUY",
+            "signal_key": "4112797949a061ca53895a042a4868328421c2fa7e7220dde20fb2a923c79ea4",
+            "stop": "4.271400",
+            "symbol": "SUIUSDT",
+            "tp1": "4.376900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20112,
+          "stress_net_pnl": "-0.47663465500"
+        },
+        {
+          "day_start_equity": "99.8577649066161000000000000",
+          "entry_ms": 1737752400000,
+          "exit_ms": 1737753300000,
+          "exit_price": "4.217700",
+          "fees": "0.02614140000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3800700",
+          "minimum_equity": "99.0670507006161000000000000",
+          "net_pnl": "-0.40621140000",
+          "plan": {
+            "decision_ms": 1737752400000,
+            "entry": "4.254600",
+            "exits": [
+              {
+                "price": "4.217700",
+                "quantity": "10.3",
+                "role": "STOP"
+              },
+              {
+                "price": "4.331400",
+                "quantity": "10.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.3",
+            "side": "BUY",
+            "signal_key": "1fcc13cb85249ecdc29ac14a69282d87a74d9c6d9a9db90f851dba1d886b288a",
+            "stop": "4.217700",
+            "symbol": "SUIUSDT",
+            "tp1": "4.331400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20112,
+          "stress_net_pnl": "-0.47598514500"
+        },
+        {
+          "day_start_equity": "99.8577649066161000000000000",
+          "entry_ms": 1737753300000,
+          "exit_ms": 1737756300000,
+          "exit_price": "4.173100",
+          "fees": "0.02436523600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3889700",
+          "minimum_equity": "98.6525301686161000000000000",
+          "net_pnl": "-0.41333523600",
+          "plan": {
+            "decision_ms": 1737753300000,
+            "entry": "4.213200",
+            "exits": [
+              {
+                "price": "4.173100",
+                "quantity": "9.7",
+                "role": "STOP"
+              },
+              {
+                "price": "4.296500",
+                "quantity": "9.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.7",
+            "side": "BUY",
+            "signal_key": "0762618aa95e9c3ccf0b58b525b31387d355991e7c4cac788cdcb51244b9eaea",
+            "stop": "4.173100",
+            "symbol": "SUIUSDT",
+            "tp1": "4.296500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20112,
+          "stress_net_pnl": "-0.47837402700"
+        },
+        {
+          "day_start_equity": "98.6363385406161000000000000",
+          "entry_ms": 1737927900000,
+          "exit_ms": 1737928200000,
+          "exit_price": "3.995200",
+          "fees": "0.03123380000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3562000",
+          "minimum_equity": "98.2696797806161000000000000",
+          "net_pnl": "-0.38743380000",
+          "plan": {
+            "decision_ms": 1737927900000,
+            "entry": "4.022600",
+            "exits": [
+              {
+                "price": "3.995200",
+                "quantity": "13.0",
+                "role": "STOP"
+              },
+              {
+                "price": "4.079500",
+                "quantity": "13.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13.0",
+            "side": "BUY",
+            "signal_key": "cec9aadbe9e028c9431f439cfb6d18065905d463bc81d42811ea548ee477c60d",
+            "stop": "3.995200",
+            "symbol": "SUIUSDT",
+            "tp1": "4.079500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.47078330000"
+        },
+        {
+          "day_start_equity": "98.6363385406161000000000000",
+          "entry_ms": 1737928800000,
+          "exit_ms": 1737933600000,
+          "exit_price": "3.960200",
+          "fees": "0.02929835400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3603900",
+          "minimum_equity": "97.8787005706161000000000000",
+          "net_pnl": "-0.38968835400",
+          "plan": {
+            "decision_ms": 1737928800000,
+            "entry": "3.989500",
+            "exits": [
+              {
+                "price": "3.960200",
+                "quantity": "12.3",
+                "role": "STOP"
+              },
+              {
+                "price": "4.050400",
+                "quantity": "12.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12.3",
+            "side": "BUY",
+            "signal_key": "5b5d1db459aa681bb988380203143f246194a70d14ca4a87dfd701cade8592ce",
+            "stop": "3.960200",
+            "symbol": "SUIUSDT",
+            "tp1": "4.050400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.46787736300"
+        },
+        {
+          "day_start_equity": "98.6363385406161000000000000",
+          "entry_ms": 1737934200000,
+          "exit_ms": 1737935400000,
+          "exit_price": "3.895900",
+          "fees": "0.02111634000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3924000",
+          "minimum_equity": "97.4597252866161000000000000",
+          "net_pnl": "-0.41351634000",
+          "plan": {
+            "decision_ms": 1737934200000,
+            "entry": "3.939500",
+            "exits": [
+              {
+                "price": "3.895900",
+                "quantity": "9.0",
+                "role": "STOP"
+              },
+              {
+                "price": "4.030100",
+                "quantity": "9.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.0",
+            "side": "BUY",
+            "signal_key": "648b428f8d27b449f6d67c1372234dbf61600b77676de43ee0ec56f95c639312",
+            "stop": "3.895900",
+            "symbol": "SUIUSDT",
+            "tp1": "4.030100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.46989198000"
+        },
+        {
+          "day_start_equity": "97.4457000466161000000000000",
+          "entry_ms": 1745799300000,
+          "exit_ms": 1745801100000,
+          "exit_price": "3.476000",
+          "fees": "0.02322719400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3851700",
+          "minimum_equity": "97.0527362926161000000000000",
+          "net_pnl": "-0.40839719400",
+          "plan": {
+            "decision_ms": 1745799300000,
+            "entry": "3.510700",
+            "exits": [
+              {
+                "price": "3.476000",
+                "quantity": "11.1",
+                "role": "STOP"
+              },
+              {
+                "price": "3.582800",
+                "quantity": "11.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.1",
+            "side": "BUY",
+            "signal_key": "18ddc615bb8037e78c87f88e1571efb77752a2bc952ea3d25667a30c847a2d72",
+            "stop": "3.476000",
+            "symbol": "SUIUSDT",
+            "tp1": "3.582800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20206,
+          "stress_net_pnl": "-0.47040057300"
+        },
+        {
+          "day_start_equity": "97.4457000466161000000000000",
+          "entry_ms": 1745801100000,
+          "exit_ms": 1745801700000,
+          "exit_price": "3.450900",
+          "fees": "0.02119804800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3927000",
+          "minimum_equity": "96.6374844766161000000000000",
+          "net_pnl": "-0.41389804800",
+          "plan": {
+            "decision_ms": 1745801100000,
+            "entry": "3.489400",
+            "exits": [
+              {
+                "price": "3.450900",
+                "quantity": "10.2",
+                "role": "STOP"
+              },
+              {
+                "price": "3.569400",
+                "quantity": "10.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.2",
+            "side": "BUY",
+            "signal_key": "4394b688c6cac9e41fb75e2f400be54eb880250fb6ef304bd5acf39c4bfda717",
+            "stop": "3.450900",
+            "symbol": "SUIUSDT",
+            "tp1": "3.569400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20206,
+          "stress_net_pnl": "-0.47049162600"
+        },
+        {
+          "day_start_equity": "97.4457000466161000000000000",
+          "entry_ms": 1745802000000,
+          "exit_ms": 1745805000000,
+          "exit_price": "3.414500",
+          "fees": "0.02056520000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3910000",
+          "minimum_equity": "96.2254976046161000000000000",
+          "net_pnl": "-0.41156520000",
+          "plan": {
+            "decision_ms": 1745802000000,
+            "entry": "3.453600",
+            "exits": [
+              {
+                "price": "3.414500",
+                "quantity": "10.0",
+                "role": "STOP"
+              },
+              {
+                "price": "3.534900",
+                "quantity": "10.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.0",
+            "side": "BUY",
+            "signal_key": "6c7c575f540578ed26794189f065694914836058f16451488b52176b38082469",
+            "stop": "3.414500",
+            "symbol": "SUIUSDT",
+            "tp1": "3.534900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20206,
+          "stress_net_pnl": "-0.46647090000"
+        },
+        {
+          "day_start_equity": "96.2118396046161000000000000",
+          "entry_ms": 1745901900000,
+          "exit_ms": 1745908500000,
+          "exit_price": "3.548900",
+          "fees": "0.01503071800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7928700",
+          "minimum_equity": "95.9914735326161000000000000",
+          "net_pnl": "0.77783928200",
+          "plan": {
+            "decision_ms": 1745901900000,
+            "entry": "3.474800",
+            "exits": [
+              {
+                "price": "3.439100",
+                "quantity": "10.7",
+                "role": "STOP"
+              },
+              {
+                "price": "3.548900",
+                "quantity": "10.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.7",
+            "side": "BUY",
+            "signal_key": "36ac119c027c8d20f0f60ca63b8dc5da54fd436e670e1fd2e20499bfbd3e3792",
+            "stop": "3.439100",
+            "symbol": "SUIUSDT",
+            "tp1": "3.548900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20207,
+          "stress_net_pnl": "0.72523176900"
+        },
+        {
+          "day_start_equity": "96.9896788866161000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746020100000,
+          "exit_price": "3.327000",
+          "fees": "0.02263435200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3864600",
+          "minimum_equity": "96.5956225746161000000000000",
+          "net_pnl": "-0.40909435200",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "3.361200",
+            "exits": [
+              {
+                "price": "3.327000",
+                "quantity": "11.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.432200",
+                "quantity": "11.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.3",
+            "side": "BUY",
+            "signal_key": "84b12db12677a8f811862b2f117d33dbd01c109c6d0639e205eb6b502bf7d816",
+            "stop": "3.327000",
+            "symbol": "SUIUSDT",
+            "tp1": "3.432200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.46951703400"
+        },
+        {
+          "day_start_equity": "96.9896788866161000000000000",
+          "entry_ms": 1746020700000,
+          "exit_ms": 1746023700000,
+          "exit_price": "3.409000",
+          "fees": "0.01196694000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8455000",
+          "minimum_equity": "96.3557456146161000000000000",
+          "net_pnl": "0.83353306000",
+          "plan": {
+            "decision_ms": 1746020700000,
+            "entry": "3.314000",
+            "exits": [
+              {
+                "price": "3.268300",
+                "quantity": "8.9",
+                "role": "STOP"
+              },
+              {
+                "price": "3.409000",
+                "quantity": "8.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.9",
+            "side": "BUY",
+            "signal_key": "3e0153ea108171d1aac57383f79dcce0d3e2915be0cd3e4ed75fe2701dc23171",
+            "stop": "3.268300",
+            "symbol": "SUIUSDT",
+            "tp1": "3.409000",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20208,
+          "stress_net_pnl": "0.79164877000"
+        },
+        {
+          "day_start_equity": "97.6359155506161000000000000",
+          "entry_ms": 1746143100000,
+          "exit_ms": 1746150000000,
+          "exit_price": "3.503400",
+          "fees": "0.02718958800",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.004579113000000000000000000",
+          "gross_pnl": "-0.3663600",
+          "minimum_equity": "97.03406643761610000000000000",
+          "net_pnl": "-0.398128701000000000000000000",
+          "plan": {
+            "decision_ms": 1746143100000,
+            "entry": "3.531800",
+            "exits": [
+              {
+                "price": "3.503400",
+                "quantity": "12.9",
+                "role": "STOP"
+              },
+              {
+                "price": "3.590900",
+                "quantity": "12.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12.9",
+            "side": "BUY",
+            "signal_key": "b8083f9a3aeb1bd94900fb579d45db6b4bbd8d9c49610f3325a84f96dad8850b",
+            "stop": "3.503400",
+            "symbol": "SUIUSDT",
+            "tp1": "3.590900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20210,
+          "stress_net_pnl": "-0.470695329000000000000000000"
+        },
+        {
+          "day_start_equity": "97.01598889361610000000000000",
+          "entry_ms": 1746270000000,
+          "exit_ms": 1746274200000,
+          "exit_price": "3.322600",
+          "fees": "0.03017342400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3533400",
+          "minimum_equity": "96.65254397361610000000000000",
+          "net_pnl": "-0.38351342400",
+          "plan": {
+            "decision_ms": 1746270000000,
+            "entry": "3.346000",
+            "exits": [
+              {
+                "price": "3.322600",
+                "quantity": "15.1",
+                "role": "STOP"
+              },
+              {
+                "price": "3.394700",
+                "quantity": "15.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "15.1",
+            "side": "BUY",
+            "signal_key": "ab94f1290e1d6f1763ef27753c3a5d5aeafabaa49633ff2718facda4983902b4",
+            "stop": "3.322600",
+            "symbol": "SUIUSDT",
+            "tp1": "3.394700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20211,
+          "stress_net_pnl": "-0.46403477800"
+        },
+        {
+          "day_start_equity": "96.63247546961610000000000000",
+          "entry_ms": 1746763200000,
+          "exit_ms": 1746770400000,
+          "exit_price": "3.901400000000000000",
+          "fees": "0.01884870000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.5605200000000000000",
+          "minimum_equity": "96.48127730561610000000000000",
+          "net_pnl": "0.54167130000000000000000",
+          "plan": {
+            "decision_ms": 1746763200000,
+            "entry": "3.832200",
+            "exits": [
+              {
+                "price": "3.782800",
+                "quantity": "8.1",
+                "role": "STOP"
+              },
+              {
+                "price": "3.934900",
+                "quantity": "8.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.1",
+            "side": "BUY",
+            "signal_key": "878ab8ae3219678e6cebd60db1b67b4d334756a171422c6c17a05e28592873fe",
+            "stop": "3.782800",
+            "symbol": "SUIUSDT",
+            "tp1": "3.934900",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20217,
+          "stress_net_pnl": "0.49150152000000000000000"
+        },
+        {
+          "day_start_equity": "97.17414676961610000000000000",
+          "entry_ms": 1746877500000,
+          "exit_ms": 1746882000000,
+          "exit_price": "3.936600",
+          "fees": "0.01416487800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8217300",
+          "minimum_equity": "97.01881650361610000000000000",
+          "net_pnl": "0.80756512200",
+          "plan": {
+            "decision_ms": 1746877500000,
+            "entry": "3.846300",
+            "exits": [
+              {
+                "price": "3.802900",
+                "quantity": "9.1",
+                "role": "STOP"
+              },
+              {
+                "price": "3.936600",
+                "quantity": "9.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.1",
+            "side": "BUY",
+            "signal_key": "39030d3665d52c8bb9ddb9cb79842d2cb5e18b57b68ee23bf66d74ab9a265d60",
+            "stop": "3.802900",
+            "symbol": "SUIUSDT",
+            "tp1": "3.936600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20218,
+          "stress_net_pnl": "0.75798804900"
+        },
+        {
+          "day_start_equity": "97.98171189161610000000000000",
+          "entry_ms": 1747592100000,
+          "exit_ms": 1747598100000,
+          "exit_price": "3.735000",
+          "fees": "0.01890520800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4040400",
+          "minimum_equity": "97.57131628361610000000000000",
+          "net_pnl": "-0.42294520800",
+          "plan": {
+            "decision_ms": 1747592100000,
+            "entry": "3.783100",
+            "exits": [
+              {
+                "price": "3.735000",
+                "quantity": "8.4",
+                "role": "STOP"
+              },
+              {
+                "price": "3.883200",
+                "quantity": "8.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.4",
+            "side": "BUY",
+            "signal_key": "b423b03c46980e7ef023efe0f49c30f626bd33b47d447682985be230042ec1c7",
+            "stop": "3.735000",
+            "symbol": "SUIUSDT",
+            "tp1": "3.883200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20226,
+          "stress_net_pnl": "-0.47342643600"
+        },
+        {
+          "day_start_equity": "97.55876668361610000000000000",
+          "entry_ms": 1747913400000,
+          "exit_ms": 1747914900000,
+          "exit_price": "4.075800",
+          "fees": "0.01058732400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.8639400",
+          "minimum_equity": "97.52781941561610000000000000",
+          "net_pnl": "0.85335267600",
+          "plan": {
+            "decision_ms": 1747913400000,
+            "entry": "3.944900",
+            "exits": [
+              {
+                "price": "3.882000",
+                "quantity": "6.6",
+                "role": "STOP"
+              },
+              {
+                "price": "4.075800",
+                "quantity": "6.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.6",
+            "side": "BUY",
+            "signal_key": "da55a9a3e54553b4855b0360314980206aa80c651a638b06eec37eb268e23a87",
+            "stop": "3.882000",
+            "symbol": "SUIUSDT",
+            "tp1": "4.075800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20230,
+          "stress_net_pnl": "0.81629704200"
+        },
+        {
+          "day_start_equity": "97.55876668361610000000000000",
+          "entry_ms": 1747919700000,
+          "exit_ms": 1747926900000,
+          "exit_price": "3.948000000000000000",
+          "fees": "0.01052892000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.6534000000000000000",
+          "minimum_equity": "98.34119683961610000000000000",
+          "net_pnl": "0.64287108000000000000000",
+          "plan": {
+            "decision_ms": 1747919700000,
+            "entry": "3.802800",
+            "exits": [
+              {
+                "price": "3.703800",
+                "quantity": "4.5",
+                "role": "STOP"
+              },
+              {
+                "price": "4.008900",
+                "quantity": "4.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4.5",
+            "side": "BUY",
+            "signal_key": "f3033c0d67182b5b07f4e330722659ae4243f6b2b6764cbdfc7fdd719541a7e9",
+            "stop": "3.703800",
+            "symbol": "SUIUSDT",
+            "tp1": "4.008900",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20230,
+          "stress_net_pnl": "0.61490286000000000000000"
+        },
+        {
+          "day_start_equity": "99.05499043961610000000000000",
+          "entry_ms": 1748001600000,
+          "exit_ms": 1748001900000,
+          "exit_price": "3.624400",
+          "fees": "0.02008801600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4066400",
+          "minimum_equity": "98.64160021561610000000000000",
+          "net_pnl": "-0.42672801600",
+          "plan": {
+            "decision_ms": 1748001600000,
+            "entry": "3.668600",
+            "exits": [
+              {
+                "price": "3.624400",
+                "quantity": "9.2",
+                "role": "STOP"
+              },
+              {
+                "price": "3.760500",
+                "quantity": "9.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "9.2",
+            "side": "BUY",
+            "signal_key": "d9c3872d452a524de6d9959d0813247af2b779de85444544b02ba3bed2eaf5d6",
+            "stop": "3.624400",
+            "symbol": "SUIUSDT",
+            "tp1": "3.760500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.48036383200"
+        },
+        {
+          "day_start_equity": "99.05499043961610000000000000",
+          "entry_ms": 1748003400000,
+          "exit_ms": 1748010600000,
+          "exit_price": "3.675400000000000000",
+          "fees": "0.01537326000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.3171000000000000000",
+          "minimum_equity": "98.32918028361610000000000000",
+          "net_pnl": "0.30172674000000000000000",
+          "plan": {
+            "decision_ms": 1748003400000,
+            "entry": "3.630100",
+            "exits": [
+              {
+                "price": "3.569500",
+                "quantity": "7.0",
+                "role": "STOP"
+              },
+              {
+                "price": "3.756200",
+                "quantity": "7.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7.0",
+            "side": "BUY",
+            "signal_key": "9883a6e82898da16c74ebd941c89206383ed296be203b2bf1d02cb7f25a6623d",
+            "stop": "3.569500",
+            "symbol": "SUIUSDT",
+            "tp1": "3.756200",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20231,
+          "stress_net_pnl": "0.26078423000000000000000"
+        },
+        {
+          "day_start_equity": "98.92998916361610000000000000",
+          "entry_ms": 1748161800000,
+          "exit_ms": 1748163000000,
+          "exit_price": "3.537900",
+          "fees": "0.03403296000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3456000",
+          "minimum_equity": "98.57299876361610000000000000",
+          "net_pnl": "-0.37963296000",
+          "plan": {
+            "decision_ms": 1748161800000,
+            "entry": "3.559500",
+            "exits": [
+              {
+                "price": "3.537900",
+                "quantity": "16.0",
+                "role": "STOP"
+              },
+              {
+                "price": "3.604400",
+                "quantity": "16.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16.0",
+            "side": "BUY",
+            "signal_key": "e2bc9165181e26029905103a73a02d167de3c8f21c20ba8617e9a22706da7639",
+            "stop": "3.537900",
+            "symbol": "SUIUSDT",
+            "tp1": "3.604400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20233,
+          "stress_net_pnl": "-0.47044512000"
+        },
+        {
+          "day_start_equity": "98.55035620361610000000000000",
+          "entry_ms": 1748268000000,
+          "exit_ms": 1748275200000,
+          "exit_price": "3.547700000000000000",
+          "fees": "0.03039951200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.1987700000000000000",
+          "minimum_equity": "98.21563953561610000000000000",
+          "net_pnl": "0.16837048800000000000000",
+          "plan": {
+            "decision_ms": 1748268000000,
+            "entry": "3.533800",
+            "exits": [
+              {
+                "price": "3.508700",
+                "quantity": "14.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.585900",
+                "quantity": "14.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "14.3",
+            "side": "BUY",
+            "signal_key": "dec2eb7e0e2dfa359f9fee09dedd21310988baa8871a7175bc31e31605f3d2d9",
+            "stop": "3.508700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.585900",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20234,
+          "stress_net_pnl": "0.08733825100000000000000"
+        },
+        {
+          "day_start_equity": "98.71872669161610000000000000",
+          "entry_ms": 1749699000000,
+          "exit_ms": 1749706200000,
+          "exit_price": "3.339200000000000000",
+          "fees": "0.03341736800000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.2070800000000000000",
+          "minimum_equity": "98.43707517961610000000000000",
+          "net_pnl": "0.17366263200000000000000",
+          "plan": {
+            "decision_ms": 1749699000000,
+            "entry": "3.326800",
+            "exits": [
+              {
+                "price": "3.305900",
+                "quantity": "16.7",
+                "role": "STOP"
+              },
+              {
+                "price": "3.370200",
+                "quantity": "16.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16.7",
+            "side": "BUY",
+            "signal_key": "1a6146c318ee0e6d8f31f02ec7739b82965b5123885c1671f73f3eed5be102d0",
+            "stop": "3.305900",
+            "symbol": "SUIUSDT",
+            "tp1": "3.370200",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20251,
+          "stress_net_pnl": "0.08458416400000000000000"
+        },
+        {
+          "day_start_equity": "98.89238932361610000000000000",
+          "entry_ms": 1750118400000,
+          "exit_ms": 1750119000000,
+          "exit_price": "2.961300",
+          "fees": "0.02104600800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4000200",
+          "minimum_equity": "98.48530065161610000000000000",
+          "net_pnl": "-0.42106600800",
+          "plan": {
+            "decision_ms": 1750118400000,
+            "entry": "2.995200",
+            "exits": [
+              {
+                "price": "2.961300",
+                "quantity": "11.8",
+                "role": "STOP"
+              },
+              {
+                "price": "3.065800",
+                "quantity": "11.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.8",
+            "side": "BUY",
+            "signal_key": "cfd51b746d061a6ad942b4f5a4e4b2192bc22513ed4f5c4b641af75c07bddeac",
+            "stop": "2.961300",
+            "symbol": "SUIUSDT",
+            "tp1": "3.065800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20256,
+          "stress_net_pnl": "-0.47725536600"
+        },
+        {
+          "day_start_equity": "98.47132331561610000000000000",
+          "entry_ms": 1751616000000,
+          "exit_ms": 1751616900000,
+          "exit_price": "2.897600",
+          "fees": "0.03119146600",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.005225726000000000000000000",
+          "gross_pnl": "-0.3562100",
+          "minimum_equity": "98.09944293961610000000000000",
+          "net_pnl": "-0.392627192000000000000000000",
+          "plan": {
+            "decision_ms": 1751616000000,
+            "entry": "2.917500",
+            "exits": [
+              {
+                "price": "2.897600",
+                "quantity": "17.9",
+                "role": "STOP"
+              },
+              {
+                "price": "2.958800",
+                "quantity": "17.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "17.9",
+            "side": "BUY",
+            "signal_key": "76f5f653c07b2b361efdad4c9f4ee28ba2fd5405386ba527330f844dd9f202dd",
+            "stop": "2.897600",
+            "symbol": "SUIUSDT",
+            "tp1": "2.958800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20273,
+          "stress_net_pnl": "-0.475863803000000000000000000"
+        },
+        {
+          "day_start_equity": "98.07869612361610000000000000",
+          "entry_ms": 1752327900000,
+          "exit_ms": 1752329700000,
+          "exit_price": "3.397700",
+          "fees": "0.01792095200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7740600",
+          "minimum_equity": "98.00863305361610000000000000",
+          "net_pnl": "0.75613904800",
+          "plan": {
+            "decision_ms": 1752327900000,
+            "entry": "3.339500",
+            "exits": [
+              {
+                "price": "3.311500",
+                "quantity": "13.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.397700",
+                "quantity": "13.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13.3",
+            "side": "BUY",
+            "signal_key": "dbe634b31b472736e9be5ceb4144e9a85eec04c57aa2eb15191a89aef10a7452",
+            "stop": "3.311500",
+            "symbol": "SUIUSDT",
+            "tp1": "3.397700",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20281,
+          "stress_net_pnl": "0.69341571600"
+        },
+        {
+          "day_start_equity": "98.83483517161610000000000000",
+          "entry_ms": 1752849000000,
+          "exit_ms": 1752849900000,
+          "exit_price": "3.852600",
+          "fees": "0.01834380000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4123800",
+          "minimum_equity": "98.41628558761610000000000000",
+          "net_pnl": "-0.43072380000",
+          "plan": {
+            "decision_ms": 1752849000000,
+            "entry": "3.904800",
+            "exits": [
+              {
+                "price": "3.852600",
+                "quantity": "7.9",
+                "role": "STOP"
+              },
+              {
+                "price": "4.013400",
+                "quantity": "7.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7.9",
+            "side": "BUY",
+            "signal_key": "847d4959ac432c263a6d00b4d8d002e4938e57256265586a024efdbd0c0ff46c",
+            "stop": "3.852600",
+            "symbol": "SUIUSDT",
+            "tp1": "4.013400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20287,
+          "stress_net_pnl": "-0.47970933000"
+        },
+        {
+          "day_start_equity": "98.83483517161610000000000000",
+          "entry_ms": 1752870600000,
+          "exit_ms": 1752870900000,
+          "exit_price": "3.664800",
+          "fees": "0.01833304000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4116800",
+          "minimum_equity": "97.98626546761610000000000000",
+          "net_pnl": "-0.43001304000",
+          "plan": {
+            "decision_ms": 1752870600000,
+            "entry": "3.714400",
+            "exits": [
+              {
+                "price": "3.664800",
+                "quantity": "8.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.817600",
+                "quantity": "8.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.3",
+            "side": "BUY",
+            "signal_key": "55ca45a062fd1c766d65fdfd6c3400509b6d19b18d08a5eab4f9f6603916e832",
+            "stop": "3.664800",
+            "symbol": "SUIUSDT",
+            "tp1": "3.817600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20287,
+          "stress_net_pnl": "-0.47896976000"
+        },
+        {
+          "day_start_equity": "98.83483517161610000000000000",
+          "entry_ms": 1752871500000,
+          "exit_ms": 1752878700000,
+          "exit_price": "3.779900000000000000",
+          "fees": "0.01713648000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.4993200000000000000",
+          "minimum_equity": "97.94109274761610000000000000",
+          "net_pnl": "0.48218352000000000000000",
+          "plan": {
+            "decision_ms": 1752871500000,
+            "entry": "3.714200",
+            "exits": [
+              {
+                "price": "3.659700",
+                "quantity": "7.6",
+                "role": "STOP"
+              },
+              {
+                "price": "3.827600",
+                "quantity": "7.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "7.6",
+            "side": "BUY",
+            "signal_key": "7313aac58dd492d80774350bea6ac41f16bc03df361ecae7a7dfd8b607670f19",
+            "stop": "3.659700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.827600",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20287,
+          "stress_net_pnl": "0.43656946000000000000000"
+        }
+      ],
+      "unfilled": 15
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 28,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "98.45628185161610000000000000",
+          "entry_ms": 1753967700000,
+          "exit_ms": 1753971900000,
+          "exit_price": "3.743000",
+          "fees": "0.03016581200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3604600",
+          "minimum_equity": "98.08571851961610000000000000",
+          "net_pnl": "-0.39062581200",
+          "plan": {
+            "decision_ms": 1753967700000,
+            "entry": "3.769900",
+            "exits": [
+              {
+                "price": "3.743000",
+                "quantity": "13.4",
+                "role": "STOP"
+              },
+              {
+                "price": "3.825900",
+                "quantity": "13.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13.4",
+            "side": "BUY",
+            "signal_key": "deddda753760ce9fe20e4ad20573803b96169ce52716ae052a4feee951648052",
+            "stop": "3.743000",
+            "symbol": "SUIUSDT",
+            "tp1": "3.825900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.47112805400"
+        },
+        {
+          "day_start_equity": "98.06565603961610000000000000",
+          "entry_ms": 1754811900000,
+          "exit_ms": 1754819100000,
+          "exit_price": "3.838000000000000000",
+          "fees": "0.02412228000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.003972780000000000000000000",
+          "gross_pnl": "0.2856000000000000000",
+          "minimum_equity": "97.73425335961610000000000000",
+          "net_pnl": "0.257504940000000000000000000",
+          "plan": {
+            "decision_ms": 1754811900000,
+            "entry": "3.810800",
+            "exits": [
+              {
+                "price": "3.774000",
+                "quantity": "10.5",
+                "role": "STOP"
+              },
+              {
+                "price": "3.887300",
+                "quantity": "10.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "10.5",
+            "side": "BUY",
+            "signal_key": "f22c98039ce1864e56bfb580af73ce1394a7fbe395889d0524b9a256ae8ce0d3",
+            "stop": "3.774000",
+            "symbol": "SUIUSDT",
+            "tp1": "3.887300",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20310,
+          "stress_net_pnl": "0.193226460000000000000000000"
+        },
+        {
+          "day_start_equity": "98.32316097961610000000000000",
+          "entry_ms": 1754897400000,
+          "exit_ms": 1754898000000,
+          "exit_price": "3.865700",
+          "fees": "0.03439579200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3418800",
+          "minimum_equity": "97.96977013161610000000000000",
+          "net_pnl": "-0.37627579200",
+          "plan": {
+            "decision_ms": 1754897400000,
+            "entry": "3.888800",
+            "exits": [
+              {
+                "price": "3.865700",
+                "quantity": "14.8",
+                "role": "STOP"
+              },
+              {
+                "price": "3.936800",
+                "quantity": "14.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "14.8",
+            "side": "BUY",
+            "signal_key": "68bc53de3df853ae216a20e787fef03c39bdbc07ff3f6d862c190444e2b420b2",
+            "stop": "3.865700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.936800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20311,
+          "stress_net_pnl": "-0.46805488400"
+        },
+        {
+          "day_start_equity": "98.32316097961610000000000000",
+          "entry_ms": 1754899200000,
+          "exit_ms": 1754906400000,
+          "exit_price": "3.834800000000000000",
+          "fees": "0.03128299200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.0448800000000000000",
+          "minimum_equity": "97.67670350761610000000000000",
+          "net_pnl": "0.01359700800000000000000",
+          "plan": {
+            "decision_ms": 1754899200000,
+            "entry": "3.831500",
+            "exits": [
+              {
+                "price": "3.805500",
+                "quantity": "13.6",
+                "role": "STOP"
+              },
+              {
+                "price": "3.885500",
+                "quantity": "13.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13.6",
+            "side": "BUY",
+            "signal_key": "e25ab8ca982998e750ff0a4f266567e39b1d870b9289ac138c95b114ba6da379",
+            "stop": "3.805500",
+            "symbol": "SUIUSDT",
+            "tp1": "3.885500",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20311,
+          "stress_net_pnl": "-0.06981682400000000000000"
+        },
+        {
+          "day_start_equity": "98.32316097961610000000000000",
+          "entry_ms": 1754911800000,
+          "exit_ms": 1754917500000,
+          "exit_price": "3.706800",
+          "fees": "0.02698542000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3702600",
+          "minimum_equity": "97.58117768761610000000000000",
+          "net_pnl": "-0.39724542000",
+          "plan": {
+            "decision_ms": 1754911800000,
+            "entry": "3.737400",
+            "exits": [
+              {
+                "price": "3.706800",
+                "quantity": "12.1",
+                "role": "STOP"
+              },
+              {
+                "price": "3.801100",
+                "quantity": "12.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "12.1",
+            "side": "BUY",
+            "signal_key": "d9e7bf7633c01dbf824b35c9cb31eb20373b5bb6da289b739282c3e0393cd9ed",
+            "stop": "3.706800",
+            "symbol": "SUIUSDT",
+            "tp1": "3.801100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20311,
+          "stress_net_pnl": "-0.46926825000"
+        },
+        {
+          "day_start_equity": "97.56323677561610000000000000",
+          "entry_ms": 1755176400000,
+          "exit_ms": 1755177000000,
+          "exit_price": "3.708200",
+          "fees": "0.01521309600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4182000",
+          "minimum_equity": "97.13990998361610000000000000",
+          "net_pnl": "-0.43341309600",
+          "plan": {
+            "decision_ms": 1755176400000,
+            "entry": "3.769700",
+            "exits": [
+              {
+                "price": "3.708200",
+                "quantity": "6.8",
+                "role": "STOP"
+              },
+              {
+                "price": "3.897700",
+                "quantity": "6.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.8",
+            "side": "BUY",
+            "signal_key": "3d3b4c0cc3ea62e5b009fb2a2d814bfb0627c15948f7c0c912408fdeb103ede4",
+            "stop": "3.708200",
+            "symbol": "SUIUSDT",
+            "tp1": "3.897700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20314,
+          "stress_net_pnl": "-0.47405105200"
+        },
+        {
+          "day_start_equity": "97.12982367961610000000000000",
+          "entry_ms": 1757854800000,
+          "exit_ms": 1757858400000,
+          "exit_price": "3.666700",
+          "fees": "0.03131014800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3493200",
+          "minimum_equity": "96.77002038761610000000000000",
+          "net_pnl": "-0.38063014800",
+          "plan": {
+            "decision_ms": 1757854800000,
+            "entry": "3.691300",
+            "exits": [
+              {
+                "price": "3.666700",
+                "quantity": "14.2",
+                "role": "STOP"
+              },
+              {
+                "price": "3.742400",
+                "quantity": "14.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "14.2",
+            "side": "BUY",
+            "signal_key": "163d137bb6cb7c686bc61b62c5e85fc7bc39dd22418394d1f0b1b817a832b2a5",
+            "stop": "3.666700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.742400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20345,
+          "stress_net_pnl": "-0.46418209600"
+        },
+        {
+          "day_start_equity": "97.12982367961610000000000000",
+          "entry_ms": 1757861100000,
+          "exit_ms": 1757868300000,
+          "exit_price": "3.694300000000000000",
+          "fees": "0.02560723200000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.004226663324800000000000000",
+          "gross_pnl": "0.5254800000000000000",
+          "minimum_equity": "96.64328785161610000000000000",
+          "net_pnl": "0.495646104675200000000000000",
+          "plan": {
+            "decision_ms": 1757861100000,
+            "entry": "3.649000",
+            "exits": [
+              {
+                "price": "3.617000",
+                "quantity": "11.6",
+                "role": "STOP"
+              },
+              {
+                "price": "3.715600",
+                "quantity": "11.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.6",
+            "side": "BUY",
+            "signal_key": "64185533332fb2b5afb7636bb991557d90a6fa6ef851de79aed625e779d783fc",
+            "stop": "3.617000",
+            "symbol": "SUIUSDT",
+            "tp1": "3.715600",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20345,
+          "stress_net_pnl": "0.427447732675200000000000000"
+        },
+        {
+          "day_start_equity": "97.24483963629130000000000000",
+          "entry_ms": 1757924100000,
+          "exit_ms": 1757926800000,
+          "exit_price": "3.519700",
+          "fees": "0.02393950200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3796800",
+          "minimum_equity": "96.85712917829130000000000000",
+          "net_pnl": "-0.40361950200",
+          "plan": {
+            "decision_ms": 1757924100000,
+            "entry": "3.553300",
+            "exits": [
+              {
+                "price": "3.519700",
+                "quantity": "11.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.623100",
+                "quantity": "11.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "11.3",
+            "side": "BUY",
+            "signal_key": "7fafa7073268dba618cb4d2306b15e79c60d5fa3ebac7506a646f95ac11622c0",
+            "stop": "3.519700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.623100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20346,
+          "stress_net_pnl": "-0.46752145400"
+        },
+        {
+          "day_start_equity": "96.84122013429130000000000000",
+          "entry_ms": 1758255300000,
+          "exit_ms": 1758262500000,
+          "exit_price": "3.822500000000000000",
+          "fees": "0.03047349200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.1502900000000000000",
+          "minimum_equity": "96.82044234229130000000000000",
+          "net_pnl": "0.11981650800000000000000",
+          "plan": {
+            "decision_ms": 1758255300000,
+            "entry": "3.811200",
+            "exits": [
+              {
+                "price": "3.784900",
+                "quantity": "13.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.865800",
+                "quantity": "13.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13.3",
+            "side": "BUY",
+            "signal_key": "0b2bf81f9729fd99fd05d7fabdc2ceb62ba346717ffe35a0e09c4df267805a40",
+            "stop": "3.784900",
+            "symbol": "SUIUSDT",
+            "tp1": "3.865800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20350,
+          "stress_net_pnl": "0.03857891100000000000000"
+        },
+        {
+          "day_start_equity": "96.96103664229130000000000000",
+          "entry_ms": 1759543200000,
+          "exit_ms": 1759544400000,
+          "exit_price": "3.535700",
+          "fees": "0.04312410200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.2963800",
+          "minimum_equity": "96.65024242429130000000000000",
+          "net_pnl": "-0.33950410200",
+          "plan": {
+            "decision_ms": 1759543200000,
+            "entry": "3.550300",
+            "exits": [
+              {
+                "price": "3.535700",
+                "quantity": "20.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.580500",
+                "quantity": "20.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "20.3",
+            "side": "BUY",
+            "signal_key": "37223a6dc54cd62609d0cee76c941b77de4dda9514e38e14f6bd177d33083b43",
+            "stop": "3.535700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.580500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20365,
+          "stress_net_pnl": "-0.45455110400"
+        },
+        {
+          "day_start_equity": "96.96103664229130000000000000",
+          "entry_ms": 1759547700000,
+          "exit_ms": 1759554900000,
+          "exit_price": "3.557900000000000000",
+          "fees": "0.04129367600000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.6014000000000000000",
+          "minimum_equity": "96.51472816829130000000000000",
+          "net_pnl": "0.56010632400000000000000",
+          "plan": {
+            "decision_ms": 1759547700000,
+            "entry": "3.526900",
+            "exits": [
+              {
+                "price": "3.511200",
+                "quantity": "19.4",
+                "role": "STOP"
+              },
+              {
+                "price": "3.559500",
+                "quantity": "19.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "19.4",
+            "side": "BUY",
+            "signal_key": "7435af9bbfc58d22de25c4d2e28b3407a7c76252e2a3c162d8da042636a15920",
+            "stop": "3.511200",
+            "symbol": "SUIUSDT",
+            "tp1": "3.559500",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20365,
+          "stress_net_pnl": "0.45009008800000000000000"
+        },
+        {
+          "day_start_equity": "97.18163886429130000000000000",
+          "entry_ms": 1759974300000,
+          "exit_ms": 1759977000000,
+          "exit_price": "3.475700",
+          "fees": "0.04197724200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3015000",
+          "minimum_equity": "96.86610625029130000000000000",
+          "net_pnl": "-0.34347724200",
+          "plan": {
+            "decision_ms": 1759974300000,
+            "entry": "3.490700",
+            "exits": [
+              {
+                "price": "3.475700",
+                "quantity": "20.1",
+                "role": "STOP"
+              },
+              {
+                "price": "3.521800",
+                "quantity": "20.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "20.1",
+            "side": "BUY",
+            "signal_key": "66df632b0d3befff1065ae474a237b25d8434d97ff11facfc10856d5e8678edb",
+            "stop": "3.475700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.521800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20370,
+          "stress_net_pnl": "-0.45546680400"
+        },
+        {
+          "day_start_equity": "97.18163886429130000000000000",
+          "entry_ms": 1759977900000,
+          "exit_ms": 1759982100000,
+          "exit_price": "3.489700",
+          "fees": "0.02233295400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.7035700",
+          "minimum_equity": "96.63064550229130000000000000",
+          "net_pnl": "0.68123704600",
+          "plan": {
+            "decision_ms": 1759977900000,
+            "entry": "3.446000",
+            "exits": [
+              {
+                "price": "3.424900",
+                "quantity": "16.1",
+                "role": "STOP"
+              },
+              {
+                "price": "3.489700",
+                "quantity": "16.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "16.1",
+            "side": "BUY",
+            "signal_key": "280e47afb1c04f1e5183081a4cdad29279288cea6965f829a7b5c1532ccffeab",
+            "stop": "3.424900",
+            "symbol": "SUIUSDT",
+            "tp1": "3.489700",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20370,
+          "stress_net_pnl": "0.60307170700"
+        },
+        {
+          "day_start_equity": "97.51939866829130000000000000",
+          "entry_ms": 1767717000000,
+          "exit_ms": 1767718200000,
+          "exit_price": "1.856900",
+          "fees": "0.01612656000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4147200",
+          "minimum_equity": "97.09924785229130000000000000",
+          "net_pnl": "-0.43084656000",
+          "plan": {
+            "decision_ms": 1767717000000,
+            "entry": "1.885700",
+            "exits": [
+              {
+                "price": "1.856900",
+                "quantity": "14.4",
+                "role": "STOP"
+              },
+              {
+                "price": "1.945500",
+                "quantity": "14.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "14.4",
+            "side": "BUY",
+            "signal_key": "24ffd31a299945d83731b5eb134e56e01d2c079ce4274c41e9e5444b5c23b869",
+            "stop": "1.856900",
+            "symbol": "SUIUSDT",
+            "tp1": "1.945500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20459,
+          "stress_net_pnl": "-0.47391984000"
+        },
+        {
+          "day_start_equity": "97.51939866829130000000000000",
+          "entry_ms": 1767718800000,
+          "exit_ms": 1767721800000,
+          "exit_price": "1.824900",
+          "fees": "0.01453742400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.4210800",
+          "minimum_equity": "96.66257015629130000000000000",
+          "net_pnl": "-0.43561742400",
+          "plan": {
+            "decision_ms": 1767718800000,
+            "entry": "1.856800",
+            "exits": [
+              {
+                "price": "1.824900",
+                "quantity": "13.2",
+                "role": "STOP"
+              },
+              {
+                "price": "1.923100",
+                "quantity": "13.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "13.2",
+            "side": "BUY",
+            "signal_key": "bca312c1ac3f41e16702aa2ed29a9a587cb37b9be48a408ec7402ac7cec2faa7",
+            "stop": "1.824900",
+            "symbol": "SUIUSDT",
+            "tp1": "1.923100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20459,
+          "stress_net_pnl": "-0.47445406800"
+        },
+        {
+          "day_start_equity": "96.65293468429130000000000000",
+          "entry_ms": 1767820500000,
+          "exit_ms": 1767827700000,
+          "exit_price": "1.816800000000000000",
+          "fees": "0.02515867200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.1108800000000000000",
+          "minimum_equity": "96.43204324429130000000000000",
+          "net_pnl": "0.08572132800000000000000",
+          "plan": {
+            "decision_ms": 1767820500000,
+            "entry": "1.812000",
+            "exits": [
+              {
+                "price": "1.795800",
+                "quantity": "23.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.845600",
+                "quantity": "23.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "23.1",
+            "side": "BUY",
+            "signal_key": "c4e0486e0f8df9936975ec0faaf0ca89be0f509acaa2474a55dc69ad5523186b",
+            "stop": "1.795800",
+            "symbol": "SUIUSDT",
+            "tp1": "1.845600",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20460,
+          "stress_net_pnl": "0.01865001600000000000000"
+        },
+        {
+          "day_start_equity": "96.73865601229130000000000000",
+          "entry_ms": 1768203900000,
+          "exit_ms": 1768207200000,
+          "exit_price": "1.780200",
+          "fees": "0.03200555800",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.000223964843700000000000000",
+          "gross_pnl": "-0.3438500",
+          "minimum_equity": "96.38386768144760000000000000",
+          "net_pnl": "-0.376079522843700000000000000",
+          "plan": {
+            "decision_ms": 1768203900000,
+            "entry": "1.791700",
+            "exits": [
+              {
+                "price": "1.780200",
+                "quantity": "29.9",
+                "role": "STOP"
+              },
+              {
+                "price": "1.815400",
+                "quantity": "29.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "29.9",
+            "side": "BUY",
+            "signal_key": "80dd2e40ba844b96245d2ddfb63f12987696415947531c8192e7dd92f3731911",
+            "stop": "1.780200",
+            "symbol": "SUIUSDT",
+            "tp1": "1.815400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20465,
+          "stress_net_pnl": "-0.461484985843700000000000000"
+        },
+        {
+          "day_start_equity": "96.36257648944760000000000000",
+          "entry_ms": 1768447800000,
+          "exit_ms": 1768455000000,
+          "exit_price": "1.802600000000000000",
+          "fees": "0.02316023000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.4665500000000000000",
+          "minimum_equity": "96.28181861944760000000000000",
+          "net_pnl": "0.44338977000000000000000",
+          "plan": {
+            "decision_ms": 1768447800000,
+            "entry": "1.780900",
+            "exits": [
+              {
+                "price": "1.763100",
+                "quantity": "21.5",
+                "role": "STOP"
+              },
+              {
+                "price": "1.817800",
+                "quantity": "21.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "21.5",
+            "side": "BUY",
+            "signal_key": "8708565bfa3d13fff872818ec08fa90dd30f98d0bbc656634c905eed42893ee1",
+            "stop": "1.763100",
+            "symbol": "SUIUSDT",
+            "tp1": "1.817800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20468,
+          "stress_net_pnl": "0.38170691500000000000000"
+        },
+        {
+          "day_start_equity": "96.80596625944760000000000000",
+          "entry_ms": 1768577400000,
+          "exit_ms": 1768577700000,
+          "exit_price": "1.716100",
+          "fees": "0.02519836800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3733200",
+          "minimum_equity": "96.42419702744760000000000000",
+          "net_pnl": "-0.39851836800",
+          "plan": {
+            "decision_ms": 1768577400000,
+            "entry": "1.731400",
+            "exits": [
+              {
+                "price": "1.716100",
+                "quantity": "24.4",
+                "role": "STOP"
+              },
+              {
+                "price": "1.763100",
+                "quantity": "24.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "24.4",
+            "side": "BUY",
+            "signal_key": "91ce21b69c053e695e498760fb53239b4b9c522b68abb5eb9501f3c56be24594",
+            "stop": "1.716100",
+            "symbol": "SUIUSDT",
+            "tp1": "1.763100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20469,
+          "stress_net_pnl": "-0.46577623600"
+        },
+        {
+          "day_start_equity": "96.80596625944760000000000000",
+          "entry_ms": 1768578300000,
+          "exit_ms": 1768585500000,
+          "exit_price": "1.746500000000000000",
+          "fees": "0.02378131200000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.001156331366400000000000000",
+          "gross_pnl": "0.5540400000000000000",
+          "minimum_equity": "96.07583465944760000000000000",
+          "net_pnl": "0.531415019366400000000000000",
+          "plan": {
+            "decision_ms": 1768578300000,
+            "entry": "1.722200",
+            "exits": [
+              {
+                "price": "1.705600",
+                "quantity": "22.8",
+                "role": "STOP"
+              },
+              {
+                "price": "1.756700",
+                "quantity": "22.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "22.8",
+            "side": "BUY",
+            "signal_key": "bbc8f439c4e9aa8c6cf142e5a0755ffb2d83f7528e44adb1e7869aa4586a7dcb",
+            "stop": "1.705600",
+            "symbol": "SUIUSDT",
+            "tp1": "1.756700",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20469,
+          "stress_net_pnl": "0.468090527366400000000000000"
+        }
+      ],
+      "unfilled": 7
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 21,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "96.93886291081400000000000000",
+          "entry_ms": 1773834300000,
+          "exit_ms": 1773837300000,
+          "exit_price": "0.996600",
+          "fees": "0.02817650000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3619000",
+          "minimum_equity": "96.56752249081400000000000000",
+          "net_pnl": "-0.39007650000",
+          "plan": {
+            "decision_ms": 1773834300000,
+            "entry": "1.004300",
+            "exits": [
+              {
+                "price": "0.996600",
+                "quantity": "47.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.020300",
+                "quantity": "47.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "47.0",
+            "side": "BUY",
+            "signal_key": "efff82c77fb5708bf9dda432d9c4fb0e6431c2f360b921050d7621112f79b70f",
+            "stop": "0.996600",
+            "symbol": "SUIUSDT",
+            "tp1": "1.020300",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.46527415000"
+        },
+        {
+          "day_start_equity": "96.93886291081400000000000000",
+          "entry_ms": 1773837900000,
+          "exit_ms": 1773839100000,
+          "exit_price": "0.984200",
+          "fees": "0.02428676000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3772000",
+          "minimum_equity": "96.16344053081400000000000000",
+          "net_pnl": "-0.40148676000",
+          "plan": {
+            "decision_ms": 1773837900000,
+            "entry": "0.993400",
+            "exits": [
+              {
+                "price": "0.984200",
+                "quantity": "41.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.012400",
+                "quantity": "41.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "41.0",
+            "side": "BUY",
+            "signal_key": "9c177ff14add0cbf2a1e712b634ba68cbda45ed7966b9ada8e60a4bb3135171f",
+            "stop": "0.984200",
+            "symbol": "SUIUSDT",
+            "tp1": "1.012400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.46631432000"
+        },
+        {
+          "day_start_equity": "96.14729965081400000000000000",
+          "entry_ms": 1775958300000,
+          "exit_ms": 1775958600000,
+          "exit_price": "0.908100",
+          "fees": "0.02742426000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3614400",
+          "minimum_equity": "95.77667003881400000000000000",
+          "net_pnl": "-0.38886426000",
+          "plan": {
+            "decision_ms": 1775958300000,
+            "entry": "0.915300",
+            "exits": [
+              {
+                "price": "0.908100",
+                "quantity": "50.2",
+                "role": "STOP"
+              },
+              {
+                "price": "0.930100",
+                "quantity": "50.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "50.2",
+            "side": "BUY",
+            "signal_key": "5215c7abc9a4fd77859349a733514b8aa349567b215bdfc785833726564eaa5f",
+            "stop": "0.908100",
+            "symbol": "SUIUSDT",
+            "tp1": "0.930100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.46205586000"
+        },
+        {
+          "day_start_equity": "96.14729965081400000000000000",
+          "entry_ms": 1775959200000,
+          "exit_ms": 1775966400000,
+          "exit_price": "0.911900000000000000",
+          "fees": "0.02603434400000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.0476000000000000000",
+          "minimum_equity": "95.45940362281400000000000000",
+          "net_pnl": "0.02156565600000000000000",
+          "plan": {
+            "decision_ms": 1775959200000,
+            "entry": "0.910900",
+            "exits": [
+              {
+                "price": "0.903200",
+                "quantity": "47.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.926800",
+                "quantity": "47.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "47.6",
+            "side": "BUY",
+            "signal_key": "a35ee79f2e68328e43159037f213201eed27a7d30b4d6edcfd4a3d5a0d04ecfb",
+            "stop": "0.903200",
+            "symbol": "SUIUSDT",
+            "tp1": "0.926800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.04785132800000000000000"
+        },
+        {
+          "day_start_equity": "95.78000104681400000000000000",
+          "entry_ms": 1776537900000,
+          "exit_ms": 1776545100000,
+          "exit_price": "0.956000000000000000",
+          "fees": "0.03530665600000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.1355200000000000000",
+          "minimum_equity": "95.60193023081400000000000000",
+          "net_pnl": "0.10021334400000000000000",
+          "plan": {
+            "decision_ms": 1776537900000,
+            "entry": "0.953800",
+            "exits": [
+              {
+                "price": "0.948500",
+                "quantity": "61.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.964800",
+                "quantity": "61.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "61.6",
+            "side": "BUY",
+            "signal_key": "ba439239f906f95a17173eadbc6d41acf1f0f9137f8daf6a14f4532aff79c455",
+            "stop": "0.948500",
+            "symbol": "SUIUSDT",
+            "tp1": "0.964800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20561,
+          "stress_net_pnl": "0.00608484800000000000000"
+        },
+        {
+          "day_start_equity": "95.88021439081400000000000000",
+          "entry_ms": 1777267800000,
+          "exit_ms": 1777269900000,
+          "exit_price": "0.928600",
+          "fees": "0.03065725800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3458700",
+          "minimum_equity": "95.52407918881400000000000000",
+          "net_pnl": "-0.37652725800",
+          "plan": {
+            "decision_ms": 1777267800000,
+            "entry": "0.934900",
+            "exits": [
+              {
+                "price": "0.928600",
+                "quantity": "54.9",
+                "role": "STOP"
+              },
+              {
+                "price": "0.947900",
+                "quantity": "54.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "54.9",
+            "side": "BUY",
+            "signal_key": "2453201d139f827ac489a223fbfd790107a8d528f5c87d964a4d00d328d85cf5",
+            "stop": "0.928600",
+            "symbol": "SUIUSDT",
+            "tp1": "0.947900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.45833759100"
+        },
+        {
+          "day_start_equity": "95.50368713281400000000000000",
+          "entry_ms": 1778116500000,
+          "exit_ms": 1778119800000,
+          "exit_price": "0.972100",
+          "fees": "0.03156408000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3402000",
+          "minimum_equity": "95.15292041281400000000000000",
+          "net_pnl": "-0.37176408000",
+          "plan": {
+            "decision_ms": 1778116500000,
+            "entry": "0.978400",
+            "exits": [
+              {
+                "price": "0.972100",
+                "quantity": "54.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.991300",
+                "quantity": "54.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "54.0",
+            "side": "BUY",
+            "signal_key": "c5c5d1b09c51febac7c5a5f949f94f10a15c563fa59e359f1543892176d9c536",
+            "stop": "0.972100",
+            "symbol": "SUIUSDT",
+            "tp1": "0.991300",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20580,
+          "stress_net_pnl": "-0.45599166000"
+        },
+        {
+          "day_start_equity": "95.50368713281400000000000000",
+          "entry_ms": 1778120100000,
+          "exit_ms": 1778127300000,
+          "exit_price": "0.971600000000000000",
+          "fees": "0.02940211000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.1868500000000000000",
+          "minimum_equity": "94.87469726281400000000000000",
+          "net_pnl": "0.15744789000000000000000",
+          "plan": {
+            "decision_ms": 1778120100000,
+            "entry": "0.967900",
+            "exits": [
+              {
+                "price": "0.961000",
+                "quantity": "50.5",
+                "role": "STOP"
+              },
+              {
+                "price": "0.982200",
+                "quantity": "50.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "50.5",
+            "side": "BUY",
+            "signal_key": "3baee77920f58d16f0c2810d4c667ac5e7f6a73ea33b35b7e424fa68b5a98f04",
+            "stop": "0.961000",
+            "symbol": "SUIUSDT",
+            "tp1": "0.982200",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20580,
+          "stress_net_pnl": "0.07907340500000000000000"
+        },
+        {
+          "day_start_equity": "95.28937094281400000000000000",
+          "entry_ms": 1784187900000,
+          "exit_ms": 1784188500000,
+          "exit_price": "0.740400",
+          "fees": "0.03697950000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.3157800",
+          "minimum_equity": "94.96122233881400000000000000",
+          "net_pnl": "-0.35275950000",
+          "plan": {
+            "decision_ms": 1784187900000,
+            "entry": "0.744200",
+            "exits": [
+              {
+                "price": "0.740400",
+                "quantity": "83.1",
+                "role": "STOP"
+              },
+              {
+                "price": "0.751900",
+                "quantity": "83.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "83.1",
+            "side": "BUY",
+            "signal_key": "b4c21eec7c858bf3c5205041c4d9cccedbfc8d31549f312bf3d6f4875aed914d",
+            "stop": "0.740400",
+            "symbol": "SUIUSDT",
+            "tp1": "0.751900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20650,
+          "stress_net_pnl": "-0.45142413000"
+        },
+        {
+          "day_start_equity": "95.28937094281400000000000000",
+          "entry_ms": 1784188800000,
+          "exit_ms": 1784189700000,
+          "exit_price": "0.738300",
+          "fees": "0.03554677800",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.001199384478900000000000000",
+          "gross_pnl": "-0.3204000",
+          "minimum_equity": "94.60551918129290000000000000",
+          "net_pnl": "-0.354747393521100000000000000",
+          "plan": {
+            "decision_ms": 1784188800000,
+            "entry": "0.742300",
+            "exits": [
+              {
+                "price": "0.738300",
+                "quantity": "80.1",
+                "role": "STOP"
+              },
+              {
+                "price": "0.750500",
+                "quantity": "80.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "80.1",
+            "side": "BUY",
+            "signal_key": "1a196b32d38da84839678010f5cd0d641875b46bf72d0d1c32538bde911fe0d9",
+            "stop": "0.738300",
+            "symbol": "SUIUSDT",
+            "tp1": "0.750500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20650,
+          "stress_net_pnl": "-0.449592201521100000000000000"
+        },
+        {
+          "day_start_equity": "95.28937094281400000000000000",
+          "entry_ms": 1784189700000,
+          "exit_ms": 1784196900000,
+          "exit_price": "0.741300000000000000",
+          "fees": "0.03220390800000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.4356000000000000000",
+          "minimum_equity": "94.38968749329290000000000000",
+          "net_pnl": "0.40339609200000000000000",
+          "plan": {
+            "decision_ms": 1784189700000,
+            "entry": "0.735300",
+            "exits": [
+              {
+                "price": "0.730700",
+                "quantity": "72.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.744800",
+                "quantity": "72.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "72.6",
+            "side": "BUY",
+            "signal_key": "3859c26964e8fdc5891c1632223aaad3437b1dd2734376f90db6cca7b26c55c0",
+            "stop": "0.730700",
+            "symbol": "SUIUSDT",
+            "tp1": "0.744800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20650,
+          "stress_net_pnl": "0.31759160400000000000000"
+        },
+        {
+          "day_start_equity": "94.98526014129290000000000000",
+          "entry_ms": 1784810700000,
+          "exit_ms": 1784811000000,
+          "exit_price": "0.759200",
+          "fees": "0.04437853000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.2821700",
+          "minimum_equity": "94.68825967529290000000000000",
+          "net_pnl": "-0.32654853000",
+          "plan": {
+            "decision_ms": 1784810700000,
+            "entry": "0.762100",
+            "exits": [
+              {
+                "price": "0.759200",
+                "quantity": "97.3",
+                "role": "STOP"
+              },
+              {
+                "price": "0.767900",
+                "quantity": "97.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "97.3",
+            "side": "BUY",
+            "signal_key": "688c21bc02fdc130103628273bd58bc0695de709e04dc45acb25e5b388abc990",
+            "stop": "0.759200",
+            "symbol": "SUIUSDT",
+            "tp1": "0.767900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-0.44493830500"
+        },
+        {
+          "day_start_equity": "94.98526014129290000000000000",
+          "entry_ms": 1784811600000,
+          "exit_ms": 1784812200000,
+          "exit_price": "0.757700",
+          "fees": "0.04329142200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.2853000",
+          "minimum_equity": "94.35894309729290000000000000",
+          "net_pnl": "-0.32859142200",
+          "plan": {
+            "decision_ms": 1784811600000,
+            "entry": "0.760700",
+            "exits": [
+              {
+                "price": "0.757700",
+                "quantity": "95.1",
+                "role": "STOP"
+              },
+              {
+                "price": "0.766800",
+                "quantity": "95.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "95.1",
+            "side": "BUY",
+            "signal_key": "d103fd996b4a3ae777512c8f8a3405481d654370ad4eab0a2ab148fbd051a745",
+            "stop": "0.757700",
+            "symbol": "SUIUSDT",
+            "tp1": "0.766800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-0.44408276400"
+        },
+        {
+          "day_start_equity": "94.98526014129290000000000000",
+          "entry_ms": 1784812500000,
+          "exit_ms": 1784815200000,
+          "exit_price": "0.753800",
+          "fees": "0.04135159600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.2921600",
+          "minimum_equity": "94.02413736929290000000000000",
+          "net_pnl": "-0.33351159600",
+          "plan": {
+            "decision_ms": 1784812500000,
+            "entry": "0.757000",
+            "exits": [
+              {
+                "price": "0.753800",
+                "quantity": "91.3",
+                "role": "STOP"
+              },
+              {
+                "price": "0.763600",
+                "quantity": "91.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "91.3",
+            "side": "BUY",
+            "signal_key": "cb43ad87f00762296ba547c0c6322c118042073519a8bfea6b15d32d0793b302",
+            "stop": "0.753800",
+            "symbol": "SUIUSDT",
+            "tp1": "0.763600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-0.44383121200"
+        },
+        {
+          "day_start_equity": "93.99660859329290000000000000",
+          "entry_ms": 1785163500000,
+          "exit_ms": 1785170700000,
+          "exit_price": "0.704100000000000000",
+          "fees": "0.02566514000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.001829075850000000000000000",
+          "gross_pnl": "0.5246000000000000000",
+          "minimum_equity": "93.96982349329290000000000000",
+          "net_pnl": "0.500763935850000000000000000",
+          "plan": {
+            "decision_ms": 1785163500000,
+            "entry": "0.695500",
+            "exits": [
+              {
+                "price": "0.689600",
+                "quantity": "61.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.707700",
+                "quantity": "61.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "61.0",
+            "side": "BUY",
+            "signal_key": "1dd3fc8ed9bc1e754ff9ebaaf33cf95ee5c8a4a6330f5d0d856d85dda6a1533d",
+            "stop": "0.689600",
+            "symbol": "SUIUSDT",
+            "tp1": "0.707700",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20661,
+          "stress_net_pnl": "0.432410995850000000000000000"
+        }
+      ],
+      "unfilled": 6
+    }
+  ]
+}

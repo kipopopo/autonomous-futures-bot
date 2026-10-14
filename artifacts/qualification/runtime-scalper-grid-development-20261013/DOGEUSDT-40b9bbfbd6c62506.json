@@ -1,0 +1,5286 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-2.5",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "2.2",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": false,
+    "positive_net_edge": false,
+    "profit_factor": false,
+    "stress_positive": false,
+    "sufficient_oos_samples": true,
+    "window_consistency": false
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "6.8608388850124000000000000",
+    "net_pnl": "-0.45652299061440000000000000",
+    "profitable_windows": 2,
+    "stress_net_pnl": "-10.41049221061440000000000000",
+    "trade_count": 125
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {
+    "No permitted leverage can fund the position with a stop buffer": 1
+  },
+  "report_hash": "40b9bbfbd6c62506ee94f35103d1c9517048fac699312ac8db3a731738ee909a",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-2.5",
+      "target_atr_multiplier": "2.2"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/DOGEUSDT-63fe2fcc5717bde2.json",
+    "reference_report_sha256": "416c51253ec7fbd30647be420d098f417366f8f38e263381d81f51a755c9d980",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "fb5b5e2bab7e49ded0d5f2fc9b5750fc1b5df157c44784633b7b25dc9620f43d",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/DOGEUSDT-5m.parquet",
+      "rows": 376704,
+      "sha256": "96f4956aeb65d2a35c048dbd1c0e78349236acdbb4b53c9d0369569733a351db"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/DOGEUSDT-funding.csv",
+      "sha256": "df34e30a7bb168dbf7c26f27aa6cc6a3f8b446541db77fbdde6449ccc73ce10c"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "4cb675bb78161f15507ac0a8c82c1ea91a63239e864c9d43f3cfc110cc191ce2",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/DOGEUSDT-15m.parquet",
+      "rows": 125568,
+      "sha256": "53e43df7d8789f032aac7d2ab1a40830b9feb55f7c3d3d5540a45c0ae43e97c1"
+    }
+  },
+  "symbol": "DOGEUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 38,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704209400000,
+          "exit_ms": 1704216600000,
+          "exit_price": "0.091650000000000000",
+          "fees": "0.0316703760000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.03648663781340000000000000",
+          "gross_pnl": "0.294270000000000000",
+          "minimum_equity": "99.862542444000000000",
+          "net_pnl": "0.22611298618660000000000000",
+          "plan": {
+            "decision_ms": 1704209400000,
+            "entry": "0.091140",
+            "exits": [
+              {
+                "price": "0.090510",
+                "quantity": "577",
+                "role": "STOP"
+              },
+              {
+                "price": "0.092280",
+                "quantity": "577",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "577",
+            "side": "BUY",
+            "signal_key": "072b263bf22565617579c26cf5a4e33f0624a214aa0e64992ef575b3832a186f",
+            "stop": "0.090510",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.092280",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19724,
+          "stress_net_pnl": "0.14170769518660000000000000"
+        },
+        {
+          "day_start_equity": "100.2261129861866000000000000",
+          "entry_ms": 1704283200000,
+          "exit_ms": 1704283500000,
+          "exit_price": "0.088970",
+          "fees": "0.0307147400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.367360",
+          "minimum_equity": "99.8484657581866000000000000",
+          "net_pnl": "-0.3980747400",
+          "plan": {
+            "decision_ms": 1704283200000,
+            "entry": "0.089610",
+            "exits": [
+              {
+                "price": "0.088970",
+                "quantity": "574",
+                "role": "STOP"
+              },
+              {
+                "price": "0.090770",
+                "quantity": "574",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "574",
+            "side": "BUY",
+            "signal_key": "fb29366e635e8dbd90a57db2213814d22f7a9b24dc69cef155f35c5864325542",
+            "stop": "0.088970",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.090770",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19725,
+          "stress_net_pnl": "-0.4800419400"
+        },
+        {
+          "day_start_equity": "100.2261129861866000000000000",
+          "entry_ms": 1704285000000,
+          "exit_ms": 1704292200000,
+          "exit_price": "0.081160000000000000",
+          "fees": "0.0100294200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.233700000000000000",
+          "minimum_equity": "99.5048639461866000000000000",
+          "net_pnl": "-0.2437294200000000000000",
+          "plan": {
+            "decision_ms": 1704285000000,
+            "entry": "0.082300",
+            "exits": [
+              {
+                "price": "0.080080",
+                "quantity": "205",
+                "role": "STOP"
+              },
+              {
+                "price": "0.086360",
+                "quantity": "205",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "205",
+            "side": "BUY",
+            "signal_key": "c4d0cc91eed14884405ee45a4a97cac6739c992cf0c2b80bd57620517aacad1e",
+            "stop": "0.080080",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.086360",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19725,
+          "stress_net_pnl": "-0.2705134900000000000000"
+        },
+        {
+          "day_start_equity": "99.5843088261866000000000000",
+          "entry_ms": 1704518100000,
+          "exit_ms": 1704518400000,
+          "exit_price": "0.080850",
+          "fees": "0.0439145120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.307360",
+          "minimum_equity": "99.2622696741866000000000000",
+          "net_pnl": "-0.3512745120",
+          "plan": {
+            "decision_ms": 1704518100000,
+            "entry": "0.081190",
+            "exits": [
+              {
+                "price": "0.080850",
+                "quantity": "904",
+                "role": "STOP"
+              },
+              {
+                "price": "0.081810",
+                "quantity": "904",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "904",
+            "side": "BUY",
+            "signal_key": "f37db895560a2193393f66a8bbed3bb1341ca47dd60f51ced80473cb4f9db38f",
+            "stop": "0.080850",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.081810",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.4684311040"
+        },
+        {
+          "day_start_equity": "99.5843088261866000000000000",
+          "entry_ms": 1704520800000,
+          "exit_ms": 1704521700000,
+          "exit_price": "0.079470",
+          "fees": "0.0301127400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.365400",
+          "minimum_equity": "98.8575480141866000000000000",
+          "net_pnl": "-0.3955127400",
+          "plan": {
+            "decision_ms": 1704520800000,
+            "entry": "0.080050",
+            "exits": [
+              {
+                "price": "0.079470",
+                "quantity": "630",
+                "role": "STOP"
+              },
+              {
+                "price": "0.081100",
+                "quantity": "630",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "630",
+            "side": "BUY",
+            "signal_key": "26711137f40421d7e51184c1d76a23c9cbe6b2975898b569bbb83034b4c1b894",
+            "stop": "0.079470",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.081100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.4758742800"
+        },
+        {
+          "day_start_equity": "99.5843088261866000000000000",
+          "entry_ms": 1704522600000,
+          "exit_ms": 1704524400000,
+          "exit_price": "0.078410",
+          "fees": "0.0236482020",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.390780",
+          "minimum_equity": "98.4388067361866000000000000",
+          "net_pnl": "-0.4144282020",
+          "plan": {
+            "decision_ms": 1704522600000,
+            "entry": "0.079190",
+            "exits": [
+              {
+                "price": "0.078410",
+                "quantity": "501",
+                "role": "STOP"
+              },
+              {
+                "price": "0.080600",
+                "quantity": "501",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "501",
+            "side": "BUY",
+            "signal_key": "1d80a4c56519a90a1d4e4696f5ad89fb1193ad081b27dfd315d3150d80c547cc",
+            "stop": "0.078410",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.080600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.4775552040"
+        },
+        {
+          "day_start_equity": "98.4230933721866000000000000",
+          "entry_ms": 1704665700000,
+          "exit_ms": 1704666000000,
+          "exit_price": "0.078290",
+          "fees": "0.0410241120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.313920",
+          "minimum_equity": "98.0954568121866000000000000",
+          "net_pnl": "-0.3549441120",
+          "plan": {
+            "decision_ms": 1704665700000,
+            "entry": "0.078650",
+            "exits": [
+              {
+                "price": "0.078290",
+                "quantity": "872",
+                "role": "STOP"
+              },
+              {
+                "price": "0.079300",
+                "quantity": "872",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "872",
+            "side": "BUY",
+            "signal_key": "f7ab0010b7164108a4117b658d217cad516000ebe788bbe7c4e35703b78e407e",
+            "stop": "0.078290",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.079300",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.4643940640"
+        },
+        {
+          "day_start_equity": "98.4230933721866000000000000",
+          "entry_ms": 1704666600000,
+          "exit_ms": 1704666900000,
+          "exit_price": "0.077720",
+          "fees": "0.0356473600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.335720",
+          "minimum_equity": "97.7205020441866000000000000",
+          "net_pnl": "-0.3713673600",
+          "plan": {
+            "decision_ms": 1704666600000,
+            "entry": "0.078160",
+            "exits": [
+              {
+                "price": "0.077720",
+                "quantity": "763",
+                "role": "STOP"
+              },
+              {
+                "price": "0.078950",
+                "quantity": "763",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "763",
+            "side": "BUY",
+            "signal_key": "4a2843edfec8a388c063c5d565e83663d538131e759f1c4c04608c691397d5d8",
+            "stop": "0.077720",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.078950",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.4664829400"
+        },
+        {
+          "day_start_equity": "98.2771745481866000000000000",
+          "entry_ms": 1704670200000,
+          "exit_ms": 1704672600000,
+          "exit_price": "0.078370",
+          "fees": "0.0174504660",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00438758100000000000000000",
+          "gross_pnl": "0.678810",
+          "minimum_equity": "97.6320245481866000000000000",
+          "net_pnl": "0.65697195300000000000000000",
+          "plan": {
+            "decision_ms": 1704670200000,
+            "entry": "0.077160",
+            "exits": [
+              {
+                "price": "0.076490",
+                "quantity": "561",
+                "role": "STOP"
+              },
+              {
+                "price": "0.078370",
+                "quantity": "561",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "561",
+            "side": "BUY",
+            "signal_key": "470334a6250e33c0b6f41ac4d0094408c7d2a604a010e1fea63af6137468201f",
+            "stop": "0.076490",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.078370",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19730,
+          "stress_net_pnl": "0.59589532200000000000000000"
+        },
+        {
+          "day_start_equity": "98.35375385318660000000000000",
+          "entry_ms": 1704891600000,
+          "exit_ms": 1704898800000,
+          "exit_price": "0.077060000000000000",
+          "fees": "0.0232094680000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.005020000000000000",
+          "minimum_equity": "98.07995803318660000000000000",
+          "net_pnl": "-0.0181894680000000000000",
+          "plan": {
+            "decision_ms": 1704891600000,
+            "entry": "0.077050",
+            "exits": [
+              {
+                "price": "0.076270",
+                "quantity": "502",
+                "role": "STOP"
+              },
+              {
+                "price": "0.078460",
+                "quantity": "502",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "502",
+            "side": "BUY",
+            "signal_key": "1550ba0866a654d4ef7aa8fbf5fc97b149da5f51589ffe016675483aed5a503c",
+            "stop": "0.076270",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.078460",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19732,
+          "stress_net_pnl": "-0.0800805460000000000000"
+        },
+        {
+          "day_start_equity": "98.33556438518660000000000000",
+          "entry_ms": 1708013700000,
+          "exit_ms": 1708020900000,
+          "exit_price": "0.085090000000000000",
+          "fees": "0.0263330480000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.564620000000000000",
+          "minimum_equity": "98.31132198518660000000000000",
+          "net_pnl": "0.5382869520000000000000",
+          "plan": {
+            "decision_ms": 1708013700000,
+            "entry": "0.084000",
+            "exits": [
+              {
+                "price": "0.083270",
+                "quantity": "518",
+                "role": "STOP"
+              },
+              {
+                "price": "0.085330",
+                "quantity": "518",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "518",
+            "side": "BUY",
+            "signal_key": "831392dcc038953aff4225b6d73c023093e18f5f8a6f4471644aa78d7eb816a6",
+            "stop": "0.083270",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.085330",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19768,
+          "stress_net_pnl": "0.4681595940000000000000"
+        },
+        {
+          "day_start_equity": "98.87385133718660000000000000",
+          "entry_ms": 1708070400000,
+          "exit_ms": 1708074900000,
+          "exit_price": "0.084790",
+          "fees": "0.0405593840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.318400",
+          "minimum_equity": "98.54188908918660000000000000",
+          "net_pnl": "-0.3589593840",
+          "plan": {
+            "decision_ms": 1708070400000,
+            "entry": "0.085190",
+            "exits": [
+              {
+                "price": "0.084790",
+                "quantity": "796",
+                "role": "STOP"
+              },
+              {
+                "price": "0.085910",
+                "quantity": "796",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "796",
+            "side": "BUY",
+            "signal_key": "2e743569d9a027601a41a339c1af8cd447dae6a98cb3feb01a039a4c40129927",
+            "stop": "0.084790",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.085910",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19769,
+          "stress_net_pnl": "-0.4671708080"
+        },
+        {
+          "day_start_equity": "98.51489195318660000000000000",
+          "entry_ms": 1708181100000,
+          "exit_ms": 1708188300000,
+          "exit_price": "0.082990000000000000",
+          "fees": "0.0333406480000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00557131300000000000000000",
+          "gross_pnl": "0.355630000000000000",
+          "minimum_equity": "98.20858582118660000000000000",
+          "net_pnl": "0.31671803900000000000000000",
+          "plan": {
+            "decision_ms": 1708181100000,
+            "entry": "0.082460",
+            "exits": [
+              {
+                "price": "0.081940",
+                "quantity": "671",
+                "role": "STOP"
+              },
+              {
+                "price": "0.083390",
+                "quantity": "671",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "671",
+            "side": "BUY",
+            "signal_key": "d6ea7280fe6e2d44df18e537a4d44e8afbb6fa5c69ecef8724826c623f7b6909",
+            "stop": "0.081940",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.083390",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19770,
+          "stress_net_pnl": "0.22786891600000000000000000"
+        },
+        {
+          "day_start_equity": "98.83160999218660000000000000",
+          "entry_ms": 1708416900000,
+          "exit_ms": 1708417500000,
+          "exit_price": "0.086570",
+          "fees": "0.0339873440",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.346090",
+          "minimum_equity": "98.47414473218660000000000000",
+          "net_pnl": "-0.3800773440",
+          "plan": {
+            "decision_ms": 1708416900000,
+            "entry": "0.087100",
+            "exits": [
+              {
+                "price": "0.086570",
+                "quantity": "653",
+                "role": "STOP"
+              },
+              {
+                "price": "0.088060",
+                "quantity": "653",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "653",
+            "side": "BUY",
+            "signal_key": "49fb49fb14feec076f73d88f06a5517326a9ad2f7532bdc86a8f7de925e07b5d",
+            "stop": "0.086570",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.088060",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19773,
+          "stress_net_pnl": "-0.4707679430"
+        },
+        {
+          "day_start_equity": "98.83160999218660000000000000",
+          "entry_ms": 1708421400000,
+          "exit_ms": 1708422600000,
+          "exit_price": "0.085700",
+          "fees": "0.0311804900",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.356950",
+          "minimum_equity": "98.08414155818660000000000000",
+          "net_pnl": "-0.3881304900",
+          "plan": {
+            "decision_ms": 1708421400000,
+            "entry": "0.086290",
+            "exits": [
+              {
+                "price": "0.085700",
+                "quantity": "605",
+                "role": "STOP"
+              },
+              {
+                "price": "0.087350",
+                "quantity": "605",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "605",
+            "side": "BUY",
+            "signal_key": "e5fe395ce682b63b3a99673a3998937bb112d5808d4b7ab3957c7cf499162ffe",
+            "stop": "0.085700",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.087350",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19773,
+          "stress_net_pnl": "-0.4713379550"
+        },
+        {
+          "day_start_equity": "98.83160999218660000000000000",
+          "entry_ms": 1708443000000,
+          "exit_ms": 1708450200000,
+          "exit_price": "0.083740000000000000",
+          "fees": "0.0171420700000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00357782280900000000000000",
+          "gross_pnl": "-0.044330000000000000",
+          "minimum_equity": "97.76442222418660000000000000",
+          "net_pnl": "-0.06504989280900000000000000",
+          "plan": {
+            "decision_ms": 1708443000000,
+            "entry": "0.083870",
+            "exits": [
+              {
+                "price": "0.082650",
+                "quantity": "341",
+                "role": "STOP"
+              },
+              {
+                "price": "0.086100",
+                "quantity": "341",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "341",
+            "side": "BUY",
+            "signal_key": "17de8c09ea826010d191effac65319d4c2f1a8766de67a48c73c5bf67d370921",
+            "stop": "0.082650",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.086100",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19773,
+          "stress_net_pnl": "-0.11076946780900000000000000"
+        },
+        {
+          "day_start_equity": "97.99835226537760000000000000",
+          "entry_ms": 1709451000000,
+          "exit_ms": 1709458200000,
+          "exit_price": "0.133460000000000000",
+          "fees": "0.0104427960000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.01191200459680000000000000",
+          "gross_pnl": "0.235800000000000000",
+          "minimum_equity": "97.66859076878080000000000000",
+          "net_pnl": "0.21344519940320000000000000",
+          "plan": {
+            "decision_ms": 1709451000000,
+            "entry": "0.131660",
+            "exits": [
+              {
+                "price": "0.128270",
+                "quantity": "131",
+                "role": "STOP"
+              },
+              {
+                "price": "0.137860",
+                "quantity": "131",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "131",
+            "side": "BUY",
+            "signal_key": "8a02c13b867af37b87a9e8bddb8f4d35c520b5793151f9ae4e6bf3c28eaf33c3",
+            "stop": "0.128270",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.137860",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19785,
+          "stress_net_pnl": "0.18563704340320000000000000"
+        },
+        {
+          "day_start_equity": "98.21179746478080000000000000",
+          "entry_ms": 1710111600000,
+          "exit_ms": 1710115200000,
+          "exit_price": "0.170000",
+          "fees": "0.0146110440",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.01758384682740000000000000",
+          "gross_pnl": "0.724780",
+          "minimum_equity": "98.13946442078080000000000000",
+          "net_pnl": "0.69258510917260000000000000",
+          "plan": {
+            "decision_ms": 1710111600000,
+            "entry": "0.166660",
+            "exits": [
+              {
+                "price": "0.164830",
+                "quantity": "217",
+                "role": "STOP"
+              },
+              {
+                "price": "0.170000",
+                "quantity": "217",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "217",
+            "side": "BUY",
+            "signal_key": "266f284c2c8e88a50d9263269caf1aa69391ebe4f098a15879f7b51ae63390e6",
+            "stop": "0.164830",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.170000",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19792,
+          "stress_net_pnl": "0.64144645517260000000000000"
+        },
+        {
+          "day_start_equity": "98.90438257395340000000000000",
+          "entry_ms": 1710232200000,
+          "exit_ms": 1710239400000,
+          "exit_price": "0.170150000000000000",
+          "fees": "0.0212757820000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.305140000000000000",
+          "minimum_equity": "98.88688133195340000000000000",
+          "net_pnl": "0.2838642180000000000000",
+          "plan": {
+            "decision_ms": 1710232200000,
+            "entry": "0.168690",
+            "exits": [
+              {
+                "price": "0.166770",
+                "quantity": "209",
+                "role": "STOP"
+              },
+              {
+                "price": "0.172200",
+                "quantity": "209",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "209",
+            "side": "BUY",
+            "signal_key": "37de052743d0560e287b002f5385f84381e9cc41ec4fdf7e5c7554a37dfcb2d0",
+            "stop": "0.166770",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.172200",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19794,
+          "stress_net_pnl": "0.2271796560000000000000"
+        },
+        {
+          "day_start_equity": "99.18824679195340000000000000",
+          "entry_ms": 1712673900000,
+          "exit_ms": 1712674200000,
+          "exit_price": "0.187860",
+          "fees": "0.0227351100",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.395970",
+          "minimum_equity": "98.78464562595340000000000000",
+          "net_pnl": "-0.4187051100",
+          "plan": {
+            "decision_ms": 1712673900000,
+            "entry": "0.189830",
+            "exits": [
+              {
+                "price": "0.187860",
+                "quantity": "201",
+                "role": "STOP"
+              },
+              {
+                "price": "0.193420",
+                "quantity": "201",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "201",
+            "side": "BUY",
+            "signal_key": "add7ad77a575cafee3d2a77e24d0fa6c0e3ff84114fe77c5e5da79ee2a8a1dcb",
+            "stop": "0.187860",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.193420",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19822,
+          "stress_net_pnl": "-0.4793980650"
+        },
+        {
+          "day_start_equity": "98.76954168195340000000000000",
+          "entry_ms": 1716041700000,
+          "exit_ms": 1716048900000,
+          "exit_price": "0.153490000000000000",
+          "fees": "0.0311113860000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00518059800000000000000000",
+          "gross_pnl": "0.542400000000000000",
+          "minimum_equity": "98.49821353995340000000000000",
+          "net_pnl": "0.50610801600000000000000000",
+          "plan": {
+            "decision_ms": 1716041700000,
+            "entry": "0.151890",
+            "exits": [
+              {
+                "price": "0.150830",
+                "quantity": "339",
+                "role": "STOP"
+              },
+              {
+                "price": "0.153820",
+                "quantity": "339",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "339",
+            "side": "BUY",
+            "signal_key": "76a8f889dd8b27161359eddf9afb969f2c056fdbbaabaeaa62fbad35c8186b0e",
+            "stop": "0.150830",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.153820",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19861,
+          "stress_net_pnl": "0.42323472000000000000000000"
+        },
+        {
+          "day_start_equity": "99.27564969795340000000000000",
+          "entry_ms": 1716382800000,
+          "exit_ms": 1716387900000,
+          "exit_price": "0.165560",
+          "fees": "0.0148871140",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.728670",
+          "minimum_equity": "99.23649900795340000000000000",
+          "net_pnl": "0.7137828860",
+          "plan": {
+            "decision_ms": 1716382800000,
+            "entry": "0.162350",
+            "exits": [
+              {
+                "price": "0.160590",
+                "quantity": "227",
+                "role": "STOP"
+              },
+              {
+                "price": "0.165560",
+                "quantity": "227",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "227",
+            "side": "BUY",
+            "signal_key": "959cf44a87df5bc57a2e156c78c8bc4f9a6a681f5837e0ef10ccb2e23a7089c8",
+            "stop": "0.160590",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.165560",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19865,
+          "stress_net_pnl": "0.6616779870"
+        },
+        {
+          "day_start_equity": "99.98943258395340000000000000",
+          "entry_ms": 1716787800000,
+          "exit_ms": 1716790500000,
+          "exit_price": "0.166010",
+          "fees": "0.0245119700",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.619570",
+          "minimum_equity": "99.92529855595340000000000000",
+          "net_pnl": "0.5950580300",
+          "plan": {
+            "decision_ms": 1716787800000,
+            "entry": "0.164340",
+            "exits": [
+              {
+                "price": "0.163420",
+                "quantity": "371",
+                "role": "STOP"
+              },
+              {
+                "price": "0.166010",
+                "quantity": "371",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "371",
+            "side": "BUY",
+            "signal_key": "25f58ce726ee275cf51b3a6b36ec4763258eb05fe765c79771b13d6d43db037b",
+            "stop": "0.163420",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.166010",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19870,
+          "stress_net_pnl": "0.5092661350"
+        },
+        {
+          "day_start_equity": "99.98943258395340000000000000",
+          "entry_ms": 1716840000000,
+          "exit_ms": 1716847200000,
+          "exit_price": "0.168720000000000000",
+          "fees": "0.0302730000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.483000000000000000",
+          "minimum_equity": "100.3974640139534000000000000",
+          "net_pnl": "0.4527270000000000000000",
+          "plan": {
+            "decision_ms": 1716840000000,
+            "entry": "0.167110",
+            "exits": [
+              {
+                "price": "0.165870",
+                "quantity": "300",
+                "role": "STOP"
+              },
+              {
+                "price": "0.169380",
+                "quantity": "300",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "300",
+            "side": "BUY",
+            "signal_key": "c58ef972f87d92ac5dc34ae5fcfb12c380ace5f37b4f2263b8345258bf24e8d1",
+            "stop": "0.165870",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.169380",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19870,
+          "stress_net_pnl": "0.3720795000000000000000"
+        },
+        {
+          "day_start_equity": "101.0372176139534000000000000",
+          "entry_ms": 1717703100000,
+          "exit_ms": 1717704300000,
+          "exit_price": "0.159040",
+          "fees": "0.0372840000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.343200",
+          "minimum_equity": "100.6815438539534000000000000",
+          "net_pnl": "-0.3804840000",
+          "plan": {
+            "decision_ms": 1717703100000,
+            "entry": "0.159920",
+            "exits": [
+              {
+                "price": "0.159040",
+                "quantity": "390",
+                "role": "STOP"
+              },
+              {
+                "price": "0.161530",
+                "quantity": "390",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "390",
+            "side": "BUY",
+            "signal_key": "1d2370c44833e57ad322f7447e9900bedabe90c0b58f3def103a1b795e98f3a6",
+            "stop": "0.159040",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.161530",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19880,
+          "stress_net_pnl": "-0.4799652000"
+        },
+        {
+          "day_start_equity": "100.6567336139534000000000000",
+          "entry_ms": 1717784100000,
+          "exit_ms": 1717784700000,
+          "exit_price": "0.146850",
+          "fees": "0.0085889560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.816520",
+          "minimum_equity": "100.4677607879534000000000000",
+          "net_pnl": "0.8079310440",
+          "plan": {
+            "decision_ms": 1717784100000,
+            "entry": "0.141370",
+            "exits": [
+              {
+                "price": "0.138370",
+                "quantity": "149",
+                "role": "STOP"
+              },
+              {
+                "price": "0.146850",
+                "quantity": "149",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "149",
+            "side": "BUY",
+            "signal_key": "23186a59fe6009929f2df7c44bc7be2a79fd8c9a1f9f61ae1e438a55a788b8f1",
+            "stop": "0.138370",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.146850",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19881,
+          "stress_net_pnl": "0.7778696980"
+        }
+      ],
+      "unfilled": 12
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 36,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "101.4646646579534000000000000",
+          "entry_ms": 1721538900000,
+          "exit_ms": 1721545500000,
+          "exit_price": "0.129930",
+          "fees": "0.0360087100",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.350360",
+          "minimum_equity": "101.1022550399534000000000000",
+          "net_pnl": "-0.3863687100",
+          "plan": {
+            "decision_ms": 1721538900000,
+            "entry": "0.130690",
+            "exits": [
+              {
+                "price": "0.129930",
+                "quantity": "461",
+                "role": "STOP"
+              },
+              {
+                "price": "0.132060",
+                "quantity": "461",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "461",
+            "side": "BUY",
+            "signal_key": "e339dc38613a6fc498d958b964fb3475215259ad39721df590c4c72bea64ae3d",
+            "stop": "0.129930",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.132060",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19925,
+          "stress_net_pnl": "-0.4824503300"
+        },
+        {
+          "day_start_equity": "101.0782959479534000000000000",
+          "entry_ms": 1722267000000,
+          "exit_ms": 1722270900000,
+          "exit_price": "0.128470",
+          "fees": "0.0269790960",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00453106700000000000000000",
+          "gross_pnl": "-0.387390",
+          "minimum_equity": "100.6773301969534000000000000",
+          "net_pnl": "-0.41890016300000000000000000",
+          "plan": {
+            "decision_ms": 1722267000000,
+            "entry": "0.129580",
+            "exits": [
+              {
+                "price": "0.128470",
+                "quantity": "349",
+                "role": "STOP"
+              },
+              {
+                "price": "0.131600",
+                "quantity": "349",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "349",
+            "side": "BUY",
+            "signal_key": "a882fbaec115fefed0a2ce32df1d24ffd65e488933ddf167f0b0c4acbeeb9187",
+            "stop": "0.128470",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.131600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19933,
+          "stress_net_pnl": "-0.49090898400000000000000000"
+        },
+        {
+          "day_start_equity": "100.6593957849534000000000000",
+          "entry_ms": 1724571900000,
+          "exit_ms": 1724579100000,
+          "exit_price": "0.109030000000000000",
+          "fees": "0.0312509180000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00018734044460000000000000",
+          "gross_pnl": "0.421520000000000000",
+          "minimum_equity": "100.5101250149534000000000000",
+          "net_pnl": "0.39045642244460000000000000",
+          "plan": {
+            "decision_ms": 1724571900000,
+            "entry": "0.108150",
+            "exits": [
+              {
+                "price": "0.107380",
+                "quantity": "479",
+                "role": "STOP"
+              },
+              {
+                "price": "0.109550",
+                "quantity": "479",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "479",
+            "side": "BUY",
+            "signal_key": "8b0abe520743aadc619f0137f4aeb81eb1013bc972bdc6b2085d49fe5982287f",
+            "stop": "0.107380",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.109550",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19960,
+          "stress_net_pnl": "0.30719089444460000000000000"
+        },
+        {
+          "day_start_equity": "101.1357826233980000000000000",
+          "entry_ms": 1726442100000,
+          "exit_ms": 1726449300000,
+          "exit_price": "0.101830",
+          "fees": "0.0310507080",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00520942500000000000000000",
+          "gross_pnl": "-0.370110",
+          "minimum_equity": "100.6641331983980000000000000",
+          "net_pnl": "-0.40637013300000000000000000",
+          "plan": {
+            "decision_ms": 1726442100000,
+            "entry": "0.102560",
+            "exits": [
+              {
+                "price": "0.101830",
+                "quantity": "507",
+                "role": "STOP"
+              },
+              {
+                "price": "0.103880",
+                "quantity": "507",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "507",
+            "side": "BUY",
+            "signal_key": "0e42705ca6567718c5171fc3620a4c52bf012da3bf143930e4873a428311acb9",
+            "stop": "0.101830",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.103880",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19982,
+          "stress_net_pnl": "-0.48923370600000000000000000"
+        },
+        {
+          "day_start_equity": "100.6434820743980000000000000",
+          "entry_ms": 1726794900000,
+          "exit_ms": 1726801800000,
+          "exit_price": "0.104780",
+          "fees": "0.0238478240",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.629200",
+          "minimum_equity": "100.5572610823980000000000000",
+          "net_pnl": "0.6053521760",
+          "plan": {
+            "decision_ms": 1726794900000,
+            "entry": "0.103680",
+            "exits": [
+              {
+                "price": "0.103070",
+                "quantity": "572",
+                "role": "STOP"
+              },
+              {
+                "price": "0.104780",
+                "quantity": "572",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "572",
+            "side": "BUY",
+            "signal_key": "969a6a11bd7b63901bfde8b13cd55f46bc6907b42142c0472cde1620a004cde4",
+            "stop": "0.103070",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.104780",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19986,
+          "stress_net_pnl": "0.5218847920"
+        },
+        {
+          "day_start_equity": "101.2488342503980000000000000",
+          "entry_ms": 1727001900000,
+          "exit_ms": 1727002800000,
+          "exit_price": "0.106170",
+          "fees": "0.0456722080",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.307880",
+          "minimum_equity": "100.9256891303980000000000000",
+          "net_pnl": "-0.3535522080",
+          "plan": {
+            "decision_ms": 1727001900000,
+            "entry": "0.106600",
+            "exits": [
+              {
+                "price": "0.106170",
+                "quantity": "716",
+                "role": "STOP"
+              },
+              {
+                "price": "0.107380",
+                "quantity": "716",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "716",
+            "side": "BUY",
+            "signal_key": "7e34b4760a8685ecf65ec6d389161fa3d775efd74d967a0ab4db6b154e136597",
+            "stop": "0.106170",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.107380",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19988,
+          "stress_net_pnl": "-0.4753960760"
+        },
+        {
+          "day_start_equity": "101.2488342503980000000000000",
+          "entry_ms": 1727002800000,
+          "exit_ms": 1727010000000,
+          "exit_price": "0.106600000000000000",
+          "fees": "0.0437920500000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.102750000000000000",
+          "minimum_equity": "100.6614983923980000000000000",
+          "net_pnl": "0.0589579500000000000000",
+          "plan": {
+            "decision_ms": 1727002800000,
+            "entry": "0.106450",
+            "exits": [
+              {
+                "price": "0.105990",
+                "quantity": "685",
+                "role": "STOP"
+              },
+              {
+                "price": "0.107270",
+                "quantity": "685",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "685",
+            "side": "BUY",
+            "signal_key": "cfb796148dac86bb748fd7d8c859cac8fe2202614218a4a03fdcefa864295c07",
+            "stop": "0.105990",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.107270",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19988,
+          "stress_net_pnl": "-0.0578037250000000000000"
+        },
+        {
+          "day_start_equity": "101.2488342503980000000000000",
+          "entry_ms": 1727043300000,
+          "exit_ms": 1727044800000,
+          "exit_price": "0.105330",
+          "fees": "0.0240144300",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.636030",
+          "minimum_equity": "100.9193763803980000000000000",
+          "net_pnl": "0.6120155700",
+          "plan": {
+            "decision_ms": 1727043300000,
+            "entry": "0.104220",
+            "exits": [
+              {
+                "price": "0.103610",
+                "quantity": "573",
+                "role": "STOP"
+              },
+              {
+                "price": "0.105330",
+                "quantity": "573",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "573",
+            "side": "BUY",
+            "signal_key": "9131aa71f122ef2e5c9a945b0478c2273ec72aed4055c31098b9556d6f48c178",
+            "stop": "0.103610",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.105330",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19988,
+          "stress_net_pnl": "0.5279650650"
+        },
+        {
+          "day_start_equity": "101.5662555623980000000000000",
+          "entry_ms": 1727511300000,
+          "exit_ms": 1727518500000,
+          "exit_price": "0.122590000000000000",
+          "fees": "0.0266520800000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.607880000000000000",
+          "minimum_equity": "101.2371325863980000000000000",
+          "net_pnl": "0.5812279200000000000000",
+          "plan": {
+            "decision_ms": 1727511300000,
+            "entry": "0.120920",
+            "exits": [
+              {
+                "price": "0.119840",
+                "quantity": "364",
+                "role": "STOP"
+              },
+              {
+                "price": "0.122890",
+                "quantity": "364",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "364",
+            "side": "BUY",
+            "signal_key": "2e42611b9df28f916c2de096519a3fa4777ea00c2f3a6d22166e0f062674e777",
+            "stop": "0.119840",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.122890",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19994,
+          "stress_net_pnl": "0.5102570200000000000000"
+        },
+        {
+          "day_start_equity": "102.1474834823980000000000000",
+          "entry_ms": 1728327600000,
+          "exit_ms": 1728334800000,
+          "exit_price": "0.110720000000000000",
+          "fees": "0.0271420000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.475600000000000000",
+          "minimum_equity": "102.1138995623980000000000000",
+          "net_pnl": "0.4484580000000000000000",
+          "plan": {
+            "decision_ms": 1728327600000,
+            "entry": "0.109560",
+            "exits": [
+              {
+                "price": "0.108600",
+                "quantity": "410",
+                "role": "STOP"
+              },
+              {
+                "price": "0.111310",
+                "quantity": "410",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "410",
+            "side": "BUY",
+            "signal_key": "e376eb06ab366e023c4e523cbc3f386fa1f90fda0aacf6cd1aa40603f68ac906",
+            "stop": "0.108600",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.111310",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20003,
+          "stress_net_pnl": "0.3761586000000000000000"
+        },
+        {
+          "day_start_equity": "102.5959414823980000000000000",
+          "entry_ms": 1728993600000,
+          "exit_ms": 1728996300000,
+          "exit_price": "0.114600",
+          "fees": "0.0189271680",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.711360",
+          "minimum_equity": "102.4742290343980000000000000",
+          "net_pnl": "0.6924328320",
+          "plan": {
+            "decision_ms": 1728993600000,
+            "entry": "0.112890",
+            "exits": [
+              {
+                "price": "0.111950",
+                "quantity": "416",
+                "role": "STOP"
+              },
+              {
+                "price": "0.114600",
+                "quantity": "416",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "416",
+            "side": "BUY",
+            "signal_key": "b53f99fc789c8e5218bda78a0981d437aef75813b9af04ee8d7ab2069b4ddd26",
+            "stop": "0.111950",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.114600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20011,
+          "stress_net_pnl": "0.6261877440"
+        },
+        {
+          "day_start_equity": "103.2883743143980000000000000",
+          "entry_ms": 1729428300000,
+          "exit_ms": 1729428600000,
+          "exit_price": "0.139480",
+          "fees": "0.0344689260",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.365790",
+          "minimum_equity": "102.9110459003980000000000000",
+          "net_pnl": "-0.4002589260",
+          "plan": {
+            "decision_ms": 1729428300000,
+            "entry": "0.140370",
+            "exits": [
+              {
+                "price": "0.139480",
+                "quantity": "411",
+                "role": "STOP"
+              },
+              {
+                "price": "0.141980",
+                "quantity": "411",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "411",
+            "side": "BUY",
+            "signal_key": "971b4af5c2b5597dc9ecd9e6ba2d8169d93278544e9b807d2ca14f1be7a61e84",
+            "stop": "0.139480",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.141980",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20016,
+          "stress_net_pnl": "-0.4922370270"
+        },
+        {
+          "day_start_equity": "103.2883743143980000000000000",
+          "entry_ms": 1729429200000,
+          "exit_ms": 1729433400000,
+          "exit_price": "0.139590",
+          "fees": "0.0195696140",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.702470",
+          "minimum_equity": "102.7301408283980000000000000",
+          "net_pnl": "0.6829003860",
+          "plan": {
+            "decision_ms": 1729429200000,
+            "entry": "0.137600",
+            "exits": [
+              {
+                "price": "0.136500",
+                "quantity": "353",
+                "role": "STOP"
+              },
+              {
+                "price": "0.139590",
+                "quantity": "353",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "353",
+            "side": "BUY",
+            "signal_key": "3a8432d29cc51499601ad64a90a3ef6cb804b475cf203c7d1412e26506bb7923",
+            "stop": "0.136500",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.139590",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20016,
+          "stress_net_pnl": "0.6144067370"
+        },
+        {
+          "day_start_equity": "103.5710157743980000000000000",
+          "entry_ms": 1731626100000,
+          "exit_ms": 1731627600000,
+          "exit_price": "0.355200",
+          "fees": "0.0128787600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.457800",
+          "minimum_equity": "103.1088618143980000000000000",
+          "net_pnl": "-0.4706787600",
+          "plan": {
+            "decision_ms": 1731626100000,
+            "entry": "0.362830",
+            "exits": [
+              {
+                "price": "0.355200",
+                "quantity": "60",
+                "role": "STOP"
+              },
+              {
+                "price": "0.376800",
+                "quantity": "60",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "60",
+            "side": "BUY",
+            "signal_key": "21808a23c38b077a152d0628e5ce666aa82892dd1125364797c006d9e21c1319",
+            "stop": "0.355200",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.376800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20041,
+          "stress_net_pnl": "-0.5050984200"
+        },
+        {
+          "day_start_equity": "103.1003370143980000000000000",
+          "entry_ms": 1731809700000,
+          "exit_ms": 1731816900000,
+          "exit_price": "0.348460000000000000",
+          "fees": "0.0151625380000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.500050000000000000",
+          "minimum_equity": "102.9858495083980000000000000",
+          "net_pnl": "0.4848874620000000000000",
+          "plan": {
+            "decision_ms": 1731809700000,
+            "entry": "0.341610",
+            "exits": [
+              {
+                "price": "0.335450",
+                "quantity": "73",
+                "role": "STOP"
+              },
+              {
+                "price": "0.352890",
+                "quantity": "73",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "73",
+            "side": "BUY",
+            "signal_key": "5f6b1a5c603fb959c764403cb76ed7b37988436ef628f9beb3f37c6f6091b128",
+            "stop": "0.335450",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.352890",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20044,
+          "stress_net_pnl": "0.4445373690000000000000"
+        },
+        {
+          "day_start_equity": "103.5852244763980000000000000",
+          "entry_ms": 1732379400000,
+          "exit_ms": 1732380000000,
+          "exit_price": "0.420200",
+          "fees": "0.0119422300",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.462950",
+          "minimum_equity": "103.1182320063980000000000000",
+          "net_pnl": "-0.4748922300",
+          "plan": {
+            "decision_ms": 1732379400000,
+            "entry": "0.430050",
+            "exits": [
+              {
+                "price": "0.420200",
+                "quantity": "47",
+                "role": "STOP"
+              },
+              {
+                "price": "0.448100",
+                "quantity": "47",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "47",
+            "side": "BUY",
+            "signal_key": "b4231d9bb22e31c993e9e85d0007904eeec9d779a3b7122cd21c7c12a9a25721",
+            "stop": "0.420200",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.448100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20050,
+          "stress_net_pnl": "-0.5068153350"
+        },
+        {
+          "day_start_equity": "103.5852244763980000000000000",
+          "entry_ms": 1732380300000,
+          "exit_ms": 1732381500000,
+          "exit_price": "0.421830",
+          "fees": "0.0107228520",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.463680",
+          "minimum_equity": "102.6430161383980000000000000",
+          "net_pnl": "-0.4744028520",
+          "plan": {
+            "decision_ms": 1732380300000,
+            "entry": "0.432870",
+            "exits": [
+              {
+                "price": "0.421830",
+                "quantity": "42",
+                "role": "STOP"
+              },
+              {
+                "price": "0.453090",
+                "quantity": "42",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "42",
+            "side": "BUY",
+            "signal_key": "ba5312249515cb8c2ba93c715fe4c10ab03460904cd9f6b84f1f02dc3e6bfb60",
+            "stop": "0.421830",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.453090",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20050,
+          "stress_net_pnl": "-0.5030744040"
+        },
+        {
+          "day_start_equity": "103.5852244763980000000000000",
+          "entry_ms": 1732382100000,
+          "exit_ms": 1732389300000,
+          "exit_price": "0.429610000000000000",
+          "fees": "0.0100276020000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.126360000000000000",
+          "minimum_equity": "102.5175537083980000000000000",
+          "net_pnl": "0.1163323980000000000000",
+          "plan": {
+            "decision_ms": 1732382100000,
+            "entry": "0.426370",
+            "exits": [
+              {
+                "price": "0.414320",
+                "quantity": "39",
+                "role": "STOP"
+              },
+              {
+                "price": "0.448440",
+                "quantity": "39",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "39",
+            "side": "BUY",
+            "signal_key": "b747eb1f67bb8a549265440ee21ceff355e888051186cf901c3516355e9a2682",
+            "stop": "0.414320",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.448440",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20050,
+          "stress_net_pnl": "0.0896131860000000000000"
+        },
+        {
+          "day_start_equity": "102.7522617923980000000000000",
+          "entry_ms": 1732452300000,
+          "exit_ms": 1732453800000,
+          "exit_price": "0.417350",
+          "fees": "0.0090151600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.832700",
+          "minimum_equity": "102.6262874823980000000000000",
+          "net_pnl": "0.8236848400",
+          "plan": {
+            "decision_ms": 1732452300000,
+            "entry": "0.402210",
+            "exits": [
+              {
+                "price": "0.393940",
+                "quantity": "55",
+                "role": "STOP"
+              },
+              {
+                "price": "0.417350",
+                "quantity": "55",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "55",
+            "side": "BUY",
+            "signal_key": "0054de63d0a0ecd1dea7c0bb6cb4f98c564b211e85669db94979d01de2c538b2",
+            "stop": "0.393940",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.417350",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20051,
+          "stress_net_pnl": "0.7921317800"
+        },
+        {
+          "day_start_equity": "103.5759466323980000000000000",
+          "entry_ms": 1733437800000,
+          "exit_ms": 1733439000000,
+          "exit_price": "0.431640",
+          "fees": "0.0103686580",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.816790",
+          "minimum_equity": "103.4915439823980000000000000",
+          "net_pnl": "0.8064213420",
+          "plan": {
+            "decision_ms": 1733437800000,
+            "entry": "0.418250",
+            "exits": [
+              {
+                "price": "0.410940",
+                "quantity": "61",
+                "role": "STOP"
+              },
+              {
+                "price": "0.431640",
+                "quantity": "61",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "61",
+            "side": "BUY",
+            "signal_key": "1f8adf82457be0e05cf2e7db9d69233645630537ca66df146dd4d1d49978d773",
+            "stop": "0.410940",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.431640",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20062,
+          "stress_net_pnl": "0.7701310390"
+        },
+        {
+          "day_start_equity": "104.3823679743980000000000000",
+          "entry_ms": 1733652000000,
+          "exit_ms": 1733657400000,
+          "exit_price": "0.458410",
+          "fees": "0.0150653300",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.769410",
+          "minimum_equity": "104.3657822503980000000000000",
+          "net_pnl": "0.7543446700",
+          "plan": {
+            "decision_ms": 1733652000000,
+            "entry": "0.449140",
+            "exits": [
+              {
+                "price": "0.444080",
+                "quantity": "83",
+                "role": "STOP"
+              },
+              {
+                "price": "0.458410",
+                "quantity": "83",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "83",
+            "side": "BUY",
+            "signal_key": "c165d222b4d61785388d2e0ebb05e7bb0724e164dd7008e3ebcf409a07eef948",
+            "stop": "0.444080",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.458410",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20065,
+          "stress_net_pnl": "0.7016160150"
+        },
+        {
+          "day_start_equity": "105.1367126443980000000000000",
+          "entry_ms": 1734033600000,
+          "exit_ms": 1734036300000,
+          "exit_price": "0.409400",
+          "fees": "0.0163862400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.767600",
+          "minimum_equity": "105.1104162843980000000000000",
+          "net_pnl": "0.7512137600",
+          "plan": {
+            "decision_ms": 1734033600000,
+            "entry": "0.401800",
+            "exits": [
+              {
+                "price": "0.397650",
+                "quantity": "101",
+                "role": "STOP"
+              },
+              {
+                "price": "0.409400",
+                "quantity": "101",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "101",
+            "side": "BUY",
+            "signal_key": "a0207a7a5c3dec4d3ae20efeb00af5cdd6b53a6f4f7c245bdfdc566b636d6a10",
+            "stop": "0.397650",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.409400",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20069,
+          "stress_net_pnl": "0.6938619200"
+        },
+        {
+          "day_start_equity": "105.8879264043980000000000000",
+          "entry_ms": 1734183000000,
+          "exit_ms": 1734190200000,
+          "exit_price": "0.397820000000000000",
+          "fees": "0.0341020680000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.154440000000000000",
+          "minimum_equity": "105.5176496403980000000000000",
+          "net_pnl": "0.1203379320000000000000",
+          "plan": {
+            "decision_ms": 1734183000000,
+            "entry": "0.396740",
+            "exits": [
+              {
+                "price": "0.394080",
+                "quantity": "143",
+                "role": "STOP"
+              },
+              {
+                "price": "0.401600",
+                "quantity": "143",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "143",
+            "side": "BUY",
+            "signal_key": "53142ce8215e857694624ce120f11fe099c0d8966c348cf51af0579b0f90fcff",
+            "stop": "0.394080",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.401600",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20071,
+          "stress_net_pnl": "0.0294248240000000000000"
+        },
+        {
+          "day_start_equity": "106.0082643363980000000000000",
+          "entry_ms": 1734350400000,
+          "exit_ms": 1734357600000,
+          "exit_price": "0.396190000000000000",
+          "fees": "0.0358084420000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.431860000000000000",
+          "minimum_equity": "105.8786057703980000000000000",
+          "net_pnl": "0.3960515580000000000000",
+          "plan": {
+            "decision_ms": 1734350400000,
+            "entry": "0.393330",
+            "exits": [
+              {
+                "price": "0.390860",
+                "quantity": "151",
+                "role": "STOP"
+              },
+              {
+                "price": "0.397840",
+                "quantity": "151",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "151",
+            "side": "BUY",
+            "signal_key": "81b1b5e573f660fac757b443486e98e0d6240789666771018aa196e1472858e8",
+            "stop": "0.390860",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.397840",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20073,
+          "stress_net_pnl": "0.3006343560000000000000"
+        },
+        {
+          "day_start_equity": "106.7105615943980000000000000",
+          "entry_ms": 1734477300000,
+          "exit_ms": 1734482400000,
+          "exit_price": "0.389290",
+          "fees": "0.0351117000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00590895000000000000000000",
+          "gross_pnl": "-0.378000",
+          "minimum_equity": "106.0086526443980000000000000",
+          "net_pnl": "-0.41902065000000000000000000",
+          "plan": {
+            "decision_ms": 1734477300000,
+            "entry": "0.391810",
+            "exits": [
+              {
+                "price": "0.389290",
+                "quantity": "150",
+                "role": "STOP"
+              },
+              {
+                "price": "0.396410",
+                "quantity": "150",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "150",
+            "side": "BUY",
+            "signal_key": "034ba93c5390fb2ffe94012bc1b104c4e2c0b09fa182ab9d37b4e0437869cf09",
+            "stop": "0.389290",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.396410",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20075,
+          "stress_net_pnl": "-0.51271485000000000000000000"
+        },
+        {
+          "day_start_equity": "105.9852952443980000000000000",
+          "entry_ms": 1736251200000,
+          "exit_ms": 1736258400000,
+          "exit_price": "0.386400000000000000",
+          "fees": "0.0312595200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.194400000000000000",
+          "minimum_equity": "105.7481013243980000000000000",
+          "net_pnl": "0.1631404800000000000000",
+          "plan": {
+            "decision_ms": 1736251200000,
+            "entry": "0.384960",
+            "exits": [
+              {
+                "price": "0.382040",
+                "quantity": "135",
+                "role": "STOP"
+              },
+              {
+                "price": "0.390300",
+                "quantity": "135",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "135",
+            "side": "BUY",
+            "signal_key": "f5803643134574683add8b1531f457d7b76087b7579e1babe74014a8bb58a5be",
+            "stop": "0.382040",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.390300",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20095,
+          "stress_net_pnl": "0.0798141600000000000000"
+        },
+        {
+          "day_start_equity": "105.9852952443980000000000000",
+          "entry_ms": 1736262900000,
+          "exit_ms": 1736263200000,
+          "exit_price": "0.364960",
+          "fees": "0.0197965800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.443700",
+          "minimum_equity": "105.6980777043980000000000000",
+          "net_pnl": "-0.4634965800",
+          "plan": {
+            "decision_ms": 1736262900000,
+            "entry": "0.369890",
+            "exits": [
+              {
+                "price": "0.364960",
+                "quantity": "90",
+                "role": "STOP"
+              },
+              {
+                "price": "0.378910",
+                "quantity": "90",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "90",
+            "side": "BUY",
+            "signal_key": "c09a3f17d77bec047e3c82fb737a070db6aa8b7b00450eeb0e8d65b9ebd99725",
+            "stop": "0.364960",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.378910",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.5163614100"
+        },
+        {
+          "day_start_equity": "105.9852952443980000000000000",
+          "entry_ms": 1736263800000,
+          "exit_ms": 1736264700000,
+          "exit_price": "0.362240",
+          "fees": "0.0176941260",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.446310",
+          "minimum_equity": "105.2326715943980000000000000",
+          "net_pnl": "-0.4640041260",
+          "plan": {
+            "decision_ms": 1736263800000,
+            "entry": "0.367750",
+            "exits": [
+              {
+                "price": "0.362240",
+                "quantity": "81",
+                "role": "STOP"
+              },
+              {
+                "price": "0.377830",
+                "quantity": "81",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "81",
+            "side": "BUY",
+            "signal_key": "5c233ca89d6cecabed783d1f106e15c2cf6a11367d6f2b8a97df417883c98d80",
+            "stop": "0.362240",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.377830",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.5112628470"
+        },
+        {
+          "day_start_equity": "105.9852952443980000000000000",
+          "entry_ms": 1736264700000,
+          "exit_ms": 1736271900000,
+          "exit_price": "0.361710000000000000",
+          "fees": "0.0156006720000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00208280332800000000000000",
+          "gross_pnl": "0.126000000000000000",
+          "minimum_equity": "104.9939915943980000000000000",
+          "net_pnl": "0.10831652467200000000000000",
+          "plan": {
+            "decision_ms": 1736264700000,
+            "entry": "0.359960",
+            "exits": [
+              {
+                "price": "0.353600",
+                "quantity": "72",
+                "role": "STOP"
+              },
+              {
+                "price": "0.371600",
+                "quantity": "72",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "72",
+            "side": "BUY",
+            "signal_key": "67b4ce37f1e75d0e65004da61d20f6cff89e82066fb43ac06b6c3150fd81ff45",
+            "stop": "0.353600",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.371600",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20095,
+          "stress_net_pnl": "0.06673573267200000000000000"
+        }
+      ],
+      "unfilled": 7
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 37,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "105.3292515430700000000000000",
+          "entry_ms": 1737278100000,
+          "exit_ms": 1737278400000,
+          "exit_price": "0.364150",
+          "fees": "0.0158214240",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.450720",
+          "minimum_equity": "104.8731976390700000000000000",
+          "net_pnl": "-0.4665414240",
+          "plan": {
+            "decision_ms": 1737278100000,
+            "entry": "0.370410",
+            "exits": [
+              {
+                "price": "0.364150",
+                "quantity": "72",
+                "role": "STOP"
+              },
+              {
+                "price": "0.381870",
+                "quantity": "72",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "72",
+            "side": "BUY",
+            "signal_key": "7f82398daf8e2041ddbc8ca864d498f8a3d28283cc1fd21a287cf3ea9b1b96c3",
+            "stop": "0.364150",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.381870",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.5088070080"
+        },
+        {
+          "day_start_equity": "105.3292515430700000000000000",
+          "entry_ms": 1737324000000,
+          "exit_ms": 1737324900000,
+          "exit_price": "0.363240",
+          "fees": "0.0142576200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.456300",
+          "minimum_equity": "104.4015967390700000000000000",
+          "net_pnl": "-0.4705576200",
+          "plan": {
+            "decision_ms": 1737324000000,
+            "entry": "0.370260",
+            "exits": [
+              {
+                "price": "0.363240",
+                "quantity": "65",
+                "role": "STOP"
+              },
+              {
+                "price": "0.383120",
+                "quantity": "65",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "65",
+            "side": "BUY",
+            "signal_key": "a9d66ffdff639b7b50a776a109ac84c7e0db5f598aeafbf824ce1a1c53497f78",
+            "stop": "0.363240",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.383120",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.5086539900"
+        },
+        {
+          "day_start_equity": "104.3921524990700000000000000",
+          "entry_ms": 1737928800000,
+          "exit_ms": 1737929400000,
+          "exit_price": "0.344510",
+          "fees": "0.0443009960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.329560",
+          "minimum_equity": "104.0477815590700000000000000",
+          "net_pnl": "-0.3738609960",
+          "plan": {
+            "decision_ms": 1737928800000,
+            "entry": "0.346050",
+            "exits": [
+              {
+                "price": "0.344510",
+                "quantity": "214",
+                "role": "STOP"
+              },
+              {
+                "price": "0.348860",
+                "quantity": "214",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "214",
+            "side": "BUY",
+            "signal_key": "ae2ffded76822c696deb8b274eb6053e090570b8beab8dde643cde77f187428b",
+            "stop": "0.344510",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.348860",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.4920519120"
+        },
+        {
+          "day_start_equity": "104.3921524990700000000000000",
+          "entry_ms": 1737929700000,
+          "exit_ms": 1737932700000,
+          "exit_price": "0.342040",
+          "fees": "0.0398825200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.345320",
+          "minimum_equity": "103.6596312870700000000000000",
+          "net_pnl": "-0.3852025200",
+          "plan": {
+            "decision_ms": 1737929700000,
+            "entry": "0.343820",
+            "exits": [
+              {
+                "price": "0.342040",
+                "quantity": "194",
+                "role": "STOP"
+              },
+              {
+                "price": "0.347060",
+                "quantity": "194",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "194",
+            "side": "BUY",
+            "signal_key": "8b7e92bad0cea1f72c17ed1da34b38effd904c4ea75038dd1eb7eeef7f85d498",
+            "stop": "0.342040",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.347060",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.4916134600"
+        },
+        {
+          "day_start_equity": "104.3921524990700000000000000",
+          "entry_ms": 1737933300000,
+          "exit_ms": 1737933600000,
+          "exit_price": "0.337210",
+          "fees": "0.0304257000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.384000",
+          "minimum_equity": "103.2388958830700000000000000",
+          "net_pnl": "-0.4144257000",
+          "plan": {
+            "decision_ms": 1737933300000,
+            "entry": "0.339770",
+            "exits": [
+              {
+                "price": "0.337210",
+                "quantity": "150",
+                "role": "STOP"
+              },
+              {
+                "price": "0.344450",
+                "quantity": "150",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "150",
+            "side": "BUY",
+            "signal_key": "c55211ac1497f04f873dc784e65363a00cf84445bb23d3ddd5700772b1c2315a",
+            "stop": "0.337210",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.344450",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.4956249000"
+        },
+        {
+          "day_start_equity": "102.9697561390700000000000000",
+          "entry_ms": 1737934200000,
+          "exit_ms": 1737936300000,
+          "exit_price": "0.334610",
+          "fees": "0.0269822400",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00440419477680000000000000",
+          "gross_pnl": "-0.397980",
+          "minimum_equity": "102.8160403338468000000000000",
+          "net_pnl": "-0.42055804522320000000000000",
+          "plan": {
+            "decision_ms": 1737934200000,
+            "entry": "0.337580",
+            "exits": [
+              {
+                "price": "0.334610",
+                "quantity": "134",
+                "role": "STOP"
+              },
+              {
+                "price": "0.343010",
+                "quantity": "134",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "134",
+            "side": "BUY",
+            "signal_key": "3fbac1f626876c106de2d9a710995f230adf732767d000cbebf98092b10bc4dd",
+            "stop": "0.334610",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.343010",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20115,
+          "stress_net_pnl": "-0.49257701522320000000000000"
+        },
+        {
+          "day_start_equity": "102.7981052378468000000000000",
+          "entry_ms": 1745142300000,
+          "exit_ms": 1745146200000,
+          "exit_price": "0.153980",
+          "fees": "0.0402566400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.339300",
+          "minimum_equity": "102.4453411178468000000000000",
+          "net_pnl": "-0.3795566400",
+          "plan": {
+            "decision_ms": 1745142300000,
+            "entry": "0.154760",
+            "exits": [
+              {
+                "price": "0.153980",
+                "quantity": "435",
+                "role": "STOP"
+              },
+              {
+                "price": "0.156180",
+                "quantity": "435",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "435",
+            "side": "BUY",
+            "signal_key": "14f8985229df927918f39dbb51b042f13d0cb6911439360acf9f9e3c163580b7",
+            "stop": "0.153980",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.156180",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20198,
+          "stress_net_pnl": "-0.4869642300"
+        },
+        {
+          "day_start_equity": "102.4185485978468000000000000",
+          "entry_ms": 1745799300000,
+          "exit_ms": 1745799900000,
+          "exit_price": "0.176700",
+          "fees": "0.0354821560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.357380",
+          "minimum_equity": "102.0492935618468000000000000",
+          "net_pnl": "-0.3928621560",
+          "plan": {
+            "decision_ms": 1745799300000,
+            "entry": "0.177770",
+            "exits": [
+              {
+                "price": "0.176700",
+                "quantity": "334",
+                "role": "STOP"
+              },
+              {
+                "price": "0.179720",
+                "quantity": "334",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "334",
+            "side": "BUY",
+            "signal_key": "e3d0a84c33cda3a177a17e385513a47f5f5a418217a9a1a24254dc7cdc024c16",
+            "stop": "0.176700",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.179720",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20206,
+          "stress_net_pnl": "-0.4875408020"
+        },
+        {
+          "day_start_equity": "102.4185485978468000000000000",
+          "entry_ms": 1745804700000,
+          "exit_ms": 1745810400000,
+          "exit_price": "0.177260",
+          "fees": "0.0177236640",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.720720",
+          "minimum_equity": "101.9967366818468000000000000",
+          "net_pnl": "0.7029963360",
+          "plan": {
+            "decision_ms": 1745804700000,
+            "entry": "0.174400",
+            "exits": [
+              {
+                "price": "0.172830",
+                "quantity": "252",
+                "role": "STOP"
+              },
+              {
+                "price": "0.177260",
+                "quantity": "252",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "252",
+            "side": "BUY",
+            "signal_key": "2349e8bdb86d8f828be01a5adb156cf7087a2c5ac78cf6485d9ae51e27b4a35f",
+            "stop": "0.172830",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.177260",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20206,
+          "stress_net_pnl": "0.6409635120"
+        },
+        {
+          "day_start_equity": "103.2678755858468000000000000",
+          "entry_ms": 1745968500000,
+          "exit_ms": 1745971800000,
+          "exit_price": "0.175010",
+          "fees": "0.0206527860",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00454466833920000000000000",
+          "gross_pnl": "0.692010",
+          "minimum_equity": "102.6025955858468000000000000",
+          "net_pnl": "0.67590188233920000000000000",
+          "plan": {
+            "decision_ms": 1745968500000,
+            "entry": "0.172680",
+            "exits": [
+              {
+                "price": "0.171400",
+                "quantity": "297",
+                "role": "STOP"
+              },
+              {
+                "price": "0.175010",
+                "quantity": "297",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "297",
+            "side": "BUY",
+            "signal_key": "904de7625c66cfac742008c7da273714ea39651e9fedff73dc7b8cc049c31696",
+            "stop": "0.171400",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.175010",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20208,
+          "stress_net_pnl": "0.60361713133920000000000000"
+        },
+        {
+          "day_start_equity": "103.2678755858468000000000000",
+          "entry_ms": 1746018000000,
+          "exit_ms": 1746018600000,
+          "exit_price": "0.170730",
+          "fees": "0.0330597400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.373520",
+          "minimum_equity": "103.0199949441860000000000000",
+          "net_pnl": "-0.4065797400",
+          "plan": {
+            "decision_ms": 1746018000000,
+            "entry": "0.171890",
+            "exits": [
+              {
+                "price": "0.170730",
+                "quantity": "322",
+                "role": "STOP"
+              },
+              {
+                "price": "0.174000",
+                "quantity": "322",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "322",
+            "side": "BUY",
+            "signal_key": "8be45b0c58e8ee683f14f21e7d4faf5d8bca56e6a127c941f22e77d1e51401ef",
+            "stop": "0.170730",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.174000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.4948013000"
+        },
+        {
+          "day_start_equity": "102.9980049201860000000000000",
+          "entry_ms": 1748001600000,
+          "exit_ms": 1748001900000,
+          "exit_price": "0.232270",
+          "fees": "0.0209889000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.423000",
+          "minimum_equity": "102.5679522201860000000000000",
+          "net_pnl": "-0.4439889000",
+          "plan": {
+            "decision_ms": 1748001600000,
+            "entry": "0.235090",
+            "exits": [
+              {
+                "price": "0.232270",
+                "quantity": "150",
+                "role": "STOP"
+              },
+              {
+                "price": "0.240260",
+                "quantity": "150",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "150",
+            "side": "BUY",
+            "signal_key": "f54f16524ac6be49d648e228d4b17c9cdd36c41f2c74b55f8d0768e46b5cd69c",
+            "stop": "0.232270",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.240260",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.5000298000"
+        },
+        {
+          "day_start_equity": "102.9980049201860000000000000",
+          "entry_ms": 1748003400000,
+          "exit_ms": 1748010600000,
+          "exit_price": "0.235830000000000000",
+          "fees": "0.0173046240000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.498150000000000000",
+          "minimum_equity": "102.3429042321860000000000000",
+          "net_pnl": "0.4808453760000000000000",
+          "plan": {
+            "decision_ms": 1748003400000,
+            "entry": "0.231780",
+            "exits": [
+              {
+                "price": "0.228240",
+                "quantity": "123",
+                "role": "STOP"
+              },
+              {
+                "price": "0.238250",
+                "quantity": "123",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "123",
+            "side": "BUY",
+            "signal_key": "37d3f3c164c6f3158e87d98f290023ad1483cb5b06799821a174bdc8f2347cb8",
+            "stop": "0.228240",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.238250",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20231,
+          "stress_net_pnl": "0.4347827370000000000000"
+        },
+        {
+          "day_start_equity": "103.0348613961860000000000000",
+          "entry_ms": 1748135700000,
+          "exit_ms": 1748142900000,
+          "exit_price": "0.223430000000000000",
+          "fees": "0.0265585400000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.595010000000000000",
+          "minimum_equity": "102.7972378841860000000000000",
+          "net_pnl": "0.5684514600000000000000",
+          "plan": {
+            "decision_ms": 1748135700000,
+            "entry": "0.220440",
+            "exits": [
+              {
+                "price": "0.218430",
+                "quantity": "199",
+                "role": "STOP"
+              },
+              {
+                "price": "0.224120",
+                "quantity": "199",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "199",
+            "side": "BUY",
+            "signal_key": "1163dcfb20892c37ad96144dd5a73859d8f25465f64e5db8ebf2ab8bf93f25c0",
+            "stop": "0.218430",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.224120",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20233,
+          "stress_net_pnl": "0.4977278550000000000000"
+        },
+        {
+          "day_start_equity": "103.6033128561860000000000000",
+          "entry_ms": 1749727800000,
+          "exit_ms": 1749732600000,
+          "exit_price": "0.188650",
+          "fees": "0.0251497900",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.646550",
+          "minimum_equity": "103.5137526161860000000000000",
+          "net_pnl": "0.6214002100",
+          "plan": {
+            "decision_ms": 1749727800000,
+            "entry": "0.186720",
+            "exits": [
+              {
+                "price": "0.185660",
+                "quantity": "335",
+                "role": "STOP"
+              },
+              {
+                "price": "0.188650",
+                "quantity": "335",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "335",
+            "side": "BUY",
+            "signal_key": "67535221df8e3bf9d830a4ec6d50f7f00386d87e37cc5be6fdcadf2760f0535e",
+            "stop": "0.185660",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.188650",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20251,
+          "stress_net_pnl": "0.5333759450"
+        },
+        {
+          "day_start_equity": "104.2247130661860000000000000",
+          "entry_ms": 1750114800000,
+          "exit_ms": 1750117800000,
+          "exit_price": "0.174070",
+          "fees": "0.0298440600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.390450",
+          "minimum_equity": "103.8242629861860000000000000",
+          "net_pnl": "-0.4202940600",
+          "plan": {
+            "decision_ms": 1750114800000,
+            "entry": "0.175440",
+            "exits": [
+              {
+                "price": "0.174070",
+                "quantity": "285",
+                "role": "STOP"
+              },
+              {
+                "price": "0.177940",
+                "quantity": "285",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "285",
+            "side": "BUY",
+            "signal_key": "eb91fcbd54848fdfaee0cab4bb7bf33ad4a836b9154401c33a7014bac6599e5e",
+            "stop": "0.174070",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.177940",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20255,
+          "stress_net_pnl": "-0.4999432950"
+        },
+        {
+          "day_start_equity": "103.8044190061860000000000000",
+          "entry_ms": 1750119300000,
+          "exit_ms": 1750121700000,
+          "exit_price": "0.173050",
+          "fees": "0.0151433620",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.771290",
+          "minimum_equity": "103.5560344541860000000000000",
+          "net_pnl": "0.7561466380",
+          "plan": {
+            "decision_ms": 1750119300000,
+            "entry": "0.169560",
+            "exits": [
+              {
+                "price": "0.167650",
+                "quantity": "221",
+                "role": "STOP"
+              },
+              {
+                "price": "0.173050",
+                "quantity": "221",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "221",
+            "side": "BUY",
+            "signal_key": "cc532861a6a42f0644f3bac501b5bb69e3828b6167f60d9b12a745f8383a0e51",
+            "stop": "0.167650",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.173050",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20256,
+          "stress_net_pnl": "0.7031448710"
+        },
+        {
+          "day_start_equity": "104.5605656441860000000000000",
+          "entry_ms": 1751346000000,
+          "exit_ms": 1751347200000,
+          "exit_price": "0.162350",
+          "fees": "0.0434142000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.333750",
+          "minimum_equity": "104.2122997441860000000000000",
+          "net_pnl": "-0.3771642000",
+          "plan": {
+            "decision_ms": 1751346000000,
+            "entry": "0.163100",
+            "exits": [
+              {
+                "price": "0.162350",
+                "quantity": "445",
+                "role": "STOP"
+              },
+              {
+                "price": "0.164450",
+                "quantity": "445",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "445",
+            "side": "BUY",
+            "signal_key": "8cff5bd5ac1512ce33e0c6f0a8dd00d7466c8bcfa1b468723e300f02fbf2963e",
+            "stop": "0.162350",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.164450",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20270,
+          "stress_net_pnl": "-0.4929910250"
+        },
+        {
+          "day_start_equity": "104.1834014441860000000000000",
+          "entry_ms": 1751616900000,
+          "exit_ms": 1751618700000,
+          "exit_price": "0.166920",
+          "fees": "0.0233678720",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.672320",
+          "minimum_equity": "104.0837847401860000000000000",
+          "net_pnl": "0.6489521280",
+          "plan": {
+            "decision_ms": 1751616900000,
+            "entry": "0.165010",
+            "exits": [
+              {
+                "price": "0.163960",
+                "quantity": "352",
+                "role": "STOP"
+              },
+              {
+                "price": "0.166920",
+                "quantity": "352",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "352",
+            "side": "BUY",
+            "signal_key": "1e9af5082cf08451c6d75ece5a0b59891977b520812bcf8f47054c62a875bb59",
+            "stop": "0.163960",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.166920",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20273,
+          "stress_net_pnl": "0.5671645760"
+        },
+        {
+          "day_start_equity": "104.1834014441860000000000000",
+          "entry_ms": 1751638500000,
+          "exit_ms": 1751639100000,
+          "exit_price": "0.163290",
+          "fees": "0.0406307880",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.347760",
+          "minimum_equity": "104.4710036081860000000000000",
+          "net_pnl": "-0.3883907880",
+          "plan": {
+            "decision_ms": 1751638500000,
+            "entry": "0.164130",
+            "exits": [
+              {
+                "price": "0.163290",
+                "quantity": "414",
+                "role": "STOP"
+              },
+              {
+                "price": "0.165670",
+                "quantity": "414",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "414",
+            "side": "BUY",
+            "signal_key": "b6c63a603c1fc6a723d4cefece3032e22fc9a083cbceb9ce868dd6409373d843",
+            "stop": "0.163290",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.165670",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20273,
+          "stress_net_pnl": "-0.4967975160"
+        },
+        {
+          "day_start_equity": "104.4439627841860000000000000",
+          "entry_ms": 1751891400000,
+          "exit_ms": 1751894400000,
+          "exit_price": "0.168740",
+          "fees": "0.0426910840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.336800",
+          "minimum_equity": "104.0928875161860000000000000",
+          "net_pnl": "-0.3794910840",
+          "plan": {
+            "decision_ms": 1751891400000,
+            "entry": "0.169540",
+            "exits": [
+              {
+                "price": "0.168740",
+                "quantity": "421",
+                "role": "STOP"
+              },
+              {
+                "price": "0.171000",
+                "quantity": "421",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "421",
+            "side": "BUY",
+            "signal_key": "aec9387dcaacc70833a8be50a555fdbd48d3c5fbed889ed81a18179f373e2cbb",
+            "stop": "0.168740",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.171000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20276,
+          "stress_net_pnl": "-0.4933901080"
+        },
+        {
+          "day_start_equity": "104.5383569621860000000000000",
+          "entry_ms": 1752273000000,
+          "exit_ms": 1752280200000,
+          "exit_price": "0.200450000000000000",
+          "fees": "0.0178415580000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00299534700000000000000000",
+          "gross_pnl": "0.393360000000000000",
+          "minimum_equity": "103.9363969621860000000000000",
+          "net_pnl": "0.37252309500000000000000000",
+          "plan": {
+            "decision_ms": 1752273000000,
+            "entry": "0.197810",
+            "exits": [
+              {
+                "price": "0.194850",
+                "quantity": "149",
+                "role": "STOP"
+              },
+              {
+                "price": "0.203220",
+                "quantity": "149",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "149",
+            "side": "BUY",
+            "signal_key": "ed8162f44306419c93d340ff6c09336318184148729c210c23d48adc4ac16e1d",
+            "stop": "0.194850",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.203220",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20281,
+          "stress_net_pnl": "0.32501116700000000000000000"
+        }
+      ],
+      "unfilled": 15
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 32,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "104.4369947951860000000000000",
+          "entry_ms": 1753713000000,
+          "exit_ms": 1753720200000,
+          "exit_price": "0.233040000000000000",
+          "fees": "0.0238921200000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00396942300000000000000000",
+          "gross_pnl": "0.088920000000000000",
+          "minimum_equity": "104.0802026111860000000000000",
+          "net_pnl": "0.06105845700000000000000000",
+          "plan": {
+            "decision_ms": 1753713000000,
+            "entry": "0.232520",
+            "exits": [
+              {
+                "price": "0.230080",
+                "quantity": "171",
+                "role": "STOP"
+              },
+              {
+                "price": "0.236980",
+                "quantity": "171",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "171",
+            "side": "BUY",
+            "signal_key": "8c6a5b4acc41095bbe7053a904a03e6b64d3088ad293162ba83226ef2957f238",
+            "stop": "0.230080",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.236980",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20297,
+          "stress_net_pnl": "-0.00263904300000000000000000"
+        },
+        {
+          "day_start_equity": "104.4980532521860000000000000",
+          "entry_ms": 1753967700000,
+          "exit_ms": 1753971300000,
+          "exit_price": "0.217310",
+          "fees": "0.0338450840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.375550",
+          "minimum_equity": "104.1111714841860000000000000",
+          "net_pnl": "-0.4093950840",
+          "plan": {
+            "decision_ms": 1753967700000,
+            "entry": "0.218760",
+            "exits": [
+              {
+                "price": "0.217310",
+                "quantity": "259",
+                "role": "STOP"
+              },
+              {
+                "price": "0.221400",
+                "quantity": "259",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "259",
+            "side": "BUY",
+            "signal_key": "504196802f664c843d44883fa05ed9399ee181816156b75354a82b8000dc8673",
+            "stop": "0.217310",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.221400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.4997112330"
+        },
+        {
+          "day_start_equity": "104.4980532521860000000000000",
+          "entry_ms": 1753972200000,
+          "exit_ms": 1753978800000,
+          "exit_price": "0.218850",
+          "fees": "0.0179733960",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00177568740000000000000000",
+          "gross_pnl": "0.736920",
+          "minimum_equity": "103.9224251621860000000000000",
+          "net_pnl": "0.71717091660000000000000000",
+          "plan": {
+            "decision_ms": 1753972200000,
+            "entry": "0.215290",
+            "exits": [
+              {
+                "price": "0.213340",
+                "quantity": "207",
+                "role": "STOP"
+              },
+              {
+                "price": "0.218850",
+                "quantity": "207",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "207",
+            "side": "BUY",
+            "signal_key": "f0b9867611684eb01a9d06788f5767f8a5e70010aac2a46d7c2fee6963ac8888",
+            "stop": "0.213340",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.218850",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20300,
+          "stress_net_pnl": "0.65426403060000000000000000"
+        },
+        {
+          "day_start_equity": "104.8058290847860000000000000",
+          "entry_ms": 1754811900000,
+          "exit_ms": 1754813100000,
+          "exit_price": "0.229780",
+          "fees": "0.0283428900",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00470864500000000000000000",
+          "gross_pnl": "-0.399750",
+          "minimum_equity": "104.3965781547860000000000000",
+          "net_pnl": "-0.43280153500000000000000000",
+          "plan": {
+            "decision_ms": 1754811900000,
+            "entry": "0.231730",
+            "exits": [
+              {
+                "price": "0.229780",
+                "quantity": "205",
+                "role": "STOP"
+              },
+              {
+                "price": "0.235280",
+                "quantity": "205",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "205",
+            "side": "BUY",
+            "signal_key": "e1fc785da811985e14f54be39429622e4a636b1cea80ecb18513e92e6d0e9d18",
+            "stop": "0.229780",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.235280",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20310,
+          "stress_net_pnl": "-0.50844920000000000000000000"
+        },
+        {
+          "day_start_equity": "104.8058290847860000000000000",
+          "entry_ms": 1754813700000,
+          "exit_ms": 1754820900000,
+          "exit_price": "0.232510000000000000",
+          "fees": "0.0260390020000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.243100000000000000",
+          "minimum_equity": "104.3363302957860000000000000",
+          "net_pnl": "0.2170609980000000000000",
+          "plan": {
+            "decision_ms": 1754813700000,
+            "entry": "0.231210",
+            "exits": [
+              {
+                "price": "0.229030",
+                "quantity": "187",
+                "role": "STOP"
+              },
+              {
+                "price": "0.235190",
+                "quantity": "187",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "187",
+            "side": "BUY",
+            "signal_key": "5876eafedd051b5492384c2993fe7c64d7b4e20a4c497360dc3689784b7e2e6e",
+            "stop": "0.229030",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.235190",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20310,
+          "stress_net_pnl": "0.1476641760000000000000"
+        },
+        {
+          "day_start_equity": "104.5900885477860000000000000",
+          "entry_ms": 1755168300000,
+          "exit_ms": 1755174900000,
+          "exit_price": "0.235220",
+          "fees": "0.0237938400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.418320",
+          "minimum_equity": "104.1637814917860000000000000",
+          "net_pnl": "-0.4421138400",
+          "plan": {
+            "decision_ms": 1755168300000,
+            "entry": "0.237710",
+            "exits": [
+              {
+                "price": "0.235220",
+                "quantity": "168",
+                "role": "STOP"
+              },
+              {
+                "price": "0.242250",
+                "quantity": "168",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "168",
+            "side": "BUY",
+            "signal_key": "d0324ce45eef9e47b8a79e49e500970621209515497182172e4b7581f9b3f242",
+            "stop": "0.235220",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.242250",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20314,
+          "stress_net_pnl": "-0.5056338000"
+        },
+        {
+          "day_start_equity": "104.5900885477860000000000000",
+          "entry_ms": 1755175500000,
+          "exit_ms": 1755176700000,
+          "exit_price": "0.224410",
+          "fees": "0.0155742200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.449650",
+          "minimum_equity": "103.6930733477860000000000000",
+          "net_pnl": "-0.4652242200",
+          "plan": {
+            "decision_ms": 1755175500000,
+            "entry": "0.228320",
+            "exits": [
+              {
+                "price": "0.224410",
+                "quantity": "115",
+                "role": "STOP"
+              },
+              {
+                "price": "0.235470",
+                "quantity": "115",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "115",
+            "side": "BUY",
+            "signal_key": "db871e0e2c1310c766eac29a7e318c173b7b8e1cff64908e261c05e36c285b14",
+            "stop": "0.224410",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.235470",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20314,
+          "stress_net_pnl": "-0.5068304150"
+        },
+        {
+          "day_start_equity": "103.6827504877860000000000000",
+          "entry_ms": 1757861100000,
+          "exit_ms": 1757864400000,
+          "exit_price": "0.272660",
+          "fees": "0.0205352500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.428750",
+          "minimum_equity": "103.2470982377860000000000000",
+          "net_pnl": "-0.4492852500",
+          "plan": {
+            "decision_ms": 1757861100000,
+            "entry": "0.276090",
+            "exits": [
+              {
+                "price": "0.272660",
+                "quantity": "125",
+                "role": "STOP"
+              },
+              {
+                "price": "0.282360",
+                "quantity": "125",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "125",
+            "side": "BUY",
+            "signal_key": "ea32c3d1a1158ef1c2ac95c75b247d21a7853c40cae2e7c66064aa79d780e191",
+            "stop": "0.272660",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.282360",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20345,
+          "stress_net_pnl": "-0.5041173750"
+        },
+        {
+          "day_start_equity": "103.2334652377860000000000000",
+          "entry_ms": 1757922300000,
+          "exit_ms": 1757923500000,
+          "exit_price": "0.265800",
+          "fees": "0.0236856240",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00391267600000000000000000",
+          "gross_pnl": "-0.412920",
+          "minimum_equity": "102.8125949737860000000000000",
+          "net_pnl": "-0.44051830000000000000000000",
+          "plan": {
+            "decision_ms": 1757922300000,
+            "entry": "0.268590",
+            "exits": [
+              {
+                "price": "0.265800",
+                "quantity": "148",
+                "role": "STOP"
+              },
+              {
+                "price": "0.273680",
+                "quantity": "148",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "148",
+            "side": "BUY",
+            "signal_key": "a489b2c62360e553f8b2ea073e786ef76ea7955ff19aa74ee812b0953e953528",
+            "stop": "0.265800",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.273680",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20346,
+          "stress_net_pnl": "-0.50374878400000000000000000"
+        },
+        {
+          "day_start_equity": "103.2334652377860000000000000",
+          "entry_ms": 1757924100000,
+          "exit_ms": 1757926200000,
+          "exit_price": "0.260820",
+          "fees": "0.0207411600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.421080",
+          "minimum_equity": "102.3648970737860000000000000",
+          "net_pnl": "-0.4418211600",
+          "plan": {
+            "decision_ms": 1757924100000,
+            "entry": "0.264010",
+            "exits": [
+              {
+                "price": "0.260820",
+                "quantity": "132",
+                "role": "STOP"
+              },
+              {
+                "price": "0.269840",
+                "quantity": "132",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "132",
+            "side": "BUY",
+            "signal_key": "ffbb8c4dc0d41bd34e9a929a361ebc2fdd9869f3fd60827c74cf597b0c91e8fc",
+            "stop": "0.260820",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.269840",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20346,
+          "stress_net_pnl": "-0.4972011000"
+        },
+        {
+          "day_start_equity": "103.2334652377860000000000000",
+          "entry_ms": 1757926800000,
+          "exit_ms": 1757934000000,
+          "exit_price": "0.264040000000000000",
+          "fees": "0.0187486880000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.518840000000000000",
+          "minimum_equity": "102.2390353937860000000000000",
+          "net_pnl": "0.5000913120000000000000",
+          "plan": {
+            "decision_ms": 1757926800000,
+            "entry": "0.259680",
+            "exits": [
+              {
+                "price": "0.256060",
+                "quantity": "119",
+                "role": "STOP"
+              },
+              {
+                "price": "0.266310",
+                "quantity": "119",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "119",
+            "side": "BUY",
+            "signal_key": "12760ba9bba97be7a0aa9c594bbcb4dabd5e01b6038d2e8a96b0bd4ddf9355d2",
+            "stop": "0.256060",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.266310",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20346,
+          "stress_net_pnl": "0.4501812840000000000000"
+        },
+        {
+          "day_start_equity": "102.8512170897860000000000000",
+          "entry_ms": 1758281400000,
+          "exit_ms": 1758288600000,
+          "exit_price": "0.271130000000000000",
+          "fees": "0.0347814200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.158360000000000000",
+          "minimum_equity": "102.6984043977860000000000000",
+          "net_pnl": "0.1235785800000000000000",
+          "plan": {
+            "decision_ms": 1758281400000,
+            "entry": "0.270390",
+            "exits": [
+              {
+                "price": "0.268690",
+                "quantity": "214",
+                "role": "STOP"
+              },
+              {
+                "price": "0.273500",
+                "quantity": "214",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "214",
+            "side": "BUY",
+            "signal_key": "540967c63a4745e56d99a4b11983a3216131682aaf9c7c173617a3749e933077",
+            "stop": "0.268690",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.273500",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20350,
+          "stress_net_pnl": "0.0308545200000000000000"
+        },
+        {
+          "day_start_equity": "102.9747956697860000000000000",
+          "entry_ms": 1759476600000,
+          "exit_ms": 1759483800000,
+          "exit_price": "0.256890000000000000",
+          "fees": "0.0353372000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00587512000000000000000000",
+          "gross_pnl": "0.568100000000000000",
+          "minimum_equity": "102.7456172297860000000000000",
+          "net_pnl": "0.52688768000000000000000000",
+          "plan": {
+            "decision_ms": 1759476600000,
+            "entry": "0.254420",
+            "exits": [
+              {
+                "price": "0.252850",
+                "quantity": "230",
+                "role": "STOP"
+              },
+              {
+                "price": "0.257280",
+                "quantity": "230",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "230",
+            "side": "BUY",
+            "signal_key": "824f952292956467e12947a847a3aa9257beb257e8a23b683728ff880a487b9b",
+            "stop": "0.252850",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.257280",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20364,
+          "stress_net_pnl": "0.43274983000000000000000000"
+        },
+        {
+          "day_start_equity": "103.5016833497860000000000000",
+          "entry_ms": 1759572000000,
+          "exit_ms": 1759575300000,
+          "exit_price": "0.249640",
+          "fees": "0.0442511800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.324500",
+          "minimum_equity": "103.1623896897860000000000000",
+          "net_pnl": "-0.3687511800",
+          "plan": {
+            "decision_ms": 1759572000000,
+            "entry": "0.250740",
+            "exits": [
+              {
+                "price": "0.249640",
+                "quantity": "295",
+                "role": "STOP"
+              },
+              {
+                "price": "0.252740",
+                "quantity": "295",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "295",
+            "side": "BUY",
+            "signal_key": "c000cdd5522481aefb1557ba50c5d6433f53259d838b6b9245962e7e5e734562",
+            "stop": "0.249640",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.252740",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20365,
+          "stress_net_pnl": "-0.4868084100"
+        },
+        {
+          "day_start_equity": "103.1329321697860000000000000",
+          "entry_ms": 1759824900000,
+          "exit_ms": 1759832100000,
+          "exit_price": "0.261350000000000000",
+          "fees": "0.0303070680000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.570360000000000000",
+          "minimum_equity": "102.9289058617860000000000000",
+          "net_pnl": "0.5400529320000000000000",
+          "plan": {
+            "decision_ms": 1759824900000,
+            "entry": "0.258410",
+            "exits": [
+              {
+                "price": "0.256430",
+                "quantity": "194",
+                "role": "STOP"
+              },
+              {
+                "price": "0.262030",
+                "quantity": "194",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "194",
+            "side": "BUY",
+            "signal_key": "24aa76d71c2a6218a302950f0ddbf1d7aa97abe5ec8522e8b125ea14672095f0",
+            "stop": "0.256430",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.262030",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20368,
+          "stress_net_pnl": "0.4593291440000000000000"
+        },
+        {
+          "day_start_equity": "103.6729851017860000000000000",
+          "entry_ms": 1759977900000,
+          "exit_ms": 1759985100000,
+          "exit_price": "0.249140000000000000",
+          "fees": "0.0311836360000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.292600000000000000",
+          "minimum_equity": "103.3930195697860000000000000",
+          "net_pnl": "0.2614163640000000000000",
+          "plan": {
+            "decision_ms": 1759977900000,
+            "entry": "0.247740",
+            "exits": [
+              {
+                "price": "0.245910",
+                "quantity": "209",
+                "role": "STOP"
+              },
+              {
+                "price": "0.251090",
+                "quantity": "209",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "209",
+            "side": "BUY",
+            "signal_key": "778ad078fde6821c13dca44a41c9e31f1bdb93aa5a6ecc4ce73f71af6aa897c4",
+            "stop": "0.245910",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.251090",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20370,
+          "stress_net_pnl": "0.1783087680000000000000"
+        },
+        {
+          "day_start_equity": "103.6729851017860000000000000",
+          "entry_ms": 1759998600000,
+          "exit_ms": 1760005800000,
+          "exit_price": "0.243910000000000000",
+          "fees": "0.0335059060000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.036640000000000000",
+          "minimum_equity": "103.7240077157860000000000000",
+          "net_pnl": "0.0031340940000000000000",
+          "plan": {
+            "decision_ms": 1759998600000,
+            "entry": "0.243750",
+            "exits": [
+              {
+                "price": "0.242120",
+                "quantity": "229",
+                "role": "STOP"
+              },
+              {
+                "price": "0.246730",
+                "quantity": "229",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "229",
+            "side": "BUY",
+            "signal_key": "5909b6125155a998f8ceed2223aaf1443d9288873cfee8706fda14de1adae838",
+            "stop": "0.242120",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.246730",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20370,
+          "stress_net_pnl": "-0.0862088820000000000000"
+        },
+        {
+          "day_start_equity": "103.9375355597860000000000000",
+          "entry_ms": 1767425400000,
+          "exit_ms": 1767432600000,
+          "exit_price": "0.141250000000000000",
+          "fees": "0.0292120880000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00484261600000000000000000",
+          "gross_pnl": "0.557060000000000000",
+          "minimum_equity": "103.7444924717860000000000000",
+          "net_pnl": "0.52300529600000000000000000",
+          "plan": {
+            "decision_ms": 1767425400000,
+            "entry": "0.139640",
+            "exits": [
+              {
+                "price": "0.138500",
+                "quantity": "346",
+                "role": "STOP"
+              },
+              {
+                "price": "0.141720",
+                "quantity": "346",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "346",
+            "side": "BUY",
+            "signal_key": "c8632996942c0a9831dadd39fe60f32b973b75abc71b5ffc76c48c35aabc1778",
+            "stop": "0.138500",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.141720",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20456,
+          "stress_net_pnl": "0.44519923800000000000000000"
+        },
+        {
+          "day_start_equity": "104.4605408557860000000000000",
+          "entry_ms": 1767609900000,
+          "exit_ms": 1767617100000,
+          "exit_price": "0.147050000000000000",
+          "fees": "0.0311049480000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.201210000000000000",
+          "minimum_equity": "104.4396093677860000000000000",
+          "net_pnl": "0.1701050520000000000000",
+          "plan": {
+            "decision_ms": 1767609900000,
+            "entry": "0.146480",
+            "exits": [
+              {
+                "price": "0.145380",
+                "quantity": "353",
+                "role": "STOP"
+              },
+              {
+                "price": "0.148480",
+                "quantity": "353",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "353",
+            "side": "BUY",
+            "signal_key": "f0565cd7bcb46bab66918a5b0880d07179e35ecac82d83d50201d773eb2d8561",
+            "stop": "0.145380",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.148480",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20458,
+          "stress_net_pnl": "0.0871920590000000000000"
+        },
+        {
+          "day_start_equity": "104.6306459077860000000000000",
+          "entry_ms": 1768203900000,
+          "exit_ms": 1768206900000,
+          "exit_price": "0.137480",
+          "fees": "0.0379335960",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00116675688600000000000000",
+          "gross_pnl": "-0.358020",
+          "minimum_equity": "104.2587668829000000000000000",
+          "net_pnl": "-0.39712035288600000000000000",
+          "plan": {
+            "decision_ms": 1768203900000,
+            "entry": "0.138260",
+            "exits": [
+              {
+                "price": "0.137480",
+                "quantity": "459",
+                "role": "STOP"
+              },
+              {
+                "price": "0.139680",
+                "quantity": "459",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "459",
+            "side": "BUY",
+            "signal_key": "d094df55581103dd5ae43827bc2f4370dd92a02a546fc989dab2ef3d4508c5e8",
+            "stop": "0.137480",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.139680",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20465,
+          "stress_net_pnl": "-0.49833627888600000000000000"
+        },
+        {
+          "day_start_equity": "104.2335255549000000000000000",
+          "entry_ms": 1768562100000,
+          "exit_ms": 1768562400000,
+          "exit_price": "0.137840",
+          "fees": "0.0526582560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.292560",
+          "minimum_equity": "103.9233737949000000000000000",
+          "net_pnl": "-0.3452182560",
+          "plan": {
+            "decision_ms": 1768562100000,
+            "entry": "0.138300",
+            "exits": [
+              {
+                "price": "0.137840",
+                "quantity": "636",
+                "role": "STOP"
+              },
+              {
+                "price": "0.139130",
+                "quantity": "636",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "636",
+            "side": "BUY",
+            "signal_key": "b48c8e8d0438906383cf1c1fe216278a2161c794b73ec111c727c16443d0d230",
+            "stop": "0.137840",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.139130",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20469,
+          "stress_net_pnl": "-0.4856890320"
+        },
+        {
+          "day_start_equity": "104.2335255549000000000000000",
+          "entry_ms": 1768563000000,
+          "exit_ms": 1768563900000,
+          "exit_price": "0.137540",
+          "fees": "0.0499875200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.302500",
+          "minimum_equity": "103.5691044589000000000000000",
+          "net_pnl": "-0.3524875200",
+          "plan": {
+            "decision_ms": 1768563000000,
+            "entry": "0.138040",
+            "exits": [
+              {
+                "price": "0.137540",
+                "quantity": "605",
+                "role": "STOP"
+              },
+              {
+                "price": "0.138950",
+                "quantity": "605",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "605",
+            "side": "BUY",
+            "signal_key": "f3144f341e7fb2aefc57993931026a46efba3531583019dfe716df0796c662a7",
+            "stop": "0.137540",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.138950",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20469,
+          "stress_net_pnl": "-0.4858379900"
+        },
+        {
+          "day_start_equity": "104.2335255549000000000000000",
+          "entry_ms": 1768563900000,
+          "exit_ms": 1768571100000,
+          "exit_price": "0.137800000000000000",
+          "fees": "0.0465762480000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.276360000000000000",
+          "minimum_equity": "103.4526512109000000000000000",
+          "net_pnl": "0.2297837520000000000000",
+          "plan": {
+            "decision_ms": 1768563900000,
+            "entry": "0.137310",
+            "exits": [
+              {
+                "price": "0.136750",
+                "quantity": "564",
+                "role": "STOP"
+              },
+              {
+                "price": "0.138330",
+                "quantity": "564",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "564",
+            "side": "BUY",
+            "signal_key": "c6f6b84e059bb4da3e9e706ccacd9387c892f88a6e83082c84813094f34dfe3f",
+            "stop": "0.136750",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.138330",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20469,
+          "stress_net_pnl": "0.1056264840000000000000"
+        },
+        {
+          "day_start_equity": "103.7656035309000000000000000",
+          "entry_ms": 1768779000000,
+          "exit_ms": 1768780200000,
+          "exit_price": "0.132540",
+          "fees": "0.0345075020",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.368050",
+          "minimum_equity": "103.3860019569000000000000000",
+          "net_pnl": "-0.4025575020",
+          "plan": {
+            "decision_ms": 1768779000000,
+            "entry": "0.133390",
+            "exits": [
+              {
+                "price": "0.132540",
+                "quantity": "433",
+                "role": "STOP"
+              },
+              {
+                "price": "0.134930",
+                "quantity": "433",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "433",
+            "side": "BUY",
+            "signal_key": "ace3e33c7d6479c8377203b97ee75c722b1cbc977e33508bd7d3248844921a7d",
+            "stop": "0.132540",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.134930",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20471,
+          "stress_net_pnl": "-0.4946388490"
+        }
+      ],
+      "unfilled": 8
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 1,
+      "signals": 29,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "103.3630460289000000000000000",
+          "entry_ms": 1773834300000,
+          "exit_ms": 1773837300000,
+          "exit_price": "0.096400",
+          "fees": "0.0332168100",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.372450",
+          "minimum_equity": "102.9794740989000000000000000",
+          "net_pnl": "-0.4056668100",
+          "plan": {
+            "decision_ms": 1773834300000,
+            "entry": "0.097050",
+            "exits": [
+              {
+                "price": "0.096400",
+                "quantity": "573",
+                "role": "STOP"
+              },
+              {
+                "price": "0.098230",
+                "quantity": "573",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "573",
+            "side": "BUY",
+            "signal_key": "efae4cf661ee6f9037ad8707a201019cbcc0d3a6a3c9724b11a320e3b532f632",
+            "stop": "0.096400",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.098230",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.4943070450"
+        },
+        {
+          "day_start_equity": "103.3630460289000000000000000",
+          "entry_ms": 1773837900000,
+          "exit_ms": 1773843300000,
+          "exit_price": "0.095160",
+          "fees": "0.0286260000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.390000",
+          "minimum_equity": "102.5577852189000000000000000",
+          "net_pnl": "-0.4186260000",
+          "plan": {
+            "decision_ms": 1773837900000,
+            "entry": "0.095940",
+            "exits": [
+              {
+                "price": "0.095160",
+                "quantity": "500",
+                "role": "STOP"
+              },
+              {
+                "price": "0.097350",
+                "quantity": "500",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "500",
+            "side": "BUY",
+            "signal_key": "8005fabb6c3a3ef97610275004c87777262c78171eab7ee14e1abe1c88cec23f",
+            "stop": "0.095160",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.097350",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.4950270000"
+        },
+        {
+          "day_start_equity": "102.5387532189000000000000000",
+          "entry_ms": 1774492200000,
+          "exit_ms": 1774492500000,
+          "exit_price": "0.094560",
+          "fees": "0.0464722160",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.310840",
+          "minimum_equity": "102.2123810349000000000000000",
+          "net_pnl": "-0.3573122160",
+          "plan": {
+            "decision_ms": 1774492200000,
+            "entry": "0.094940",
+            "exits": [
+              {
+                "price": "0.094560",
+                "quantity": "818",
+                "role": "STOP"
+              },
+              {
+                "price": "0.095610",
+                "quantity": "818",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "818",
+            "side": "BUY",
+            "signal_key": "0aaab5b5a774831820fc7b30458b6cf9e93572090a6f791c400cf62a80100f60",
+            "stop": "0.094560",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.095610",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20538,
+          "stress_net_pnl": "-0.4812899320"
+        },
+        {
+          "day_start_equity": "102.5387532189000000000000000",
+          "entry_ms": 1774495800000,
+          "exit_ms": 1774501800000,
+          "exit_price": "0.093800",
+          "fees": "0.0414319500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.330750",
+          "minimum_equity": "101.8368362529000000000000000",
+          "net_pnl": "-0.3721819500",
+          "plan": {
+            "decision_ms": 1774495800000,
+            "entry": "0.094250",
+            "exits": [
+              {
+                "price": "0.093800",
+                "quantity": "735",
+                "role": "STOP"
+              },
+              {
+                "price": "0.095050",
+                "quantity": "735",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "735",
+            "side": "BUY",
+            "signal_key": "c1f869fb6d6ae433361a4ee8956cf283d2c644ead4c0ca8e341afa15d8b98617",
+            "stop": "0.093800",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.095050",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20538,
+          "stress_net_pnl": "-0.4827222750"
+        },
+        {
+          "day_start_equity": "102.5387532189000000000000000",
+          "entry_ms": 1774503900000,
+          "exit_ms": 1774504500000,
+          "exit_price": "0.092710",
+          "fees": "0.0398398000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.336050",
+          "minimum_equity": "101.4598843129000000000000000",
+          "net_pnl": "-0.3758898000",
+          "plan": {
+            "decision_ms": 1774503900000,
+            "entry": "0.093180",
+            "exits": [
+              {
+                "price": "0.092710",
+                "quantity": "715",
+                "role": "STOP"
+              },
+              {
+                "price": "0.094030",
+                "quantity": "715",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "715",
+            "side": "BUY",
+            "signal_key": "63c3e763212dd43f24d44a363e78a9cf66f33e6a01c76759fe4a455d0febdeb3",
+            "stop": "0.092710",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.094030",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20538,
+          "stress_net_pnl": "-0.4821852750"
+        },
+        {
+          "day_start_equity": "101.4333692529000000000000000",
+          "entry_ms": 1775959200000,
+          "exit_ms": 1775966400000,
+          "exit_price": "0.091100000000000000",
+          "fees": "0.0323480640000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.053280000000000000",
+          "minimum_equity": "101.2686736689000000000000000",
+          "net_pnl": "0.0209319360000000000000",
+          "plan": {
+            "decision_ms": 1775959200000,
+            "entry": "0.091010",
+            "exits": [
+              {
+                "price": "0.090390",
+                "quantity": "592",
+                "role": "STOP"
+              },
+              {
+                "price": "0.092120",
+                "quantity": "592",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "592",
+            "side": "BUY",
+            "signal_key": "3840be322737332f88f853ce2c22df21956135e8947e3f1716b417da9b87135f",
+            "stop": "0.090390",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.092120",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.0653206880000000000000"
+        },
+        {
+          "day_start_equity": "101.4543011889000000000000000",
+          "entry_ms": 1776501900000,
+          "exit_ms": 1776506700000,
+          "exit_price": "0.096470",
+          "fees": "0.0424920100",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.322520",
+          "minimum_equity": "101.1175741829000000000000000",
+          "net_pnl": "-0.3650120100",
+          "plan": {
+            "decision_ms": 1776501900000,
+            "entry": "0.096910",
+            "exits": [
+              {
+                "price": "0.096470",
+                "quantity": "733",
+                "role": "STOP"
+              },
+              {
+                "price": "0.097700",
+                "quantity": "733",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "733",
+            "side": "BUY",
+            "signal_key": "d757ea1a49a33ad1a292f1a58dbb2ef7d1101771d1f358574ebf35bfdaeb7d4e",
+            "stop": "0.096470",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.097700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20561,
+          "stress_net_pnl": "-0.4783777900"
+        },
+        {
+          "day_start_equity": "101.4543011889000000000000000",
+          "entry_ms": 1776537900000,
+          "exit_ms": 1776545100000,
+          "exit_price": "0.094890000000000000",
+          "fees": "0.0407303760000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.171840000000000000",
+          "minimum_equity": "100.8394552989000000000000000",
+          "net_pnl": "0.1311096240000000000000",
+          "plan": {
+            "decision_ms": 1776537900000,
+            "entry": "0.094650",
+            "exits": [
+              {
+                "price": "0.094190",
+                "quantity": "716",
+                "role": "STOP"
+              },
+              {
+                "price": "0.095490",
+                "quantity": "716",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "716",
+            "side": "BUY",
+            "signal_key": "b746cdc52a626a6705e51d1d7e0fe9b60144e5bb77f46ca96315d0c5f57cedd9",
+            "stop": "0.094190",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.095490",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20561,
+          "stress_net_pnl": "0.0225239280000000000000"
+        },
+        {
+          "day_start_equity": "101.2203988029000000000000000",
+          "entry_ms": 1777267800000,
+          "exit_ms": 1777271700000,
+          "exit_price": "0.097720",
+          "fees": "0.0351912500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.353410",
+          "minimum_equity": "100.8552112649000000000000000",
+          "net_pnl": "-0.3886012500",
+          "plan": {
+            "decision_ms": 1777267800000,
+            "entry": "0.098310",
+            "exits": [
+              {
+                "price": "0.097720",
+                "quantity": "599",
+                "role": "STOP"
+              },
+              {
+                "price": "0.099380",
+                "quantity": "599",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "599",
+            "side": "BUY",
+            "signal_key": "0feba1de47997a177622f81c954fd25f4c93ccb727dd53191050f14f806916b0",
+            "stop": "0.097720",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.099380",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.4825034850"
+        },
+        {
+          "day_start_equity": "100.8317975529000000000000000",
+          "entry_ms": 1777889700000,
+          "exit_ms": 1777890000000,
+          "exit_price": "0.108950",
+          "fees": "0.0304059200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.371200",
+          "minimum_equity": "100.4504127529000000000000000",
+          "net_pnl": "-0.4016059200",
+          "plan": {
+            "decision_ms": 1777889700000,
+            "entry": "0.109750",
+            "exits": [
+              {
+                "price": "0.108950",
+                "quantity": "464",
+                "role": "STOP"
+              },
+              {
+                "price": "0.111210",
+                "quantity": "464",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "464",
+            "side": "BUY",
+            "signal_key": "d740b9e6e39b14da95bd1fb0972e5ebe5ee4767fe75ac010b2f2111dd2913d00",
+            "stop": "0.108950",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.111210",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20577,
+          "stress_net_pnl": "-0.4827502400"
+        },
+        {
+          "day_start_equity": "100.8317975529000000000000000",
+          "entry_ms": 1777890600000,
+          "exit_ms": 1777897800000,
+          "exit_price": "0.110700000000000000",
+          "fees": "0.0290424840000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.579480000000000000",
+          "minimum_equity": "100.3503480689000000000000000",
+          "net_pnl": "0.5504375160000000000000",
+          "plan": {
+            "decision_ms": 1777890600000,
+            "entry": "0.109380",
+            "exits": [
+              {
+                "price": "0.108520",
+                "quantity": "439",
+                "role": "STOP"
+              },
+              {
+                "price": "0.110940",
+                "quantity": "439",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "439",
+            "side": "BUY",
+            "signal_key": "b4ca3be7967cf806fa2d7f0ce2c2d92d4d735f95a8ff1d9c7ff2a7825b2d5d2a",
+            "stop": "0.108520",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.110940",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20577,
+          "stress_net_pnl": "0.4730874720000000000000"
+        },
+        {
+          "day_start_equity": "100.9806291489000000000000000",
+          "entry_ms": 1778074200000,
+          "exit_ms": 1778075400000,
+          "exit_price": "0.113090",
+          "fees": "0.0299305600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.374000",
+          "minimum_equity": "100.5966024289000000000000000",
+          "net_pnl": "-0.4039305600",
+          "plan": {
+            "decision_ms": 1778074200000,
+            "entry": "0.113940",
+            "exits": [
+              {
+                "price": "0.113090",
+                "quantity": "440",
+                "role": "STOP"
+              },
+              {
+                "price": "0.115490",
+                "quantity": "440",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "440",
+            "side": "BUY",
+            "signal_key": "61a93369fd6d3827cb4ae94acdc46667a2570894123a2930003c67923093894d",
+            "stop": "0.113090",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.115490",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20579,
+          "stress_net_pnl": "-0.4838077200"
+        },
+        {
+          "day_start_equity": "100.9806291489000000000000000",
+          "entry_ms": 1778076000000,
+          "exit_ms": 1778083200000,
+          "exit_price": "0.113000000000000000",
+          "fees": "0.0253355080000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.108460000000000000",
+          "minimum_equity": "100.2129678809000000000000000",
+          "net_pnl": "0.0831244920000000000000",
+          "plan": {
+            "decision_ms": 1778076000000,
+            "entry": "0.112710",
+            "exits": [
+              {
+                "price": "0.111660",
+                "quantity": "374",
+                "role": "STOP"
+              },
+              {
+                "price": "0.114630",
+                "quantity": "374",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "374",
+            "side": "BUY",
+            "signal_key": "abb487007a9406fdf35f6c1055b07c826d7a649cd56927d080164917e9fd9fe0",
+            "stop": "0.111660",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.114630",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20579,
+          "stress_net_pnl": "0.0155812140000000000000"
+        },
+        {
+          "day_start_equity": "100.6598230809000000000000000",
+          "entry_ms": 1778165100000,
+          "exit_ms": 1778167500000,
+          "exit_price": "0.108020",
+          "fees": "0.0310537480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.368060",
+          "minimum_equity": "100.2813627569000000000000000",
+          "net_pnl": "-0.3991137480",
+          "plan": {
+            "decision_ms": 1778165100000,
+            "entry": "0.108790",
+            "exits": [
+              {
+                "price": "0.108020",
+                "quantity": "478",
+                "role": "STOP"
+              },
+              {
+                "price": "0.110200",
+                "quantity": "478",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "478",
+            "side": "BUY",
+            "signal_key": "23e2bdd156e4f950d27f19b027c0929198931e60f85f3d605ad0e8f9005b889f",
+            "stop": "0.108020",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.110200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20580,
+          "stress_net_pnl": "-0.4819850860"
+        },
+        {
+          "day_start_equity": "100.6598230809000000000000000",
+          "entry_ms": 1778167800000,
+          "exit_ms": 1778175000000,
+          "exit_price": "0.107430000000000000",
+          "fees": "0.0245069600000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00068280984000000000000000",
+          "gross_pnl": "-0.064600000000000000",
+          "minimum_equity": "100.0352489230600000000000000",
+          "net_pnl": "-0.08978976984000000000000000",
+          "plan": {
+            "decision_ms": 1778167800000,
+            "entry": "0.107600",
+            "exits": [
+              {
+                "price": "0.106560",
+                "quantity": "380",
+                "role": "STOP"
+              },
+              {
+                "price": "0.109490",
+                "quantity": "380",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "380",
+            "side": "BUY",
+            "signal_key": "bcbec7ec629fefd0ebb5d18909a56c89e69672b5f2093109becf5d15201b04d9",
+            "stop": "0.106560",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.109490",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20580,
+          "stress_net_pnl": "-0.15515242984000000000000000"
+        },
+        {
+          "day_start_equity": "100.1709195630600000000000000",
+          "entry_ms": 1778202900000,
+          "exit_ms": 1778206800000,
+          "exit_price": "0.105870",
+          "fees": "0.0450980720",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.304870",
+          "minimum_equity": "99.8509762230600000000000000",
+          "net_pnl": "-0.3499680720",
+          "plan": {
+            "decision_ms": 1778202900000,
+            "entry": "0.106300",
+            "exits": [
+              {
+                "price": "0.105870",
+                "quantity": "709",
+                "role": "STOP"
+              },
+              {
+                "price": "0.107070",
+                "quantity": "709",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "709",
+            "side": "BUY",
+            "signal_key": "9b775f7350ece0ae91dba3e32217f8efb1d8abb7e733cf018520690b1022424f",
+            "stop": "0.105870",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.107070",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20581,
+          "stress_net_pnl": "-0.4702804090"
+        },
+        {
+          "day_start_equity": "99.8209514910600000000000000",
+          "entry_ms": 1778376600000,
+          "exit_ms": 1778379900000,
+          "exit_price": "0.108480",
+          "fees": "0.0332236800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.506880",
+          "minimum_equity": "99.7967103390600000000000000",
+          "net_pnl": "0.4736563200",
+          "plan": {
+            "decision_ms": 1778376600000,
+            "entry": "0.107820",
+            "exits": [
+              {
+                "price": "0.107450",
+                "quantity": "768",
+                "role": "STOP"
+              },
+              {
+                "price": "0.108480",
+                "quantity": "768",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "768",
+            "side": "BUY",
+            "signal_key": "8ab66bad5b62182dea3da9ab728529a81a98d491df9665c0179582ecf20ed070",
+            "stop": "0.107450",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.108480",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20583,
+          "stress_net_pnl": "0.3573734400"
+        },
+        {
+          "day_start_equity": "100.2946078110600000000000000",
+          "entry_ms": 1784189700000,
+          "exit_ms": 1784191200000,
+          "exit_price": "0.073280",
+          "fees": "0.0276740160",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.568800",
+          "minimum_equity": "100.1860276830600000000000000",
+          "net_pnl": "0.5411259840",
+          "plan": {
+            "decision_ms": 1784189700000,
+            "entry": "0.072680",
+            "exits": [
+              {
+                "price": "0.072340",
+                "quantity": "948",
+                "role": "STOP"
+              },
+              {
+                "price": "0.073280",
+                "quantity": "948",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "948",
+            "side": "BUY",
+            "signal_key": "442654c1adeb09fe0ef9f05a636a5a7b2bf2222605fd5521f4406c80d4c30906",
+            "stop": "0.072340",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.073280",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20650,
+          "stress_net_pnl": "0.4442669280"
+        },
+        {
+          "day_start_equity": "100.9035166310600000000000000",
+          "entry_ms": 1784244600000,
+          "exit_ms": 1784250300000,
+          "exit_price": "0.072770",
+          "fees": "0.0299860000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00376534367440000000000000",
+          "gross_pnl": "0.558360",
+          "minimum_equity": "100.6205712873856000000000000",
+          "net_pnl": "0.52460865632560000000000000",
+          "plan": {
+            "decision_ms": 1784244600000,
+            "entry": "0.072230",
+            "exits": [
+              {
+                "price": "0.071930",
+                "quantity": "1034",
+                "role": "STOP"
+              },
+              {
+                "price": "0.072770",
+                "quantity": "1034",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1034",
+            "side": "BUY",
+            "signal_key": "41ee8c16bcf00c7d7eb3e078fdfe027c90f326ebde703cad87b6802e58f09e06",
+            "stop": "0.071930",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.072770",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20651,
+          "stress_net_pnl": "0.41965765632560000000000000"
+        },
+        {
+          "day_start_equity": "101.3603424513856000000000000",
+          "entry_ms": 1784700000000,
+          "exit_ms": 1784706000000,
+          "exit_price": "0.072150",
+          "fees": "0.0449973000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.311400",
+          "minimum_equity": "101.0339018313856000000000000",
+          "net_pnl": "-0.3563973000",
+          "plan": {
+            "decision_ms": 1784700000000,
+            "entry": "0.072450",
+            "exits": [
+              {
+                "price": "0.072150",
+                "quantity": "1038",
+                "role": "STOP"
+              },
+              {
+                "price": "0.073000",
+                "quantity": "1038",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1038",
+            "side": "BUY",
+            "signal_key": "685deeb3ff965784bccb1d5d2c7345a6a94ee5ea20ef62ee234fdddff0da5836",
+            "stop": "0.072150",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.073000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20656,
+          "stress_net_pnl": "-0.4764420000"
+        },
+        {
+          "day_start_equity": "101.0039451513856000000000000",
+          "entry_ms": 1784810700000,
+          "exit_ms": 1784811000000,
+          "exit_price": "0.071200",
+          "fees": "0.0507656160",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.284880",
+          "minimum_equity": "100.7021052953856000000000000",
+          "net_pnl": "-0.3356456160",
+          "plan": {
+            "decision_ms": 1784810700000,
+            "entry": "0.071440",
+            "exits": [
+              {
+                "price": "0.071200",
+                "quantity": "1187",
+                "role": "STOP"
+              },
+              {
+                "price": "0.071860",
+                "quantity": "1187",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1187",
+            "side": "BUY",
+            "signal_key": "a4378f0caea084f6fa9af84acb54c337c71ea0dc093b7ef366ac12b6e810333e",
+            "stop": "0.071200",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.071860",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-0.4710680720"
+        },
+        {
+          "day_start_equity": "101.0039451513856000000000000",
+          "entry_ms": 1784813400000,
+          "exit_ms": 1784813700000,
+          "exit_price": "0.069900",
+          "fees": "0.0363052800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.345600",
+          "minimum_equity": "100.3105516953856000000000000",
+          "net_pnl": "-0.3819052800",
+          "plan": {
+            "decision_ms": 1784813400000,
+            "entry": "0.070300",
+            "exits": [
+              {
+                "price": "0.069900",
+                "quantity": "864",
+                "role": "STOP"
+              },
+              {
+                "price": "0.071020",
+                "quantity": "864",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "864",
+            "side": "BUY",
+            "signal_key": "2c6c98de480347da65fb83205100058c999d18598b43b34acdd396b96fd98c62",
+            "stop": "0.069900",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.071020",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-0.4787769600"
+        },
+        {
+          "day_start_equity": "101.0039451513856000000000000",
+          "entry_ms": 1784814300000,
+          "exit_ms": 1784815500000,
+          "exit_price": "0.070140",
+          "fees": "0.0334018080",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.356400",
+          "minimum_equity": "99.9188127993856000000000000",
+          "net_pnl": "-0.3898018080",
+          "plan": {
+            "decision_ms": 1784814300000,
+            "entry": "0.070590",
+            "exits": [
+              {
+                "price": "0.070140",
+                "quantity": "792",
+                "role": "STOP"
+              },
+              {
+                "price": "0.071410",
+                "quantity": "792",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "792",
+            "side": "BUY",
+            "signal_key": "21edb73d942ce7d04073435ef55cbeb002ecdaddadb5fcda6dd5377e01d0e9c4",
+            "stop": "0.070140",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.071410",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-0.4789326960"
+        },
+        {
+          "day_start_equity": "99.8965924473856000000000000",
+          "entry_ms": 1785192300000,
+          "exit_ms": 1785192900000,
+          "exit_price": "0.070730",
+          "fees": "0.0438154380",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.309300",
+          "minimum_equity": "99.5726460613856000000000000",
+          "net_pnl": "-0.3531154380",
+          "plan": {
+            "decision_ms": 1785192300000,
+            "entry": "0.071030",
+            "exits": [
+              {
+                "price": "0.070730",
+                "quantity": "1031",
+                "role": "STOP"
+              },
+              {
+                "price": "0.071570",
+                "quantity": "1031",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1031",
+            "side": "BUY",
+            "signal_key": "ecdcd68922931f7f72db258d93e7dfcbcf6e028616900e13b1682be7de593aa3",
+            "stop": "0.070730",
+            "symbol": "DOGEUSDT",
+            "tp1": "0.071570",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20661,
+          "stress_net_pnl": "-0.4700081560"
+        }
+      ],
+      "unfilled": 4
+    }
+  ]
+}

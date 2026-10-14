@@ -1,0 +1,733 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-4.0",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "1.5",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": true,
+    "positive_net_edge": true,
+    "profit_factor": true,
+    "stress_positive": false,
+    "sufficient_oos_samples": false,
+    "window_consistency": true
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "1.1599542880000000000000000",
+    "net_pnl": "0.662112419184000000000000000",
+    "profitable_windows": 3,
+    "stress_net_pnl": "-0.435773657816000000000000000",
+    "trade_count": 14
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {},
+  "report_hash": "b6fdde5fa79d0d6a33390315ce0cba35a235483eb78c04e5d108d47a45b8de50",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-4.0",
+      "target_atr_multiplier": "1.5"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/LINKUSDT-f8f738b671d7a87b.json",
+    "reference_report_sha256": "39aacced82f32f634c35af3e4fe43ce7d5bfc50832c790ad2019cd1e52e6bf42",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "6186b1bd5c7d9b00d7869188ffd3494b6505becf32b5b1e74cd785b4e9d6fa87",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/LINKUSDT-5m.parquet",
+      "rows": 376704,
+      "sha256": "4d7ae14fc57f9de8596538bdc9d82b895a9d494d9aa9aa0010f41bc1921c51e2"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/LINKUSDT-funding.csv",
+      "sha256": "2a9cdb1f353146b46e662e80b98c4ebf0dd45e0d6dc5956f0bdeb5756a45115e"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "0765622cf19c6c949d78a623f04003837854763a7d455230cc093235f92c723a",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/LINKUSDT-15m.parquet",
+      "rows": 125568,
+      "sha256": "c5d1c2f974f73619b42b337622a3804b11c55e266b5e574bc0c105caa126a635"
+    }
+  },
+  "symbol": "LINKUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 7,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704284100000,
+          "exit_ms": 1704284700000,
+          "exit_price": "13.670",
+          "fees": "0.006174120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.57040",
+          "minimum_equity": "99.96936998000000000000",
+          "net_pnl": "0.564225880",
+          "plan": {
+            "decision_ms": 1704284100000,
+            "entry": "13.174",
+            "exits": [
+              {
+                "price": "12.776",
+                "quantity": "1.15",
+                "role": "STOP"
+              },
+              {
+                "price": "13.670",
+                "quantity": "1.15",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1.15",
+            "side": "BUY",
+            "signal_key": "b1cdc2f3cc7d33079d3b2c06f11cd038c92451a8e4829dc09a3120b4cdd2415e",
+            "stop": "12.776",
+            "symbol": "LINKUSDT",
+            "tp1": "13.670",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19725,
+          "stress_net_pnl": "0.542616460"
+        },
+        {
+          "day_start_equity": "100.564225880",
+          "entry_ms": 1709451000000,
+          "exit_ms": 1709457000000,
+          "exit_price": "20.433",
+          "fees": "0.012072278",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0227312588160000000000000000",
+          "gross_pnl": "0.52895",
+          "minimum_equity": "100.36752263600000000000",
+          "net_pnl": "0.4941464631840000000000000000",
+          "plan": {
+            "decision_ms": 1709451000000,
+            "entry": "20.078",
+            "exits": [
+              {
+                "price": "19.793",
+                "quantity": "1.49",
+                "role": "STOP"
+              },
+              {
+                "price": "20.433",
+                "quantity": "1.49",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1.49",
+            "side": "BUY",
+            "signal_key": "5011ea25d8f2c77026227897df51043150fe07564ea0dd85551114cdebe8d93d",
+            "stop": "19.793",
+            "symbol": "LINKUSDT",
+            "tp1": "20.433",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19785,
+          "stress_net_pnl": "0.4518934901840000000000000000"
+        },
+        {
+          "day_start_equity": "101.0583723431840000000000000",
+          "entry_ms": 1710470700000,
+          "exit_ms": 1710471000000,
+          "exit_price": "19.687",
+          "fees": "0.022052160",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.40734",
+          "minimum_equity": "100.6436273111840000000000000",
+          "net_pnl": "-0.429392160",
+          "plan": {
+            "decision_ms": 1710470700000,
+            "entry": "19.906",
+            "exits": [
+              {
+                "price": "19.687",
+                "quantity": "1.86",
+                "role": "STOP"
+              },
+              {
+                "price": "20.179",
+                "quantity": "1.86",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1.86",
+            "side": "BUY",
+            "signal_key": "bf79cff74c7ba15b7e19f0f7ef7e1da9f82224dcf3a8a47e2e3af282630239d8",
+            "stop": "19.687",
+            "symbol": "LINKUSDT",
+            "tp1": "20.179",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19797,
+          "stress_net_pnl": "-0.488265810"
+        },
+        {
+          "day_start_equity": "100.6289801831840000000000000",
+          "entry_ms": 1712928600000,
+          "exit_ms": 1712929500000,
+          "exit_price": "17.125",
+          "fees": "0.034799804",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.35152",
+          "minimum_equity": "100.2658133791840000000000000",
+          "net_pnl": "-0.386319804",
+          "plan": {
+            "decision_ms": 1712928600000,
+            "entry": "17.229",
+            "exits": [
+              {
+                "price": "17.125",
+                "quantity": "3.38",
+                "role": "STOP"
+              },
+              {
+                "price": "17.358",
+                "quantity": "3.38",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.38",
+            "side": "BUY",
+            "signal_key": "1a0006447b06e4d30a69d6e61c7e620e9ff790b1b766fc57a2fa39ae84eb6bbe",
+            "stop": "17.125",
+            "symbol": "LINKUSDT",
+            "tp1": "17.358",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.479177868"
+        },
+        {
+          "day_start_equity": "100.6289801831840000000000000",
+          "entry_ms": 1712929500000,
+          "exit_ms": 1712930700000,
+          "exit_price": "17.267",
+          "fees": "0.021459360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.44928",
+          "minimum_equity": "100.1726956271840000000000000",
+          "net_pnl": "0.427820640",
+          "plan": {
+            "decision_ms": 1712929500000,
+            "entry": "17.123",
+            "exits": [
+              {
+                "price": "17.007",
+                "quantity": "3.12",
+                "role": "STOP"
+              },
+              {
+                "price": "17.267",
+                "quantity": "3.12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.12",
+            "side": "BUY",
+            "signal_key": "35254db0790b44e65037c8dc0e0f4ee52c65ae72c1645c43778dd9548324a9bb",
+            "stop": "17.007",
+            "symbol": "LINKUSDT",
+            "tp1": "17.267",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19825,
+          "stress_net_pnl": "0.352712880"
+        },
+        {
+          "day_start_equity": "100.6704810191840000000000000",
+          "entry_ms": 1717784100000,
+          "exit_ms": 1717784700000,
+          "exit_price": "15.707",
+          "fees": "0.009628600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.54870",
+          "minimum_equity": "100.4254715891840000000000000",
+          "net_pnl": "0.539071400",
+          "plan": {
+            "decision_ms": 1717784100000,
+            "entry": "15.353",
+            "exits": [
+              {
+                "price": "15.069",
+                "quantity": "1.55",
+                "role": "STOP"
+              },
+              {
+                "price": "15.707",
+                "quantity": "1.55",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1.55",
+            "side": "BUY",
+            "signal_key": "b31debf10e623370ca35a353c227d6d65804518592ffa1dc4c08f56cb3324a46",
+            "stop": "15.069",
+            "symbol": "LINKUSDT",
+            "tp1": "15.707",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19881,
+          "stress_net_pnl": "0.505371300"
+        }
+      ],
+      "unfilled": 1
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 2,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "101.2095524191840000000000000",
+          "entry_ms": 1726654500000,
+          "exit_ms": 1726655700000,
+          "exit_price": "10.415",
+          "fees": "0.028040850",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.39825",
+          "minimum_equity": "101.0200718191840000000000000",
+          "net_pnl": "0.370209150",
+          "plan": {
+            "decision_ms": 1726654500000,
+            "entry": "10.356",
+            "exits": [
+              {
+                "price": "10.308",
+                "quantity": "6.75",
+                "role": "STOP"
+              },
+              {
+                "price": "10.415",
+                "quantity": "6.75",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "6.75",
+            "side": "BUY",
+            "signal_key": "f63f2859dfb4d543a57f2891f3e8e6908f79853cc2b7675b1209ab2b2e6f1027",
+            "stop": "10.308",
+            "symbol": "LINKUSDT",
+            "tp1": "10.415",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19984,
+          "stress_net_pnl": "0.272066175"
+        }
+      ],
+      "unfilled": 1
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 2,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "101.5797615691840000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746020700000,
+          "exit_price": "14.013",
+          "fees": "0.031519224",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.37026",
+          "minimum_equity": "101.1989457931840000000000000",
+          "net_pnl": "-0.401779224",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "14.112",
+            "exits": [
+              {
+                "price": "14.013",
+                "quantity": "3.74",
+                "role": "STOP"
+              },
+              {
+                "price": "14.234",
+                "quantity": "3.74",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.74",
+            "side": "BUY",
+            "signal_key": "7702b57d30ad1f08ae9bb192bdf0879e1b26cb20af80d0d1076ffd2a7f1cbb76",
+            "stop": "14.013",
+            "symbol": "LINKUSDT",
+            "tp1": "14.234",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.485892198"
+        }
+      ],
+      "unfilled": 1
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 1,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "101.1779823451840000000000000",
+          "entry_ms": 1759567500000,
+          "exit_ms": 1759569300000,
+          "exit_price": "21.974",
+          "fees": "0.033329040",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.35720",
+          "minimum_equity": "101.0891535451840000000000000",
+          "net_pnl": "0.323870960",
+          "plan": {
+            "decision_ms": 1759567500000,
+            "entry": "21.880",
+            "exits": [
+              {
+                "price": "21.804",
+                "quantity": "3.80",
+                "role": "STOP"
+              },
+              {
+                "price": "21.974",
+                "quantity": "3.80",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3.80",
+            "side": "BUY",
+            "signal_key": "e8e8d84db8976f619584178b39366b6e6924847d0174f600c7acac6889001097",
+            "stop": "21.804",
+            "symbol": "LINKUSDT",
+            "tp1": "21.974",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20365,
+          "stress_net_pnl": "0.207219320"
+        }
+      ],
+      "unfilled": 0
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 5,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "101.5018533051840000000000000",
+          "entry_ms": 1773837900000,
+          "exit_ms": 1773839100000,
+          "exit_price": "9.326",
+          "fees": "0.027775440",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.38610",
+          "minimum_equity": "101.1064433451840000000000000",
+          "net_pnl": "-0.413875440",
+          "plan": {
+            "decision_ms": 1773837900000,
+            "entry": "9.404",
+            "exits": [
+              {
+                "price": "9.326",
+                "quantity": "4.95",
+                "role": "STOP"
+              },
+              {
+                "price": "9.500",
+                "quantity": "4.95",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4.95",
+            "side": "BUY",
+            "signal_key": "1af3df290d36039d8276b52c43680d6f95b4347183e3184310f2012b999336cd",
+            "stop": "9.326",
+            "symbol": "LINKUSDT",
+            "tp1": "9.500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.488007630"
+        },
+        {
+          "day_start_equity": "101.0879778651840000000000000",
+          "entry_ms": 1775958300000,
+          "exit_ms": 1775958600000,
+          "exit_price": "8.762",
+          "fees": "0.031354120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.36890",
+          "minimum_equity": "100.7085773051840000000000000",
+          "net_pnl": "-0.400254120",
+          "plan": {
+            "decision_ms": 1775958300000,
+            "entry": "8.824",
+            "exits": [
+              {
+                "price": "8.762",
+                "quantity": "5.95",
+                "role": "STOP"
+              },
+              {
+                "price": "8.900",
+                "quantity": "5.95",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.95",
+            "side": "BUY",
+            "signal_key": "3df34bb62c56fa109f671bc0027949def2919ce1c589d523eb4f8a6232a3351a",
+            "stop": "8.762",
+            "symbol": "LINKUSDT",
+            "tp1": "8.900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.483926590"
+        },
+        {
+          "day_start_equity": "101.0879778651840000000000000",
+          "entry_ms": 1775959200000,
+          "exit_ms": 1775966400000,
+          "exit_price": "8.788000000000000000",
+          "fees": "0.030208560000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.02292000000000000000",
+          "minimum_equity": "100.4198072811840000000000000",
+          "net_pnl": "-0.007288560000000000000000",
+          "plan": {
+            "decision_ms": 1775959200000,
+            "entry": "8.784",
+            "exits": [
+              {
+                "price": "8.719",
+                "quantity": "5.73",
+                "role": "STOP"
+              },
+              {
+                "price": "8.864",
+                "quantity": "5.73",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5.73",
+            "side": "BUY",
+            "signal_key": "dbe3cb2eb91c9ef2c46f8cd113d474c37923f07c273916b89b0928ff54040203",
+            "stop": "8.719",
+            "symbol": "LINKUSDT",
+            "tp1": "8.864",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.087840900000000000000000"
+        },
+        {
+          "day_start_equity": "100.6804351851840000000000000",
+          "entry_ms": 1776501900000,
+          "exit_ms": 1776502800000,
+          "exit_price": "9.499",
+          "fees": "0.032033950",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.36335",
+          "minimum_equity": "100.6306545451840000000000000",
+          "net_pnl": "0.331316050",
+          "plan": {
+            "decision_ms": 1776501900000,
+            "entry": "9.456",
+            "exits": [
+              {
+                "price": "9.421",
+                "quantity": "8.45",
+                "role": "STOP"
+              },
+              {
+                "price": "9.499",
+                "quantity": "8.45",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.45",
+            "side": "BUY",
+            "signal_key": "e2becf0d6139c5719ede978b1f166cc71c9ccdcee8fab59ae0bfa9e9305651a8",
+            "stop": "9.421",
+            "symbol": "LINKUSDT",
+            "tp1": "9.499",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20561,
+          "stress_net_pnl": "0.219197225"
+        },
+        {
+          "day_start_equity": "101.0117512351840000000000000",
+          "entry_ms": 1776903300000,
+          "exit_ms": 1776903600000,
+          "exit_price": "9.196",
+          "fees": "0.046518816",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.30312",
+          "minimum_equity": "100.6930845471840000000000000",
+          "net_pnl": "-0.349638816",
+          "plan": {
+            "decision_ms": 1776903300000,
+            "entry": "9.232",
+            "exits": [
+              {
+                "price": "9.196",
+                "quantity": "8.42",
+                "role": "STOP"
+              },
+              {
+                "price": "9.276",
+                "quantity": "8.42",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "8.42",
+            "side": "BUY",
+            "signal_key": "7b26b4e0286affcaaa8f5103b4168bde989e9c8ca84d2fc89c7e842cceab60aa",
+            "stop": "9.196",
+            "symbol": "LINKUSDT",
+            "tp1": "9.276",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20566,
+          "stress_net_pnl": "-0.473739512"
+        }
+      ],
+      "unfilled": 0
+    }
+  ]
+}

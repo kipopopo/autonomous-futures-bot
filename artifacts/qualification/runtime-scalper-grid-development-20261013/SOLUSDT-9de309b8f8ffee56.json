@@ -1,0 +1,4464 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-2.5",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "1.5",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": false,
+    "positive_net_edge": false,
+    "profit_factor": false,
+    "stress_positive": false,
+    "sufficient_oos_samples": true,
+    "window_consistency": false
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "10.14679972747700000000000000",
+    "net_pnl": "-9.46213816747700000000000000",
+    "profitable_windows": 0,
+    "stress_net_pnl": "-17.46036400347700000000000000",
+    "trade_count": 105
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {},
+  "report_hash": "9de309b8f8ffee56fe02a5cc356163b79b6c59d96132220af757766e49559fcb",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-2.5",
+      "target_atr_multiplier": "1.5"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/SOLUSDT-662b670b40f1dbdd.json",
+    "reference_report_sha256": "31be20ffeecb7a81b857ec39d09b4d8bd318b95c29f064d6484505c130100b2b",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "d051d30a047b15177fd7e01a894b9230da04aaa355cebd76ea383bf014d381d3",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/SOLUSDT-5m.parquet",
+      "rows": 376704,
+      "sha256": "d53f4527c330620cafa7eeb1205d74e63c179109b9bfa3c683270f1e6ea5559e"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/SOLUSDT-funding.csv",
+      "sha256": "f50cece7deb96248322bd066f89b11877f3c85becfe0dd6a0221ad2f75927c40"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "8ba3e5fd255f170434f12b1d4627a8b72655b9c46daa209aee0e9ca7c2f6822a",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/SOLUSDT-15m.parquet",
+      "rows": 125568,
+      "sha256": "a3e5d78822e31cf999536c8f9868d0c68fe2c2bff365cbcb809a295721e4079c"
+    }
+  },
+  "symbol": "SOLUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 37,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704283200000,
+          "exit_ms": 1704283500000,
+          "exit_price": "101.9200",
+          "fees": "0.0165958200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.423900",
+          "minimum_equity": "99.5705115400",
+          "net_pnl": "-0.4404958200",
+          "plan": {
+            "decision_ms": 1704283200000,
+            "entry": "103.4900",
+            "exits": [
+              {
+                "price": "101.9200",
+                "quantity": "0.27",
+                "role": "STOP"
+              },
+              {
+                "price": "105.4700",
+                "quantity": "0.27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.27",
+            "side": "BUY",
+            "signal_key": "8f5fa0cb832d260cb3f707a9d1889e9536ed5b18398aeaf761673ea8357ef219",
+            "stop": "101.9200",
+            "symbol": "SOLUSDT",
+            "tp1": "105.4700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19725,
+          "stress_net_pnl": "-0.4848219900"
+        },
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704285000000,
+          "exit_ms": 1704292200000,
+          "exit_price": "96.408000000000000000",
+          "fees": "0.007553676000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.16926000000000000000",
+          "minimum_equity": "99.20466372000000000000",
+          "net_pnl": "-0.176813676000000000000000",
+          "plan": {
+            "decision_ms": 1704285000000,
+            "entry": "97.7100",
+            "exits": [
+              {
+                "price": "94.1600",
+                "quantity": "0.13",
+                "role": "STOP"
+              },
+              {
+                "price": "102.1400",
+                "quantity": "0.13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.13",
+            "side": "BUY",
+            "signal_key": "9140a69dcb8a13748a1f000621a79bd709181fa89cd78e00782c07fc5ac08d28",
+            "stop": "94.1600",
+            "symbol": "SOLUSDT",
+            "tp1": "102.1400",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19725,
+          "stress_net_pnl": "-0.196985022000000000000000"
+        },
+        {
+          "day_start_equity": "99.382690504000000000000000",
+          "entry_ms": 1704519000000,
+          "exit_ms": 1704520500000,
+          "exit_price": "95.0500",
+          "fees": "0.0251688800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.378400",
+          "minimum_equity": "98.995850424000000000000000",
+          "net_pnl": "-0.4035688800",
+          "plan": {
+            "decision_ms": 1704519000000,
+            "entry": "95.9100",
+            "exits": [
+              {
+                "price": "95.0500",
+                "quantity": "0.44",
+                "role": "STOP"
+              },
+              {
+                "price": "96.9900",
+                "quantity": "0.44",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.44",
+            "side": "BUY",
+            "signal_key": "278a23bcf6800c5b2fab3e95e37caab9d518b3a1e8ae22c60543d7774c9aac4d",
+            "stop": "95.0500",
+            "symbol": "SOLUSDT",
+            "tp1": "96.9900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.4707489600"
+        },
+        {
+          "day_start_equity": "99.382690504000000000000000",
+          "entry_ms": 1704520800000,
+          "exit_ms": 1704521700000,
+          "exit_price": "93.4000",
+          "fees": "0.0219351600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.397800",
+          "minimum_equity": "98.573956864000000000000000",
+          "net_pnl": "-0.4197351600",
+          "plan": {
+            "decision_ms": 1704520800000,
+            "entry": "94.4200",
+            "exits": [
+              {
+                "price": "93.4000",
+                "quantity": "0.39",
+                "role": "STOP"
+              },
+              {
+                "price": "95.7000",
+                "quantity": "0.39",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.39",
+            "side": "BUY",
+            "signal_key": "4bb5b18a87a427d160fb7e8838186b141686b90a69ddb317ceb4c859b68b86bc",
+            "stop": "93.4000",
+            "symbol": "SOLUSDT",
+            "tp1": "95.7000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.4782952200"
+        },
+        {
+          "day_start_equity": "99.382690504000000000000000",
+          "entry_ms": 1704521700000,
+          "exit_ms": 1704522300000,
+          "exit_price": "92.8900",
+          "fees": "0.0201434400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.396000",
+          "minimum_equity": "98.156619184000000000000000",
+          "net_pnl": "-0.4161434400",
+          "plan": {
+            "decision_ms": 1704521700000,
+            "entry": "93.9900",
+            "exits": [
+              {
+                "price": "92.8900",
+                "quantity": "0.36",
+                "role": "STOP"
+              },
+              {
+                "price": "95.3700",
+                "quantity": "0.36",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.36",
+            "side": "BUY",
+            "signal_key": "383dee287acd925c8cff8f285369284f298b99b0165259c3cb2bac9af236840d",
+            "stop": "92.8900",
+            "symbol": "SOLUSDT",
+            "tp1": "95.3700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.4699252800"
+        },
+        {
+          "day_start_equity": "99.382690504000000000000000",
+          "entry_ms": 1704522600000,
+          "exit_ms": 1704524400000,
+          "exit_price": "91.7000",
+          "fees": "0.0182371200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.402600",
+          "minimum_equity": "97.734510304000000000000000",
+          "net_pnl": "-0.4208371200",
+          "plan": {
+            "decision_ms": 1704522600000,
+            "entry": "92.9200",
+            "exits": [
+              {
+                "price": "91.7000",
+                "quantity": "0.33",
+                "role": "STOP"
+              },
+              {
+                "price": "94.4500",
+                "quantity": "0.33",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.33",
+            "side": "BUY",
+            "signal_key": "39e69a4049fca21588475507a1d7be7d807c211ca837a108a20a074aa814d89e",
+            "stop": "91.7000",
+            "symbol": "SOLUSDT",
+            "tp1": "94.4500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.4695365400"
+        },
+        {
+          "day_start_equity": "99.382690504000000000000000",
+          "entry_ms": 1704524400000,
+          "exit_ms": 1704527100000,
+          "exit_price": "93.7900",
+          "fees": "0.0111510000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.519000",
+          "minimum_equity": "97.704582304000000000000000",
+          "net_pnl": "0.5078490000",
+          "plan": {
+            "decision_ms": 1704524400000,
+            "entry": "92.0600",
+            "exits": [
+              {
+                "price": "90.6800",
+                "quantity": "0.30",
+                "role": "STOP"
+              },
+              {
+                "price": "93.7900",
+                "quantity": "0.30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.30",
+            "side": "BUY",
+            "signal_key": "d9cda73a5f76bd0bd9e1d615eae1e8ae786ddb0bf25dc9a4d9b8cef115f4922c",
+            "stop": "90.6800",
+            "symbol": "SOLUSDT",
+            "tp1": "93.7900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19728,
+          "stress_net_pnl": "0.4688205000"
+        },
+        {
+          "day_start_equity": "98.230254904000000000000000",
+          "entry_ms": 1704665700000,
+          "exit_ms": 1704666000000,
+          "exit_price": "90.9000",
+          "fees": "0.0251629200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.372600",
+          "minimum_equity": "97.849217584000000000000000",
+          "net_pnl": "-0.3977629200",
+          "plan": {
+            "decision_ms": 1704665700000,
+            "entry": "91.7100",
+            "exits": [
+              {
+                "price": "90.9000",
+                "quantity": "0.46",
+                "role": "STOP"
+              },
+              {
+                "price": "92.7300",
+                "quantity": "0.46",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.46",
+            "side": "BUY",
+            "signal_key": "e746a8450b7381ba37a0475b494e5bccda8893ad8b5d692cbe8d5aa056440e4f",
+            "stop": "90.9000",
+            "symbol": "SOLUSDT",
+            "tp1": "92.7300",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.4649261400"
+        },
+        {
+          "day_start_equity": "98.230254904000000000000000",
+          "entry_ms": 1704666600000,
+          "exit_ms": 1704666900000,
+          "exit_price": "89.5800",
+          "fees": "0.0226522800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.390600",
+          "minimum_equity": "97.434289144000000000000000",
+          "net_pnl": "-0.4132522800",
+          "plan": {
+            "decision_ms": 1704666600000,
+            "entry": "90.5100",
+            "exits": [
+              {
+                "price": "89.5800",
+                "quantity": "0.42",
+                "role": "STOP"
+              },
+              {
+                "price": "91.6800",
+                "quantity": "0.42",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.42",
+            "side": "BUY",
+            "signal_key": "00de2f1e7b8c9b4de13c54b3d95b45ebacca7ea1198c350570fc13a677d66bbf",
+            "stop": "89.5800",
+            "symbol": "SOLUSDT",
+            "tp1": "91.6800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.4737234600"
+        },
+        {
+          "day_start_equity": "98.230254904000000000000000",
+          "entry_ms": 1704667500000,
+          "exit_ms": 1704669900000,
+          "exit_price": "88.8000",
+          "fees": "0.0192614400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.403200",
+          "minimum_equity": "97.009565464000000000000000",
+          "net_pnl": "-0.4224614400",
+          "plan": {
+            "decision_ms": 1704667500000,
+            "entry": "89.9200",
+            "exits": [
+              {
+                "price": "88.8000",
+                "quantity": "0.36",
+                "role": "STOP"
+              },
+              {
+                "price": "91.3200",
+                "quantity": "0.36",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.36",
+            "side": "BUY",
+            "signal_key": "b6dc2f891b918145cdc52ce02f2389ab65bfff01f537a6b8e06076e269bee50f",
+            "stop": "88.8000",
+            "symbol": "SOLUSDT",
+            "tp1": "91.3200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.4738924800"
+        },
+        {
+          "day_start_equity": "96.996778264000000000000000",
+          "entry_ms": 1704891600000,
+          "exit_ms": 1704898800000,
+          "exit_price": "92.648000000000000000",
+          "fees": "0.016733160000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.28260000000000000000",
+          "minimum_equity": "96.604162864000000000000000",
+          "net_pnl": "-0.299333160000000000000000",
+          "plan": {
+            "decision_ms": 1704891600000,
+            "entry": "93.5900",
+            "exits": [
+              {
+                "price": "92.2500",
+                "quantity": "0.30",
+                "role": "STOP"
+              },
+              {
+                "price": "95.2800",
+                "quantity": "0.30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.30",
+            "side": "BUY",
+            "signal_key": "8b1197a59c86716b40116f759e3f53e755f58fcf9ce649da2c49e01589301c45",
+            "stop": "92.2500",
+            "symbol": "SOLUSDT",
+            "tp1": "95.2800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19732,
+          "stress_net_pnl": "-0.344002020000000000000000"
+        },
+        {
+          "day_start_equity": "96.697445104000000000000000",
+          "entry_ms": 1707737400000,
+          "exit_ms": 1707739800000,
+          "exit_price": "104.5600",
+          "fees": "0.0204085000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.426300",
+          "minimum_equity": "96.594673484000000000000000",
+          "net_pnl": "0.4058915000",
+          "plan": {
+            "decision_ms": 1707737400000,
+            "entry": "103.6900",
+            "exits": [
+              {
+                "price": "102.9900",
+                "quantity": "0.49",
+                "role": "STOP"
+              },
+              {
+                "price": "104.5600",
+                "quantity": "0.49",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.49",
+            "side": "BUY",
+            "signal_key": "504f996b5b6ccd38266e655041e8027b05bd91adaed7c5e4a953f51d90a5c654",
+            "stop": "102.9900",
+            "symbol": "SOLUSDT",
+            "tp1": "104.5600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19765,
+          "stress_net_pnl": "0.3344617500"
+        },
+        {
+          "day_start_equity": "97.103336604000000000000000",
+          "entry_ms": 1708069500000,
+          "exit_ms": 1708070700000,
+          "exit_price": "111.2000",
+          "fees": "0.0367609000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0196879414600000000000000000",
+          "gross_pnl": "-0.324500",
+          "minimum_equity": "96.74685176254000000000000000",
+          "net_pnl": "-0.3809488414600000000000000000",
+          "plan": {
+            "decision_ms": 1708069500000,
+            "entry": "111.7900",
+            "exits": [
+              {
+                "price": "111.2000",
+                "quantity": "0.55",
+                "role": "STOP"
+              },
+              {
+                "price": "112.5300",
+                "quantity": "0.55",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.55",
+            "side": "BUY",
+            "signal_key": "7713f04f1eeddb57648d6c4ff6aa00a3cb8b7053fb838e5429b94d490e645b4c",
+            "stop": "111.2000",
+            "symbol": "SOLUSDT",
+            "tp1": "112.5300",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19769,
+          "stress_net_pnl": "-0.4790319914600000000000000000"
+        },
+        {
+          "day_start_equity": "97.103336604000000000000000",
+          "entry_ms": 1708096500000,
+          "exit_ms": 1708099800000,
+          "exit_price": "109.8500",
+          "fees": "0.0152859000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0064959062700000000000000000",
+          "gross_pnl": "0.465500",
+          "minimum_equity": "96.67839136254000000000000000",
+          "net_pnl": "0.4437181937300000000000000000",
+          "plan": {
+            "decision_ms": 1708096500000,
+            "entry": "108.5200",
+            "exits": [
+              {
+                "price": "107.4500",
+                "quantity": "0.35",
+                "role": "STOP"
+              },
+              {
+                "price": "109.8500",
+                "quantity": "0.35",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.35",
+            "side": "BUY",
+            "signal_key": "5a692666b9214a47188f05b67e5427516545c7fba313c5b346f7bb8458f94dba",
+            "stop": "107.4500",
+            "symbol": "SOLUSDT",
+            "tp1": "109.8500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19769,
+          "stress_net_pnl": "0.3902175437300000000000000000"
+        },
+        {
+          "day_start_equity": "97.16610595627000000000000000",
+          "entry_ms": 1710109800000,
+          "exit_ms": 1710110400000,
+          "exit_price": "141.5200",
+          "fees": "0.0340320000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.336000",
+          "minimum_equity": "96.81871715627000000000000000",
+          "net_pnl": "-0.3700320000",
+          "plan": {
+            "decision_ms": 1710109800000,
+            "entry": "142.3600",
+            "exits": [
+              {
+                "price": "141.5200",
+                "quantity": "0.40",
+                "role": "STOP"
+              },
+              {
+                "price": "143.4000",
+                "quantity": "0.40",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.40",
+            "side": "BUY",
+            "signal_key": "8df8521cbced36d3df8dcf4335d8b01c4314323c2b1b9c7caa70d54b174b971c",
+            "stop": "141.5200",
+            "symbol": "SOLUSDT",
+            "tp1": "143.4000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19792,
+          "stress_net_pnl": "-0.4608400000"
+        },
+        {
+          "day_start_equity": "96.79607395627000000000000000",
+          "entry_ms": 1711530900000,
+          "exit_ms": 1711532400000,
+          "exit_price": "185.9900",
+          "fees": "0.0199994400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.437400",
+          "minimum_equity": "96.61061797627000000000000000",
+          "net_pnl": "0.4174005600",
+          "plan": {
+            "decision_ms": 1711530900000,
+            "entry": "184.3700",
+            "exits": [
+              {
+                "price": "183.0800",
+                "quantity": "0.27",
+                "role": "STOP"
+              },
+              {
+                "price": "185.9900",
+                "quantity": "0.27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.27",
+            "side": "BUY",
+            "signal_key": "ab6b1bf15aa7d84686c04fdbb4a4c1dac63532f386df9955543a1a04cc1e29ed",
+            "stop": "183.0800",
+            "symbol": "SOLUSDT",
+            "tp1": "185.9900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19809,
+          "stress_net_pnl": "0.3474025200"
+        },
+        {
+          "day_start_equity": "97.21347451627000000000000000",
+          "entry_ms": 1711982700000,
+          "exit_ms": 1711983600000,
+          "exit_price": "190.8800",
+          "fees": "0.0264127400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.356500",
+          "minimum_equity": "96.84812273627000000000000000",
+          "net_pnl": "-0.3829127400",
+          "plan": {
+            "decision_ms": 1711982700000,
+            "entry": "192.4300",
+            "exits": [
+              {
+                "price": "190.8800",
+                "quantity": "0.23",
+                "role": "STOP"
+              },
+              {
+                "price": "194.3600",
+                "quantity": "0.23",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.23",
+            "side": "BUY",
+            "signal_key": "7ee543151cb282e799c59a6816340cb90caf51893401551f6bf51d5a82393951",
+            "stop": "190.8800",
+            "symbol": "SOLUSDT",
+            "tp1": "194.3600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19814,
+          "stress_net_pnl": "-0.4534061300"
+        },
+        {
+          "day_start_equity": "96.83056177627000000000000000",
+          "entry_ms": 1712018700000,
+          "exit_ms": 1712020200000,
+          "exit_price": "190.7800",
+          "fees": "0.0205205400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.418500",
+          "minimum_equity": "96.73205335627000000000000000",
+          "net_pnl": "0.3979794600",
+          "plan": {
+            "decision_ms": 1712018700000,
+            "entry": "189.2300",
+            "exits": [
+              {
+                "price": "187.9800",
+                "quantity": "0.27",
+                "role": "STOP"
+              },
+              {
+                "price": "190.7800",
+                "quantity": "0.27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.27",
+            "side": "BUY",
+            "signal_key": "eb5819ad3a4c420286f5b433715806a3fb84508eff0797718c2b294702275323",
+            "stop": "187.9800",
+            "symbol": "SOLUSDT",
+            "tp1": "190.7800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19815,
+          "stress_net_pnl": "0.3261575700"
+        },
+        {
+          "day_start_equity": "97.22854123627000000000000000",
+          "entry_ms": 1712673900000,
+          "exit_ms": 1712675700000,
+          "exit_price": "169.8200",
+          "fees": "0.0286020000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.361200",
+          "minimum_equity": "96.85775907627000000000000000",
+          "net_pnl": "-0.3898020000",
+          "plan": {
+            "decision_ms": 1712673900000,
+            "entry": "171.1100",
+            "exits": [
+              {
+                "price": "169.8200",
+                "quantity": "0.28",
+                "role": "STOP"
+              },
+              {
+                "price": "172.7200",
+                "quantity": "0.28",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.28",
+            "side": "BUY",
+            "signal_key": "0eacb9d3a92070b55f2ab96702e44d71fcfc172e4bc586a04c278aafa03ece64",
+            "stop": "169.8200",
+            "symbol": "SOLUSDT",
+            "tp1": "172.7200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19822,
+          "stress_net_pnl": "-0.4661342000"
+        },
+        {
+          "day_start_equity": "96.83873923627000000000000000",
+          "entry_ms": 1712925900000,
+          "exit_ms": 1712927100000,
+          "exit_price": "169.0000",
+          "fees": "0.0345412800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.326400",
+          "minimum_equity": "96.50078195627000000000000000",
+          "net_pnl": "-0.3609412800",
+          "plan": {
+            "decision_ms": 1712925900000,
+            "entry": "169.9600",
+            "exits": [
+              {
+                "price": "169.0000",
+                "quantity": "0.34",
+                "role": "STOP"
+              },
+              {
+                "price": "171.1700",
+                "quantity": "0.34",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.34",
+            "side": "BUY",
+            "signal_key": "17f25d660395c77ed28701e6dd8233a95c4a4e7081f1bff06021e09947f36c5c",
+            "stop": "169.0000",
+            "symbol": "SOLUSDT",
+            "tp1": "171.1700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.4531057600"
+        },
+        {
+          "day_start_equity": "96.83873923627000000000000000",
+          "entry_ms": 1712927700000,
+          "exit_ms": 1712928300000,
+          "exit_price": "168.2400",
+          "fees": "0.0323692800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.336000",
+          "minimum_equity": "96.13096339627000000000000000",
+          "net_pnl": "-0.3683692800",
+          "plan": {
+            "decision_ms": 1712927700000,
+            "entry": "169.2900",
+            "exits": [
+              {
+                "price": "168.2400",
+                "quantity": "0.32",
+                "role": "STOP"
+              },
+              {
+                "price": "170.6000",
+                "quantity": "0.32",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.32",
+            "side": "BUY",
+            "signal_key": "0d22fca6dbabfc00524ad692c65c551114482990ecc53190bea4c754a53373b5",
+            "stop": "168.2400",
+            "symbol": "SOLUSDT",
+            "tp1": "170.6000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.4547433600"
+        },
+        {
+          "day_start_equity": "96.83873923627000000000000000",
+          "entry_ms": 1712929500000,
+          "exit_ms": 1712936400000,
+          "exit_price": "168.6600",
+          "fees": "0.0181272600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.440100",
+          "minimum_equity": "96.01940905627000000000000000",
+          "net_pnl": "0.4219727400",
+          "plan": {
+            "decision_ms": 1712929500000,
+            "entry": "167.0300",
+            "exits": [
+              {
+                "price": "165.7300",
+                "quantity": "0.27",
+                "role": "STOP"
+              },
+              {
+                "price": "168.6600",
+                "quantity": "0.27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.27",
+            "side": "BUY",
+            "signal_key": "8a0705db6006c29fdfb1945a3911aae0a47e16637c444d9025405d0761df0887",
+            "stop": "165.7300",
+            "symbol": "SOLUSDT",
+            "tp1": "168.6600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19825,
+          "stress_net_pnl": "0.3585273300"
+        },
+        {
+          "day_start_equity": "96.53140141627000000000000000",
+          "entry_ms": 1716462000000,
+          "exit_ms": 1716464100000,
+          "exit_price": "175.3100",
+          "fees": "0.0202478000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.440800",
+          "minimum_equity": "96.48797159627000000000000000",
+          "net_pnl": "0.4205522000",
+          "plan": {
+            "decision_ms": 1716462000000,
+            "entry": "173.7900",
+            "exits": [
+              {
+                "price": "172.5800",
+                "quantity": "0.29",
+                "role": "STOP"
+              },
+              {
+                "price": "175.3100",
+                "quantity": "0.29",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.29",
+            "side": "BUY",
+            "signal_key": "a4cd76ac9ac262d4af74ddc0979f9ec678282dfe96ce05a3d3bb4b10c1fbab1c",
+            "stop": "172.5800",
+            "symbol": "SOLUSDT",
+            "tp1": "175.3100",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19866,
+          "stress_net_pnl": "0.3496849000"
+        },
+        {
+          "day_start_equity": "96.95195361627000000000000000",
+          "entry_ms": 1716527700000,
+          "exit_ms": 1716529200000,
+          "exit_price": "166.4500",
+          "fees": "0.0260395200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.366600",
+          "minimum_equity": "96.57662489627000000000000000",
+          "net_pnl": "-0.3926395200",
+          "plan": {
+            "decision_ms": 1716527700000,
+            "entry": "167.8600",
+            "exits": [
+              {
+                "price": "166.4500",
+                "quantity": "0.26",
+                "role": "STOP"
+              },
+              {
+                "price": "169.6200",
+                "quantity": "0.26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.26",
+            "side": "BUY",
+            "signal_key": "8e075d92bb6c2bdb164b2ee954a0e8f8771d40917ee98aa0aead4f340f388257",
+            "stop": "166.4500",
+            "symbol": "SOLUSDT",
+            "tp1": "169.6200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19867,
+          "stress_net_pnl": "-0.4621393400"
+        },
+        {
+          "day_start_equity": "96.55931409627000000000000000",
+          "entry_ms": 1716715800000,
+          "exit_ms": 1716717000000,
+          "exit_price": "162.3400",
+          "fees": "0.0341572000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.329000",
+          "minimum_equity": "96.21888449627000000000000000",
+          "net_pnl": "-0.3631572000",
+          "plan": {
+            "decision_ms": 1716715800000,
+            "entry": "163.2800",
+            "exits": [
+              {
+                "price": "162.3400",
+                "quantity": "0.35",
+                "role": "STOP"
+              },
+              {
+                "price": "164.4600",
+                "quantity": "0.35",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.35",
+            "side": "BUY",
+            "signal_key": "b30c57691abda5bf4c1e56a990398dc23dc3099819e7c7ade2cdb1e80605d66a",
+            "stop": "162.3400",
+            "symbol": "SOLUSDT",
+            "tp1": "164.4600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19869,
+          "stress_net_pnl": "-0.4542979000"
+        },
+        {
+          "day_start_equity": "96.19615689627000000000000000",
+          "entry_ms": 1717703100000,
+          "exit_ms": 1717704300000,
+          "exit_price": "168.4600",
+          "fees": "0.0384704400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.307800",
+          "minimum_equity": "95.87549237627000000000000000",
+          "net_pnl": "-0.3462704400",
+          "plan": {
+            "decision_ms": 1717703100000,
+            "entry": "169.2700",
+            "exits": [
+              {
+                "price": "168.4600",
+                "quantity": "0.38",
+                "role": "STOP"
+              },
+              {
+                "price": "170.2900",
+                "quantity": "0.38",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.38",
+            "side": "BUY",
+            "signal_key": "50447d99073ba2c3c0a54e8db4dacf50a8e8c295b64930877e082c7b9c9c5610",
+            "stop": "168.4600",
+            "symbol": "SOLUSDT",
+            "tp1": "170.2900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19880,
+          "stress_net_pnl": "-0.4489095800"
+        },
+        {
+          "day_start_equity": "95.84988645627000000000000000",
+          "entry_ms": 1717783200000,
+          "exit_ms": 1717783500000,
+          "exit_price": "164.3100",
+          "fees": "0.0306304800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.344100",
+          "minimum_equity": "95.49553041627000000000000000",
+          "net_pnl": "-0.3747304800",
+          "plan": {
+            "decision_ms": 1717783200000,
+            "entry": "165.4200",
+            "exits": [
+              {
+                "price": "164.3100",
+                "quantity": "0.31",
+                "role": "STOP"
+              },
+              {
+                "price": "166.8000",
+                "quantity": "0.31",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.31",
+            "side": "BUY",
+            "signal_key": "e6bcb6852313f07be2e3ce6cafca0c67fa9c26d0873ccaadcb00beb7d66f24b5",
+            "stop": "164.3100",
+            "symbol": "SOLUSDT",
+            "tp1": "166.8000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19881,
+          "stress_net_pnl": "-0.4564691100"
+        },
+        {
+          "day_start_equity": "95.84988645627000000000000000",
+          "entry_ms": 1717784100000,
+          "exit_ms": 1717784700000,
+          "exit_price": "156.1100",
+          "fees": "0.0111438000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.480600",
+          "minimum_equity": "95.25003213627000000000000000",
+          "net_pnl": "0.4694562000",
+          "plan": {
+            "decision_ms": 1717784100000,
+            "entry": "153.4400",
+            "exits": [
+              {
+                "price": "151.3100",
+                "quantity": "0.18",
+                "role": "STOP"
+              },
+              {
+                "price": "156.1100",
+                "quantity": "0.18",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.18",
+            "side": "BUY",
+            "signal_key": "8cfbfbd988c3396312f55c198766a62c03f18870190d4f31a63a96f608a1f62a",
+            "stop": "151.3100",
+            "symbol": "SOLUSDT",
+            "tp1": "156.1100",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19881,
+          "stress_net_pnl": "0.4304529000"
+        }
+      ],
+      "unfilled": 9
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 31,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "95.94461217627000000000000000",
+          "entry_ms": 1724754600000,
+          "exit_ms": 1724756700000,
+          "exit_price": "153.2500",
+          "fees": "0.0313310000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.340000",
+          "minimum_equity": "95.59412317627000000000000000",
+          "net_pnl": "-0.3713310000",
+          "plan": {
+            "decision_ms": 1724754600000,
+            "entry": "154.2500",
+            "exits": [
+              {
+                "price": "153.2500",
+                "quantity": "0.34",
+                "role": "STOP"
+              },
+              {
+                "price": "155.5000",
+                "quantity": "0.34",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.34",
+            "side": "BUY",
+            "signal_key": "dce87d6150d0bd668ee2f7ea63e8b40c1be81996a7b0c45c0b6fbdd853185bdd",
+            "stop": "153.2500",
+            "symbol": "SOLUSDT",
+            "tp1": "155.5000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19962,
+          "stress_net_pnl": "-0.4549370000"
+        },
+        {
+          "day_start_equity": "95.57328117627000000000000000",
+          "entry_ms": 1726419600000,
+          "exit_ms": 1726421700000,
+          "exit_price": "133.0600",
+          "fees": "0.0351912000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.316800",
+          "minimum_equity": "95.24470853627000000000000000",
+          "net_pnl": "-0.3519912000",
+          "plan": {
+            "decision_ms": 1726419600000,
+            "entry": "133.7800",
+            "exits": [
+              {
+                "price": "133.0600",
+                "quantity": "0.44",
+                "role": "STOP"
+              },
+              {
+                "price": "134.6700",
+                "quantity": "0.44",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.44",
+            "side": "BUY",
+            "signal_key": "16fa4596f15d0107a9cf08bf9fc6498cd75dbf81fde25e5296968b661ae5519b",
+            "stop": "133.0600",
+            "symbol": "SOLUSDT",
+            "tp1": "134.6700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19981,
+          "stress_net_pnl": "-0.4458872000"
+        },
+        {
+          "day_start_equity": "95.57328117627000000000000000",
+          "entry_ms": 1726442100000,
+          "exit_ms": 1726442700000,
+          "exit_price": "131.8500",
+          "fees": "0.0220701600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.403200",
+          "minimum_equity": "95.09815521627000000000000000",
+          "net_pnl": "0.3811298400",
+          "plan": {
+            "decision_ms": 1726442100000,
+            "entry": "130.8900",
+            "exits": [
+              {
+                "price": "130.1200",
+                "quantity": "0.42",
+                "role": "STOP"
+              },
+              {
+                "price": "131.8500",
+                "quantity": "0.42",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.42",
+            "side": "BUY",
+            "signal_key": "77c432a19fd9170fda6fb87905dbf6326be5432e2b3db579c6e332213bce6c56",
+            "stop": "130.1200",
+            "symbol": "SOLUSDT",
+            "tp1": "131.8500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19981,
+          "stress_net_pnl": "0.3038842800"
+        },
+        {
+          "day_start_equity": "95.60241981627000000000000000",
+          "entry_ms": 1726653600000,
+          "exit_ms": 1726654200000,
+          "exit_price": "128.5900",
+          "fees": "0.0424930000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.291500",
+          "minimum_equity": "95.29671661627000000000000000",
+          "net_pnl": "-0.3339930000",
+          "plan": {
+            "decision_ms": 1726653600000,
+            "entry": "129.1200",
+            "exits": [
+              {
+                "price": "128.5900",
+                "quantity": "0.55",
+                "role": "STOP"
+              },
+              {
+                "price": "129.7800",
+                "quantity": "0.55",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.55",
+            "side": "BUY",
+            "signal_key": "4e6715cc82bc2536973272137e7ec545e22bd7eb8ae481fc0bdf78b4f9136521",
+            "stop": "128.5900",
+            "symbol": "SOLUSDT",
+            "tp1": "129.7800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19984,
+          "stress_net_pnl": "-0.4473562500"
+        },
+        {
+          "day_start_equity": "95.60241981627000000000000000",
+          "entry_ms": 1726654500000,
+          "exit_ms": 1726655700000,
+          "exit_price": "128.9800",
+          "fees": "0.0257190000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.385000",
+          "minimum_equity": "95.16910581627000000000000000",
+          "net_pnl": "0.3592810000",
+          "plan": {
+            "decision_ms": 1726654500000,
+            "entry": "128.2100",
+            "exits": [
+              {
+                "price": "127.5900",
+                "quantity": "0.50",
+                "role": "STOP"
+              },
+              {
+                "price": "128.9800",
+                "quantity": "0.50",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.50",
+            "side": "BUY",
+            "signal_key": "cfdd43815671540ba7a7074e8baf3b9a9ce19d211275c0e14474fc3800f1963a",
+            "stop": "127.5900",
+            "symbol": "SOLUSDT",
+            "tp1": "128.9800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19984,
+          "stress_net_pnl": "0.2692645000"
+        },
+        {
+          "day_start_equity": "95.62770781627000000000000000",
+          "entry_ms": 1726998300000,
+          "exit_ms": 1727001900000,
+          "exit_price": "144.2800",
+          "fees": "0.0407461800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.296100",
+          "minimum_equity": "95.31798627627000000000000000",
+          "net_pnl": "-0.3368461800",
+          "plan": {
+            "decision_ms": 1726998300000,
+            "entry": "144.9100",
+            "exits": [
+              {
+                "price": "144.2800",
+                "quantity": "0.47",
+                "role": "STOP"
+              },
+              {
+                "price": "145.6900",
+                "quantity": "0.47",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.47",
+            "side": "BUY",
+            "signal_key": "b3dd5442bd7314f51685f08826842fae506f9723c166891a5869e862766c6b4f",
+            "stop": "144.2800",
+            "symbol": "SOLUSDT",
+            "tp1": "145.6900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19988,
+          "stress_net_pnl": "-0.4455520100"
+        },
+        {
+          "day_start_equity": "95.42706083627000000000000000",
+          "entry_ms": 1727307900000,
+          "exit_ms": 1727309400000,
+          "exit_price": "148.5000",
+          "fees": "0.0236808000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0021441433600000000000000000",
+          "gross_pnl": "0.396000",
+          "minimum_equity": "95.25986083627000000000000000",
+          "net_pnl": "0.3701750566400000000000000000",
+          "plan": {
+            "decision_ms": 1727307900000,
+            "entry": "147.5100",
+            "exits": [
+              {
+                "price": "146.7100",
+                "quantity": "0.40",
+                "role": "STOP"
+              },
+              {
+                "price": "148.5000",
+                "quantity": "0.40",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.40",
+            "side": "BUY",
+            "signal_key": "2745fd7e97699070bd24c05535d7dad7fe524dc835a9db36db6ae03254069306",
+            "stop": "146.7100",
+            "symbol": "SOLUSDT",
+            "tp1": "148.5000",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19992,
+          "stress_net_pnl": "0.2872922566400000000000000000"
+        },
+        {
+          "day_start_equity": "95.66103669291000000000000000",
+          "entry_ms": 1729518300000,
+          "exit_ms": 1729518900000,
+          "exit_price": "161.9100",
+          "fees": "0.0282407800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.342200",
+          "minimum_equity": "95.30937747291000000000000000",
+          "net_pnl": "-0.3704407800",
+          "plan": {
+            "decision_ms": 1729518300000,
+            "entry": "163.0900",
+            "exits": [
+              {
+                "price": "161.9100",
+                "quantity": "0.29",
+                "role": "STOP"
+              },
+              {
+                "price": "164.5600",
+                "quantity": "0.29",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.29",
+            "side": "BUY",
+            "signal_key": "aad62dd90bf9ccf1594eeb6efbdb71c3566252e5683bf9961a18348819d24ecb",
+            "stop": "161.9100",
+            "symbol": "SOLUSDT",
+            "tp1": "164.5600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20017,
+          "stress_net_pnl": "-0.4458065600"
+        },
+        {
+          "day_start_equity": "95.66103669291000000000000000",
+          "entry_ms": 1729519200000,
+          "exit_ms": 1729520400000,
+          "exit_price": "164.3100",
+          "fees": "0.0176563800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.445500",
+          "minimum_equity": "95.23861227291000000000000000",
+          "net_pnl": "0.4278436200",
+          "plan": {
+            "decision_ms": 1729519200000,
+            "entry": "162.6600",
+            "exits": [
+              {
+                "price": "161.3300",
+                "quantity": "0.27",
+                "role": "STOP"
+              },
+              {
+                "price": "164.3100",
+                "quantity": "0.27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.27",
+            "side": "BUY",
+            "signal_key": "efadeae39920e35168c6c6d955339eb5a9f4924a9ab98c233dc0eddc246456ff",
+            "stop": "161.3300",
+            "symbol": "SOLUSDT",
+            "tp1": "164.3100",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20017,
+          "stress_net_pnl": "0.3660462900"
+        },
+        {
+          "day_start_equity": "95.71843953291000000000000000",
+          "entry_ms": 1729830600000,
+          "exit_ms": 1729836600000,
+          "exit_price": "174.2200",
+          "fees": "0.0222182400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.409600",
+          "minimum_equity": "95.50257137291000000000000000",
+          "net_pnl": "0.3873817600",
+          "plan": {
+            "decision_ms": 1729830600000,
+            "entry": "172.9400",
+            "exits": [
+              {
+                "price": "171.9100",
+                "quantity": "0.32",
+                "role": "STOP"
+              },
+              {
+                "price": "174.2200",
+                "quantity": "0.32",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.32",
+            "side": "BUY",
+            "signal_key": "a615c5240500871d29d813614aa6851e9c0dd8c4e9b2682d561186458d7aff90",
+            "stop": "171.9100",
+            "symbol": "SOLUSDT",
+            "tp1": "174.2200",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20021,
+          "stress_net_pnl": "0.3096179200"
+        },
+        {
+          "day_start_equity": "96.10582129291000000000000000",
+          "entry_ms": 1730383200000,
+          "exit_ms": 1730383500000,
+          "exit_price": "170.8800",
+          "fees": "0.0328742400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.326400",
+          "minimum_equity": "95.76841969291000000000000000",
+          "net_pnl": "-0.3592742400",
+          "plan": {
+            "decision_ms": 1730383200000,
+            "entry": "171.9000",
+            "exits": [
+              {
+                "price": "170.8800",
+                "quantity": "0.32",
+                "role": "STOP"
+              },
+              {
+                "price": "173.1600",
+                "quantity": "0.32",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.32",
+            "side": "BUY",
+            "signal_key": "786d1ec4acd56fb680f2c17dc395b6db7d11069c9ecfa4d8da5753665efdda87",
+            "stop": "170.8800",
+            "symbol": "SOLUSDT",
+            "tp1": "173.1600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20027,
+          "stress_net_pnl": "-0.4469932800"
+        },
+        {
+          "day_start_equity": "96.10582129291000000000000000",
+          "entry_ms": 1730384100000,
+          "exit_ms": 1730385300000,
+          "exit_price": "170.3000",
+          "fees": "0.0317427600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.334800",
+          "minimum_equity": "95.40112149291000000000000000",
+          "net_pnl": "-0.3665427600",
+          "plan": {
+            "decision_ms": 1730384100000,
+            "entry": "171.3800",
+            "exits": [
+              {
+                "price": "170.3000",
+                "quantity": "0.31",
+                "role": "STOP"
+              },
+              {
+                "price": "172.7200",
+                "quantity": "0.31",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.31",
+            "side": "BUY",
+            "signal_key": "3592c8e4cbd766629c11f98187f744e84b59cd275e304706440791c1ef033925",
+            "stop": "170.3000",
+            "symbol": "SOLUSDT",
+            "tp1": "172.7200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20027,
+          "stress_net_pnl": "-0.4512459200"
+        },
+        {
+          "day_start_equity": "95.38000429291000000000000000",
+          "entry_ms": 1731163500000,
+          "exit_ms": 1731170700000,
+          "exit_price": "196.670000000000000000",
+          "fees": "0.034267560000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0057536000000000000000000000",
+          "gross_pnl": "-0.23490000000000000000",
+          "minimum_equity": "95.09019685291000000000000000",
+          "net_pnl": "-0.2749211600000000000000000000",
+          "plan": {
+            "decision_ms": 1731163500000,
+            "entry": "197.4800",
+            "exits": [
+              {
+                "price": "196.3600",
+                "quantity": "0.29",
+                "role": "STOP"
+              },
+              {
+                "price": "198.8700",
+                "quantity": "0.29",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.29",
+            "side": "BUY",
+            "signal_key": "779476925403a42d0ef56ccd1b877b3e9ae91fd54802f72c689437977f13fab9",
+            "stop": "196.3600",
+            "symbol": "SOLUSDT",
+            "tp1": "198.8700",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20036,
+          "stress_net_pnl": "-0.3663404700000000000000000000"
+        },
+        {
+          "day_start_equity": "95.10508313291000000000000000",
+          "entry_ms": 1732052700000,
+          "exit_ms": 1732059900000,
+          "exit_price": "237.570000000000000000",
+          "fees": "0.021313500000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.33900000000000000000",
+          "minimum_equity": "94.82202383291000000000000000",
+          "net_pnl": "0.317686500000000000000000",
+          "plan": {
+            "decision_ms": 1732052700000,
+            "entry": "235.3100",
+            "exits": [
+              {
+                "price": "232.7900",
+                "quantity": "0.15",
+                "role": "STOP"
+              },
+              {
+                "price": "238.4400",
+                "quantity": "0.15",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.15",
+            "side": "BUY",
+            "signal_key": "9e73f2527ac3c1a2e76c7db39a0d7409231792c6155ce0ba8867a50b56a1ea90",
+            "stop": "232.7900",
+            "symbol": "SOLUSDT",
+            "tp1": "238.4400",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20046,
+          "stress_net_pnl": "0.260907000000000000000000"
+        },
+        {
+          "day_start_equity": "95.42276963291000000000000000",
+          "entry_ms": 1732446900000,
+          "exit_ms": 1732447200000,
+          "exit_price": "248.5900",
+          "fees": "0.0313903800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.340200",
+          "minimum_equity": "95.07206081291000000000000000",
+          "net_pnl": "-0.3715903800",
+          "plan": {
+            "decision_ms": 1732446900000,
+            "entry": "250.2100",
+            "exits": [
+              {
+                "price": "248.5900",
+                "quantity": "0.21",
+                "role": "STOP"
+              },
+              {
+                "price": "252.2300",
+                "quantity": "0.21",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.21",
+            "side": "BUY",
+            "signal_key": "f0b44d7664bbd7686b9a9939e53ee812155e0e2d6db3ef0d5f6f9bb4fe061ae7",
+            "stop": "248.5900",
+            "symbol": "SOLUSDT",
+            "tp1": "252.2300",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20051,
+          "stress_net_pnl": "-0.4553547600"
+        },
+        {
+          "day_start_equity": "95.42276963291000000000000000",
+          "entry_ms": 1732447800000,
+          "exit_ms": 1732451400000,
+          "exit_price": "248.0200",
+          "fees": "0.0283442000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.349600",
+          "minimum_equity": "94.69208457291000000000000000",
+          "net_pnl": "-0.3779442000",
+          "plan": {
+            "decision_ms": 1732447800000,
+            "entry": "249.8600",
+            "exits": [
+              {
+                "price": "248.0200",
+                "quantity": "0.19",
+                "role": "STOP"
+              },
+              {
+                "price": "252.1400",
+                "quantity": "0.19",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.19",
+            "side": "BUY",
+            "signal_key": "a7af9292779606ce76eaabaf2138f18fca697ad8d744161caff2892eec3a86c0",
+            "stop": "248.0200",
+            "symbol": "SOLUSDT",
+            "tp1": "252.1400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20051,
+          "stress_net_pnl": "-0.4535870000"
+        },
+        {
+          "day_start_equity": "94.67323505291000000000000000",
+          "entry_ms": 1733437800000,
+          "exit_ms": 1733438400000,
+          "exit_price": "231.2300",
+          "fees": "0.0119269800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.484900",
+          "minimum_equity": "94.63742005291000000000000000",
+          "net_pnl": "0.4729730200",
+          "plan": {
+            "decision_ms": 1733437800000,
+            "entry": "227.5000",
+            "exits": [
+              {
+                "price": "224.5100",
+                "quantity": "0.13",
+                "role": "STOP"
+              },
+              {
+                "price": "231.2300",
+                "quantity": "0.13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.13",
+            "side": "BUY",
+            "signal_key": "75d5fdf7768235395559f39adcdc0118389ac990c6871b312d6ecc82ab200ed5",
+            "stop": "224.5100",
+            "symbol": "SOLUSDT",
+            "tp1": "231.2300",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20062,
+          "stress_net_pnl": "0.4312285900"
+        },
+        {
+          "day_start_equity": "95.14620807291000000000000000",
+          "entry_ms": 1734180300000,
+          "exit_ms": 1734182100000,
+          "exit_price": "221.6000",
+          "fees": "0.0439335600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.283800",
+          "minimum_equity": "94.84772571291000000000000000",
+          "net_pnl": "-0.3277335600",
+          "plan": {
+            "decision_ms": 1734180300000,
+            "entry": "222.4600",
+            "exits": [
+              {
+                "price": "221.6000",
+                "quantity": "0.33",
+                "role": "STOP"
+              },
+              {
+                "price": "223.5200",
+                "quantity": "0.33",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.33",
+            "side": "BUY",
+            "signal_key": "3cb2e9a44f487395243cf9b85b1bfd150cb9fc23324bd8a40cfac10f4ab0ef55",
+            "stop": "221.6000",
+            "symbol": "SOLUSDT",
+            "tp1": "223.5200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20071,
+          "stress_net_pnl": "-0.4449370200"
+        },
+        {
+          "day_start_equity": "95.14620807291000000000000000",
+          "entry_ms": 1734183000000,
+          "exit_ms": 1734184800000,
+          "exit_price": "220.6400",
+          "fees": "0.0397740000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.294000",
+          "minimum_equity": "94.51117731291000000000000000",
+          "net_pnl": "-0.3337740000",
+          "plan": {
+            "decision_ms": 1734183000000,
+            "entry": "221.6200",
+            "exits": [
+              {
+                "price": "220.6400",
+                "quantity": "0.30",
+                "role": "STOP"
+              },
+              {
+                "price": "222.8300",
+                "quantity": "0.30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.30",
+            "side": "BUY",
+            "signal_key": "39ba4de3b600a63d1c00d9b58efd97e68c2bdd05c8632fafc8f19a66655417b8",
+            "stop": "220.6400",
+            "symbol": "SOLUSDT",
+            "tp1": "222.8300",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20071,
+          "stress_net_pnl": "-0.4398870000"
+        },
+        {
+          "day_start_equity": "95.14620807291000000000000000",
+          "entry_ms": 1734184800000,
+          "exit_ms": 1734186000000,
+          "exit_price": "222.1100",
+          "fees": "0.0248024000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.369600",
+          "minimum_equity": "94.42753627291000000000000000",
+          "net_pnl": "0.3447976000",
+          "plan": {
+            "decision_ms": 1734184800000,
+            "entry": "220.7900",
+            "exits": [
+              {
+                "price": "219.7300",
+                "quantity": "0.28",
+                "role": "STOP"
+              },
+              {
+                "price": "222.1100",
+                "quantity": "0.28",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.28",
+            "side": "BUY",
+            "signal_key": "e9ff987f210b9ee33d6e319b2c540598dc19743d837a446b46da267570776b91",
+            "stop": "219.7300",
+            "symbol": "SOLUSDT",
+            "tp1": "222.1100",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20071,
+          "stress_net_pnl": "0.2579892000"
+        },
+        {
+          "day_start_equity": "94.82949811291000000000000000",
+          "entry_ms": 1734298200000,
+          "exit_ms": 1734300300000,
+          "exit_price": "216.3600",
+          "fees": "0.0390042000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.297000",
+          "minimum_equity": "94.51945711291000000000000000",
+          "net_pnl": "-0.3360042000",
+          "plan": {
+            "decision_ms": 1734298200000,
+            "entry": "217.3500",
+            "exits": [
+              {
+                "price": "216.3600",
+                "quantity": "0.30",
+                "role": "STOP"
+              },
+              {
+                "price": "218.5800",
+                "quantity": "0.30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.30",
+            "side": "BUY",
+            "signal_key": "5d23f028f4fa1d2bd2e594ab03957fe790d48decbf0675247e8b54cc5e8f88f7",
+            "stop": "216.3600",
+            "symbol": "SOLUSDT",
+            "tp1": "218.5800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20072,
+          "stress_net_pnl": "-0.4400649000"
+        },
+        {
+          "day_start_equity": "94.49349391291000000000000000",
+          "entry_ms": 1734349500000,
+          "exit_ms": 1734350400000,
+          "exit_price": "213.9300",
+          "fees": "0.0321545000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.325000",
+          "minimum_equity": "94.15773241291000000000000000",
+          "net_pnl": "-0.3571545000",
+          "plan": {
+            "decision_ms": 1734349500000,
+            "entry": "215.2300",
+            "exits": [
+              {
+                "price": "213.9300",
+                "quantity": "0.25",
+                "role": "STOP"
+              },
+              {
+                "price": "216.8400",
+                "quantity": "0.25",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.25",
+            "side": "BUY",
+            "signal_key": "a7711780ad090b7f0f2e5f79f6e6bf28bb094ae929c4708b381d8349791772fa",
+            "stop": "213.9300",
+            "symbol": "SOLUSDT",
+            "tp1": "216.8400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20073,
+          "stress_net_pnl": "-0.4429540000"
+        },
+        {
+          "day_start_equity": "94.49349391291000000000000000",
+          "entry_ms": 1734350400000,
+          "exit_ms": 1734355500000,
+          "exit_price": "215.7200",
+          "fees": "0.0206280000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.405600",
+          "minimum_equity": "93.90766597291000000000000000",
+          "net_pnl": "0.3849720000",
+          "plan": {
+            "decision_ms": 1734350400000,
+            "entry": "214.0300",
+            "exits": [
+              {
+                "price": "212.6700",
+                "quantity": "0.24",
+                "role": "STOP"
+              },
+              {
+                "price": "215.7200",
+                "quantity": "0.24",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.24",
+            "side": "BUY",
+            "signal_key": "18640e33a65962b460779c7bdf946d1e4436dce1f942a1ae76b64ee87625fdee",
+            "stop": "212.6700",
+            "symbol": "SOLUSDT",
+            "tp1": "215.7200",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20073,
+          "stress_net_pnl": "0.3127740000"
+        },
+        {
+          "day_start_equity": "94.52131141291000000000000000",
+          "entry_ms": 1736263800000,
+          "exit_ms": 1736264400000,
+          "exit_price": "206.9500",
+          "fees": "0.0261471000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.357000",
+          "minimum_equity": "94.15554811291000000000000000",
+          "net_pnl": "-0.3831471000",
+          "plan": {
+            "decision_ms": 1736263800000,
+            "entry": "208.6500",
+            "exits": [
+              {
+                "price": "206.9500",
+                "quantity": "0.21",
+                "role": "STOP"
+              },
+              {
+                "price": "210.7700",
+                "quantity": "0.21",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.21",
+            "side": "BUY",
+            "signal_key": "4e1e7ee608a04793527c528d7fc942448578e831ac9b11fabb435c6d2f17013c",
+            "stop": "206.9500",
+            "symbol": "SOLUSDT",
+            "tp1": "210.7700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.4529322000"
+        },
+        {
+          "day_start_equity": "94.52131141291000000000000000",
+          "entry_ms": 1736264700000,
+          "exit_ms": 1736267100000,
+          "exit_price": "208.7600",
+          "fees": "0.0157753200",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0006964213450000000000000000",
+          "gross_pnl": "0.452200",
+          "minimum_equity": "93.90802187291000000000000000",
+          "net_pnl": "0.4357282586550000000000000000",
+          "plan": {
+            "decision_ms": 1736264700000,
+            "entry": "206.3800",
+            "exits": [
+              {
+                "price": "204.4600",
+                "quantity": "0.19",
+                "role": "STOP"
+              },
+              {
+                "price": "208.7600",
+                "quantity": "0.19",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.19",
+            "side": "BUY",
+            "signal_key": "65fb1950cf7d4273b9a68000d856bd3ca8c4d94ee65afc69ae00e9dadde7bcd7",
+            "stop": "204.4600",
+            "symbol": "SOLUSDT",
+            "tp1": "208.7600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20095,
+          "stress_net_pnl": "0.3805146386550000000000000000"
+        }
+      ],
+      "unfilled": 6
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 32,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "94.57389257156500000000000000",
+          "entry_ms": 1737599400000,
+          "exit_ms": 1737606600000,
+          "exit_price": "245.810000000000000000",
+          "fees": "0.019235060000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.30940000000000000000",
+          "minimum_equity": "94.19953963156500000000000000",
+          "net_pnl": "-0.328635060000000000000000",
+          "plan": {
+            "decision_ms": 1737599400000,
+            "entry": "248.1900",
+            "exits": [
+              {
+                "price": "245.2700",
+                "quantity": "0.13",
+                "role": "STOP"
+              },
+              {
+                "price": "251.8300",
+                "quantity": "0.13",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.13",
+            "side": "BUY",
+            "signal_key": "acf8e26d70d0d6eb439cb5cc1ebfa37061fca6932af07562f2be768f434c8f8d",
+            "stop": "245.2700",
+            "symbol": "SOLUSDT",
+            "tp1": "251.8300",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20111,
+          "stress_net_pnl": "-0.379980120000000000000000"
+        },
+        {
+          "day_start_equity": "94.24525751156500000000000000",
+          "entry_ms": 1737932400000,
+          "exit_ms": 1737933300000,
+          "exit_price": "245.1600",
+          "fees": "0.0265467600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.347400",
+          "minimum_equity": "93.88896227156500000000000000",
+          "net_pnl": "-0.3739467600",
+          "plan": {
+            "decision_ms": 1737932400000,
+            "entry": "247.0900",
+            "exits": [
+              {
+                "price": "245.1600",
+                "quantity": "0.18",
+                "role": "STOP"
+              },
+              {
+                "price": "249.4900",
+                "quantity": "0.18",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.18",
+            "side": "BUY",
+            "signal_key": "a45170822b32efa21c5fb5e66abc314ebc0addc2353dd83e8ec5c6ce518824e7",
+            "stop": "245.1600",
+            "symbol": "SOLUSDT",
+            "tp1": "249.4900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.4447960200"
+        },
+        {
+          "day_start_equity": "94.24525751156500000000000000",
+          "entry_ms": 1737933300000,
+          "exit_ms": 1737933600000,
+          "exit_price": "243.1000",
+          "fees": "0.0248672600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.355300",
+          "minimum_equity": "93.50767429156500000000000000",
+          "net_pnl": "-0.3801672600",
+          "plan": {
+            "decision_ms": 1737933300000,
+            "entry": "245.1900",
+            "exits": [
+              {
+                "price": "243.1000",
+                "quantity": "0.17",
+                "role": "STOP"
+              },
+              {
+                "price": "247.7900",
+                "quantity": "0.17",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.17",
+            "side": "BUY",
+            "signal_key": "4981aeee9561ad4f4dd92c6d36af77fe0a1876e3c44d5b41826f5543332e70f6",
+            "stop": "243.1000",
+            "symbol": "SOLUSDT",
+            "tp1": "247.7900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.4465391700"
+        },
+        {
+          "day_start_equity": "94.24525751156500000000000000",
+          "entry_ms": 1737934200000,
+          "exit_ms": 1737935100000,
+          "exit_price": "241.1600",
+          "fees": "0.0217746000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.351000",
+          "minimum_equity": "93.13283849156500000000000000",
+          "net_pnl": "-0.3727746000",
+          "plan": {
+            "decision_ms": 1737934200000,
+            "entry": "243.5000",
+            "exits": [
+              {
+                "price": "241.1600",
+                "quantity": "0.15",
+                "role": "STOP"
+              },
+              {
+                "price": "246.4100",
+                "quantity": "0.15",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.15",
+            "side": "BUY",
+            "signal_key": "af90eacd0aeba8f4c0c36796077297cb78c55bb794578903d9e61358f828ba92",
+            "stop": "241.1600",
+            "symbol": "SOLUSDT",
+            "tp1": "246.4100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.4308987000"
+        },
+        {
+          "day_start_equity": "93.11836889156500000000000000",
+          "entry_ms": 1745803800000,
+          "exit_ms": 1745804100000,
+          "exit_price": "145.0200",
+          "fees": "0.0313898400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.327600",
+          "minimum_equity": "92.78026193156500000000000000",
+          "net_pnl": "-0.3589898400",
+          "plan": {
+            "decision_ms": 1745803800000,
+            "entry": "145.9300",
+            "exits": [
+              {
+                "price": "145.0200",
+                "quantity": "0.36",
+                "role": "STOP"
+              },
+              {
+                "price": "147.0500",
+                "quantity": "0.36",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.36",
+            "side": "BUY",
+            "signal_key": "5bb3b96e94c3f9a11b2c9f2c2230ef7e5c9ca07ae58e1112894d7a8840e9df80",
+            "stop": "145.0200",
+            "symbol": "SOLUSDT",
+            "tp1": "147.0500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20206,
+          "stress_net_pnl": "-0.4427506800"
+        },
+        {
+          "day_start_equity": "93.11836889156500000000000000",
+          "entry_ms": 1745804700000,
+          "exit_ms": 1745807700000,
+          "exit_price": "146.0800",
+          "fees": "0.0197852800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.408000",
+          "minimum_equity": "92.63732721156500000000000000",
+          "net_pnl": "0.3882147200",
+          "plan": {
+            "decision_ms": 1745804700000,
+            "entry": "144.8800",
+            "exits": [
+              {
+                "price": "143.9100",
+                "quantity": "0.34",
+                "role": "STOP"
+              },
+              {
+                "price": "146.0800",
+                "quantity": "0.34",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.34",
+            "side": "BUY",
+            "signal_key": "ef2a20a00885a0e7a4bcde2da7d20ede383dbc12c53732d6417068227191a284",
+            "stop": "143.9100",
+            "symbol": "SOLUSDT",
+            "tp1": "146.0800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20206,
+          "stress_net_pnl": "0.3189662400"
+        },
+        {
+          "day_start_equity": "93.14759377156500000000000000",
+          "entry_ms": 1745968500000,
+          "exit_ms": 1745970600000,
+          "exit_price": "146.3800",
+          "fees": "0.0186528000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.419200",
+          "minimum_equity": "93.05510929156500000000000000",
+          "net_pnl": "0.4005472000",
+          "plan": {
+            "decision_ms": 1745968500000,
+            "entry": "145.0700",
+            "exits": [
+              {
+                "price": "144.0100",
+                "quantity": "0.32",
+                "role": "STOP"
+              },
+              {
+                "price": "146.3800",
+                "quantity": "0.32",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.32",
+            "side": "BUY",
+            "signal_key": "30ab21a39beed6be491b1c7e004ef78cfb0d5901f5713f2791819547a56a0753",
+            "stop": "144.0100",
+            "symbol": "SOLUSDT",
+            "tp1": "146.3800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20207,
+          "stress_net_pnl": "0.3352624000"
+        },
+        {
+          "day_start_equity": "93.54814097156500000000000000",
+          "entry_ms": 1746018000000,
+          "exit_ms": 1746018600000,
+          "exit_price": "143.9400",
+          "fees": "0.0354715600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.311600",
+          "minimum_equity": "93.22467557156500000000000000",
+          "net_pnl": "-0.3470715600",
+          "plan": {
+            "decision_ms": 1746018000000,
+            "entry": "144.7000",
+            "exits": [
+              {
+                "price": "143.9400",
+                "quantity": "0.41",
+                "role": "STOP"
+              },
+              {
+                "price": "145.6400",
+                "quantity": "0.41",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.41",
+            "side": "BUY",
+            "signal_key": "0ccdb6aa7eda4731a6ffedbe7fce0bbb225bfbfff89e220db6597bcba668b805",
+            "stop": "143.9400",
+            "symbol": "SOLUSDT",
+            "tp1": "145.6400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.4417143200"
+        },
+        {
+          "day_start_equity": "93.54814097156500000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746020400000,
+          "exit_price": "141.5500",
+          "fees": "0.0297913000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.329000",
+          "minimum_equity": "92.86209511156500000000000000",
+          "net_pnl": "-0.3587913000",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "142.4900",
+            "exits": [
+              {
+                "price": "141.5500",
+                "quantity": "0.35",
+                "role": "STOP"
+              },
+              {
+                "price": "143.6600",
+                "quantity": "0.35",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.35",
+            "side": "BUY",
+            "signal_key": "8e8cd6a7d19c5a3dc979ff4ee8d3e76968312250ed38e65f689ddd1d8cbe9a06",
+            "stop": "141.5500",
+            "symbol": "SOLUSDT",
+            "tp1": "143.6600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.4382896000"
+        },
+        {
+          "day_start_equity": "93.54814097156500000000000000",
+          "entry_ms": 1746020700000,
+          "exit_ms": 1746021600000,
+          "exit_price": "140.3300",
+          "fees": "0.0253302000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.354000",
+          "minimum_equity": "92.47978751156500000000000000",
+          "net_pnl": "-0.3793302000",
+          "plan": {
+            "decision_ms": 1746020700000,
+            "entry": "141.5100",
+            "exits": [
+              {
+                "price": "140.3300",
+                "quantity": "0.30",
+                "role": "STOP"
+              },
+              {
+                "price": "142.9800",
+                "quantity": "0.30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.30",
+            "side": "BUY",
+            "signal_key": "7d69ebf4240f7fd21b94169ec3ec29a99631c1b7a281908873c455a3b0c8ac17",
+            "stop": "140.3300",
+            "symbol": "SOLUSDT",
+            "tp1": "142.9800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.4469364000"
+        },
+        {
+          "day_start_equity": "92.46294791156500000000000000",
+          "entry_ms": 1746292500000,
+          "exit_ms": 1746296400000,
+          "exit_price": "147.1700",
+          "fees": "0.0258315200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.352000",
+          "minimum_equity": "92.17286735156500000000000000",
+          "net_pnl": "0.3261684800",
+          "plan": {
+            "decision_ms": 1746292500000,
+            "entry": "146.3700",
+            "exits": [
+              {
+                "price": "145.7200",
+                "quantity": "0.44",
+                "role": "STOP"
+              },
+              {
+                "price": "147.1700",
+                "quantity": "0.44",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.44",
+            "side": "BUY",
+            "signal_key": "a09383b02b1a7d305ebd4004817e486439cbf6e1c19cfd12897a0b3ec82e11ba",
+            "stop": "145.7200",
+            "symbol": "SOLUSDT",
+            "tp1": "147.1700",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20211,
+          "stress_net_pnl": "0.2357581600"
+        },
+        {
+          "day_start_equity": "92.78911639156500000000000000",
+          "entry_ms": 1747599300000,
+          "exit_ms": 1747603200000,
+          "exit_price": "167.7500",
+          "fees": "0.0133280000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.460000",
+          "minimum_equity": "92.69249839156500000000000000",
+          "net_pnl": "0.4466720000",
+          "plan": {
+            "decision_ms": 1747599300000,
+            "entry": "165.4500",
+            "exits": [
+              {
+                "price": "163.6000",
+                "quantity": "0.20",
+                "role": "STOP"
+              },
+              {
+                "price": "167.7500",
+                "quantity": "0.20",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.20",
+            "side": "BUY",
+            "signal_key": "a1f4be802ba930e9e1e8641cd8d302bcd8cdd8e72c1579ba97e828642d47bfa5",
+            "stop": "163.6000",
+            "symbol": "SOLUSDT",
+            "tp1": "167.7500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20226,
+          "stress_net_pnl": "0.4000240000"
+        },
+        {
+          "day_start_equity": "93.23578839156500000000000000",
+          "entry_ms": 1748003400000,
+          "exit_ms": 1748007600000,
+          "exit_price": "179.6800",
+          "fees": "0.0121240600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.470900",
+          "minimum_equity": "92.99177345156500000000000000",
+          "net_pnl": "0.4587759400",
+          "plan": {
+            "decision_ms": 1748003400000,
+            "entry": "176.9100",
+            "exits": [
+              {
+                "price": "174.6800",
+                "quantity": "0.17",
+                "role": "STOP"
+              },
+              {
+                "price": "179.6800",
+                "quantity": "0.17",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.17",
+            "side": "BUY",
+            "signal_key": "222513d272e75c740b0776e93ef73b4ebe157ac949730dd1e93412a69ee7a850",
+            "stop": "174.6800",
+            "symbol": "SOLUSDT",
+            "tp1": "179.6800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20231,
+          "stress_net_pnl": "0.4163417300"
+        },
+        {
+          "day_start_equity": "93.67511841156500000000000000",
+          "entry_ms": 1748043900000,
+          "exit_ms": 1748048400000,
+          "exit_price": "172.6200",
+          "fees": "0.0269984000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0045078800000000000000000000",
+          "gross_pnl": "-0.348400",
+          "minimum_equity": "93.33261053156500000000000000",
+          "net_pnl": "-0.3799062800000000000000000000",
+          "plan": {
+            "decision_ms": 1748043900000,
+            "entry": "173.9600",
+            "exits": [
+              {
+                "price": "172.6200",
+                "quantity": "0.26",
+                "role": "STOP"
+              },
+              {
+                "price": "175.6200",
+                "quantity": "0.26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.26",
+            "side": "BUY",
+            "signal_key": "7bc52f334ae93cb16bc62da7a03cff562005b9e67379951558862395f5960ff9",
+            "stop": "172.6200",
+            "symbol": "SOLUSDT",
+            "tp1": "175.6200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20232,
+          "stress_net_pnl": "-0.4519600800000000000000000000"
+        },
+        {
+          "day_start_equity": "93.31465805156500000000000000",
+          "entry_ms": 1748133900000,
+          "exit_ms": 1748134800000,
+          "exit_price": "172.1600",
+          "fees": "0.0279568800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.334800",
+          "minimum_equity": "92.97049445156500000000000000",
+          "net_pnl": "-0.3627568800",
+          "plan": {
+            "decision_ms": 1748133900000,
+            "entry": "173.4000",
+            "exits": [
+              {
+                "price": "172.1600",
+                "quantity": "0.27",
+                "role": "STOP"
+              },
+              {
+                "price": "174.9400",
+                "quantity": "0.27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.27",
+            "side": "BUY",
+            "signal_key": "09c8d3da8b13e6d269d94cd935c8b0fb00808d8eb09c1a9d19758ed4dfad96ba",
+            "stop": "172.1600",
+            "symbol": "SOLUSDT",
+            "tp1": "174.9400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20233,
+          "stress_net_pnl": "-0.4373643600"
+        },
+        {
+          "day_start_equity": "93.31465805156500000000000000",
+          "entry_ms": 1748135700000,
+          "exit_ms": 1748142600000,
+          "exit_price": "172.9400",
+          "fees": "0.0172070000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.435000",
+          "minimum_equity": "92.67584117156500000000000000",
+          "net_pnl": "0.4177930000",
+          "plan": {
+            "decision_ms": 1748135700000,
+            "entry": "171.2000",
+            "exits": [
+              {
+                "price": "169.8000",
+                "quantity": "0.25",
+                "role": "STOP"
+              },
+              {
+                "price": "172.9400",
+                "quantity": "0.25",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.25",
+            "side": "BUY",
+            "signal_key": "9ec701d5b3524e9000caf486c42df6dcd273cd0e11be426cc3f45b1b0bfd6c87",
+            "stop": "169.8000",
+            "symbol": "SOLUSDT",
+            "tp1": "172.9400",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20233,
+          "stress_net_pnl": "0.3575685000"
+        },
+        {
+          "day_start_equity": "93.36969417156500000000000000",
+          "entry_ms": 1750113900000,
+          "exit_ms": 1750114200000,
+          "exit_price": "151.9100",
+          "fees": "0.0283228400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.337900",
+          "minimum_equity": "93.02230817156500000000000000",
+          "net_pnl": "-0.3662228400",
+          "plan": {
+            "decision_ms": 1750113900000,
+            "entry": "153.0000",
+            "exits": [
+              {
+                "price": "151.9100",
+                "quantity": "0.31",
+                "role": "STOP"
+              },
+              {
+                "price": "154.3600",
+                "quantity": "0.31",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.31",
+            "side": "BUY",
+            "signal_key": "f5494befa248ec5ac432292405512da3f198dd86ea352293611f6fa2c3fa75ef",
+            "stop": "151.9100",
+            "symbol": "SOLUSDT",
+            "tp1": "154.3600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20255,
+          "stress_net_pnl": "-0.4418067300"
+        },
+        {
+          "day_start_equity": "93.36969417156500000000000000",
+          "entry_ms": 1750114800000,
+          "exit_ms": 1750117800000,
+          "exit_price": "151.6400",
+          "fees": "0.0255460800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.352800",
+          "minimum_equity": "92.64210893156500000000000000",
+          "net_pnl": "-0.3783460800",
+          "plan": {
+            "decision_ms": 1750114800000,
+            "entry": "152.9000",
+            "exits": [
+              {
+                "price": "151.6400",
+                "quantity": "0.28",
+                "role": "STOP"
+              },
+              {
+                "price": "154.4600",
+                "quantity": "0.28",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.28",
+            "side": "BUY",
+            "signal_key": "85792af265b688ede859204742413bf2d924ef16077387ecc2bf063e8e0576cd",
+            "stop": "151.6400",
+            "symbol": "SOLUSDT",
+            "tp1": "154.4600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20255,
+          "stress_net_pnl": "-0.4465277600"
+        },
+        {
+          "day_start_equity": "92.62512525156500000000000000",
+          "entry_ms": 1750118400000,
+          "exit_ms": 1750119000000,
+          "exit_price": "149.1400",
+          "fees": "0.0215496000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.367200",
+          "minimum_equity": "92.25069309156500000000000000",
+          "net_pnl": "-0.3887496000",
+          "plan": {
+            "decision_ms": 1750118400000,
+            "entry": "150.6700",
+            "exits": [
+              {
+                "price": "149.1400",
+                "quantity": "0.24",
+                "role": "STOP"
+              },
+              {
+                "price": "152.5700",
+                "quantity": "0.24",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.24",
+            "side": "BUY",
+            "signal_key": "ea67a5b1cc0577dc81a1a0104cd52015374c7f310f756bb2e4ddb8df7dc972f1",
+            "stop": "149.1400",
+            "symbol": "SOLUSDT",
+            "tp1": "152.5700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20256,
+          "stress_net_pnl": "-0.4462764000"
+        },
+        {
+          "day_start_equity": "92.62512525156500000000000000",
+          "entry_ms": 1750119300000,
+          "exit_ms": 1750120200000,
+          "exit_price": "150.6700",
+          "fees": "0.0131670000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.459800",
+          "minimum_equity": "91.97243813156500000000000000",
+          "net_pnl": "0.4466330000",
+          "plan": {
+            "decision_ms": 1750119300000,
+            "entry": "148.5800",
+            "exits": [
+              {
+                "price": "146.9000",
+                "quantity": "0.22",
+                "role": "STOP"
+              },
+              {
+                "price": "150.6700",
+                "quantity": "0.22",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.22",
+            "side": "BUY",
+            "signal_key": "06c24c5b8da2fb941e70b2b9d61ebd5771bc3c797aea28f4d05daf37da165bc3",
+            "stop": "146.9000",
+            "symbol": "SOLUSDT",
+            "tp1": "150.6700",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20256,
+          "stress_net_pnl": "0.4005485000"
+        },
+        {
+          "day_start_equity": "92.68300865156500000000000000",
+          "entry_ms": 1751347800000,
+          "exit_ms": 1751354400000,
+          "exit_price": "150.8900",
+          "fees": "0.0398921600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.286000",
+          "minimum_equity": "92.38367313156500000000000000",
+          "net_pnl": "-0.3258921600",
+          "plan": {
+            "decision_ms": 1751347800000,
+            "entry": "151.5400",
+            "exits": [
+              {
+                "price": "150.8900",
+                "quantity": "0.44",
+                "role": "STOP"
+              },
+              {
+                "price": "152.3400",
+                "quantity": "0.44",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.44",
+            "side": "BUY",
+            "signal_key": "b1c92e47aeff9d26cd94b5956bf8bb84a814dc499d70b989b6e006ebf77a8de8",
+            "stop": "150.8900",
+            "symbol": "SOLUSDT",
+            "tp1": "152.3400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20270,
+          "stress_net_pnl": "-0.4323189200"
+        },
+        {
+          "day_start_equity": "92.68300865156500000000000000",
+          "entry_ms": 1751355000000,
+          "exit_ms": 1751359200000,
+          "exit_price": "149.1600",
+          "fees": "0.0331756800",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0027971445000000000000000000",
+          "gross_pnl": "-0.310800",
+          "minimum_equity": "92.03241934706500000000000000",
+          "net_pnl": "-0.3467728245000000000000000000",
+          "plan": {
+            "decision_ms": 1751355000000,
+            "entry": "150.0000",
+            "exits": [
+              {
+                "price": "149.1600",
+                "quantity": "0.37",
+                "role": "STOP"
+              },
+              {
+                "price": "151.0400",
+                "quantity": "0.37",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.37",
+            "side": "BUY",
+            "signal_key": "199eb0581a63c85ac1e20715107a53213cef0eabc9d4650ba8ec3196e36e8be5",
+            "stop": "149.1600",
+            "symbol": "SOLUSDT",
+            "tp1": "151.0400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20270,
+          "stress_net_pnl": "-0.4352931045000000000000000000"
+        },
+        {
+          "day_start_equity": "92.01034366706500000000000000",
+          "entry_ms": 1751733900000,
+          "exit_ms": 1751734800000,
+          "exit_price": "146.6300",
+          "fees": "0.0286718600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.338100",
+          "minimum_equity": "91.92254154706500000000000000",
+          "net_pnl": "0.3094281400",
+          "plan": {
+            "decision_ms": 1751733900000,
+            "entry": "145.9400",
+            "exits": [
+              {
+                "price": "145.3800",
+                "quantity": "0.49",
+                "role": "STOP"
+              },
+              {
+                "price": "146.6300",
+                "quantity": "0.49",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.49",
+            "side": "BUY",
+            "signal_key": "cc8bf8043a46654ca804474b02d8af25de118714406c5ac1ab44c9e3c930f4dc",
+            "stop": "145.3800",
+            "symbol": "SOLUSDT",
+            "tp1": "146.6300",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20274,
+          "stress_net_pnl": "0.2090766300"
+        },
+        {
+          "day_start_equity": "92.31977180706500000000000000",
+          "entry_ms": 1752273000000,
+          "exit_ms": 1752274800000,
+          "exit_price": "161.6900",
+          "fees": "0.0173761200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.432000",
+          "minimum_equity": "92.20042694706500000000000000",
+          "net_pnl": "0.4146238800",
+          "plan": {
+            "decision_ms": 1752273000000,
+            "entry": "160.0900",
+            "exits": [
+              {
+                "price": "158.8000",
+                "quantity": "0.27",
+                "role": "STOP"
+              },
+              {
+                "price": "161.6900",
+                "quantity": "0.27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.27",
+            "side": "BUY",
+            "signal_key": "e9b21879318b3d964e895c83c2c27e89c5c83b74f4e35ce50839133ea726ad06",
+            "stop": "158.8000",
+            "symbol": "SOLUSDT",
+            "tp1": "161.6900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20280,
+          "stress_net_pnl": "0.3538074600"
+        },
+        {
+          "day_start_equity": "92.73439568706500000000000000",
+          "entry_ms": 1752324300000,
+          "exit_ms": 1752324600000,
+          "exit_price": "159.0900",
+          "fees": "0.0382408000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.296000",
+          "minimum_equity": "92.42560928706500000000000000",
+          "net_pnl": "-0.3342408000",
+          "plan": {
+            "decision_ms": 1752324300000,
+            "entry": "159.8300",
+            "exits": [
+              {
+                "price": "159.0900",
+                "quantity": "0.40",
+                "role": "STOP"
+              },
+              {
+                "price": "160.7400",
+                "quantity": "0.40",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.40",
+            "side": "BUY",
+            "signal_key": "64835c3669da737b9fa8213c6744cb8220acf993c845254062b95e2da75932b6",
+            "stop": "159.0900",
+            "symbol": "SOLUSDT",
+            "tp1": "160.7400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20281,
+          "stress_net_pnl": "-0.4362656000"
+        }
+      ],
+      "unfilled": 7
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 21,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "92.40015488706500000000000000",
+          "entry_ms": 1753965900000,
+          "exit_ms": 1753967400000,
+          "exit_price": "178.3300",
+          "fees": "0.0375067000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.287000",
+          "minimum_equity": "92.10061438706500000000000000",
+          "net_pnl": "-0.3245067000",
+          "plan": {
+            "decision_ms": 1753965900000,
+            "entry": "179.1500",
+            "exits": [
+              {
+                "price": "178.3300",
+                "quantity": "0.35",
+                "role": "STOP"
+              },
+              {
+                "price": "180.1600",
+                "quantity": "0.35",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.35",
+            "side": "BUY",
+            "signal_key": "67dc897a83cf6b869da9c2070f1618d5a399960c9577b4d594b199834f777fa1",
+            "stop": "178.3300",
+            "symbol": "SOLUSDT",
+            "tp1": "180.1600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.4245724000"
+        },
+        {
+          "day_start_equity": "92.40015488706500000000000000",
+          "entry_ms": 1753967700000,
+          "exit_ms": 1753968900000,
+          "exit_price": "176.7400",
+          "fees": "0.0339961600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.310400",
+          "minimum_equity": "91.75387474706500000000000000",
+          "net_pnl": "-0.3443961600",
+          "plan": {
+            "decision_ms": 1753967700000,
+            "entry": "177.7100",
+            "exits": [
+              {
+                "price": "176.7400",
+                "quantity": "0.32",
+                "role": "STOP"
+              },
+              {
+                "price": "178.9200",
+                "quantity": "0.32",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.32",
+            "side": "BUY",
+            "signal_key": "6a10f522d8870ed3884cbf4b9d7957994392abe4f612e229ba1c8ed9702c0faa",
+            "stop": "176.7400",
+            "symbol": "SOLUSDT",
+            "tp1": "178.9200",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.4351043200"
+        },
+        {
+          "day_start_equity": "92.40015488706500000000000000",
+          "entry_ms": 1753969500000,
+          "exit_ms": 1753971900000,
+          "exit_price": "176.0200",
+          "fees": "0.0317472000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.318000",
+          "minimum_equity": "91.40262722706500000000000000",
+          "net_pnl": "-0.3497472000",
+          "plan": {
+            "decision_ms": 1753969500000,
+            "entry": "177.0800",
+            "exits": [
+              {
+                "price": "176.0200",
+                "quantity": "0.30",
+                "role": "STOP"
+              },
+              {
+                "price": "178.3900",
+                "quantity": "0.30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.30",
+            "side": "BUY",
+            "signal_key": "1191f81f686f11f7a8f2a4e26dc7ae9fb972dae54ce995eb65df01c17cb08938",
+            "stop": "176.0200",
+            "symbol": "SOLUSDT",
+            "tp1": "178.3900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.4344594000"
+        },
+        {
+          "day_start_equity": "92.40015488706500000000000000",
+          "entry_ms": 1753972200000,
+          "exit_ms": 1753978200000,
+          "exit_price": "177.5800",
+          "fees": "0.0183861600",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0003971630520000000000000000",
+          "gross_pnl": "0.410800",
+          "minimum_equity": "91.14875282706500000000000000",
+          "net_pnl": "0.3920166769480000000000000000",
+          "plan": {
+            "decision_ms": 1753972200000,
+            "entry": "176.0000",
+            "exits": [
+              {
+                "price": "174.7300",
+                "quantity": "0.26",
+                "role": "STOP"
+              },
+              {
+                "price": "177.5800",
+                "quantity": "0.26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.26",
+            "side": "BUY",
+            "signal_key": "92217d649949f174ceaef31944d88498eb9fca63aa647b6c556e5a417183d983",
+            "stop": "174.7300",
+            "symbol": "SOLUSDT",
+            "tp1": "177.5800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20300,
+          "stress_net_pnl": "0.3276651169480000000000000000"
+        },
+        {
+          "day_start_equity": "91.77352150401300000000000000",
+          "entry_ms": 1754811900000,
+          "exit_ms": 1754814900000,
+          "exit_price": "180.0000",
+          "fees": "0.0179155000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0034796914500000000000000000",
+          "gross_pnl": "0.422500",
+          "minimum_equity": "91.54112631256300000000000000",
+          "net_pnl": "0.4011048085500000000000000000",
+          "plan": {
+            "decision_ms": 1754811900000,
+            "entry": "178.3100",
+            "exits": [
+              {
+                "price": "176.9500",
+                "quantity": "0.25",
+                "role": "STOP"
+              },
+              {
+                "price": "180.0000",
+                "quantity": "0.25",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.25",
+            "side": "BUY",
+            "signal_key": "98ce7d26feb4f224ecf5d5c68af3cfcb032c0346895265237f32838128816788",
+            "stop": "176.9500",
+            "symbol": "SOLUSDT",
+            "tp1": "180.0000",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20310,
+          "stress_net_pnl": "0.3384005585500000000000000000"
+        },
+        {
+          "day_start_equity": "92.17462631256300000000000000",
+          "entry_ms": 1754911800000,
+          "exit_ms": 1754917800000,
+          "exit_price": "177.5400",
+          "fees": "0.0298922400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.327600",
+          "minimum_equity": "91.83701855256300000000000000",
+          "net_pnl": "-0.3574922400",
+          "plan": {
+            "decision_ms": 1754911800000,
+            "entry": "178.7100",
+            "exits": [
+              {
+                "price": "177.5400",
+                "quantity": "0.28",
+                "role": "STOP"
+              },
+              {
+                "price": "180.1700",
+                "quantity": "0.28",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.28",
+            "side": "BUY",
+            "signal_key": "02d3e3ccf3fb3d04e44c6857faea13eec21072f80a1da48235b7e04f82a4bf0f",
+            "stop": "177.5400",
+            "symbol": "SOLUSDT",
+            "tp1": "180.1700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20311,
+          "stress_net_pnl": "-0.4372594800"
+        },
+        {
+          "day_start_equity": "91.81713407256300000000000000",
+          "entry_ms": 1755176400000,
+          "exit_ms": 1755176700000,
+          "exit_price": "191.1600",
+          "fees": "0.0138422400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.393600",
+          "minimum_equity": "91.41886751256300000000000000",
+          "net_pnl": "-0.4074422400",
+          "plan": {
+            "decision_ms": 1755176400000,
+            "entry": "194.4400",
+            "exits": [
+              {
+                "price": "191.1600",
+                "quantity": "0.12",
+                "role": "STOP"
+              },
+              {
+                "price": "198.5300",
+                "quantity": "0.12",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.12",
+            "side": "BUY",
+            "signal_key": "c5e8d92e23012346db875dcb33c02e18ee7cfdffa349a55792e0e81d66e8be06",
+            "stop": "191.1600",
+            "symbol": "SOLUSDT",
+            "tp1": "198.5300",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20314,
+          "stress_net_pnl": "-0.4444204800"
+        },
+        {
+          "day_start_equity": "91.40969183256300000000000000",
+          "entry_ms": 1759591800000,
+          "exit_ms": 1759597800000,
+          "exit_price": "226.4000",
+          "fees": "0.0216600000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0005610508800000000000000000",
+          "gross_pnl": "0.372000",
+          "minimum_equity": "91.20873798168300000000000000",
+          "net_pnl": "0.3497789491200000000000000000",
+          "plan": {
+            "decision_ms": 1759591800000,
+            "entry": "224.8500",
+            "exits": [
+              {
+                "price": "223.6000",
+                "quantity": "0.24",
+                "role": "STOP"
+              },
+              {
+                "price": "226.4000",
+                "quantity": "0.24",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.24",
+            "side": "BUY",
+            "signal_key": "e2a886fdedd5be0bfec491692b94f76a854080e2bbfbfbf576de2bf843d8bdea",
+            "stop": "223.6000",
+            "symbol": "SOLUSDT",
+            "tp1": "226.4000",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20365,
+          "stress_net_pnl": "0.2739689491200000000000000000"
+        },
+        {
+          "day_start_equity": "91.75947078168300000000000000",
+          "entry_ms": 1759998600000,
+          "exit_ms": 1760005800000,
+          "exit_price": "221.190000000000000000",
+          "fees": "0.027848940000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.10500000000000000000",
+          "minimum_equity": "91.44780180168300000000000000",
+          "net_pnl": "0.077151060000000000000000",
+          "plan": {
+            "decision_ms": 1759998600000,
+            "entry": "220.6900",
+            "exits": [
+              {
+                "price": "219.1000",
+                "quantity": "0.21",
+                "role": "STOP"
+              },
+              {
+                "price": "222.6600",
+                "quantity": "0.21",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.21",
+            "side": "BUY",
+            "signal_key": "77cf8623d47d91c0c8b47973aeba625d7b30ec488c854301f374f8e9d98332d5",
+            "stop": "219.1000",
+            "symbol": "SOLUSDT",
+            "tp1": "222.6600",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20370,
+          "stress_net_pnl": "0.002904720000000000000000"
+        },
+        {
+          "day_start_equity": "91.83662184168300000000000000",
+          "entry_ms": 1767426300000,
+          "exit_ms": 1767430200000,
+          "exit_price": "130.8900",
+          "fees": "0.0266311800",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0054957309300000000000000000",
+          "gross_pnl": "0.351900",
+          "minimum_equity": "91.58324571075300000000000000",
+          "net_pnl": "0.3197730890700000000000000000",
+          "plan": {
+            "decision_ms": 1767426300000,
+            "entry": "130.2000",
+            "exits": [
+              {
+                "price": "129.6400",
+                "quantity": "0.51",
+                "role": "STOP"
+              },
+              {
+                "price": "130.8900",
+                "quantity": "0.51",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.51",
+            "side": "BUY",
+            "signal_key": "786f9dc57e848fbf3c2be245e749235b93261ccfd221f400af14f54e45f2c0b9",
+            "stop": "129.6400",
+            "symbol": "SOLUSDT",
+            "tp1": "130.8900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20456,
+          "stress_net_pnl": "0.2265639590700000000000000000"
+        },
+        {
+          "day_start_equity": "92.15639493075300000000000000",
+          "entry_ms": 1768207500000,
+          "exit_ms": 1768214700000,
+          "exit_price": "139.440000000000000000",
+          "fees": "0.033471200000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.02800000000000000000",
+          "minimum_equity": "91.92123413075300000000000000",
+          "net_pnl": "-0.061471200000000000000000",
+          "plan": {
+            "decision_ms": 1768207500000,
+            "entry": "139.5100",
+            "exits": [
+              {
+                "price": "138.7200",
+                "quantity": "0.40",
+                "role": "STOP"
+              },
+              {
+                "price": "140.4800",
+                "quantity": "0.40",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.40",
+            "side": "BUY",
+            "signal_key": "de7c8b408b9ca8d03a619a86351e4cad4ccb88796f0ff5ade37aa1ad132a11bd",
+            "stop": "138.7200",
+            "symbol": "SOLUSDT",
+            "tp1": "140.4800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20465,
+          "stress_net_pnl": "-0.150732400000000000000000"
+        },
+        {
+          "day_start_equity": "92.09492373075300000000000000",
+          "entry_ms": 1768448700000,
+          "exit_ms": 1768452900000,
+          "exit_price": "144.3600",
+          "fees": "0.0235987800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.381300",
+          "minimum_equity": "91.94786247075300000000000000",
+          "net_pnl": "0.3577012200",
+          "plan": {
+            "decision_ms": 1768448700000,
+            "entry": "143.4300",
+            "exits": [
+              {
+                "price": "142.6800",
+                "quantity": "0.41",
+                "role": "STOP"
+              },
+              {
+                "price": "144.3600",
+                "quantity": "0.41",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.41",
+            "side": "BUY",
+            "signal_key": "916b1b5007c514ccf74744dda3fae800a30d9de0dc469d40c69c0a17dcbe8629",
+            "stop": "142.6800",
+            "symbol": "SOLUSDT",
+            "tp1": "144.3600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20468,
+          "stress_net_pnl": "0.2751054900"
+        },
+        {
+          "day_start_equity": "92.45262495075300000000000000",
+          "entry_ms": 1768579200000,
+          "exit_ms": 1768580700000,
+          "exit_price": "141.7500",
+          "fees": "0.0208998200",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.0006614782300000000000000000",
+          "gross_pnl": "0.395900",
+          "minimum_equity": "92.39041463075300000000000000",
+          "net_pnl": "0.3743387017700000000000000000",
+          "plan": {
+            "decision_ms": 1768579200000,
+            "entry": "140.6800",
+            "exits": [
+              {
+                "price": "139.8200",
+                "quantity": "0.37",
+                "role": "STOP"
+              },
+              {
+                "price": "141.7500",
+                "quantity": "0.37",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.37",
+            "side": "BUY",
+            "signal_key": "2731d67bd359ded672d09f2e725e797a7f3cc4de7ceaa32ac4af9fa8d666f761",
+            "stop": "139.8200",
+            "symbol": "SOLUSDT",
+            "tp1": "141.7500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20469,
+          "stress_net_pnl": "0.3011893317700000000000000000"
+        },
+        {
+          "day_start_equity": "92.82696365252300000000000000",
+          "entry_ms": 1768698900000,
+          "exit_ms": 1768704000000,
+          "exit_price": "141.8400",
+          "fees": "0.0443071200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.265200",
+          "minimum_equity": "92.54695925252300000000000000",
+          "net_pnl": "-0.3095071200",
+          "plan": {
+            "decision_ms": 1768698900000,
+            "entry": "142.3500",
+            "exits": [
+              {
+                "price": "141.8400",
+                "quantity": "0.52",
+                "role": "STOP"
+              },
+              {
+                "price": "142.9700",
+                "quantity": "0.52",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.52",
+            "side": "BUY",
+            "signal_key": "f7144cc7d1c334860a4b9c145008c543b2938a3eb7780188ea35404a226cbfa1",
+            "stop": "141.8400",
+            "symbol": "SOLUSDT",
+            "tp1": "142.9700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20471,
+          "stress_net_pnl": "-0.4277036400"
+        },
+        {
+          "day_start_equity": "92.82696365252300000000000000",
+          "entry_ms": 1768779900000,
+          "exit_ms": 1768780200000,
+          "exit_price": "138.7800",
+          "fees": "0.0366968800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.294800",
+          "minimum_equity": "92.21038493252300000000000000",
+          "net_pnl": "-0.3314968800",
+          "plan": {
+            "decision_ms": 1768779900000,
+            "entry": "139.4500",
+            "exits": [
+              {
+                "price": "138.7800",
+                "quantity": "0.44",
+                "role": "STOP"
+              },
+              {
+                "price": "140.2700",
+                "quantity": "0.44",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.44",
+            "side": "BUY",
+            "signal_key": "0dd30643a008bfc8c27cf711643e25ae3130c53dfa8a3b89d37ad834e311c412",
+            "stop": "138.7800",
+            "symbol": "SOLUSDT",
+            "tp1": "140.2700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20471,
+          "stress_net_pnl": "-0.4294043600"
+        }
+      ],
+      "unfilled": 6
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 13,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "92.18595965252300000000000000",
+          "entry_ms": 1773834300000,
+          "exit_ms": 1773835500000,
+          "exit_price": "91.6400",
+          "fees": "0.0314047200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.319200",
+          "minimum_equity": "91.85624885252300000000000000",
+          "net_pnl": "-0.3506047200",
+          "plan": {
+            "decision_ms": 1773834300000,
+            "entry": "92.2000",
+            "exits": [
+              {
+                "price": "91.6400",
+                "quantity": "0.57",
+                "role": "STOP"
+              },
+              {
+                "price": "92.8900",
+                "quantity": "0.57",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.57",
+            "side": "BUY",
+            "signal_key": "4e486e50bc879b1e53657b008b6788c01ac44a2c0f1c300620778977a20ff832",
+            "stop": "91.6400",
+            "symbol": "SOLUSDT",
+            "tp1": "92.8900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.4344038400"
+        },
+        {
+          "day_start_equity": "92.18595965252300000000000000",
+          "entry_ms": 1773836100000,
+          "exit_ms": 1773837300000,
+          "exit_price": "91.2400",
+          "fees": "0.0296276400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.329400",
+          "minimum_equity": "91.49603513252300000000000000",
+          "net_pnl": "-0.3590276400",
+          "plan": {
+            "decision_ms": 1773836100000,
+            "entry": "91.8500",
+            "exits": [
+              {
+                "price": "91.2400",
+                "quantity": "0.54",
+                "role": "STOP"
+              },
+              {
+                "price": "92.6000",
+                "quantity": "0.54",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.54",
+            "side": "BUY",
+            "signal_key": "f66e70844402525820f3b56278e7d8679ea0326b55f74acdbea6ecdd9e28be29",
+            "stop": "91.2400",
+            "symbol": "SOLUSDT",
+            "tp1": "92.6000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.4380895800"
+        },
+        {
+          "day_start_equity": "92.18595965252300000000000000",
+          "entry_ms": 1773837900000,
+          "exit_ms": 1773842700000,
+          "exit_price": "89.8000",
+          "fees": "0.0253912800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.338400",
+          "minimum_equity": "91.12941841252300000000000000",
+          "net_pnl": "-0.3637912800",
+          "plan": {
+            "decision_ms": 1773837900000,
+            "entry": "90.5200",
+            "exits": [
+              {
+                "price": "89.8000",
+                "quantity": "0.47",
+                "role": "STOP"
+              },
+              {
+                "price": "91.4100",
+                "quantity": "0.47",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.47",
+            "side": "BUY",
+            "signal_key": "ebcc76c6293db0c8ed07ec9100133db520151beffa94b1aa61c381f376bbdacf",
+            "stop": "89.8000",
+            "symbol": "SOLUSDT",
+            "tp1": "91.4100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.4315577600"
+        },
+        {
+          "day_start_equity": "91.11253601252300000000000000",
+          "entry_ms": 1774502100000,
+          "exit_ms": 1774503900000,
+          "exit_price": "89.5000",
+          "fees": "0.0365744800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.292400",
+          "minimum_equity": "90.80790553252300000000000000",
+          "net_pnl": "-0.3289744800",
+          "plan": {
+            "decision_ms": 1774502100000,
+            "entry": "89.9300",
+            "exits": [
+              {
+                "price": "89.5000",
+                "quantity": "0.68",
+                "role": "STOP"
+              },
+              {
+                "price": "90.4600",
+                "quantity": "0.68",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.68",
+            "side": "BUY",
+            "signal_key": "dd6ec102cb6a8078a6ff74b530beb0290a1869afd92f31b43ed1b6dc5ebb3f4d",
+            "stop": "89.5000",
+            "symbol": "SOLUSDT",
+            "tp1": "90.4600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20538,
+          "stress_net_pnl": "-0.4265551600"
+        },
+        {
+          "day_start_equity": "91.11253601252300000000000000",
+          "entry_ms": 1774503900000,
+          "exit_ms": 1774504800000,
+          "exit_price": "89.0900",
+          "fees": "0.0348049000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.299000",
+          "minimum_equity": "90.47292003252300000000000000",
+          "net_pnl": "-0.3338049000",
+          "plan": {
+            "decision_ms": 1774503900000,
+            "entry": "89.5500",
+            "exits": [
+              {
+                "price": "89.0900",
+                "quantity": "0.65",
+                "role": "STOP"
+              },
+              {
+                "price": "90.1100",
+                "quantity": "0.65",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.65",
+            "side": "BUY",
+            "signal_key": "3a1384e24c23dc290eb4883be6a844b072e92a70c698ecdd1137eb4dd82013bb",
+            "stop": "89.0900",
+            "symbol": "SOLUSDT",
+            "tp1": "90.1100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20538,
+          "stress_net_pnl": "-0.4266678000"
+        },
+        {
+          "day_start_equity": "90.44975663252300000000000000",
+          "entry_ms": 1775958300000,
+          "exit_ms": 1775958600000,
+          "exit_price": "82.2300",
+          "fees": "0.0286810000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.324800",
+          "minimum_equity": "90.11535299252300000000000000",
+          "net_pnl": "-0.3534810000",
+          "plan": {
+            "decision_ms": 1775958300000,
+            "entry": "82.7900",
+            "exits": [
+              {
+                "price": "82.2300",
+                "quantity": "0.58",
+                "role": "STOP"
+              },
+              {
+                "price": "83.4700",
+                "quantity": "0.58",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.58",
+            "side": "BUY",
+            "signal_key": "93ea5938cc900c5b58286bc1470671a463bdaf29cf20ed13255068aac1d4a0ec",
+            "stop": "82.2300",
+            "symbol": "SOLUSDT",
+            "tp1": "83.4700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.4300178000"
+        },
+        {
+          "day_start_equity": "90.44975663252300000000000000",
+          "entry_ms": 1775959200000,
+          "exit_ms": 1775960400000,
+          "exit_price": "82.9400",
+          "fees": "0.0188305200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.399000",
+          "minimum_equity": "89.85320027252300000000000000",
+          "net_pnl": "0.3801694800",
+          "plan": {
+            "decision_ms": 1775959200000,
+            "entry": "82.2400",
+            "exits": [
+              {
+                "price": "81.6700",
+                "quantity": "0.57",
+                "role": "STOP"
+              },
+              {
+                "price": "82.9400",
+                "quantity": "0.57",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.57",
+            "side": "BUY",
+            "signal_key": "a76c4a64639283b7c6dc0b13b5a48a7e8faf308f07a353e4efb15dfe45f8cf49",
+            "stop": "81.6700",
+            "symbol": "SOLUSDT",
+            "tp1": "82.9400",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20555,
+          "stress_net_pnl": "0.3142626600"
+        },
+        {
+          "day_start_equity": "90.47644511252300000000000000",
+          "entry_ms": 1776565800000,
+          "exit_ms": 1776566700000,
+          "exit_price": "85.6500",
+          "fees": "0.0300854400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.316800",
+          "minimum_equity": "90.39103407252300000000000000",
+          "net_pnl": "0.2867145600",
+          "plan": {
+            "decision_ms": 1776565800000,
+            "entry": "85.2900",
+            "exits": [
+              {
+                "price": "85.0000",
+                "quantity": "0.88",
+                "role": "STOP"
+              },
+              {
+                "price": "85.6500",
+                "quantity": "0.88",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.88",
+            "side": "BUY",
+            "signal_key": "c33102f0e1f59c14e46eceb7efcd43ee39586e3bb5174026c14727ef6125937f",
+            "stop": "85.0000",
+            "symbol": "SOLUSDT",
+            "tp1": "85.6500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20562,
+          "stress_net_pnl": "0.1814155200"
+        },
+        {
+          "day_start_equity": "90.76315967252300000000000000",
+          "entry_ms": 1777267800000,
+          "exit_ms": 1777270200000,
+          "exit_price": "85.6200",
+          "fees": "0.0339662400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.303600",
+          "minimum_equity": "90.44819711252300000000000000",
+          "net_pnl": "-0.3375662400",
+          "plan": {
+            "decision_ms": 1777267800000,
+            "entry": "86.0800",
+            "exits": [
+              {
+                "price": "85.6200",
+                "quantity": "0.66",
+                "role": "STOP"
+              },
+              {
+                "price": "86.6400",
+                "quantity": "0.66",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.66",
+            "side": "BUY",
+            "signal_key": "46ac5c743dab32fcb57a922a906be61db41ec06618b22032325e90bc3ad7e5cf",
+            "stop": "85.6200",
+            "symbol": "SOLUSDT",
+            "tp1": "86.6400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.4281934800"
+        },
+        {
+          "day_start_equity": "90.42559343252300000000000000",
+          "entry_ms": 1777890600000,
+          "exit_ms": 1777891200000,
+          "exit_price": "84.0000",
+          "fees": "0.0241200000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.360000",
+          "minimum_equity": "90.31276943252300000000000000",
+          "net_pnl": "0.3358800000",
+          "plan": {
+            "decision_ms": 1777890600000,
+            "entry": "83.5000",
+            "exits": [
+              {
+                "price": "83.0900",
+                "quantity": "0.72",
+                "role": "STOP"
+              },
+              {
+                "price": "84.0000",
+                "quantity": "0.72",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.72",
+            "side": "BUY",
+            "signal_key": "803ec6d6bed675682491226d861d9422967f283c28de32f727d528e4388d0ad3",
+            "stop": "83.0900",
+            "symbol": "SOLUSDT",
+            "tp1": "84.0000",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20577,
+          "stress_net_pnl": "0.2514600000"
+        },
+        {
+          "day_start_equity": "90.76147343252300000000000000",
+          "entry_ms": 1778550300000,
+          "exit_ms": 1778557500000,
+          "exit_price": "96.300000000000000000",
+          "fees": "0.034640400000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.13800000000000000000",
+          "minimum_equity": "90.67194503252300000000000000",
+          "net_pnl": "0.103359600000000000000000",
+          "plan": {
+            "decision_ms": 1778550300000,
+            "entry": "96.0700",
+            "exits": [
+              {
+                "price": "95.5700",
+                "quantity": "0.60",
+                "role": "STOP"
+              },
+              {
+                "price": "96.6800",
+                "quantity": "0.60",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.60",
+            "side": "BUY",
+            "signal_key": "92036347a83d98a5f481de734f088d2d6ebeb901a61f20d3836ef19180e2439e",
+            "stop": "95.5700",
+            "symbol": "SOLUSDT",
+            "tp1": "96.6800",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20585,
+          "stress_net_pnl": "0.011008200000000000000000"
+        },
+        {
+          "day_start_equity": "90.86483303252300000000000000",
+          "entry_ms": 1785192300000,
+          "exit_ms": 1785192900000,
+          "exit_price": "74.3400",
+          "fees": "0.0379712000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.289000",
+          "minimum_equity": "90.56313743252300000000000000",
+          "net_pnl": "-0.3269712000",
+          "plan": {
+            "decision_ms": 1785192300000,
+            "entry": "74.6800",
+            "exits": [
+              {
+                "price": "74.3400",
+                "quantity": "0.85",
+                "role": "STOP"
+              },
+              {
+                "price": "75.0900",
+                "quantity": "0.85",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "0.85",
+            "side": "BUY",
+            "signal_key": "2308e364bac913dca90b4575e9be434bb7f0e1c0c5c46eec33b058569343ab3b",
+            "stop": "74.3400",
+            "symbol": "SOLUSDT",
+            "tp1": "75.0900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20661,
+          "stress_net_pnl": "-0.4282759000"
+        }
+      ],
+      "unfilled": 1
+    }
+  ]
+}

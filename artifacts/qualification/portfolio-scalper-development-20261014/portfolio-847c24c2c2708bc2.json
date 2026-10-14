@@ -1,0 +1,3223 @@
+{
+  "assumptions": [
+    "shared USDT wallet and equity ledger across all portfolio members",
+    "pending maker orders and open positions reserve margin from shared available balance",
+    "0.5% trade risk is sized from current shared portfolio equity",
+    "5% daily loss limit is enforced against shared UTC day-start portfolio equity",
+    "exact Decimal futures accounting identities verified on every state transition",
+    "historical OHLCV replay does not qualify live microstructure or user-stream truth by itself"
+  ],
+  "by_symbol": {
+    "SUIUSDT": {
+      "net_pnl": "105.2175376136240000000000000",
+      "stress_net_pnl": "10.8782449916240000000000000",
+      "trade_count": 34
+    },
+    "XRPUSDT": {
+      "net_pnl": "162.6364531344756000000000000",
+      "stress_net_pnl": "56.0474868904756000000000000",
+      "trade_count": 30
+    }
+  },
+  "capital_scenario": {
+    "account_observation_sha256": "191b875cefd399b8c6439a1c80812db1efaae00ea6aa5a244306051db1892e8d",
+    "evidence": {
+      "path": "artifacts/qualification/runtime-inputs/testnet-account-probe-20261014-1791918191661.json",
+      "sha256": "abf267ad7f2fb718490c1c58cabded2c2785f8226c7747db51b6209ee189bf4d"
+    },
+    "execution_authority": false,
+    "flat_account": true,
+    "observed_ms": 1791918191661,
+    "purpose": "historical_sizing_seed_only_not_live_daily_risk_evidence",
+    "schema": "authenticated-testnet-equity-scenario-v1",
+    "source": "binance_authenticated_rest",
+    "starting_equity": "4224.09882354",
+    "testnet": true,
+    "utc_day_start_baseline_verified": false,
+    "wallet_and_equity_reconciled": true
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "accounting_reconciled": true,
+    "drawdown": true,
+    "positive_net_edge": true,
+    "profit_factor": true,
+    "stress_positive": true,
+    "sufficient_oos_samples": true,
+    "window_consistency": true
+  },
+  "implementation": {
+    "src/autonomous_futures/execution/daily_risk.py": "a0cc6e3ab50e17356604b57994d6f05df2746701173c0ff9bf01685b497da54a",
+    "src/autonomous_futures/execution/trade_plan.py": "bd6175ba789cb16430f9e86a1c679fe97e3f6472da9375873fe95a86b53d9813",
+    "src/autonomous_futures/research/portfolio_qualification.py": "0f632e3226d31b9cd2fd988784dd8e9c3a5a620e5b68ee3f0e011d38cb4ddfb9",
+    "src/autonomous_futures/research/runtime_qualification.py": "611f2c96e5ca3c9b847825e6f8c5f43c8fef59b8e0d264974429cc09e4bed775",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "166653671497bf61b24e740f04369ec5dfe37a1e7b06d42cdd15f95754c60299"
+  },
+  "members": [
+    {
+      "distance_threshold": "-4.0",
+      "family": "MACRO_SCALPER",
+      "max_hold_bars": 8,
+      "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+      "rsi_threshold": "26.0",
+      "stop_atr_multiplier": "1.2",
+      "symbol": "XRPUSDT",
+      "target_atr_multiplier": "3.0",
+      "vol_spike_multiplier": "2.2"
+    },
+    {
+      "distance_threshold": "-3.8",
+      "family": "MACRO_SCALPER",
+      "max_hold_bars": 8,
+      "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+      "rsi_threshold": "26.0",
+      "stop_atr_multiplier": "1.2",
+      "symbol": "SUIUSDT",
+      "target_atr_multiplier": "1.2",
+      "vol_spike_multiplier": "2.2"
+    }
+  ],
+  "metrics": {
+    "drawdown_pct": "2.638284302724537956797879940",
+    "drawdown_usdt": "111.443736193027700000000000",
+    "ending_equity": "4491.952814288099600000000000",
+    "ending_wallet": "4491.952814288099600000000000",
+    "max_concurrent_positions": 2,
+    "max_equity_drift": "0",
+    "max_reserved_margin_usdt": "4302.78420",
+    "max_wallet_drift": "0",
+    "net_pnl": "267.8539907480996000000000000",
+    "profitable_windows": 4,
+    "stress_net_pnl": "66.9257318820996000000000000",
+    "trade_count": 64
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "4224.09882354",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trade_risk_pct": "0.5",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "e96a2192836794d0c4f71228f383bcba265045814530dce21d46ec3da536f3fc",
+  "portfolio_decision_on_development_sample": "QUALIFIED",
+  "rejection_reasons": {
+    "No permitted leverage can fund the position with a stop buffer": 4,
+    "Symbol already has active position or order": 4
+  },
+  "report_hash": "847c24c2c2708bc28e5f36e8a08d3eeac16425e9ad8df748ae1024aafa73c57b",
+  "scope": "SHARED_WALLET_PORTFOLIO",
+  "source_files": [
+    {
+      "path": "artifacts/qualification/runtime-inputs/testnet-account-probe-20261014-1791918191661.json",
+      "sha256": "abf267ad7f2fb718490c1c58cabded2c2785f8226c7747db51b6209ee189bf4d"
+    },
+    {
+      "path": "artifacts/qualification/runtime-inputs/testnet-commissions-1791824521337.json",
+      "sha256": "dbd17cf71b6d3d112b7d3c925a87edc346df815632d1521beda45213e6e4e1ab"
+    },
+    {
+      "path": "artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/15m/canonical/SUIUSDT-15m.parquet",
+      "sha256": "f7f6fae509d1cb58f31021a1be297056f7000842fadbb51d3209c1188584b757"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/15m/canonical/XRPUSDT-15m.parquet",
+      "sha256": "bb8cb1d9e3b73b4a7b9d528cbb415485f80b5b809745e285f786fb7871eec7df"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/15m/manifests/SUIUSDT-15m.manifest.json",
+      "sha256": "94136434a1a136396501bdde2998c016fafc64e14c8b4a0c27dac3a35652a0ef"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/15m/manifests/XRPUSDT-15m.manifest.json",
+      "sha256": "a1e0278a9c3b4e1d816ed46da36ba57ee77cb5c3200c72d93561443200858921"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/1h/manifests/BTCUSDT-1h.manifest.json",
+      "sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/5m/canonical/SUIUSDT-5m.parquet",
+      "sha256": "65f190834568bed2b332f7bbc0613daa2f5b422ed2e3ed1e733201c19eefe2a4"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/5m/canonical/XRPUSDT-5m.parquet",
+      "sha256": "24f2f830d5891e91931e473629e0a2c5f62da307e7ae831951e607723dca66f2"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/5m/manifests/SUIUSDT-5m.manifest.json",
+      "sha256": "aa555cf55930e548ac81778999a12635e229c3c4dfc81b6e1bd322def266116c"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/5m/manifests/XRPUSDT-5m.manifest.json",
+      "sha256": "232690277858d8a8cd07d6580073677eb3cec9c51f7e0710f699a378e1d05504"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/funding/SUIUSDT-funding.csv",
+      "sha256": "9fae4cc71ec0aabce4bc63675ae1306fdc62f0130aba02e135c8908cdadb7a63"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/funding/XRPUSDT-funding.csv",
+      "sha256": "da064e6696c2547fc2752b514905a59d2d5c2fd8cb45681023808492a033a0f7"
+    }
+  ],
+  "sources": {
+    "capital_scenario": {
+      "path": "artifacts/qualification/runtime-inputs/testnet-account-probe-20261014-1791918191661.json",
+      "sha256": "abf267ad7f2fb718490c1c58cabded2c2785f8226c7747db51b6209ee189bf4d"
+    },
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "macro": {
+      "dataset": {
+        "path": "research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+        "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+      },
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest": {
+        "path": "research/immutable-data/runtime-official-20261013/1h/manifests/BTCUSDT-1h.manifest.json",
+        "sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac"
+      },
+      "rows": 31392
+    },
+    "symbols": {
+      "SUIUSDT": {
+        "commissions": {
+          "maker": "0.000200",
+          "observed_ms": 1791824521337,
+          "path": "artifacts/qualification/runtime-inputs/testnet-commissions-1791824521337.json",
+          "sha256": "dbd17cf71b6d3d112b7d3c925a87edc346df815632d1521beda45213e6e4e1ab",
+          "source": "https://testnet.binancefuture.com/fapi/v1/commissionRate",
+          "symbol": "SUIUSDT",
+          "taker": "0.000400"
+        },
+        "execution": {
+          "dataset": {
+            "path": "research/immutable-data/runtime-official-20261013/5m/canonical/SUIUSDT-5m.parquet",
+            "sha256": "65f190834568bed2b332f7bbc0613daa2f5b422ed2e3ed1e733201c19eefe2a4"
+          },
+          "first_ms": 1683129600000,
+          "last_close_ms": 1785542400000,
+          "manifest": {
+            "path": "research/immutable-data/runtime-official-20261013/5m/manifests/SUIUSDT-5m.manifest.json",
+            "sha256": "aa555cf55930e548ac81778999a12635e229c3c4dfc81b6e1bd322def266116c"
+          },
+          "rows": 341376
+        },
+        "funding": {
+          "path": "research/immutable-data/runtime-official-20261013/funding/SUIUSDT-funding.csv",
+          "sha256": "9fae4cc71ec0aabce4bc63675ae1306fdc62f0130aba02e135c8908cdadb7a63"
+        },
+        "market": {
+          "dataset": {
+            "path": "research/immutable-data/runtime-official-20261013/15m/canonical/SUIUSDT-15m.parquet",
+            "sha256": "f7f6fae509d1cb58f31021a1be297056f7000842fadbb51d3209c1188584b757"
+          },
+          "first_ms": 1683129600000,
+          "last_close_ms": 1785542400000,
+          "manifest": {
+            "path": "research/immutable-data/runtime-official-20261013/15m/manifests/SUIUSDT-15m.manifest.json",
+            "sha256": "94136434a1a136396501bdde2998c016fafc64e14c8b4a0c27dac3a35652a0ef"
+          },
+          "rows": 113792
+        }
+      },
+      "XRPUSDT": {
+        "commissions": {
+          "maker": "0.000200",
+          "observed_ms": 1791824521337,
+          "path": "artifacts/qualification/runtime-inputs/testnet-commissions-1791824521337.json",
+          "sha256": "dbd17cf71b6d3d112b7d3c925a87edc346df815632d1521beda45213e6e4e1ab",
+          "source": "https://testnet.binancefuture.com/fapi/v1/commissionRate",
+          "symbol": "XRPUSDT",
+          "taker": "0.000400"
+        },
+        "execution": {
+          "dataset": {
+            "path": "research/immutable-data/runtime-official-20261013/5m/canonical/XRPUSDT-5m.parquet",
+            "sha256": "24f2f830d5891e91931e473629e0a2c5f62da307e7ae831951e607723dca66f2"
+          },
+          "first_ms": 1672531200000,
+          "last_close_ms": 1785542400000,
+          "manifest": {
+            "path": "research/immutable-data/runtime-official-20261013/5m/manifests/XRPUSDT-5m.manifest.json",
+            "sha256": "232690277858d8a8cd07d6580073677eb3cec9c51f7e0710f699a378e1d05504"
+          },
+          "rows": 376704
+        },
+        "funding": {
+          "path": "research/immutable-data/runtime-official-20261013/funding/XRPUSDT-funding.csv",
+          "sha256": "da064e6696c2547fc2752b514905a59d2d5c2fd8cb45681023808492a033a0f7"
+        },
+        "market": {
+          "dataset": {
+            "path": "research/immutable-data/runtime-official-20261013/15m/canonical/XRPUSDT-15m.parquet",
+            "sha256": "bb8cb1d9e3b73b4a7b9d528cbb415485f80b5b809745e285f786fb7871eec7df"
+          },
+          "first_ms": 1672531200000,
+          "last_close_ms": 1785542400000,
+          "manifest": {
+            "path": "research/immutable-data/runtime-official-20261013/15m/manifests/XRPUSDT-15m.manifest.json",
+            "sha256": "a1e0278a9c3b4e1d816ed46da36ba57ee77cb5c3200c72d93561443200858921"
+          },
+          "rows": 125568
+        }
+      }
+    }
+  },
+  "symbols": [
+    "SUIUSDT",
+    "XRPUSDT"
+  ],
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 8,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "4224.09882354",
+          "entry_ms": 1712929500000,
+          "exit_ms": 1712936700000,
+          "exit_price": "0.594200000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "1.5554953680000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "3.9286800000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4225.3269289080000000000",
+          "net_pnl": "2.3731846320000000000000000",
+          "plan": {
+            "decision_ms": 1712929500000,
+            "entry": "0.5933",
+            "exits": [
+              {
+                "price": "0.5900",
+                "quantity": "4365.2",
+                "role": "STOP"
+              },
+              {
+                "price": "0.6015",
+                "quantity": "4365.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4365.2",
+            "side": "BUY",
+            "signal_key": "d44469e18a3dac963390131808bab7affd624b169b65abc2ea4fe786557eb6db",
+            "stop": "0.5900",
+            "symbol": "XRPUSDT",
+            "tp1": "0.6015",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19825,
+          "stress_net_pnl": "-1.7741482360000000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4226.472008172000000000000000"
+        },
+        {
+          "day_start_equity": "4226.472008172000000000000000",
+          "entry_ms": 1717783200000,
+          "exit_ms": 1717783500000,
+          "exit_price": "0.5108",
+          "family": "MACRO_SCALPER",
+          "fees": "1.69317888800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.78900",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4212.116776676000000000000000",
+          "net_pnl": "-15.48217888800",
+          "plan": {
+            "decision_ms": 1717783200000,
+            "entry": "0.5133",
+            "exits": [
+              {
+                "price": "0.5108",
+                "quantity": "5515.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5195",
+                "quantity": "5515.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5515.6",
+            "side": "BUY",
+            "signal_key": "70dcd480179780433797d2182d1a29c26414da8b1fa93129d5170177e0dc8b58",
+            "stop": "0.5108",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5195",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19881,
+          "stress_net_pnl": "-19.99962075600",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4210.989829284000000000000000"
+        },
+        {
+          "day_start_equity": "4226.472008172000000000000000",
+          "entry_ms": 1717784100000,
+          "exit_ms": 1717784700000,
+          "exit_price": "0.4744",
+          "family": "MACRO_SCALPER",
+          "fees": "0.43132530200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "45.25365",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4250.230591998000000000000000",
+          "net_pnl": "44.82232469800",
+          "plan": {
+            "decision_ms": 1717784100000,
+            "entry": "0.4549",
+            "exits": [
+              {
+                "price": "0.4470",
+                "quantity": "2320.7",
+                "role": "STOP"
+              },
+              {
+                "price": "0.4744",
+                "quantity": "2320.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2320.7",
+            "side": "BUY",
+            "signal_key": "cabfd7fa93a0068ca6b0aff5b97cdf2ad5bd5556c8c646739df9631b15aa1f27",
+            "stop": "0.4470",
+            "symbol": "XRPUSDT",
+            "tp1": "0.4744",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19881,
+          "stress_net_pnl": "43.31268614100",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4255.812153982000000000000000"
+        },
+        {
+          "day_start_equity": "4255.812153982000000000000000",
+          "entry_ms": 1718585100000,
+          "exit_ms": 1718586000000,
+          "exit_price": "0.977900",
+          "family": "MACRO_SCALPER",
+          "fees": "0.9108996600000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "15.0865000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4268.584895502000000000000000",
+          "net_pnl": "14.1756003400000",
+          "plan": {
+            "decision_ms": 1718585100000,
+            "entry": "0.984400",
+            "exits": [
+              {
+                "price": "0.991000",
+                "quantity": "2321.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.977900",
+                "quantity": "2321.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2321.0",
+            "side": "SELL",
+            "signal_key": "57f0b5c7926e23fce81e86c5270e91c7dac83336b8776d64922896efa883b810",
+            "stop": "0.991000",
+            "symbol": "SUIUSDT",
+            "tp1": "0.977900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19891,
+          "stress_net_pnl": "10.9874515300000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4269.987754322000000000000000"
+        }
+      ],
+      "unfilled": 4
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 2,
+      "signals": 17,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "4269.987754322000000000000000",
+          "entry_ms": 1720429200000,
+          "exit_ms": 1720436400000,
+          "exit_price": "0.431800000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "1.1960978240000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "13.3585600000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4271.890473906000000000000000",
+          "net_pnl": "12.1624621760000000000000000",
+          "plan": {
+            "decision_ms": 1720429200000,
+            "entry": "0.4347",
+            "exits": [
+              {
+                "price": "0.4382",
+                "quantity": "4606.4",
+                "role": "STOP"
+              },
+              {
+                "price": "0.4262",
+                "quantity": "4606.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4606.4",
+            "side": "SELL",
+            "signal_key": "5e0703123c60615241b4d3b103f502f5a9c15385ba75c21c54f8c96311e5afc8",
+            "stop": "0.4382",
+            "symbol": "XRPUSDT",
+            "tp1": "0.4262",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19912,
+          "stress_net_pnl": "8.9706415520000000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4282.150216498000000000000000"
+        },
+        {
+          "day_start_equity": "4282.150216498000000000000000",
+          "entry_ms": 1723060800000,
+          "exit_ms": 1723061400000,
+          "exit_price": "0.5151",
+          "family": "MACRO_SCALPER",
+          "fees": "0.52216342000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "44.58890",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4287.115775898000000000000000",
+          "net_pnl": "44.06673658000",
+          "plan": {
+            "decision_ms": 1723060800000,
+            "entry": "0.5330",
+            "exits": [
+              {
+                "price": "0.5402",
+                "quantity": "2491.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5151",
+                "quantity": "2491.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2491.0",
+            "side": "SELL",
+            "signal_key": "54f24b413789e9a5b7fc12750cbd320b79ec1c4f10f70db5b346aa0905d27677",
+            "stop": "0.5402",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5151",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19942,
+          "stress_net_pnl": "42.23916461000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4326.216953078000000000000000"
+        },
+        {
+          "day_start_equity": "4282.150216498000000000000000",
+          "entry_ms": 1723061700000,
+          "exit_ms": 1723062000000,
+          "exit_price": "0.5612",
+          "family": "MACRO_SCALPER",
+          "fees": "0.62163463200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-18.94548",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4307.066787598000000000000000",
+          "net_pnl": "-19.56711463200",
+          "plan": {
+            "decision_ms": 1723061700000,
+            "entry": "0.5510",
+            "exits": [
+              {
+                "price": "0.5612",
+                "quantity": "1857.4",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5258",
+                "quantity": "1857.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1857.4",
+            "side": "SELL",
+            "signal_key": "86804b03a52b94422e396ed42b9f3f7d343136e3305bafb39933841d9b2653d0",
+            "stop": "0.5612",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5258",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19942,
+          "stress_net_pnl": "-21.22164940400",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4306.649838446000000000000000"
+        },
+        {
+          "day_start_equity": "4282.150216498000000000000000",
+          "entry_ms": 1723062600000,
+          "exit_ms": 1723064100000,
+          "exit_price": "0.5760",
+          "family": "MACRO_SCALPER",
+          "fees": "0.26637312000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "48.99840",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4334.463112046000000000000000",
+          "net_pnl": "48.73202688000",
+          "plan": {
+            "decision_ms": 1723062600000,
+            "entry": "0.6200",
+            "exits": [
+              {
+                "price": "0.6377",
+                "quantity": "1113.6",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5760",
+                "quantity": "1113.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1113.6",
+            "side": "SELL",
+            "signal_key": "1b258fae7244311089b1294e4c6a367a7ff03c405845079d741af9919dd63852",
+            "stop": "0.6377",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5760",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19942,
+          "stress_net_pnl": "47.79972096000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4355.381865326000000000000000"
+        },
+        {
+          "day_start_equity": "4355.381865326000000000000000",
+          "entry_ms": 1723144500000,
+          "exit_ms": 1723145100000,
+          "exit_price": "0.765400",
+          "family": "MACRO_SCALPER",
+          "fees": "0.7384150400000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-18.5840000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4336.554204846000000000000000",
+          "net_pnl": "-19.3224150400000",
+          "plan": {
+            "decision_ms": 1723144500000,
+            "entry": "0.753900",
+            "exits": [
+              {
+                "price": "0.765400",
+                "quantity": "1616.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.742500",
+                "quantity": "1616.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1616.0",
+            "side": "SELL",
+            "signal_key": "194427143872c0e86ddd1b250ecf4ea75eedf79013b37be7031ca1239647a0c7",
+            "stop": "0.765400",
+            "symbol": "SUIUSDT",
+            "tp1": "0.742500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19943,
+          "stress_net_pnl": "-21.2884244800000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4336.059450286000000000000000"
+        },
+        {
+          "day_start_equity": "4336.059450286000000000000000",
+          "entry_ms": 1725739200000,
+          "exit_ms": 1725742800000,
+          "exit_price": "0.898200",
+          "family": "MACRO_SCALPER",
+          "fees": "0.5901592320000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "17.6342400",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4350.457807246000000000000000",
+          "net_pnl": "17.0440807680000",
+          "plan": {
+            "decision_ms": 1725739200000,
+            "entry": "0.909000",
+            "exits": [
+              {
+                "price": "0.919900",
+                "quantity": "1632.8",
+                "role": "STOP"
+              },
+              {
+                "price": "0.898200",
+                "quantity": "1632.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1632.8",
+            "side": "SELL",
+            "signal_key": "4ffac578ac706c7fc1c691be74cd1ec04e8c472e6033e46bcd3e0b78097bddd9",
+            "stop": "0.919900",
+            "symbol": "SUIUSDT",
+            "tp1": "0.898200",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19973,
+          "stress_net_pnl": "14.9785234560000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4353.103531054000000000000000"
+        },
+        {
+          "day_start_equity": "4353.103531054000000000000000",
+          "entry_ms": 1725785100000,
+          "exit_ms": 1725786000000,
+          "exit_price": "0.976300",
+          "family": "MACRO_SCALPER",
+          "fees": "0.9391552940000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.7023000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4335.090539596000000000000000",
+          "net_pnl": "-18.6414552940000",
+          "plan": {
+            "decision_ms": 1725785100000,
+            "entry": "0.965300",
+            "exits": [
+              {
+                "price": "0.976300",
+                "quantity": "1609.3",
+                "role": "STOP"
+              },
+              {
+                "price": "0.954400",
+                "quantity": "1609.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1609.3",
+            "side": "SELL",
+            "signal_key": "bc11b6e5da4afa05d679f4569034dd674033565c4b9beb5cb41273c7264b0d7c",
+            "stop": "0.976300",
+            "symbol": "SUIUSDT",
+            "tp1": "0.954400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19974,
+          "stress_net_pnl": "-21.1429190280000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4334.462075760000000000000000"
+        },
+        {
+          "day_start_equity": "4353.103531054000000000000000",
+          "entry_ms": 1725786900000,
+          "exit_ms": 1725787500000,
+          "exit_price": "0.967500",
+          "family": "MACRO_SCALPER",
+          "fees": "0.5794753160000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "17.7095800",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4334.914667144000000000000000",
+          "net_pnl": "17.1301046840000",
+          "plan": {
+            "decision_ms": 1725786900000,
+            "entry": "0.979400",
+            "exits": [
+              {
+                "price": "0.991400",
+                "quantity": "1488.2",
+                "role": "STOP"
+              },
+              {
+                "price": "0.967500",
+                "quantity": "1488.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1488.2",
+            "side": "SELL",
+            "signal_key": "7ed86dcb32a361e2e2d1a987b36dba2d5714bbe2356057a9dbd1542047212f09",
+            "stop": "0.991400",
+            "symbol": "SUIUSDT",
+            "tp1": "0.967500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19974,
+          "stress_net_pnl": "15.1019410780000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4351.592180444000000000000000"
+        },
+        {
+          "day_start_equity": "4351.592180444000000000000000",
+          "entry_ms": 1732185000000,
+          "exit_ms": 1732185600000,
+          "exit_price": "3.400200",
+          "family": "MACRO_SCALPER",
+          "fees": "0.5657127840000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "18.0835200",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4365.208652404000000000000000",
+          "net_pnl": "17.5178072160000",
+          "plan": {
+            "decision_ms": 1732185000000,
+            "entry": "3.357000",
+            "exits": [
+              {
+                "price": "3.313700",
+                "quantity": "418.6",
+                "role": "STOP"
+              },
+              {
+                "price": "3.400200",
+                "quantity": "418.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "418.6",
+            "side": "BUY",
+            "signal_key": "cd3c94625f85b347f3234d5b6546384134852ba7b8da1c1ea5f9f1b3ace7e010",
+            "stop": "3.313700",
+            "symbol": "SUIUSDT",
+            "tp1": "3.400200",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20048,
+          "stress_net_pnl": "15.5378124720000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4369.109987660000000000000000"
+        },
+        {
+          "day_start_equity": "4369.109987660000000000000000",
+          "entry_ms": 1732452300000,
+          "exit_ms": 1732452900000,
+          "exit_price": "3.235800",
+          "family": "MACRO_SCALPER",
+          "fees": "0.4036050800000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "19.2342800",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4372.593268548000000000000000",
+          "net_pnl": "18.8306749200000",
+          "plan": {
+            "decision_ms": 1732452300000,
+            "entry": "3.174700",
+            "exits": [
+              {
+                "price": "3.113500",
+                "quantity": "314.8",
+                "role": "STOP"
+              },
+              {
+                "price": "3.235800",
+                "quantity": "314.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "314.8",
+            "side": "BUY",
+            "signal_key": "f271541f97035f11ba1c7ed9e90360db8074cda6f54a997ba6d4e2a23617c26e",
+            "stop": "3.113500",
+            "symbol": "SUIUSDT",
+            "tp1": "3.235800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20051,
+          "stress_net_pnl": "17.4180571400000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4387.940662580000000000000000"
+        },
+        {
+          "day_start_equity": "4387.940662580000000000000000",
+          "entry_ms": 1735748100000,
+          "exit_ms": 1735755300000,
+          "exit_price": "2.258100000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "0.9589797360000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "2.7588600000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4389.601354820000000000000000",
+          "net_pnl": "1.7998802640000000000000000",
+          "plan": {
+            "decision_ms": 1735748100000,
+            "entry": "2.2620",
+            "exits": [
+              {
+                "price": "2.2871",
+                "quantity": "707.4",
+                "role": "STOP"
+              },
+              {
+                "price": "2.1993",
+                "quantity": "707.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "707.4",
+            "side": "SELL",
+            "signal_key": "83716809c74a4d4a1d705ed64df3751f7dbd07cf99269120386367f3828975e6",
+            "stop": "2.2871",
+            "symbol": "XRPUSDT",
+            "tp1": "2.1993",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20089,
+          "stress_net_pnl": "-0.7578588420000000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4389.740542844000000000000000"
+        },
+        {
+          "day_start_equity": "4389.740542844000000000000000",
+          "entry_ms": 1736492400000,
+          "exit_ms": 1736499600000,
+          "exit_price": "5.097700000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "0.8953962800000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.024579779376000000000000000",
+          "gross_pnl": "-3.8969000000000000000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4377.551517224624000000000000",
+          "net_pnl": "-4.816876059376000000000000000",
+          "plan": {
+            "decision_ms": 1736492400000,
+            "entry": "5.084400",
+            "exits": [
+              {
+                "price": "5.146000",
+                "quantity": "293.0",
+                "role": "STOP"
+              },
+              {
+                "price": "5.022900",
+                "quantity": "293.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "293.0",
+            "side": "SELL",
+            "signal_key": "24c868ddb04ae690bb357ac8387213637908131dc2fe6c3eaa7d28b9d6e13672",
+            "stop": "5.146000",
+            "symbol": "SUIUSDT",
+            "tp1": "5.022900",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20098,
+          "stress_net_pnl": "-7.203949989376000000000000000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4384.923666784624000000000000"
+        }
+      ],
+      "unfilled": 3
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 24,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "4384.923666784624000000000000",
+          "entry_ms": 1737752400000,
+          "exit_ms": 1737753300000,
+          "exit_price": "4.217700",
+          "family": "MACRO_SCALPER",
+          "fees": "1.1611350000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.8817500",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4367.652620884624000000000000",
+          "net_pnl": "-18.0428850000000",
+          "plan": {
+            "decision_ms": 1737752400000,
+            "entry": "4.254600",
+            "exits": [
+              {
+                "price": "4.217700",
+                "quantity": "457.5",
+                "role": "STOP"
+              },
+              {
+                "price": "4.291400",
+                "quantity": "457.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "457.5",
+            "side": "BUY",
+            "signal_key": "774273f3537c0fa2fb23017e5ffe674f6b9616cb42c9374d3ec04a65280140fa",
+            "stop": "4.217700",
+            "symbol": "SUIUSDT",
+            "tp1": "4.291400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20112,
+          "stress_net_pnl": "-21.1420586250000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4366.880781784624000000000000"
+        },
+        {
+          "day_start_equity": "4384.923666784624000000000000",
+          "entry_ms": 1737753300000,
+          "exit_ms": 1737753900000,
+          "exit_price": "4.253200",
+          "family": "MACRO_SCALPER",
+          "fees": "0.7248931680000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "17.1240000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4367.033767600624000000000000",
+          "net_pnl": "16.3991068320000",
+          "plan": {
+            "decision_ms": 1737753300000,
+            "entry": "4.213200",
+            "exits": [
+              {
+                "price": "4.173100",
+                "quantity": "428.1",
+                "role": "STOP"
+              },
+              {
+                "price": "4.253200",
+                "quantity": "428.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "428.1",
+            "side": "BUY",
+            "signal_key": "96dd76b7ddb816561219c4e2b8c9f8b7492658efdcab539093f352a84c6c96ca",
+            "stop": "4.173100",
+            "symbol": "SUIUSDT",
+            "tp1": "4.253200",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20112,
+          "stress_net_pnl": "13.8619807440000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4383.279888616624000000000000"
+        },
+        {
+          "day_start_equity": "4383.279888616624000000000000",
+          "entry_ms": 1737928800000,
+          "exit_ms": 1737930900000,
+          "exit_price": "4.018700",
+          "family": "MACRO_SCALPER",
+          "fees": "0.8855467560000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "16.1446800",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4397.379999706624000000000000",
+          "net_pnl": "15.2591332440000",
+          "plan": {
+            "decision_ms": 1737928800000,
+            "entry": "3.989500",
+            "exits": [
+              {
+                "price": "3.960200",
+                "quantity": "552.9",
+                "role": "STOP"
+              },
+              {
+                "price": "4.018700",
+                "quantity": "552.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "552.9",
+            "side": "BUY",
+            "signal_key": "ece499337c5d40a5f2bc43efb4e0412fc912c8db56344d7924b892e24709ac52",
+            "stop": "3.960200",
+            "symbol": "SUIUSDT",
+            "tp1": "4.018700",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20114,
+          "stress_net_pnl": "12.1597195980000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4398.539021860624000000000000"
+        },
+        {
+          "day_start_equity": "4398.539021860624000000000000",
+          "entry_ms": 1739521800000,
+          "exit_ms": 1739524200000,
+          "exit_price": "2.7426",
+          "family": "MACRO_SCALPER",
+          "fees": "0.99910576800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.66970",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4380.538642564624000000000000",
+          "net_pnl": "-18.66880576800",
+          "plan": {
+            "decision_ms": 1739521800000,
+            "entry": "2.7136",
+            "exits": [
+              {
+                "price": "2.7426",
+                "quantity": "609.3",
+                "role": "STOP"
+              },
+              {
+                "price": "2.6412",
+                "quantity": "609.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "609.3",
+            "side": "SELL",
+            "signal_key": "c4bd7ba1e11a799bb49d659ded62ce40e87d9e81f422dbd3155064b43655fd8b",
+            "stop": "2.7426",
+            "symbol": "XRPUSDT",
+            "tp1": "2.6412",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20133,
+          "stress_net_pnl": "-21.33014286600",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4379.870216092624000000000000"
+        },
+        {
+          "day_start_equity": "4398.539021860624000000000000",
+          "entry_ms": 1739524500000,
+          "exit_ms": 1739531700000,
+          "exit_price": "2.746700000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "0.7923628900000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "7.3904600000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4383.828229734624000000000000",
+          "net_pnl": "6.5980971100000000000000000",
+          "plan": {
+            "decision_ms": 1739524500000,
+            "entry": "2.7621",
+            "exits": [
+              {
+                "price": "2.8005",
+                "quantity": "479.9",
+                "role": "STOP"
+              },
+              {
+                "price": "2.6662",
+                "quantity": "479.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "479.9",
+            "side": "SELL",
+            "signal_key": "e046f3fbaf0597ffa76439756e548e5f44ee8e9afd70202b145988314d491560",
+            "stop": "2.8005",
+            "symbol": "XRPUSDT",
+            "tp1": "2.6662",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20133,
+          "stress_net_pnl": "4.4838976600000000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4386.468313202624000000000000"
+        },
+        {
+          "day_start_equity": "4386.468313202624000000000000",
+          "entry_ms": 1740930300000,
+          "exit_ms": 1740930900000,
+          "exit_price": "2.4908",
+          "family": "MACRO_SCALPER",
+          "fees": "0.30353510600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "49.59801",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4408.443555848624000000000000",
+          "net_pnl": "49.29447489400",
+          "plan": {
+            "decision_ms": 1740930300000,
+            "entry": "2.6591",
+            "exits": [
+              {
+                "price": "2.7265",
+                "quantity": "294.7",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4908",
+                "quantity": "294.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "294.7",
+            "side": "SELL",
+            "signal_key": "b77b0b0c431cdfa1b08722c0b6194abf04f241de110d3d32171354fec6d59c8a",
+            "stop": "2.7265",
+            "symbol": "XRPUSDT",
+            "tp1": "2.4908",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20149,
+          "stress_net_pnl": "48.23210202300",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4435.762788096624000000000000"
+        },
+        {
+          "day_start_equity": "4386.468313202624000000000000",
+          "entry_ms": 1740933900000,
+          "exit_ms": 1740935100000,
+          "exit_price": "3.118600",
+          "family": "MACRO_SCALPER",
+          "fees": "0.3511255440000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "19.8149600",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4445.204305178624000000000000",
+          "net_pnl": "19.4638344560000",
+          "plan": {
+            "decision_ms": 1740933900000,
+            "entry": "3.189800",
+            "exits": [
+              {
+                "price": "3.261100",
+                "quantity": "278.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.118600",
+                "quantity": "278.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "278.3",
+            "side": "SELL",
+            "signal_key": "6bb752217d83b6d238bce7ffc2a17b77fd3df1fb3f158a113dd10ad71d423836",
+            "stop": "3.261100",
+            "symbol": "SUIUSDT",
+            "tp1": "3.118600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20149,
+          "stress_net_pnl": "18.2348950520000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4455.128193902624000000000000"
+        },
+        {
+          "day_start_equity": "4386.468313202624000000000000",
+          "entry_ms": 1740933900000,
+          "exit_ms": 1740941100000,
+          "exit_price": "2.771600000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "0.2863431300000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "22.3570500000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4476.671643902624000000000000",
+          "net_pnl": "22.0707068700000000000000000",
+          "plan": {
+            "decision_ms": 1740933900000,
+            "entry": "2.9035",
+            "exits": [
+              {
+                "price": "3.0266",
+                "quantity": "169.5",
+                "role": "STOP"
+              },
+              {
+                "price": "2.5959",
+                "quantity": "169.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "169.5",
+            "side": "SELL",
+            "signal_key": "181497b80c9607bce5707f4188aa56274e43378db7e25b41d9ba7d2c783f88c4",
+            "stop": "3.0266",
+            "symbol": "XRPUSDT",
+            "tp1": "2.5959",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20149,
+          "stress_net_pnl": "21.3033990150000000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4477.297329422624000000000000"
+        },
+        {
+          "day_start_equity": "4477.297329422624000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746019500000,
+          "exit_price": "3.395300",
+          "family": "MACRO_SCALPER",
+          "fees": "0.7051083400000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "17.7933800",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4491.402936598624000000000000",
+          "net_pnl": "17.0882716600000",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "3.361200",
+            "exits": [
+              {
+                "price": "3.327000",
+                "quantity": "521.8",
+                "role": "STOP"
+              },
+              {
+                "price": "3.395300",
+                "quantity": "521.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "521.8",
+            "side": "BUY",
+            "signal_key": "acf4fde742ef4e1d079b952f8289636af50ddb35875259f50a174ffdacfea731",
+            "stop": "3.327000",
+            "symbol": "SUIUSDT",
+            "tp1": "3.395300",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20208,
+          "stress_net_pnl": "14.6203924700000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4493.913463090624000000000000"
+        },
+        {
+          "day_start_equity": "4477.297329422624000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746020700000,
+          "exit_price": "2.1473",
+          "family": "MACRO_SCALPER",
+          "fees": "1.40990684800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.26782",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4477.645643090624000000000000",
+          "net_pnl": "-17.67772684800",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "2.1622",
+            "exits": [
+              {
+                "price": "2.1473",
+                "quantity": "1091.8",
+                "role": "STOP"
+              },
+              {
+                "price": "2.1994",
+                "quantity": "1091.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1091.8",
+            "side": "BUY",
+            "signal_key": "e8e4c9df9895b1e0d1c4fdac461a4684f664081de400690a8f76515f616ce280",
+            "stop": "2.1473",
+            "symbol": "XRPUSDT",
+            "tp1": "2.1994",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-21.44018974600",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4476.707874234624000000000000"
+        },
+        {
+          "day_start_equity": "4477.297329422624000000000000",
+          "entry_ms": 1746020700000,
+          "exit_ms": 1746021900000,
+          "exit_price": "3.359600",
+          "family": "MACRO_SCALPER",
+          "fees": "0.5505720000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "18.8100000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4469.380719234624000000000000",
+          "net_pnl": "18.2594280000000",
+          "plan": {
+            "decision_ms": 1746020700000,
+            "entry": "3.314000",
+            "exits": [
+              {
+                "price": "3.268300",
+                "quantity": "412.5",
+                "role": "STOP"
+              },
+              {
+                "price": "3.359600",
+                "quantity": "412.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "412.5",
+            "side": "BUY",
+            "signal_key": "fe50fdb2f758ea0f1759c566d88370e0bc4d8651c354120d348d2e99261c7290",
+            "stop": "3.268300",
+            "symbol": "SUIUSDT",
+            "tp1": "3.359600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20208,
+          "stress_net_pnl": "16.3324260000000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4494.967302234624000000000000"
+        },
+        {
+          "day_start_equity": "4505.257695774624000000000000",
+          "entry_ms": 1746143100000,
+          "exit_ms": 1746144300000,
+          "exit_price": "3.560100",
+          "family": "MACRO_SCALPER",
+          "fees": "0.8489004300000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.212449545000000000000000000",
+          "gross_pnl": "16.9375500",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4504.566446229624000000000000",
+          "net_pnl": "15.87620002500000000000000000",
+          "plan": {
+            "decision_ms": 1746143100000,
+            "entry": "3.531800",
+            "exits": [
+              {
+                "price": "3.503400",
+                "quantity": "598.5",
+                "role": "STOP"
+              },
+              {
+                "price": "3.560100",
+                "quantity": "598.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "598.5",
+            "side": "BUY",
+            "signal_key": "9dffe49943e8dec724315ae5f7de546ec9874c5efb4c7cb1cad7583be415bb9f",
+            "stop": "3.503400",
+            "symbol": "SUIUSDT",
+            "tp1": "3.560100",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20210,
+          "stress_net_pnl": "12.90504852000000000000000000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4510.843502259624000000000000"
+        },
+        {
+          "day_start_equity": "4510.843502259624000000000000",
+          "entry_ms": 1748001600000,
+          "exit_ms": 1748001900000,
+          "exit_price": "3.624400",
+          "family": "MACRO_SCALPER",
+          "fees": "0.9172799480000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-18.5684200",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4474.995343801624000000000000",
+          "net_pnl": "-19.4856999480000",
+          "plan": {
+            "decision_ms": 1748001600000,
+            "entry": "3.668600",
+            "exits": [
+              {
+                "price": "3.624400",
+                "quantity": "420.1",
+                "role": "STOP"
+              },
+              {
+                "price": "3.712700",
+                "quantity": "420.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "420.1",
+            "side": "BUY",
+            "signal_key": "813f04f14e27fc08e5d4472a05c2805ddb79fb120c598781268040ef31afc695",
+            "stop": "3.624400",
+            "symbol": "SUIUSDT",
+            "tp1": "3.712700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-21.9348745460000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4490.890909625624000000000000"
+        },
+        {
+          "day_start_equity": "4510.843502259624000000000000",
+          "entry_ms": 1748001600000,
+          "exit_ms": 1748001900000,
+          "exit_price": "2.3454",
+          "family": "MACRO_SCALPER",
+          "fees": "1.39407621400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.50461",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4474.995343801624000000000000",
+          "net_pnl": "-17.89868621400",
+          "plan": {
+            "decision_ms": 1748001600000,
+            "entry": "2.3621",
+            "exits": [
+              {
+                "price": "2.3454",
+                "quantity": "988.3",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4036",
+                "quantity": "988.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "988.3",
+            "side": "BUY",
+            "signal_key": "9307f53de3a8d137f63e358fe6f209f0767788e61a49353d72aa73371728cb4f",
+            "stop": "2.3454",
+            "symbol": "XRPUSDT",
+            "tp1": "2.4036",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-21.61897355300",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4473.459116097624000000000000"
+        },
+        {
+          "day_start_equity": "4510.843502259624000000000000",
+          "entry_ms": 1748002500000,
+          "exit_ms": 1748002800000,
+          "exit_price": "2.3172",
+          "family": "MACRO_SCALPER",
+          "fees": "1.25481140800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.92188",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4456.116709377624000000000000",
+          "net_pnl": "-18.17669140800",
+          "plan": {
+            "decision_ms": 1748002500000,
+            "entry": "2.3360",
+            "exits": [
+              {
+                "price": "2.3172",
+                "quantity": "900.1",
+                "role": "STOP"
+              },
+              {
+                "price": "2.3829",
+                "quantity": "900.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "900.1",
+            "side": "BUY",
+            "signal_key": "d5f7595b421b2d5e940cfbb5240f3fc379298eb7497ffe65db636c5a9373bf3b",
+            "stop": "2.3172",
+            "symbol": "XRPUSDT",
+            "tp1": "2.3829",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-21.52567547600",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4455.282424689624000000000000"
+        }
+      ],
+      "unfilled": 9
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 1,
+      "signals": 21,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "4455.282424689624000000000000",
+          "entry_ms": 1753967700000,
+          "exit_ms": 1753969200000,
+          "exit_price": "3.796700",
+          "family": "MACRO_SCALPER",
+          "fees": "0.9193419000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "16.2810000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4448.384881839624000000000000",
+          "net_pnl": "15.3616581000000",
+          "plan": {
+            "decision_ms": 1753967700000,
+            "entry": "3.769900",
+            "exits": [
+              {
+                "price": "3.743000",
+                "quantity": "607.5",
+                "role": "STOP"
+              },
+              {
+                "price": "3.796700",
+                "quantity": "607.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "607.5",
+            "side": "BUY",
+            "signal_key": "11ff127da9db842d81a394952d48651c4bfc9907835107d3c77c57f0d7f19e4f",
+            "stop": "3.743000",
+            "symbol": "SUIUSDT",
+            "tp1": "3.796700",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20300,
+          "stress_net_pnl": "12.1439614500000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4470.644082789624000000000000"
+        },
+        {
+          "day_start_equity": "4470.644082789624000000000000",
+          "entry_ms": 1754811900000,
+          "exit_ms": 1754819100000,
+          "exit_price": "3.208000000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "1.3996783740000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.150445516496700000000000000",
+          "gross_pnl": "30.0153300000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4499.170049859127300000000000",
+          "net_pnl": "28.46520610950330000000000000",
+          "plan": {
+            "decision_ms": 1754811900000,
+            "entry": "3.1669",
+            "exits": [
+              {
+                "price": "3.1445",
+                "quantity": "730.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.2226",
+                "quantity": "730.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "730.3",
+            "side": "BUY",
+            "signal_key": "9de5184474d1ec017114aae4d793c80b26afdef2b9046bc7152a1174136c8c0f",
+            "stop": "3.1445",
+            "symbol": "XRPUSDT",
+            "tp1": "3.2226",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20310,
+          "stress_net_pnl": "24.73773300050330000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4499.109288899127300000000000"
+        },
+        {
+          "day_start_equity": "4499.109288899127300000000000",
+          "entry_ms": 1754899200000,
+          "exit_ms": 1754901300000,
+          "exit_price": "3.857400",
+          "family": "MACRO_SCALPER",
+          "fees": "0.9628040580000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "16.2159900",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4506.142708469127300000000000",
+          "net_pnl": "15.2531859420000",
+          "plan": {
+            "decision_ms": 1754899200000,
+            "entry": "3.831500",
+            "exits": [
+              {
+                "price": "3.805500",
+                "quantity": "626.1",
+                "role": "STOP"
+              },
+              {
+                "price": "3.857400",
+                "quantity": "626.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "626.1",
+            "side": "BUY",
+            "signal_key": "86a47e0bf20eb1ae2773a89f15d6f14b44363b081aa203fa71482ad045ef46e4",
+            "stop": "3.805500",
+            "symbol": "SUIUSDT",
+            "tp1": "3.857400",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20311,
+          "stress_net_pnl": "11.8833717390000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4514.362474841127300000000000"
+        },
+        {
+          "day_start_equity": "4499.109288899127300000000000",
+          "entry_ms": 1754911800000,
+          "exit_ms": 1754912700000,
+          "exit_price": "3.767900",
+          "family": "MACRO_SCALPER",
+          "fees": "0.8411940240000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "17.0922000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4525.319707049127300000000000",
+          "net_pnl": "16.2510059760000",
+          "plan": {
+            "decision_ms": 1754911800000,
+            "entry": "3.737400",
+            "exits": [
+              {
+                "price": "3.706800",
+                "quantity": "560.4",
+                "role": "STOP"
+              },
+              {
+                "price": "3.767900",
+                "quantity": "560.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "560.4",
+            "side": "BUY",
+            "signal_key": "093975fafd23de24e085862c1686a00ef89b4ca346a6ea64e74df36fa015384d",
+            "stop": "3.706800",
+            "symbol": "SUIUSDT",
+            "tp1": "3.767900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20311,
+          "stress_net_pnl": "13.3068268920000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4530.613480817127300000000000"
+        },
+        {
+          "day_start_equity": "4530.613480817127300000000000",
+          "entry_ms": 1755872100000,
+          "exit_ms": 1755872700000,
+          "exit_price": "3.520500",
+          "family": "MACRO_SCALPER",
+          "fees": "0.5590385400000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "18.9264000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4530.844658907127300000000000",
+          "net_pnl": "18.3673614600000",
+          "plan": {
+            "decision_ms": 1755872100000,
+            "entry": "3.568500",
+            "exits": [
+              {
+                "price": "3.616600",
+                "quantity": "394.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.520500",
+                "quantity": "394.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "394.3",
+            "side": "SELL",
+            "signal_key": "5f7a24a2c8675b3ad271ec82c1da750fe8a80f95570d5d2f655f13ef449eafc5",
+            "stop": "3.616600",
+            "symbol": "SUIUSDT",
+            "tp1": "3.520500",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20322,
+          "stress_net_pnl": "16.4107265700000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4548.980842277127300000000000"
+        },
+        {
+          "day_start_equity": "4548.980842277127300000000000",
+          "entry_ms": 1756238400000,
+          "exit_ms": 1756245600000,
+          "exit_price": "3.029300000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "1.4114973600000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "23.4522000000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4571.882016197127300000000000",
+          "net_pnl": "22.0407026400000000000000000",
+          "plan": {
+            "decision_ms": 1756238400000,
+            "entry": "3.0596",
+            "exits": [
+              {
+                "price": "3.0810",
+                "quantity": "774.0",
+                "role": "STOP"
+              },
+              {
+                "price": "3.0063",
+                "quantity": "774.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "774.0",
+            "side": "SELL",
+            "signal_key": "b0c5f19b590ec7606629a16726b3f0bc8a033ef21539c7bfe82782660446f70d",
+            "stop": "3.0810",
+            "symbol": "XRPUSDT",
+            "tp1": "3.0063",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20326,
+          "stress_net_pnl": "18.2728009800000000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4571.021544917127300000000000"
+        },
+        {
+          "day_start_equity": "4571.021544917127300000000000",
+          "entry_ms": 1756602000000,
+          "exit_ms": 1756604700000,
+          "exit_price": "2.8512",
+          "family": "MACRO_SCALPER",
+          "fees": "2.58633117600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-11.65164",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4558.509348077127300000000000",
+          "net_pnl": "-14.23797117600",
+          "plan": {
+            "decision_ms": 1756602000000,
+            "entry": "2.8435",
+            "exits": [
+              {
+                "price": "2.8512",
+                "quantity": "1513.2",
+                "role": "STOP"
+              },
+              {
+                "price": "2.8245",
+                "quantity": "1513.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1513.2",
+            "side": "SELL",
+            "signal_key": "fdb226389da97cadc6cdf21cc562804918479b4ef32ad863d6df462aaf6ea545",
+            "stop": "2.8512",
+            "symbol": "XRPUSDT",
+            "tp1": "2.8245",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20331,
+          "stress_net_pnl": "-21.13291237200",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4556.783573741127300000000000"
+        },
+        {
+          "day_start_equity": "4571.021544917127300000000000",
+          "entry_ms": 1756605600000,
+          "exit_ms": 1756612800000,
+          "exit_price": "2.850300000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "2.2745809200000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "14.7441300000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4570.767544217127300000000000",
+          "net_pnl": "12.4695490800000000000000000",
+          "plan": {
+            "decision_ms": 1756605600000,
+            "entry": "2.8614",
+            "exits": [
+              {
+                "price": "2.8711",
+                "quantity": "1328.3",
+                "role": "STOP"
+              },
+              {
+                "price": "2.8372",
+                "quantity": "1328.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1328.3",
+            "side": "SELL",
+            "signal_key": "6e6c5648c0df59064a8511331c713b51f7096185109db3dd52afc3f703f07822",
+            "stop": "2.8711",
+            "symbol": "XRPUSDT",
+            "tp1": "2.8372",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20331,
+          "stress_net_pnl": "6.4015426050000000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4569.253122821127300000000000"
+        },
+        {
+          "day_start_equity": "4569.253122821127300000000000",
+          "entry_ms": 1763865900000,
+          "exit_ms": 1763871600000,
+          "exit_price": "2.0521",
+          "family": "MACRO_SCALPER",
+          "fees": "1.29787320000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.22747",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4551.595325417127300000000000",
+          "net_pnl": "-18.52534320000",
+          "plan": {
+            "decision_ms": 1763865900000,
+            "entry": "2.0358",
+            "exits": [
+              {
+                "price": "2.0521",
+                "quantity": "1056.9",
+                "role": "STOP"
+              },
+              {
+                "price": "1.9952",
+                "quantity": "1056.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1056.9",
+            "side": "SELL",
+            "signal_key": "73525fd481ed29694f0e4e4e6984f80c38c9add2e6a28122e68ae929f9a8536d",
+            "stop": "2.0521",
+            "symbol": "XRPUSDT",
+            "tp1": "1.9952",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20415,
+          "stress_net_pnl": "-21.98346715500",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4550.727779621127300000000000"
+        },
+        {
+          "day_start_equity": "4550.727779621127300000000000",
+          "entry_ms": 1764007200000,
+          "exit_ms": 1764008400000,
+          "exit_price": "1.531400",
+          "family": "MACRO_SCALPER",
+          "fees": "0.6651233160000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-19.8798600",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4530.628862497127300000000000",
+          "net_pnl": "-20.5449833160000",
+          "plan": {
+            "decision_ms": 1764007200000,
+            "entry": "1.504100",
+            "exits": [
+              {
+                "price": "1.531400",
+                "quantity": "728.2",
+                "role": "STOP"
+              },
+              {
+                "price": "1.476900",
+                "quantity": "728.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "728.2",
+            "side": "SELL",
+            "signal_key": "3fd9fd94cbb43644364c3e3ed5ae2e3a26af69c641a71e790fe6a294da30b9b6",
+            "stop": "1.531400",
+            "symbol": "SUIUSDT",
+            "tp1": "1.476900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20416,
+          "stress_net_pnl": "-22.3153321820000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4530.182796305127300000000000"
+        },
+        {
+          "day_start_equity": "4530.182796305127300000000000",
+          "entry_ms": 1764112500000,
+          "exit_ms": 1764113100000,
+          "exit_price": "1.584300",
+          "family": "MACRO_SCALPER",
+          "fees": "0.4951202400000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "19.3024800",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4537.142665937127300000000000",
+          "net_pnl": "18.8073597600000",
+          "plan": {
+            "decision_ms": 1764112500000,
+            "entry": "1.609200",
+            "exits": [
+              {
+                "price": "1.634200",
+                "quantity": "775.2",
+                "role": "STOP"
+              },
+              {
+                "price": "1.584300",
+                "quantity": "775.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "775.2",
+            "side": "SELL",
+            "signal_key": "c42078fe1cc6f86742381d941e32faf3f91c2a48d7c2dd1324ff7a5c8711ef69",
+            "stop": "1.634200",
+            "symbol": "SUIUSDT",
+            "tp1": "1.584300",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20417,
+          "stress_net_pnl": "17.0744389200000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4548.990156065127300000000000"
+        },
+        {
+          "day_start_equity": "4548.990156065127300000000000",
+          "entry_ms": 1765616400000,
+          "exit_ms": 1765617000000,
+          "exit_price": "1.604900",
+          "family": "MACRO_SCALPER",
+          "fees": "1.2093027840000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "14.6577600",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4566.048518897127300000000000",
+          "net_pnl": "13.4484572160000",
+          "plan": {
+            "decision_ms": 1765616400000,
+            "entry": "1.612700",
+            "exits": [
+              {
+                "price": "1.620600",
+                "quantity": "1879.2",
+                "role": "STOP"
+              },
+              {
+                "price": "1.604900",
+                "quantity": "1879.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1879.2",
+            "side": "SELL",
+            "signal_key": "92c7abda212e3872fc21691123ef59b0642e3e97031fdf4eea0bb448a745fab7",
+            "stop": "1.620600",
+            "symbol": "SUIUSDT",
+            "tp1": "1.604900",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20435,
+          "stress_net_pnl": "9.2158974720000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4562.438613281127300000000000"
+        },
+        {
+          "day_start_equity": "4562.438613281127300000000000",
+          "entry_ms": 1766065500000,
+          "exit_ms": 1766066100000,
+          "exit_price": "1.459600",
+          "family": "MACRO_SCALPER",
+          "fees": "1.3125783960000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.1307800",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4544.872591253127300000000000",
+          "net_pnl": "-18.4433583960000",
+          "plan": {
+            "decision_ms": 1766065500000,
+            "entry": "1.448200",
+            "exits": [
+              {
+                "price": "1.459600",
+                "quantity": "1502.7",
+                "role": "STOP"
+              },
+              {
+                "price": "1.436900",
+                "quantity": "1502.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1502.7",
+            "side": "SELL",
+            "signal_key": "3f7b02f055bc3c01fbebc3e9365d87567a1c51ab3bd1d6ad0a2e8279d82f0548",
+            "stop": "1.459600",
+            "symbol": "SUIUSDT",
+            "tp1": "1.436900",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20440,
+          "stress_net_pnl": "-21.9407123220000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4543.995254885127300000000000"
+        },
+        {
+          "day_start_equity": "4543.995254885127300000000000",
+          "entry_ms": 1766223900000,
+          "exit_ms": 1766229300000,
+          "exit_price": "1.9333",
+          "family": "MACRO_SCALPER",
+          "fees": "1.28077308000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "35.57520",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4573.162010825127300000000000",
+          "net_pnl": "34.29442692000",
+          "plan": {
+            "decision_ms": 1766223900000,
+            "entry": "1.9549",
+            "exits": [
+              {
+                "price": "1.9636",
+                "quantity": "1647.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.9333",
+                "quantity": "1647.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1647.0",
+            "side": "SELL",
+            "signal_key": "0ae5a415c4f0661d61f1bc11f189eb2c8329f92bdec025c3d00671ed25e9ce54",
+            "stop": "1.9636",
+            "symbol": "XRPUSDT",
+            "tp1": "1.9333",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20442,
+          "stress_net_pnl": "29.81172114000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4578.289681805127300000000000"
+        },
+        {
+          "day_start_equity": "4578.289681805127300000000000",
+          "entry_ms": 1766873700000,
+          "exit_ms": 1766874000000,
+          "exit_price": "1.448800",
+          "family": "MACRO_SCALPER",
+          "fees": "2.2432365360000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.1763600",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4564.367333141127300000000000",
+          "net_pnl": "-15.4195965360000",
+          "plan": {
+            "decision_ms": 1766873700000,
+            "entry": "1.443700",
+            "exits": [
+              {
+                "price": "1.448800",
+                "quantity": "2583.6",
+                "role": "STOP"
+              },
+              {
+                "price": "1.438600",
+                "quantity": "2583.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2583.6",
+            "side": "SELL",
+            "signal_key": "2c10133363c9736e334a772724d898ef572543f3a6c19be7c9abc046579c9cab",
+            "stop": "1.448800",
+            "symbol": "SUIUSDT",
+            "tp1": "1.438600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20449,
+          "stress_net_pnl": "-21.3993645720000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4562.870085269127300000000000"
+        },
+        {
+          "day_start_equity": "4562.870085269127300000000000",
+          "entry_ms": 1768779900000,
+          "exit_ms": 1768780200000,
+          "exit_price": "1.9971",
+          "family": "MACRO_SCALPER",
+          "fees": "1.71095862600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-15.39324",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4546.904473295127300000000000",
+          "net_pnl": "-17.10419862600",
+          "plan": {
+            "decision_ms": 1768779900000,
+            "entry": "2.0079",
+            "exits": [
+              {
+                "price": "1.9971",
+                "quantity": "1425.3",
+                "role": "STOP"
+              },
+              {
+                "price": "2.0347",
+                "quantity": "1425.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1425.3",
+            "side": "BUY",
+            "signal_key": "810c442103cb6ac84eced43933fc7c4cd04c11f7d414f003c7aec62903751824",
+            "stop": "1.9971",
+            "symbol": "XRPUSDT",
+            "tp1": "2.0347",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20471,
+          "stress_net_pnl": "-21.66932050200",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4545.765886643127300000000000"
+        }
+      ],
+      "unfilled": 4
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 5,
+      "signals": 25,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "4545.765886643127300000000000",
+          "entry_ms": 1770392700000,
+          "exit_ms": 1770399900000,
+          "exit_price": "1.496300000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "0.5429507620000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.400430405027700000000000000",
+          "gross_pnl": "26.3516000000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4566.861139104099600000000000",
+          "net_pnl": "25.40821883297230000000000000",
+          "plan": {
+            "decision_ms": 1770392700000,
+            "entry": "1.5403",
+            "exits": [
+              {
+                "price": "1.5742",
+                "quantity": "598.9",
+                "role": "STOP"
+              },
+              {
+                "price": "1.4558",
+                "quantity": "598.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "598.9",
+            "side": "SELL",
+            "signal_key": "1d8deed7fb92ce942450e84a3d206e43e1297755f782798200780e000110b2ea",
+            "stop": "1.5742",
+            "symbol": "XRPUSDT",
+            "tp1": "1.4558",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20490,
+          "stress_net_pnl": "23.95595820097230000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4571.174105476099600000000000"
+        },
+        {
+          "day_start_equity": "4571.174105476099600000000000",
+          "entry_ms": 1771982100000,
+          "exit_ms": 1771982700000,
+          "exit_price": "0.893900",
+          "family": "MACRO_SCALPER",
+          "fees": "1.3715237700000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.9191000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4553.800086766099600000000000",
+          "net_pnl": "-18.2906237700000",
+          "plan": {
+            "decision_ms": 1771982100000,
+            "entry": "0.887300",
+            "exits": [
+              {
+                "price": "0.893900",
+                "quantity": "2563.5",
+                "role": "STOP"
+              },
+              {
+                "price": "0.880800",
+                "quantity": "2563.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2563.5",
+            "side": "SELL",
+            "signal_key": "ea5d9718d6e6423188278088fbaffe34cf9c4c9d282d9657b268a22ac38034c6",
+            "stop": "0.893900",
+            "symbol": "SUIUSDT",
+            "tp1": "0.880800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20509,
+          "stress_net_pnl": "-21.9452006400000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4552.883481706099600000000000"
+        },
+        {
+          "day_start_equity": "4571.174105476099600000000000",
+          "entry_ms": 1771983000000,
+          "exit_ms": 1771985400000,
+          "exit_price": "0.902100",
+          "family": "MACRO_SCALPER",
+          "fees": "1.2003022880000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.5703900",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4534.915333662099600000000000",
+          "net_pnl": "-18.7706922880000",
+          "plan": {
+            "decision_ms": 1771983000000,
+            "entry": "0.894200",
+            "exits": [
+              {
+                "price": "0.902100",
+                "quantity": "2224.1",
+                "role": "STOP"
+              },
+              {
+                "price": "0.886400",
+                "quantity": "2224.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2224.1",
+            "side": "SELL",
+            "signal_key": "bc43b54c2f68088e114b0637836afe546a7cc710631ec949c15e3d2946480666",
+            "stop": "0.902100",
+            "symbol": "SUIUSDT",
+            "tp1": "0.886400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20509,
+          "stress_net_pnl": "-21.9685699910000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4534.112789418099600000000000"
+        },
+        {
+          "day_start_equity": "4534.112789418099600000000000",
+          "entry_ms": 1773837900000,
+          "exit_ms": 1773839100000,
+          "exit_price": "1.4572",
+          "family": "MACRO_SCALPER",
+          "fees": "1.40886848800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.55828",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4517.082678818099600000000000",
+          "net_pnl": "-17.96714848800",
+          "plan": {
+            "decision_ms": 1773837900000,
+            "entry": "1.4675",
+            "exits": [
+              {
+                "price": "1.4572",
+                "quantity": "1607.6",
+                "role": "STOP"
+              },
+              {
+                "price": "1.4931",
+                "quantity": "1607.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1607.6",
+            "side": "BUY",
+            "signal_key": "f748f8fb0edb4409665fab5494eca8421ee624de232f6e9ee50c63292edaa86e",
+            "stop": "1.4572",
+            "symbol": "XRPUSDT",
+            "tp1": "1.4931",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-21.72689083600",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4516.145640930099600000000000"
+        },
+        {
+          "day_start_equity": "4516.145640930099600000000000",
+          "entry_ms": 1775958300000,
+          "exit_ms": 1775958600000,
+          "exit_price": "0.908100",
+          "family": "MACRO_SCALPER",
+          "fees": "1.2889402200000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.9876800",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4498.726049166099600000000000",
+          "net_pnl": "-18.2766202200000",
+          "plan": {
+            "decision_ms": 1775958300000,
+            "entry": "0.915300",
+            "exits": [
+              {
+                "price": "0.908100",
+                "quantity": "2359.4",
+                "role": "STOP"
+              },
+              {
+                "price": "0.922400",
+                "quantity": "2359.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2359.4",
+            "side": "BUY",
+            "signal_key": "34bfa4aee8cef19a50c90b68f63a2e080695d9623b81d95b17705154f308f55b",
+            "stop": "0.908100",
+            "symbol": "SUIUSDT",
+            "tp1": "0.922400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-21.7166254200000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4497.869020710099600000000000"
+        },
+        {
+          "day_start_equity": "4516.145640930099600000000000",
+          "entry_ms": 1775959200000,
+          "exit_ms": 1775966400000,
+          "exit_price": "0.911900000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "1.2228484520000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "2.2358000000000000000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4498.356022666099600000000000",
+          "net_pnl": "1.0129515480000000000000000",
+          "plan": {
+            "decision_ms": 1775959200000,
+            "entry": "0.910900",
+            "exits": [
+              {
+                "price": "0.903200",
+                "quantity": "2235.8",
+                "role": "STOP"
+              },
+              {
+                "price": "0.918500",
+                "quantity": "2235.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2235.8",
+            "side": "BUY",
+            "signal_key": "5c279d178beab78b6911cdd44a8675c46e7943a8c4f9adc29be80ffde5b7a435",
+            "stop": "0.903200",
+            "symbol": "SUIUSDT",
+            "tp1": "0.918500",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20555,
+          "stress_net_pnl": "-2.2476050240000000000000000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4498.881972258099600000000000"
+        },
+        {
+          "day_start_equity": "4498.881972258099600000000000",
+          "entry_ms": 1779549300000,
+          "exit_ms": 1779550500000,
+          "exit_price": "1.038300",
+          "family": "MACRO_SCALPER",
+          "fees": "0.8658594560000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "16.6144000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4508.623701090099600000000000",
+          "net_pnl": "15.7485405440000",
+          "plan": {
+            "decision_ms": 1779549300000,
+            "entry": "1.046300",
+            "exits": [
+              {
+                "price": "1.054400",
+                "quantity": "2076.8",
+                "role": "STOP"
+              },
+              {
+                "price": "1.038300",
+                "quantity": "2076.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2076.8",
+            "side": "SELL",
+            "signal_key": "1853865d76b84697654fedd318b53682866776de8c90f34f8e90b5a6ca64fb05",
+            "stop": "1.054400",
+            "symbol": "SUIUSDT",
+            "tp1": "1.038300",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20596,
+          "stress_net_pnl": "12.7180324480000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4514.630512802099600000000000"
+        },
+        {
+          "day_start_equity": "4498.881972258099600000000000",
+          "entry_ms": 1779569100000,
+          "exit_ms": 1779570000000,
+          "exit_price": "1.3698",
+          "family": "MACRO_SCALPER",
+          "fees": "2.04620454000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.71150",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4500.238772822099600000000000",
+          "net_pnl": "-15.75770454000",
+          "plan": {
+            "decision_ms": 1779569100000,
+            "entry": "1.3643",
+            "exits": [
+              {
+                "price": "1.3698",
+                "quantity": "2493.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3507",
+                "quantity": "2493.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2493.0",
+            "side": "SELL",
+            "signal_key": "3dacb35789ef9b117db3e4a6c00ffe947396fbc3e7f4c6dc8818d2d8d4746f33",
+            "stop": "1.3698",
+            "symbol": "XRPUSDT",
+            "tp1": "1.3507",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20596,
+          "stress_net_pnl": "-21.21196473000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4498.872808262099600000000000"
+        },
+        {
+          "day_start_equity": "4498.881972258099600000000000",
+          "entry_ms": 1779570000000,
+          "exit_ms": 1779570900000,
+          "exit_price": "1.086400",
+          "family": "MACRO_SCALPER",
+          "fees": "0.6744553440000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "17.9080800",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4506.252789782099600000000000",
+          "net_pnl": "17.2336246560000",
+          "plan": {
+            "decision_ms": 1779570000000,
+            "entry": "1.098000",
+            "exits": [
+              {
+                "price": "1.109700",
+                "quantity": "1543.8",
+                "role": "STOP"
+              },
+              {
+                "price": "1.086400",
+                "quantity": "1543.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1543.8",
+            "side": "SELL",
+            "signal_key": "bcbb31e618cd351aec2e1ffefc1dd445d3bc8c897326b14979105e9f849e19de",
+            "stop": "1.109700",
+            "symbol": "SUIUSDT",
+            "tp1": "1.086400",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20596,
+          "stress_net_pnl": "14.8730309520000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4516.106432918099600000000000"
+        },
+        {
+          "day_start_equity": "4516.106432918099600000000000",
+          "entry_ms": 1780104600000,
+          "exit_ms": 1780111800000,
+          "exit_price": "1.357600000000000000",
+          "family": "MACRO_SCALPER",
+          "fees": "1.5938823480000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "5.8659000000000000000",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4520.658136682099600000000000",
+          "net_pnl": "4.2720176520000000000000000",
+          "plan": {
+            "decision_ms": 1780104600000,
+            "entry": "1.3606",
+            "exits": [
+              {
+                "price": "1.3686",
+                "quantity": "1955.3",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3408",
+                "quantity": "1955.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1955.3",
+            "side": "SELL",
+            "signal_key": "dedf45ffcd3666bf96567dd4c7039710d46aeb1763abac7914c8e17cde5103ea",
+            "stop": "1.3686",
+            "symbol": "XRPUSDT",
+            "tp1": "1.3408",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20603,
+          "stress_net_pnl": "0.0206870740000000000000000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4520.378450570099600000000000"
+        },
+        {
+          "day_start_equity": "4520.378450570099600000000000",
+          "entry_ms": 1780794900000,
+          "exit_ms": 1780795800000,
+          "exit_price": "0.747900",
+          "family": "MACRO_SCALPER",
+          "fees": "1.1315017960000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.7058000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4502.297844078099600000000000",
+          "net_pnl": "-18.8373017960000",
+          "plan": {
+            "decision_ms": 1780794900000,
+            "entry": "0.740900",
+            "exits": [
+              {
+                "price": "0.747900",
+                "quantity": "2529.4",
+                "role": "STOP"
+              },
+              {
+                "price": "0.734000",
+                "quantity": "2529.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2529.4",
+            "side": "SELL",
+            "signal_key": "32ee4e8cc6aa9da48d393653d106110ac501ee9a300f2ab6b109c53251531e81",
+            "stop": "0.747900",
+            "symbol": "SUIUSDT",
+            "tp1": "0.734000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20611,
+          "stress_net_pnl": "-21.8516889520000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4501.541148774099600000000000"
+        },
+        {
+          "day_start_equity": "4520.378450570099600000000000",
+          "entry_ms": 1780795800000,
+          "exit_ms": 1780797000000,
+          "exit_price": "0.757100",
+          "family": "MACRO_SCALPER",
+          "fees": "1.0441525500000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.9907000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4483.204796684099600000000000",
+          "net_pnl": "-19.0348525500000",
+          "plan": {
+            "decision_ms": 1780795800000,
+            "entry": "0.749300",
+            "exits": [
+              {
+                "price": "0.757100",
+                "quantity": "2306.5",
+                "role": "STOP"
+              },
+              {
+                "price": "0.741600",
+                "quantity": "2306.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2306.5",
+            "side": "SELL",
+            "signal_key": "3a26516d4080c3068be756fa4ad496c0d26ab1add02477e39fee1c1c1ff0fe72",
+            "stop": "0.757100",
+            "symbol": "SUIUSDT",
+            "tp1": "0.741600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20611,
+          "stress_net_pnl": "-21.8162609000000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4482.506296224099600000000000"
+        },
+        {
+          "day_start_equity": "4520.378450570099600000000000",
+          "entry_ms": 1780823700000,
+          "exit_ms": 1780826700000,
+          "exit_price": "1.1434",
+          "family": "MACRO_SCALPER",
+          "fees": "0.88134712000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "41.23440",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4516.996199224099600000000000",
+          "net_pnl": "40.35305288000",
+          "plan": {
+            "decision_ms": 1780823700000,
+            "entry": "1.1650",
+            "exits": [
+              {
+                "price": "1.1737",
+                "quantity": "1909.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.1434",
+                "quantity": "1909.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1909.0",
+            "side": "SELL",
+            "signal_key": "240c67b808710b8320478f60b49d1834833decfce862f86255d33a49a45515a6",
+            "stop": "1.1737",
+            "symbol": "XRPUSDT",
+            "tp1": "1.1434",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20611,
+          "stress_net_pnl": "37.26833796000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4522.859349104099600000000000"
+        },
+        {
+          "day_start_equity": "4522.859349104099600000000000",
+          "entry_ms": 1784189700000,
+          "exit_ms": 1784190900000,
+          "exit_price": "0.739800",
+          "family": "MACRO_SCALPER",
+          "fees": "1.0254895200000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "15.6420000",
+          "member_id": "macro-scalper-suiusdt-d-3.8-t1.2",
+          "minimum_equity": "4532.080968544099600000000000",
+          "net_pnl": "14.6165104800000",
+          "plan": {
+            "decision_ms": 1784189700000,
+            "entry": "0.735300",
+            "exits": [
+              {
+                "price": "0.730700",
+                "quantity": "3476.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.739800",
+                "quantity": "3476.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3476.0",
+            "side": "BUY",
+            "signal_key": "1226dbd0500abb28f306f162ef68744e0bfe9b2e7fac67c796bd054e0f982ea1",
+            "stop": "0.730700",
+            "symbol": "SUIUSDT",
+            "tp1": "0.739800",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20650,
+          "stress_net_pnl": "11.0272971600000",
+          "symbol": "SUIUSDT",
+          "wallet_after_exit": "4537.475859584099600000000000"
+        },
+        {
+          "day_start_equity": "4537.475859584099600000000000",
+          "entry_ms": 1784810700000,
+          "exit_ms": 1784811900000,
+          "exit_price": "1.1186",
+          "family": "MACRO_SCALPER",
+          "fees": "2.49345288000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-11.87712",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4524.766005008099600000000000",
+          "net_pnl": "-14.37057288000",
+          "plan": {
+            "decision_ms": 1784810700000,
+            "entry": "1.1218",
+            "exits": [
+              {
+                "price": "1.1186",
+                "quantity": "3711.6",
+                "role": "STOP"
+              },
+              {
+                "price": "1.1296",
+                "quantity": "3711.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3711.6",
+            "side": "BUY",
+            "signal_key": "1f1e9f9dcf3705ae680b18b935ea0dc49542bbf15e2297cb6cb0a5abf0196ec2",
+            "stop": "1.1186",
+            "symbol": "XRPUSDT",
+            "tp1": "1.1296",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-21.02176008000",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4523.105286704099600000000000"
+        },
+        {
+          "day_start_equity": "4537.475859584099600000000000",
+          "entry_ms": 1784813400000,
+          "exit_ms": 1784818500000,
+          "exit_price": "1.1086",
+          "family": "MACRO_SCALPER",
+          "fees": "2.15537767200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.26924",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4509.115818248099600000000000",
+          "net_pnl": "-15.42461767200",
+          "plan": {
+            "decision_ms": 1784813400000,
+            "entry": "1.1127",
+            "exits": [
+              {
+                "price": "1.1086",
+                "quantity": "3236.4",
+                "role": "STOP"
+              },
+              {
+                "price": "1.1229",
+                "quantity": "3236.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3236.4",
+            "side": "BUY",
+            "signal_key": "e050e12e9082b342dec9778cadd4dba8da3bcf7a4020d7416e5ea31e30a09b3d",
+            "stop": "1.1086",
+            "symbol": "XRPUSDT",
+            "tp1": "1.1229",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-21.17450300400",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4507.680669032099600000000000"
+        },
+        {
+          "day_start_equity": "4507.680669032099600000000000",
+          "entry_ms": 1785192300000,
+          "exit_ms": 1785192900000,
+          "exit_price": "1.0675",
+          "family": "MACRO_SCALPER",
+          "fees": "2.04138474400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.68647",
+          "member_id": "macro-scalper-xrpusdt-d-4.0-t3.0",
+          "minimum_equity": "4493.311912588099600000000000",
+          "net_pnl": "-15.72785474400",
+          "plan": {
+            "decision_ms": 1785192300000,
+            "entry": "1.0718",
+            "exits": [
+              {
+                "price": "1.0675",
+                "quantity": "3182.9",
+                "role": "STOP"
+              },
+              {
+                "price": "1.0824",
+                "quantity": "3182.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3182.9",
+            "side": "BUY",
+            "signal_key": "80d9c8ee1e1c0afbb6abc254fb25bf2e1a4e17591f7bbce066ec1b5ec4d6db21",
+            "stop": "1.0675",
+            "symbol": "XRPUSDT",
+            "tp1": "1.0824",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20661,
+          "stress_net_pnl": "-21.17382847300",
+          "symbol": "XRPUSDT",
+          "wallet_after_exit": "4491.952814288099600000000000"
+        }
+      ],
+      "unfilled": 3
+    }
+  ]
+}

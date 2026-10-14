@@ -1,0 +1,5776 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-2.0",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "2.2",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": false,
+    "positive_net_edge": false,
+    "profit_factor": false,
+    "stress_positive": false,
+    "sufficient_oos_samples": true,
+    "window_consistency": false
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "15b9bcf7310908d676a9eab16186fd6cb41d061f90edf5dc66ed5bec114a46ed",
+    "src/autonomous_futures/execution/trade_plan.py": "4d102b3baf78e1c1fe396c8ebfaee6610e30df9f059eb08a856a04d729f07a3f",
+    "src/autonomous_futures/research/runtime_qualification.py": "76eb016b886b6498b0c9a05393b0528dc2533415e51899ff25c6e4a66fcdef92",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "eb98cb3c3639ccc5c7f7b7919e1eacd168673f77b46756f9dfd9dc80952b2173"
+  },
+  "metrics": {
+    "drawdown_usdt": "6.76465707574000000000000000",
+    "net_pnl": "-2.29107634618300000000000000",
+    "profitable_windows": 2,
+    "stress_net_pnl": "-12.75602132618300000000000000",
+    "trade_count": 137
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.0002",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "100",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.0004",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "a5c667903b41e770371b1266b048fdaf2c812727803f48fd6f2cd033c578d244",
+  "rejection_reasons": {},
+  "report_hash": "ec5592ac10afd548ab728d0f2876155481d3f715c350093a3c19a0625b1a67ab",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-2.0",
+      "target_atr_multiplier": "2.2"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-scalper-20261013/ADAUSDT-ab473e39e26d4c1f.json",
+    "reference_report_sha256": "05b067300d8a1758249886194e304ca85a535e4097009cfd75df33375bb3d601",
+    "status": "development_only_not_admissible"
+  },
+  "sources": {
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "8043a276d89497165c2253eb187a0bac1f855354eec2b7c2ae5797936a5941d1",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/5m/canonical/ADAUSDT-5m.parquet",
+      "rows": 376704,
+      "sha256": "a2143f9f3da88d2ef833164036e6f2f88439cdcc0e3dfac2289c889d90f597a6"
+    },
+    "funding": {
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/funding/ADAUSDT-funding.csv",
+      "sha256": "9b35766ebdb25b2e19237e785f386d12525659aefb7bc2f483ff8a373780c334"
+    },
+    "macro": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "rows": 31392,
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    "market": {
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest_sha256": "8bff2b99f181af5cd3832817800f05a1dc2fa37e79b9e87c589ef22f5da1f1e5",
+      "path": "/home/afbot/qualification-worker/ict-link-2021-2023/research/immutable-data/runtime-official-20261013/15m/canonical/ADAUSDT-15m.parquet",
+      "rows": 125568,
+      "sha256": "fb9d80f8b058bba793256c6156a7d0545302e734296f55d91df6d6f13433ab0e"
+    }
+  },
+  "symbol": "ADAUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 0,
+      "signals": 45,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "100",
+          "entry_ms": 1704285000000,
+          "exit_ms": 1704292200000,
+          "exit_price": "0.543900000000000000",
+          "fees": "0.0088003800000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.054000000000000000",
+          "minimum_equity": "99.791873740000000000",
+          "net_pnl": "0.0451996200000000000000",
+          "plan": {
+            "decision_ms": 1704285000000,
+            "entry": "0.54190",
+            "exits": [
+              {
+                "price": "0.52500",
+                "quantity": "27",
+                "role": "STOP"
+              },
+              {
+                "price": "0.57270",
+                "quantity": "27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "27",
+            "side": "BUY",
+            "signal_key": "3732b94d68d30ed04cf02811c1e127196379dfa8a9ea9fbaf049763c95e96c67",
+            "stop": "0.52500",
+            "symbol": "ADAUSDT",
+            "tp1": "0.57270",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19725,
+          "stress_net_pnl": "0.0217409400000000000000"
+        },
+        {
+          "day_start_equity": "100.0451996200000000000000",
+          "entry_ms": 1704521700000,
+          "exit_ms": 1704522300000,
+          "exit_price": "0.51420",
+          "fees": "0.024760000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.39200",
+          "minimum_equity": "99.6448940200000000000000",
+          "net_pnl": "-0.416760000",
+          "plan": {
+            "decision_ms": 1704521700000,
+            "entry": "0.51910",
+            "exits": [
+              {
+                "price": "0.51420",
+                "quantity": "80",
+                "role": "STOP"
+              },
+              {
+                "price": "0.52800",
+                "quantity": "80",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "80",
+            "side": "BUY",
+            "signal_key": "b7606223ac42e9e4e9fcbfd95cc747a8c2472a9c1ef0ce9eb99783db77d9ea44",
+            "stop": "0.51420",
+            "symbol": "ADAUSDT",
+            "tp1": "0.52800",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.482852000"
+        },
+        {
+          "day_start_equity": "100.0451996200000000000000",
+          "entry_ms": 1704522600000,
+          "exit_ms": 1704524400000,
+          "exit_price": "0.50870",
+          "fees": "0.022055040",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.39600",
+          "minimum_equity": "99.2250351400000000000000",
+          "net_pnl": "-0.418055040",
+          "plan": {
+            "decision_ms": 1704522600000,
+            "entry": "0.51420",
+            "exits": [
+              {
+                "price": "0.50870",
+                "quantity": "72",
+                "role": "STOP"
+              },
+              {
+                "price": "0.52420",
+                "quantity": "72",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "72",
+            "side": "BUY",
+            "signal_key": "2388418932517781b220cbc49c127d127f9451e5fa9d59d19b38017b77d42787",
+            "stop": "0.50870",
+            "symbol": "ADAUSDT",
+            "tp1": "0.52420",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19728,
+          "stress_net_pnl": "-0.476934480"
+        },
+        {
+          "day_start_equity": "100.0451996200000000000000",
+          "entry_ms": 1704524400000,
+          "exit_ms": 1704531000000,
+          "exit_price": "0.52070",
+          "fees": "0.013390000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00336505000000000000000000",
+          "gross_pnl": "0.74100",
+          "minimum_equity": "99.0607636800000000000000",
+          "net_pnl": "0.72424495000000000000000000",
+          "plan": {
+            "decision_ms": 1704524400000,
+            "entry": "0.50930",
+            "exits": [
+              {
+                "price": "0.50300",
+                "quantity": "65",
+                "role": "STOP"
+              },
+              {
+                "price": "0.52070",
+                "quantity": "65",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "65",
+            "side": "BUY",
+            "signal_key": "9db57b23399e4a94abd10659a32027ea484ff2cb48fc7f08d9e76a76fb0f43be",
+            "stop": "0.50300",
+            "symbol": "ADAUSDT",
+            "tp1": "0.52070",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19728,
+          "stress_net_pnl": "0.67737995000000000000000000"
+        },
+        {
+          "day_start_equity": "99.93462953000000000000000000",
+          "entry_ms": 1704665700000,
+          "exit_ms": 1704666000000,
+          "exit_price": "0.49960",
+          "fees": "0.032445360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.35640",
+          "minimum_equity": "99.56736689000000000000000000",
+          "net_pnl": "-0.388845360",
+          "plan": {
+            "decision_ms": 1704665700000,
+            "entry": "0.50290",
+            "exits": [
+              {
+                "price": "0.49960",
+                "quantity": "108",
+                "role": "STOP"
+              },
+              {
+                "price": "0.50880",
+                "quantity": "108",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "108",
+            "side": "BUY",
+            "signal_key": "8c64fdc611fced4d222076acbdfd3fccbf240e581f8005890acd3809d693910f",
+            "stop": "0.49960",
+            "symbol": "ADAUSDT",
+            "tp1": "0.50880",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.475425720"
+        },
+        {
+          "day_start_equity": "99.93462953000000000000000000",
+          "entry_ms": 1704666600000,
+          "exit_ms": 1704666900000,
+          "exit_price": "0.49580",
+          "fees": "0.029523780",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.36630",
+          "minimum_equity": "99.16959407000000000000000000",
+          "net_pnl": "-0.395823780",
+          "plan": {
+            "decision_ms": 1704666600000,
+            "entry": "0.49950",
+            "exits": [
+              {
+                "price": "0.49580",
+                "quantity": "99",
+                "role": "STOP"
+              },
+              {
+                "price": "0.50610",
+                "quantity": "99",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "99",
+            "side": "BUY",
+            "signal_key": "33e6e43cbc0c13a5c556c60090cf4cddac24b28d4f91f23c977bfd0525d6d33f",
+            "stop": "0.49580",
+            "symbol": "ADAUSDT",
+            "tp1": "0.50610",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.474614910"
+        },
+        {
+          "day_start_equity": "99.93462953000000000000000000",
+          "entry_ms": 1704667500000,
+          "exit_ms": 1704668400000,
+          "exit_price": "0.49280",
+          "fees": "0.026095520",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.37840",
+          "minimum_equity": "98.76281143000000000000000000",
+          "net_pnl": "-0.404495520",
+          "plan": {
+            "decision_ms": 1704667500000,
+            "entry": "0.49710",
+            "exits": [
+              {
+                "price": "0.49280",
+                "quantity": "88",
+                "role": "STOP"
+              },
+              {
+                "price": "0.50490",
+                "quantity": "88",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "88",
+            "side": "BUY",
+            "signal_key": "b04b12e3becfdad7fbcdc1e7e5bbc585b3cc4406406628830aba28d7211344bd",
+            "stop": "0.49280",
+            "symbol": "ADAUSDT",
+            "tp1": "0.50490",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-0.474146640"
+        },
+        {
+          "day_start_equity": "99.16003211000000000000000000",
+          "entry_ms": 1704670200000,
+          "exit_ms": 1704675300000,
+          "exit_price": "0.49850",
+          "fees": "0.014610560",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00365856000000000000000000",
+          "gross_pnl": "0.72520",
+          "minimum_equity": "98.63463211000000000000000000",
+          "net_pnl": "0.70693088000000000000000000",
+          "plan": {
+            "decision_ms": 1704670200000,
+            "entry": "0.48870",
+            "exits": [
+              {
+                "price": "0.48330",
+                "quantity": "74",
+                "role": "STOP"
+              },
+              {
+                "price": "0.49850",
+                "quantity": "74",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "74",
+            "side": "BUY",
+            "signal_key": "91695260cbe82bd6b06e87bbc5843e3f074698485e23a4b44837869489bc58da",
+            "stop": "0.48330",
+            "symbol": "ADAUSDT",
+            "tp1": "0.49850",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19730,
+          "stress_net_pnl": "0.65579392000000000000000000"
+        },
+        {
+          "day_start_equity": "99.45239575000000000000000000",
+          "entry_ms": 1707074100000,
+          "exit_ms": 1707080100000,
+          "exit_price": "0.50330",
+          "fees": "0.028473840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.56800",
+          "minimum_equity": "99.25361563000000000000000000",
+          "net_pnl": "0.539526160",
+          "plan": {
+            "decision_ms": 1707074100000,
+            "entry": "0.49930",
+            "exits": [
+              {
+                "price": "0.49710",
+                "quantity": "142",
+                "role": "STOP"
+              },
+              {
+                "price": "0.50330",
+                "quantity": "142",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "142",
+            "side": "BUY",
+            "signal_key": "830fcb0d6d0882a35beae5a4efe3371b1ddb266c0be324357a902f6b797e7f6b",
+            "stop": "0.49710",
+            "symbol": "ADAUSDT",
+            "tp1": "0.50330",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19757,
+          "stress_net_pnl": "0.439867720"
+        },
+        {
+          "day_start_equity": "99.99192191000000000000000000",
+          "entry_ms": 1707831900000,
+          "exit_ms": 1707833700000,
+          "exit_price": "0.54130",
+          "fees": "0.029304000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.36900",
+          "minimum_equity": "99.61310471000000000000000000",
+          "net_pnl": "-0.398304000",
+          "plan": {
+            "decision_ms": 1707831900000,
+            "entry": "0.54540",
+            "exits": [
+              {
+                "price": "0.54130",
+                "quantity": "90",
+                "role": "STOP"
+              },
+              {
+                "price": "0.55280",
+                "quantity": "90",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "90",
+            "side": "BUY",
+            "signal_key": "b95bb5ee7057b4bb773576a9fdf7afd2236da5d09c4f62939c3fd939380043ed",
+            "stop": "0.54130",
+            "symbol": "ADAUSDT",
+            "tp1": "0.55280",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19766,
+          "stress_net_pnl": "-0.476509500"
+        },
+        {
+          "day_start_equity": "99.99192191000000000000000000",
+          "entry_ms": 1707834600000,
+          "exit_ms": 1707837300000,
+          "exit_price": "0.53460",
+          "fees": "0.023814680",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.39220",
+          "minimum_equity": "99.19342739000000000000000000",
+          "net_pnl": "-0.416014680",
+          "plan": {
+            "decision_ms": 1707834600000,
+            "entry": "0.53990",
+            "exits": [
+              {
+                "price": "0.53460",
+                "quantity": "74",
+                "role": "STOP"
+              },
+              {
+                "price": "0.54950",
+                "quantity": "74",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "74",
+            "side": "BUY",
+            "signal_key": "f32793b892a886265ef17eb45febb79f6161c9332a5abfbb770d592cba4c2fe1",
+            "stop": "0.53460",
+            "symbol": "ADAUSDT",
+            "tp1": "0.54950",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19766,
+          "stress_net_pnl": "-0.479585860"
+        },
+        {
+          "day_start_equity": "99.17760323000000000000000000",
+          "entry_ms": 1708181100000,
+          "exit_ms": 1708188300000,
+          "exit_price": "0.579200000000000000",
+          "fees": "0.0280503000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.01101756556800000000000000",
+          "gross_pnl": "0.494100000000000000",
+          "minimum_equity": "98.84431901000000000000000000",
+          "net_pnl": "0.45503213443200000000000000",
+          "plan": {
+            "decision_ms": 1708181100000,
+            "entry": "0.57310",
+            "exits": [
+              {
+                "price": "0.56850",
+                "quantity": "81",
+                "role": "STOP"
+              },
+              {
+                "price": "0.58130",
+                "quantity": "81",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "81",
+            "side": "BUY",
+            "signal_key": "ea80cba7ef83e5b21ac8ffb8017d70b0de31379a7e8fe12326f7a32657c22e66",
+            "stop": "0.56850",
+            "symbol": "ADAUSDT",
+            "tp1": "0.58130",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19770,
+          "stress_net_pnl": "0.38031368443200000000000000"
+        },
+        {
+          "day_start_equity": "99.63263536443200000000000000",
+          "entry_ms": 1708499700000,
+          "exit_ms": 1708506900000,
+          "exit_price": "0.594400000000000000",
+          "fees": "0.0302787000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00505750000000000000000000",
+          "gross_pnl": "0.178500000000000000",
+          "minimum_equity": "99.53756626443200000000000000",
+          "net_pnl": "0.14316380000000000000000000",
+          "plan": {
+            "decision_ms": 1708499700000,
+            "entry": "0.59230",
+            "exits": [
+              {
+                "price": "0.58800",
+                "quantity": "85",
+                "role": "STOP"
+              },
+              {
+                "price": "0.60010",
+                "quantity": "85",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "85",
+            "side": "BUY",
+            "signal_key": "ac9d6029f8ac0c4ecb3db4fa0caccd31831c9b4bf6e8ea3b9e73417030334d2b",
+            "stop": "0.58800",
+            "symbol": "ADAUSDT",
+            "tp1": "0.60010",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19774,
+          "stress_net_pnl": "0.06245035000000000000000000"
+        },
+        {
+          "day_start_equity": "99.77579916443200000000000000",
+          "entry_ms": 1708608600000,
+          "exit_ms": 1708609800000,
+          "exit_price": "0.58700",
+          "fees": "0.029658720",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.36960",
+          "minimum_equity": "99.39626364443200000000000000",
+          "net_pnl": "-0.399258720",
+          "plan": {
+            "decision_ms": 1708608600000,
+            "entry": "0.59140",
+            "exits": [
+              {
+                "price": "0.58700",
+                "quantity": "84",
+                "role": "STOP"
+              },
+              {
+                "price": "0.59940",
+                "quantity": "84",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "84",
+            "side": "BUY",
+            "signal_key": "e7064a0243539535924e79b3bf9bfb0bd8c3e854fc812dd1fca681492ef4cabf",
+            "stop": "0.58700",
+            "symbol": "ADAUSDT",
+            "tp1": "0.59940",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19775,
+          "stress_net_pnl": "-0.478410240"
+        },
+        {
+          "day_start_equity": "99.37654044443200000000000000",
+          "entry_ms": 1709655300000,
+          "exit_ms": 1709658600000,
+          "exit_price": "0.71700",
+          "fees": "0.012991800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.42900",
+          "minimum_equity": "98.94315264443200000000000000",
+          "net_pnl": "-0.441991800",
+          "plan": {
+            "decision_ms": 1709655300000,
+            "entry": "0.73130",
+            "exits": [
+              {
+                "price": "0.71700",
+                "quantity": "30",
+                "role": "STOP"
+              },
+              {
+                "price": "0.75730",
+                "quantity": "30",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "30",
+            "side": "BUY",
+            "signal_key": "3fe1456af4b4585be0b5bffbb651a6a39abd212beecd6273ade7437194fd3af0",
+            "stop": "0.71700",
+            "symbol": "ADAUSDT",
+            "tp1": "0.75730",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19787,
+          "stress_net_pnl": "-0.476708100"
+        },
+        {
+          "day_start_equity": "98.93454864443200000000000000",
+          "entry_ms": 1710231300000,
+          "exit_ms": 1710238500000,
+          "exit_price": "0.745300000000000000",
+          "fees": "0.0258622000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.371200000000000000",
+          "minimum_equity": "98.60697740443200000000000000",
+          "net_pnl": "0.3453378000000000000000",
+          "plan": {
+            "decision_ms": 1710231300000,
+            "entry": "0.73890",
+            "exits": [
+              {
+                "price": "0.73240",
+                "quantity": "58",
+                "role": "STOP"
+              },
+              {
+                "price": "0.75070",
+                "quantity": "58",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "58",
+            "side": "BUY",
+            "signal_key": "de896585b86c90cd6d4881c181e44ce6107932330003a6de482ff7b55cb59bd7",
+            "stop": "0.73240",
+            "symbol": "ADAUSDT",
+            "tp1": "0.75070",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19794,
+          "stress_net_pnl": "0.2764338000000000000000"
+        },
+        {
+          "day_start_equity": "98.93454864443200000000000000",
+          "entry_ms": 1710264600000,
+          "exit_ms": 1710268500000,
+          "exit_price": "0.73970",
+          "fees": "0.009314560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.76800",
+          "minimum_equity": "99.27210596443200000000000000",
+          "net_pnl": "0.758685440",
+          "plan": {
+            "decision_ms": 1710264600000,
+            "entry": "0.71570",
+            "exits": [
+              {
+                "price": "0.70250",
+                "quantity": "32",
+                "role": "STOP"
+              },
+              {
+                "price": "0.73970",
+                "quantity": "32",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "32",
+            "side": "BUY",
+            "signal_key": "e8fb259455e765297a1272674b55f80df5c66c6afd05697f25920e0f06a29272",
+            "stop": "0.70250",
+            "symbol": "ADAUSDT",
+            "tp1": "0.73970",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19794,
+          "stress_net_pnl": "0.726084480"
+        },
+        {
+          "day_start_equity": "100.0385718844320000000000000",
+          "entry_ms": 1711524600000,
+          "exit_ms": 1711526100000,
+          "exit_price": "0.64800",
+          "fees": "0.041276400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.31800",
+          "minimum_equity": "99.7067706844320000000000000",
+          "net_pnl": "-0.359276400",
+          "plan": {
+            "decision_ms": 1711524600000,
+            "entry": "0.65100",
+            "exits": [
+              {
+                "price": "0.64800",
+                "quantity": "106",
+                "role": "STOP"
+              },
+              {
+                "price": "0.65650",
+                "quantity": "106",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "106",
+            "side": "BUY",
+            "signal_key": "a1cf976a3eab7b211c3c95c4f5c918a1ccf55deb0cc9d749b6ce5172048167e6",
+            "stop": "0.64800",
+            "symbol": "ADAUSDT",
+            "tp1": "0.65650",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19809,
+          "stress_net_pnl": "-0.469399800"
+        },
+        {
+          "day_start_equity": "100.0385718844320000000000000",
+          "entry_ms": 1711526400000,
+          "exit_ms": 1711529700000,
+          "exit_price": "0.64560",
+          "fees": "0.038027920",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.02687147848000000000000000",
+          "gross_pnl": "-0.33320",
+          "minimum_equity": "99.30650360595200000000000000",
+          "net_pnl": "-0.39809939848000000000000000",
+          "plan": {
+            "decision_ms": 1711526400000,
+            "entry": "0.64900",
+            "exits": [
+              {
+                "price": "0.64560",
+                "quantity": "98",
+                "role": "STOP"
+              },
+              {
+                "price": "0.65520",
+                "quantity": "98",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "98",
+            "side": "BUY",
+            "signal_key": "08655ec0ab952bd81ff1c507150c3481db6cce749f24a6ac4cc9742db59b5a53",
+            "stop": "0.64560",
+            "symbol": "ADAUSDT",
+            "tp1": "0.65520",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19809,
+          "stress_net_pnl": "-0.49956271848000000000000000"
+        },
+        {
+          "day_start_equity": "100.0385718844320000000000000",
+          "entry_ms": 1711530900000,
+          "exit_ms": 1711533600000,
+          "exit_price": "0.65050",
+          "fees": "0.021730800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.63000",
+          "minimum_equity": "99.06039368595200000000000000",
+          "net_pnl": "0.608269200",
+          "plan": {
+            "decision_ms": 1711530900000,
+            "entry": "0.64300",
+            "exits": [
+              {
+                "price": "0.63880",
+                "quantity": "84",
+                "role": "STOP"
+              },
+              {
+                "price": "0.65050",
+                "quantity": "84",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "84",
+            "side": "BUY",
+            "signal_key": "879d155eb4739057a8fc71b94d42ab2a258c0ca469496bdc481c7ce98c21a689",
+            "stop": "0.63880",
+            "symbol": "ADAUSDT",
+            "tp1": "0.65050",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19809,
+          "stress_net_pnl": "0.532211400"
+        },
+        {
+          "day_start_equity": "99.88946528595200000000000000",
+          "entry_ms": 1711950300000,
+          "exit_ms": 1711950600000,
+          "exit_price": "0.63660",
+          "fees": "0.043605000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.30780",
+          "minimum_equity": "99.56708924595200000000000000",
+          "net_pnl": "-0.351405000",
+          "plan": {
+            "decision_ms": 1711950300000,
+            "entry": "0.63930",
+            "exits": [
+              {
+                "price": "0.63660",
+                "quantity": "114",
+                "role": "STOP"
+              },
+              {
+                "price": "0.64400",
+                "quantity": "114",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "114",
+            "side": "BUY",
+            "signal_key": "f27533a09b516dd82e957c3e8d49695a9877ef79abb0c602bae93776f422656a",
+            "stop": "0.63660",
+            "symbol": "ADAUSDT",
+            "tp1": "0.64400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19814,
+          "stress_net_pnl": "-0.467736300"
+        },
+        {
+          "day_start_equity": "99.88946528595200000000000000",
+          "entry_ms": 1711982700000,
+          "exit_ms": 1711983900000,
+          "exit_price": "0.61140",
+          "fees": "0.029786940",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.36450",
+          "minimum_equity": "99.16358270595200000000000000",
+          "net_pnl": "-0.394286940",
+          "plan": {
+            "decision_ms": 1711982700000,
+            "entry": "0.61590",
+            "exits": [
+              {
+                "price": "0.61140",
+                "quantity": "81",
+                "role": "STOP"
+              },
+              {
+                "price": "0.62400",
+                "quantity": "81",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "81",
+            "side": "BUY",
+            "signal_key": "087aad9ac98ca7d40fd48c522353ea3d48af368b7f74cd8534f239012f435d7c",
+            "stop": "0.61140",
+            "symbol": "ADAUSDT",
+            "tp1": "0.62400",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19814,
+          "stress_net_pnl": "-0.473779530"
+        },
+        {
+          "day_start_equity": "99.14377334595200000000000000",
+          "entry_ms": 1712025000000,
+          "exit_ms": 1712025600000,
+          "exit_price": "0.60590",
+          "fees": "0.032061920",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.35200",
+          "minimum_equity": "98.78103910595200000000000000",
+          "net_pnl": "-0.384061920",
+          "plan": {
+            "decision_ms": 1712025000000,
+            "entry": "0.60990",
+            "exits": [
+              {
+                "price": "0.60590",
+                "quantity": "88",
+                "role": "STOP"
+              },
+              {
+                "price": "0.61700",
+                "quantity": "88",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "88",
+            "side": "BUY",
+            "signal_key": "61f945ff0621196b025bbbb95a46966ca0e971aca1b792caa106485b246c96fd",
+            "stop": "0.60590",
+            "symbol": "ADAUSDT",
+            "tp1": "0.61700",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19815,
+          "stress_net_pnl": "-0.469619040"
+        },
+        {
+          "day_start_equity": "99.14377334595200000000000000",
+          "entry_ms": 1712025900000,
+          "exit_ms": 1712033100000,
+          "exit_price": "0.598700000000000000",
+          "fees": "0.0233038000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.227500000000000000",
+          "minimum_equity": "98.66097382595200000000000000",
+          "net_pnl": "0.2041962000000000000000",
+          "plan": {
+            "decision_ms": 1712025900000,
+            "entry": "0.59520",
+            "exits": [
+              {
+                "price": "0.58920",
+                "quantity": "65",
+                "role": "STOP"
+              },
+              {
+                "price": "0.60610",
+                "quantity": "65",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "65",
+            "side": "BUY",
+            "signal_key": "c8fe27b1623637ab6ca7b4b355cf4292d5c563700d432770f65ffcaf8ad452e6",
+            "stop": "0.58920",
+            "symbol": "ADAUSDT",
+            "tp1": "0.60610",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19815,
+          "stress_net_pnl": "0.1420906500000000000000"
+        },
+        {
+          "day_start_equity": "98.96390762595200000000000000",
+          "entry_ms": 1712836800000,
+          "exit_ms": 1712839200000,
+          "exit_price": "0.58740",
+          "fees": "0.025492920",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.58860",
+          "minimum_equity": "98.71142002595200000000000000",
+          "net_pnl": "0.563107080",
+          "plan": {
+            "decision_ms": 1712836800000,
+            "entry": "0.58200",
+            "exits": [
+              {
+                "price": "0.57900",
+                "quantity": "109",
+                "role": "STOP"
+              },
+              {
+                "price": "0.58740",
+                "quantity": "109",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "109",
+            "side": "BUY",
+            "signal_key": "47b32e8ff9d13b478aaa20326caeaab2e131a1f17d9c6e23b77191dd31844476",
+            "stop": "0.57900",
+            "symbol": "ADAUSDT",
+            "tp1": "0.58740",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19824,
+          "stress_net_pnl": "0.473881860"
+        },
+        {
+          "day_start_equity": "99.52701470595200000000000000",
+          "entry_ms": 1712927700000,
+          "exit_ms": 1712928300000,
+          "exit_price": "0.56720",
+          "fees": "0.034441000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34340",
+          "minimum_equity": "99.17208858595200000000000000",
+          "net_pnl": "-0.377841000",
+          "plan": {
+            "decision_ms": 1712927700000,
+            "entry": "0.57060",
+            "exits": [
+              {
+                "price": "0.56720",
+                "quantity": "101",
+                "role": "STOP"
+              },
+              {
+                "price": "0.57670",
+                "quantity": "101",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "101",
+            "side": "BUY",
+            "signal_key": "5467e25728cd59294a8aad7305e53868dd883d06618969c79427a787bbd682f6",
+            "stop": "0.56720",
+            "symbol": "ADAUSDT",
+            "tp1": "0.57670",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-0.469740900"
+        },
+        {
+          "day_start_equity": "99.14917370595200000000000000",
+          "entry_ms": 1716353100000,
+          "exit_ms": 1716356100000,
+          "exit_price": "0.48850",
+          "fees": "0.024307500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.58750",
+          "minimum_equity": "98.88707870595200000000000000",
+          "net_pnl": "0.563192500",
+          "plan": {
+            "decision_ms": 1716353100000,
+            "entry": "0.48380",
+            "exits": [
+              {
+                "price": "0.48110",
+                "quantity": "125",
+                "role": "STOP"
+              },
+              {
+                "price": "0.48850",
+                "quantity": "125",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "125",
+            "side": "BUY",
+            "signal_key": "13bfe53051cfe538777a643a522240dd91ec0f423cf9528c3ffc283f67443cef",
+            "stop": "0.48110",
+            "symbol": "ADAUSDT",
+            "tp1": "0.48850",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19865,
+          "stress_net_pnl": "0.478116250"
+        },
+        {
+          "day_start_equity": "99.14917370595200000000000000",
+          "entry_ms": 1716379200000,
+          "exit_ms": 1716381600000,
+          "exit_price": "0.47940",
+          "fees": "0.036310680",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34020",
+          "minimum_equity": "99.36001728595200000000000000",
+          "net_pnl": "-0.376510680",
+          "plan": {
+            "decision_ms": 1716379200000,
+            "entry": "0.48210",
+            "exits": [
+              {
+                "price": "0.47940",
+                "quantity": "126",
+                "role": "STOP"
+              },
+              {
+                "price": "0.48690",
+                "quantity": "126",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "126",
+            "side": "BUY",
+            "signal_key": "6e7036e39358c4f0fad7dabd8615f8ff5064c53a832b0b5c64a0f7a1eaa74255",
+            "stop": "0.47940",
+            "symbol": "ADAUSDT",
+            "tp1": "0.48690",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19865,
+          "stress_net_pnl": "-0.473395860"
+        },
+        {
+          "day_start_equity": "99.33585552595200000000000000",
+          "entry_ms": 1716459300000,
+          "exit_ms": 1716460800000,
+          "exit_price": "0.47570",
+          "fees": "0.038882400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.32640",
+          "minimum_equity": "98.99645120595200000000000000",
+          "net_pnl": "-0.365282400",
+          "plan": {
+            "decision_ms": 1716459300000,
+            "entry": "0.47810",
+            "exits": [
+              {
+                "price": "0.47570",
+                "quantity": "136",
+                "role": "STOP"
+              },
+              {
+                "price": "0.48240",
+                "quantity": "136",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "136",
+            "side": "BUY",
+            "signal_key": "115fcc15e177e5c246cf178776c4225cf68408a802b2397770041c30c242f3bb",
+            "stop": "0.47570",
+            "symbol": "ADAUSDT",
+            "tp1": "0.48240",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19866,
+          "stress_net_pnl": "-0.469023200"
+        },
+        {
+          "day_start_equity": "98.97057312595200000000000000",
+          "entry_ms": 1716840000000,
+          "exit_ms": 1716843900000,
+          "exit_price": "0.46910",
+          "fees": "0.025591600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.57540",
+          "minimum_equity": "98.88933486595200000000000000",
+          "net_pnl": "0.549808400",
+          "plan": {
+            "decision_ms": 1716840000000,
+            "entry": "0.46490",
+            "exits": [
+              {
+                "price": "0.46250",
+                "quantity": "137",
+                "role": "STOP"
+              },
+              {
+                "price": "0.46910",
+                "quantity": "137",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "137",
+            "side": "BUY",
+            "signal_key": "96c22af26ccbc56815e8358709b6904a202a856a111f068acc688e86b873acae",
+            "stop": "0.46250",
+            "symbol": "ADAUSDT",
+            "tp1": "0.46910",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19870,
+          "stress_net_pnl": "0.460237800"
+        },
+        {
+          "day_start_equity": "99.52038152595200000000000000",
+          "entry_ms": 1717491600000,
+          "exit_ms": 1717498800000,
+          "exit_price": "0.45690",
+          "fees": "0.028398240",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.56160",
+          "minimum_equity": "99.42823856595200000000000000",
+          "net_pnl": "0.533201760",
+          "plan": {
+            "decision_ms": 1717491600000,
+            "entry": "0.45330",
+            "exits": [
+              {
+                "price": "0.45130",
+                "quantity": "156",
+                "role": "STOP"
+              },
+              {
+                "price": "0.45690",
+                "quantity": "156",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "156",
+            "side": "BUY",
+            "signal_key": "eaf9d85e6f468918ed74df5aac285a7bc2e05f31b088be1cfdae197310ae4b83",
+            "stop": "0.45130",
+            "symbol": "ADAUSDT",
+            "tp1": "0.45690",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19878,
+          "stress_net_pnl": "0.433807920"
+        },
+        {
+          "day_start_equity": "100.0535832859520000000000000",
+          "entry_ms": 1717704900000,
+          "exit_ms": 1717707300000,
+          "exit_price": "0.45730",
+          "fees": "0.026043160",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.57200",
+          "minimum_equity": "99.9691189059520000000000000",
+          "net_pnl": "0.545956840",
+          "plan": {
+            "decision_ms": 1717704900000,
+            "entry": "0.45330",
+            "exits": [
+              {
+                "price": "0.45100",
+                "quantity": "143",
+                "role": "STOP"
+              },
+              {
+                "price": "0.45730",
+                "quantity": "143",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "143",
+            "side": "BUY",
+            "signal_key": "7c059df891165c192cd927e17b434633d745fe40fbf2ba1f7401a6ad18da2dd5",
+            "stop": "0.45100",
+            "symbol": "ADAUSDT",
+            "tp1": "0.45730",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19880,
+          "stress_net_pnl": "0.454805780"
+        },
+        {
+          "day_start_equity": "100.5995401259520000000000000",
+          "entry_ms": 1717784100000,
+          "exit_ms": 1717784700000,
+          "exit_price": "0.44290",
+          "fees": "0.010295500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.78470",
+          "minimum_equity": "100.3171708459520000000000000",
+          "net_pnl": "0.774404500",
+          "plan": {
+            "decision_ms": 1717784100000,
+            "entry": "0.42960",
+            "exits": [
+              {
+                "price": "0.42230",
+                "quantity": "59",
+                "role": "STOP"
+              },
+              {
+                "price": "0.44290",
+                "quantity": "59",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "59",
+            "side": "BUY",
+            "signal_key": "8d34c8a1e706e8aae62ae55f9b9c31aeb6540ba24b1cc309691ed7927e151b25",
+            "stop": "0.42230",
+            "symbol": "ADAUSDT",
+            "tp1": "0.44290",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19881,
+          "stress_net_pnl": "0.738370250"
+        },
+        {
+          "day_start_equity": "100.5995401259520000000000000",
+          "entry_ms": 1717785000000,
+          "exit_ms": 1717792200000,
+          "exit_price": "0.450200000000000000",
+          "fees": "0.0131702200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.328300000000000000",
+          "minimum_equity": "101.3156983259520000000000000",
+          "net_pnl": "0.3151297800000000000000",
+          "plan": {
+            "decision_ms": 1717785000000,
+            "entry": "0.44350",
+            "exits": [
+              {
+                "price": "0.43450",
+                "quantity": "49",
+                "role": "STOP"
+              },
+              {
+                "price": "0.45990",
+                "quantity": "49",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "49",
+            "side": "BUY",
+            "signal_key": "9f226ae76d722466eec4bfd1a7d28a880cf8068bb776f0fa15fad92332d71be0",
+            "stop": "0.43450",
+            "symbol": "ADAUSDT",
+            "tp1": "0.45990",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19881,
+          "stress_net_pnl": "0.2800639100000000000000"
+        }
+      ],
+      "unfilled": 11
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 51,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "101.6890744059520000000000000",
+          "entry_ms": 1721475000000,
+          "exit_ms": 1721476800000,
+          "exit_price": "0.43170",
+          "fees": "0.042026040",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.32400",
+          "minimum_equity": "101.3510225259520000000000000",
+          "net_pnl": "-0.366026040",
+          "plan": {
+            "decision_ms": 1721475000000,
+            "entry": "0.43370",
+            "exits": [
+              {
+                "price": "0.43170",
+                "quantity": "162",
+                "role": "STOP"
+              },
+              {
+                "price": "0.43720",
+                "quantity": "162",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "162",
+            "side": "BUY",
+            "signal_key": "bc2a8e4f0152cfd5d09cb77d400decb92244ff951f70d0ce0bee97f18bd53ae4",
+            "stop": "0.43170",
+            "symbol": "ADAUSDT",
+            "tp1": "0.43720",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19924,
+          "stress_net_pnl": "-0.478149480"
+        },
+        {
+          "day_start_equity": "101.3230483659520000000000000",
+          "entry_ms": 1721546100000,
+          "exit_ms": 1721553300000,
+          "exit_price": "0.431400000000000000",
+          "fees": "0.0405939200000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00674943000000000000000000",
+          "gross_pnl": "0.219800000000000000",
+          "minimum_equity": "101.1525463659520000000000000",
+          "net_pnl": "0.17245665000000000000000000",
+          "plan": {
+            "decision_ms": 1721546100000,
+            "entry": "0.43000",
+            "exits": [
+              {
+                "price": "0.42790",
+                "quantity": "157",
+                "role": "STOP"
+              },
+              {
+                "price": "0.43360",
+                "quantity": "157",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "157",
+            "side": "BUY",
+            "signal_key": "9caa02cbc6dd23b4e338e85aaa226a0215c185baf57434ed5eeb9a05529e11bc",
+            "stop": "0.42790",
+            "symbol": "ADAUSDT",
+            "tp1": "0.43360",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19925,
+          "stress_net_pnl": "0.06424283000000000000000000"
+        },
+        {
+          "day_start_equity": "101.4955050159520000000000000",
+          "entry_ms": 1721754000000,
+          "exit_ms": 1721761200000,
+          "exit_price": "0.408200000000000000",
+          "fees": "0.0222094600000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.391300000000000000",
+          "minimum_equity": "101.3516540359520000000000000",
+          "net_pnl": "0.3690905400000000000000",
+          "plan": {
+            "decision_ms": 1721754000000,
+            "entry": "0.40390",
+            "exits": [
+              {
+                "price": "0.39940",
+                "quantity": "91",
+                "role": "STOP"
+              },
+              {
+                "price": "0.41210",
+                "quantity": "91",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "91",
+            "side": "BUY",
+            "signal_key": "aff1ac08b4c0eabd034e3f41377c57c8f382389cd7e78d0940444baca609a162",
+            "stop": "0.39940",
+            "symbol": "ADAUSDT",
+            "tp1": "0.41210",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19927,
+          "stress_net_pnl": "0.3099305300000000000000"
+        },
+        {
+          "day_start_equity": "101.8645955559520000000000000",
+          "entry_ms": 1722143700000,
+          "exit_ms": 1722150900000,
+          "exit_price": "0.411200000000000000",
+          "fees": "0.0421549200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.171000000000000000",
+          "minimum_equity": "101.5598667159520000000000000",
+          "net_pnl": "0.1288450800000000000000",
+          "plan": {
+            "decision_ms": 1722143700000,
+            "entry": "0.41020",
+            "exits": [
+              {
+                "price": "0.40830",
+                "quantity": "171",
+                "role": "STOP"
+              },
+              {
+                "price": "0.41360",
+                "quantity": "171",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "171",
+            "side": "BUY",
+            "signal_key": "04ab5a9b8d13b89bc6b7d52671e888cea6d6679f5c19df93aacaa6103ac64196",
+            "stop": "0.40830",
+            "symbol": "ADAUSDT",
+            "tp1": "0.41360",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19932,
+          "stress_net_pnl": "0.0164604600000000000000"
+        },
+        {
+          "day_start_equity": "101.9934406359520000000000000",
+          "entry_ms": 1722266100000,
+          "exit_ms": 1722266700000,
+          "exit_price": "0.40560",
+          "fees": "0.029765560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.37820",
+          "minimum_equity": "101.6052683559520000000000000",
+          "net_pnl": "-0.407965560",
+          "plan": {
+            "decision_ms": 1722266100000,
+            "entry": "0.40870",
+            "exits": [
+              {
+                "price": "0.40560",
+                "quantity": "122",
+                "role": "STOP"
+              },
+              {
+                "price": "0.41420",
+                "quantity": "122",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "122",
+            "side": "BUY",
+            "signal_key": "c085adc04887583d8e35a8ff8632ef352e5c185f74a4787d54e1ef305a7df8fd",
+            "stop": "0.40560",
+            "symbol": "ADAUSDT",
+            "tp1": "0.41420",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19933,
+          "stress_net_pnl": "-0.487403420"
+        },
+        {
+          "day_start_equity": "101.9934406359520000000000000",
+          "entry_ms": 1722267000000,
+          "exit_ms": 1722270900000,
+          "exit_price": "0.40490",
+          "fees": "0.028986020",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00082765118800000000000000",
+          "gross_pnl": "-0.38080",
+          "minimum_equity": "101.1941346447640000000000000",
+          "net_pnl": "-0.41061367118800000000000000",
+          "plan": {
+            "decision_ms": 1722267000000,
+            "entry": "0.40810",
+            "exits": [
+              {
+                "price": "0.40490",
+                "quantity": "119",
+                "role": "STOP"
+              },
+              {
+                "price": "0.41380",
+                "quantity": "119",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "119",
+            "side": "BUY",
+            "signal_key": "04ad3d3aec947ed8241d7ec5cfc7655a13857d1fe48170d34f29606ea058feb5",
+            "stop": "0.40490",
+            "symbol": "ADAUSDT",
+            "tp1": "0.41380",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19933,
+          "stress_net_pnl": "-0.48797319118800000000000000"
+        },
+        {
+          "day_start_equity": "101.1748614047640000000000000",
+          "entry_ms": 1724659200000,
+          "exit_ms": 1724666400000,
+          "exit_price": "0.380500000000000000",
+          "fees": "0.0350473200000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00581504000000000000000000",
+          "gross_pnl": "0.554400000000000000",
+          "minimum_equity": "101.0496378447640000000000000",
+          "net_pnl": "0.51353764000000000000000000",
+          "plan": {
+            "decision_ms": 1724659200000,
+            "entry": "0.37690",
+            "exits": [
+              {
+                "price": "0.37460",
+                "quantity": "154",
+                "role": "STOP"
+              },
+              {
+                "price": "0.38100",
+                "quantity": "154",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "154",
+            "side": "BUY",
+            "signal_key": "030df9d36f45e71cda65381f7e63450299c4b8fbca37506ce56f972184ff1d12",
+            "stop": "0.37460",
+            "symbol": "ADAUSDT",
+            "tp1": "0.38100",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19961,
+          "stress_net_pnl": "0.42017052000000000000000000"
+        },
+        {
+          "day_start_equity": "102.0054868047640000000000000",
+          "entry_ms": 1726442100000,
+          "exit_ms": 1726449300000,
+          "exit_price": "0.33450",
+          "fees": "0.036797640",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00214141476000000000000000",
+          "gross_pnl": "-0.34770",
+          "minimum_equity": "101.3305282195240000000000000",
+          "net_pnl": "-0.38235622524000000000000000",
+          "plan": {
+            "decision_ms": 1726442100000,
+            "entry": "0.33640",
+            "exits": [
+              {
+                "price": "0.33450",
+                "quantity": "183",
+                "role": "STOP"
+              },
+              {
+                "price": "0.33980",
+                "quantity": "183",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "183",
+            "side": "BUY",
+            "signal_key": "e0bbab5581175df8e10c1469719958d9fc9c935126e8862c58a4dd258e0e9cef",
+            "stop": "0.33450",
+            "symbol": "ADAUSDT",
+            "tp1": "0.33980",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19982,
+          "stress_net_pnl": "-0.48054121524000000000000000"
+        },
+        {
+          "day_start_equity": "102.0054868047640000000000000",
+          "entry_ms": 1726497000000,
+          "exit_ms": 1726497300000,
+          "exit_price": "0.32690",
+          "fees": "0.038903040",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.33660",
+          "minimum_equity": "100.9564302595240000000000000",
+          "net_pnl": "-0.375503040",
+          "plan": {
+            "decision_ms": 1726497000000,
+            "entry": "0.32860",
+            "exits": [
+              {
+                "price": "0.32690",
+                "quantity": "198",
+                "role": "STOP"
+              },
+              {
+                "price": "0.33160",
+                "quantity": "198",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "198",
+            "side": "BUY",
+            "signal_key": "89edf34f541e1be492ad9810b337252e5940d4840193dda9c719ce4244f8b31b",
+            "stop": "0.32690",
+            "symbol": "ADAUSDT",
+            "tp1": "0.33160",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19982,
+          "stress_net_pnl": "-0.479300580"
+        },
+        {
+          "day_start_equity": "100.9305397795240000000000000",
+          "entry_ms": 1726653600000,
+          "exit_ms": 1726656900000,
+          "exit_price": "0.33100",
+          "fees": "0.029545600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.56000",
+          "minimum_equity": "100.8038229795240000000000000",
+          "net_pnl": "0.530454400",
+          "plan": {
+            "decision_ms": 1726653600000,
+            "entry": "0.32850",
+            "exits": [
+              {
+                "price": "0.32710",
+                "quantity": "224",
+                "role": "STOP"
+              },
+              {
+                "price": "0.33100",
+                "quantity": "224",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "224",
+            "side": "BUY",
+            "signal_key": "6fe879f72812c0c7f4f66a8c7d9529b60bb7e468900cc6a51734eea98885d61b",
+            "stop": "0.32710",
+            "symbol": "ADAUSDT",
+            "tp1": "0.33100",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19984,
+          "stress_net_pnl": "0.427044800"
+        },
+        {
+          "day_start_equity": "101.4609941795240000000000000",
+          "entry_ms": 1727661600000,
+          "exit_ms": 1727668800000,
+          "exit_price": "0.389400000000000000",
+          "fees": "0.0301111800000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.141900000000000000",
+          "minimum_equity": "101.1542760395240000000000000",
+          "net_pnl": "0.1117888200000000000000",
+          "plan": {
+            "decision_ms": 1727661600000,
+            "entry": "0.38830",
+            "exits": [
+              {
+                "price": "0.38540",
+                "quantity": "129",
+                "role": "STOP"
+              },
+              {
+                "price": "0.39340",
+                "quantity": "129",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "129",
+            "side": "BUY",
+            "signal_key": "30f6cff01c0f7fef0422d377906c421b649fe68dfc9a7ce1d112740a83fa4737",
+            "stop": "0.38540",
+            "symbol": "ADAUSDT",
+            "tp1": "0.39340",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19996,
+          "stress_net_pnl": "0.0315159900000000000000"
+        },
+        {
+          "day_start_equity": "101.5727829995240000000000000",
+          "entry_ms": 1728327600000,
+          "exit_ms": 1728330900000,
+          "exit_price": "0.35610",
+          "fees": "0.019233120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.69360",
+          "minimum_equity": "101.5088357995240000000000000",
+          "net_pnl": "0.674366880",
+          "plan": {
+            "decision_ms": 1728327600000,
+            "entry": "0.35100",
+            "exits": [
+              {
+                "price": "0.34820",
+                "quantity": "136",
+                "role": "STOP"
+              },
+              {
+                "price": "0.35610",
+                "quantity": "136",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "136",
+            "side": "BUY",
+            "signal_key": "7384b10a5a6759d7549fd831073a2f0bd84a16ed8a36e4fb3224187a367dcf19",
+            "stop": "0.34820",
+            "symbol": "ADAUSDT",
+            "tp1": "0.35610",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20003,
+          "stress_net_pnl": "0.607050960"
+        },
+        {
+          "day_start_equity": "102.2471498795240000000000000",
+          "entry_ms": 1728833400000,
+          "exit_ms": 1728837900000,
+          "exit_price": "0.34790",
+          "fees": "0.024368960",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00607552000000000000000000",
+          "gross_pnl": "0.61600",
+          "minimum_equity": "102.1761514795240000000000000",
+          "net_pnl": "0.58555552000000000000000000",
+          "plan": {
+            "decision_ms": 1728833400000,
+            "entry": "0.34440",
+            "exits": [
+              {
+                "price": "0.34240",
+                "quantity": "176",
+                "role": "STOP"
+              },
+              {
+                "price": "0.34790",
+                "quantity": "176",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "176",
+            "side": "BUY",
+            "signal_key": "539f69b177b8b42ada7066fb6ec365348f86d9622c0eaba0be42e0c1f640c9e7",
+            "stop": "0.34240",
+            "symbol": "ADAUSDT",
+            "tp1": "0.34790",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20009,
+          "stress_net_pnl": "0.50026416000000000000000000"
+        },
+        {
+          "day_start_equity": "102.8327053995240000000000000",
+          "entry_ms": 1729161000000,
+          "exit_ms": 1729161300000,
+          "exit_price": "0.34300",
+          "fees": "0.040815720",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.33660",
+          "minimum_equity": "102.4824552795240000000000000",
+          "net_pnl": "-0.377415720",
+          "plan": {
+            "decision_ms": 1729161000000,
+            "entry": "0.34470",
+            "exits": [
+              {
+                "price": "0.34300",
+                "quantity": "198",
+                "role": "STOP"
+              },
+              {
+                "price": "0.34770",
+                "quantity": "198",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "198",
+            "side": "BUY",
+            "signal_key": "dc28b12b2b2aea9395766e0d8b5c033047c4e0cbe6838b41acd2c32b76d4ccf5",
+            "stop": "0.34300",
+            "symbol": "ADAUSDT",
+            "tp1": "0.34770",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20013,
+          "stress_net_pnl": "-0.486313740"
+        },
+        {
+          "day_start_equity": "102.8327053995240000000000000",
+          "entry_ms": 1729161900000,
+          "exit_ms": 1729169100000,
+          "exit_price": "0.344200000000000000",
+          "fees": "0.0392084000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.152000000000000000",
+          "minimum_equity": "102.1952404795240000000000000",
+          "net_pnl": "0.1127916000000000000000",
+          "plan": {
+            "decision_ms": 1729161900000,
+            "entry": "0.34340",
+            "exits": [
+              {
+                "price": "0.34160",
+                "quantity": "190",
+                "role": "STOP"
+              },
+              {
+                "price": "0.34650",
+                "quantity": "190",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "190",
+            "side": "BUY",
+            "signal_key": "3c56734f72c512d6ddcd519d5370eb0a70284d2770d995f4aeac8304b0db3ee8",
+            "stop": "0.34160",
+            "symbol": "ADAUSDT",
+            "tp1": "0.34650",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20013,
+          "stress_net_pnl": "0.0082612000000000000000"
+        },
+        {
+          "day_start_equity": "102.5680812795240000000000000",
+          "entry_ms": 1729256400000,
+          "exit_ms": 1729258200000,
+          "exit_price": "0.34630",
+          "fees": "0.032167980",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.53590",
+          "minimum_equity": "102.5287508795240000000000000",
+          "net_pnl": "0.503732020",
+          "plan": {
+            "decision_ms": 1729256400000,
+            "entry": "0.34400",
+            "exits": [
+              {
+                "price": "0.34270",
+                "quantity": "233",
+                "role": "STOP"
+              },
+              {
+                "price": "0.34630",
+                "quantity": "233",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "233",
+            "side": "BUY",
+            "signal_key": "0d9a0c78d487f1577a86b7cc97fa4b76d8b6be1d3ac60af9b35f6799d9eff67e",
+            "stop": "0.34270",
+            "symbol": "ADAUSDT",
+            "tp1": "0.34630",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20014,
+          "stress_net_pnl": "0.391144090"
+        },
+        {
+          "day_start_equity": "103.0718132995240000000000000",
+          "entry_ms": 1729339200000,
+          "exit_ms": 1729346400000,
+          "exit_price": "0.350400000000000000",
+          "fees": "0.0430664000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.164000000000000000",
+          "minimum_equity": "103.0164796995240000000000000",
+          "net_pnl": "0.1209336000000000000000",
+          "plan": {
+            "decision_ms": 1729339200000,
+            "entry": "0.34960",
+            "exits": [
+              {
+                "price": "0.34800",
+                "quantity": "205",
+                "role": "STOP"
+              },
+              {
+                "price": "0.35240",
+                "quantity": "205",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "205",
+            "side": "BUY",
+            "signal_key": "a0c73afe71298ec9a7d6493d9ee2b65ea5868e60a955e4f412ae78103b9ce9ce",
+            "stop": "0.34800",
+            "symbol": "ADAUSDT",
+            "tp1": "0.35240",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20015,
+          "stress_net_pnl": "0.0061172000000000000000"
+        },
+        {
+          "day_start_equity": "103.1927468995240000000000000",
+          "entry_ms": 1729756800000,
+          "exit_ms": 1729759800000,
+          "exit_price": "0.34380",
+          "fees": "0.040910760",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.33660",
+          "minimum_equity": "102.8424650995240000000000000",
+          "net_pnl": "-0.377510760",
+          "plan": {
+            "decision_ms": 1729756800000,
+            "entry": "0.34550",
+            "exits": [
+              {
+                "price": "0.34380",
+                "quantity": "198",
+                "role": "STOP"
+              },
+              {
+                "price": "0.34850",
+                "quantity": "198",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "198",
+            "side": "BUY",
+            "signal_key": "8d8034b5787e4656d6fba5fa3ae08597745063d4a31fe64b8c0db2356d40bb0c",
+            "stop": "0.34380",
+            "symbol": "ADAUSDT",
+            "tp1": "0.34850",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20020,
+          "stress_net_pnl": "-0.486662220"
+        },
+        {
+          "day_start_equity": "102.8152361395240000000000000",
+          "entry_ms": 1730088000000,
+          "exit_ms": 1730089800000,
+          "exit_price": "0.33150",
+          "fees": "0.039848000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34000",
+          "minimum_equity": "102.4619081395240000000000000",
+          "net_pnl": "-0.379848000",
+          "plan": {
+            "decision_ms": 1730088000000,
+            "entry": "0.33320",
+            "exits": [
+              {
+                "price": "0.33150",
+                "quantity": "200",
+                "role": "STOP"
+              },
+              {
+                "price": "0.33620",
+                "quantity": "200",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "200",
+            "side": "BUY",
+            "signal_key": "e3a2f2ea0b60c9687522d5679640d1014023e8259916e217cd8c1f7d390821c8",
+            "stop": "0.33150",
+            "symbol": "ADAUSDT",
+            "tp1": "0.33620",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20024,
+          "stress_net_pnl": "-0.486166000"
+        },
+        {
+          "day_start_equity": "102.4353881395240000000000000",
+          "entry_ms": 1730390400000,
+          "exit_ms": 1730397600000,
+          "exit_price": "0.344000000000000000",
+          "fees": "0.0239563200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.069600000000000000",
+          "minimum_equity": "102.1489934195240000000000000",
+          "net_pnl": "-0.0935563200000000000000",
+          "plan": {
+            "decision_ms": 1730390400000,
+            "entry": "0.34460",
+            "exits": [
+              {
+                "price": "0.34110",
+                "quantity": "116",
+                "role": "STOP"
+              },
+              {
+                "price": "0.35090",
+                "quantity": "116",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "116",
+            "side": "BUY",
+            "signal_key": "953fb3700f86ac505359c7d5878cfabdc543f1bb465e0aa2d52d2f22a0437db1",
+            "stop": "0.34110",
+            "symbol": "ADAUSDT",
+            "tp1": "0.35090",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20027,
+          "stress_net_pnl": "-0.1574514400000000000000"
+        },
+        {
+          "day_start_equity": "102.3418318195240000000000000",
+          "entry_ms": 1731273300000,
+          "exit_ms": 1731277200000,
+          "exit_price": "0.59560",
+          "fees": "0.006027320",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.83460",
+          "minimum_equity": "102.3207016195240000000000000",
+          "net_pnl": "0.828572680",
+          "plan": {
+            "decision_ms": 1731273300000,
+            "entry": "0.56350",
+            "exits": [
+              {
+                "price": "0.54590",
+                "quantity": "26",
+                "role": "STOP"
+              },
+              {
+                "price": "0.59560",
+                "quantity": "26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26",
+            "side": "BUY",
+            "signal_key": "4078996027ea3f9ec5076e3848421a7861c51d7973f4fa760a9ecd1d6e39b68b",
+            "stop": "0.54590",
+            "symbol": "ADAUSDT",
+            "tp1": "0.59560",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20037,
+          "stress_net_pnl": "0.807477060"
+        },
+        {
+          "day_start_equity": "103.1704044995240000000000000",
+          "entry_ms": 1731473100000,
+          "exit_ms": 1731480300000,
+          "exit_price": "0.526700000000000000",
+          "fees": "0.0129855200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.143500000000000000",
+          "minimum_equity": "102.7109568595240000000000000",
+          "net_pnl": "-0.1564855200000000000000",
+          "plan": {
+            "decision_ms": 1731473100000,
+            "entry": "0.53020",
+            "exits": [
+              {
+                "price": "0.51900",
+                "quantity": "41",
+                "role": "STOP"
+              },
+              {
+                "price": "0.55060",
+                "quantity": "41",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "41",
+            "side": "BUY",
+            "signal_key": "3718efd450157db85f8211255b9948125674b0d6b57cd247b6b056cce30d272f",
+            "stop": "0.51900",
+            "symbol": "ADAUSDT",
+            "tp1": "0.55060",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20040,
+          "stress_net_pnl": "-0.1911374900000000000000"
+        },
+        {
+          "day_start_equity": "103.0139189795240000000000000",
+          "entry_ms": 1732446900000,
+          "exit_ms": 1732449300000,
+          "exit_price": "1.00430",
+          "fees": "0.016357680",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.44010",
+          "minimum_equity": "102.5683077395240000000000000",
+          "net_pnl": "-0.456457680",
+          "plan": {
+            "decision_ms": 1732446900000,
+            "entry": "1.02060",
+            "exits": [
+              {
+                "price": "1.00430",
+                "quantity": "27",
+                "role": "STOP"
+              },
+              {
+                "price": "1.05030",
+                "quantity": "27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "27",
+            "side": "BUY",
+            "signal_key": "0c8286e387966e639bfd7e2dd91d83f4a932e3fee9f682bd17fac84d53ec5e14",
+            "stop": "1.00430",
+            "symbol": "ADAUSDT",
+            "tp1": "1.05030",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20051,
+          "stress_net_pnl": "-0.500151510"
+        },
+        {
+          "day_start_equity": "103.0139189795240000000000000",
+          "entry_ms": 1732449600000,
+          "exit_ms": 1732452000000,
+          "exit_price": "0.98630",
+          "fees": "0.013698340",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.43700",
+          "minimum_equity": "102.1158369195240000000000000",
+          "net_pnl": "-0.450698340",
+          "plan": {
+            "decision_ms": 1732449600000,
+            "entry": "1.00530",
+            "exits": [
+              {
+                "price": "0.98630",
+                "quantity": "23",
+                "role": "STOP"
+              },
+              {
+                "price": "1.04000",
+                "quantity": "23",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "23",
+            "side": "BUY",
+            "signal_key": "e2ecf054de0b64e7cfbccf82f7e51a90621db8e2b71d35cdf64e85372b361235",
+            "stop": "0.98630",
+            "symbol": "ADAUSDT",
+            "tp1": "1.04000",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20051,
+          "stress_net_pnl": "-0.487300080"
+        },
+        {
+          "day_start_equity": "102.1067629595240000000000000",
+          "entry_ms": 1733015700000,
+          "exit_ms": 1733020800000,
+          "exit_price": "1.04660",
+          "fees": "0.022060500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.40950",
+          "minimum_equity": "101.6898548595240000000000000",
+          "net_pnl": "-0.431560500",
+          "plan": {
+            "decision_ms": 1733015700000,
+            "entry": "1.05830",
+            "exits": [
+              {
+                "price": "1.04660",
+                "quantity": "35",
+                "role": "STOP"
+              },
+              {
+                "price": "1.07970",
+                "quantity": "35",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "35",
+            "side": "BUY",
+            "signal_key": "09a3e56481f99ef0c2d7e33ea3387007ba14dc4979ef3810ed6847a90346476b",
+            "stop": "1.04660",
+            "symbol": "ADAUSDT",
+            "tp1": "1.07970",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20058,
+          "stress_net_pnl": "-0.490456750"
+        },
+        {
+          "day_start_equity": "101.6752024595240000000000000",
+          "entry_ms": 1733362200000,
+          "exit_ms": 1733366700000,
+          "exit_price": "1.16600",
+          "fees": "0.010105040",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.77880",
+          "minimum_equity": "101.5360278195240000000000000",
+          "net_pnl": "0.768694960",
+          "plan": {
+            "decision_ms": 1733362200000,
+            "entry": "1.13060",
+            "exits": [
+              {
+                "price": "1.11120",
+                "quantity": "22",
+                "role": "STOP"
+              },
+              {
+                "price": "1.16600",
+                "quantity": "22",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "22",
+            "side": "BUY",
+            "signal_key": "254772d536830370979bb7252f4be5e0d8d4684609e797eb58cbdf885e2fa7f6",
+            "stop": "1.11120",
+            "symbol": "ADAUSDT",
+            "tp1": "1.16600",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20062,
+          "stress_net_pnl": "0.733327320"
+        },
+        {
+          "day_start_equity": "102.4438974195240000000000000",
+          "entry_ms": 1733670900000,
+          "exit_ms": 1733678100000,
+          "exit_price": "1.185000000000000000",
+          "fees": "0.0248731000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.01402569871500000000000000",
+          "gross_pnl": "0.059500000000000000",
+          "minimum_equity": "102.3375886208090000000000000",
+          "net_pnl": "0.02060120128500000000000000",
+          "plan": {
+            "decision_ms": 1733670900000,
+            "entry": "1.18330",
+            "exits": [
+              {
+                "price": "1.17210",
+                "quantity": "35",
+                "role": "STOP"
+              },
+              {
+                "price": "1.20370",
+                "quantity": "35",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "35",
+            "side": "BUY",
+            "signal_key": "a016a1faa9702e4c30e4d92080d2d17c1069f99f2748cf4cfdb149f00b4c0fb1",
+            "stop": "1.17210",
+            "symbol": "ADAUSDT",
+            "tp1": "1.20370",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20065,
+          "stress_net_pnl": "-0.04571714871500000000000000"
+        },
+        {
+          "day_start_equity": "102.4644986208090000000000000",
+          "entry_ms": 1734074100000,
+          "exit_ms": 1734081300000,
+          "exit_price": "1.092800000000000000",
+          "fees": "0.0267894000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00446326000000000000000000",
+          "gross_pnl": "0.467400000000000000",
+          "minimum_equity": "102.2014311408090000000000000",
+          "net_pnl": "0.43614734000000000000000000",
+          "plan": {
+            "decision_ms": 1734074100000,
+            "entry": "1.08140",
+            "exits": [
+              {
+                "price": "1.07180",
+                "quantity": "41",
+                "role": "STOP"
+              },
+              {
+                "price": "1.09890",
+                "quantity": "41",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "41",
+            "side": "BUY",
+            "signal_key": "97408e2ea1b73b58b1ab75c14225c617f6436f53dc42bd6a2eb848da702a7994",
+            "stop": "1.07180",
+            "symbol": "ADAUSDT",
+            "tp1": "1.09890",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20070,
+          "stress_net_pnl": "0.36478684000000000000000000"
+        },
+        {
+          "day_start_equity": "102.9006459608090000000000000",
+          "entry_ms": 1734183000000,
+          "exit_ms": 1734190200000,
+          "exit_price": "1.078200000000000000",
+          "fees": "0.0290520000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.297000000000000000",
+          "minimum_equity": "102.7515015608090000000000000",
+          "net_pnl": "0.2679480000000000000000",
+          "plan": {
+            "decision_ms": 1734183000000,
+            "entry": "1.07160",
+            "exits": [
+              {
+                "price": "1.06310",
+                "quantity": "45",
+                "role": "STOP"
+              },
+              {
+                "price": "1.08710",
+                "quantity": "45",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "45",
+            "side": "BUY",
+            "signal_key": "df56dc221f4e51cc2a61a909f836f4711b287369f26051666c5854a27643a143",
+            "stop": "1.06310",
+            "symbol": "ADAUSDT",
+            "tp1": "1.08710",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20071,
+          "stress_net_pnl": "0.1905255000000000000000"
+        },
+        {
+          "day_start_equity": "103.1685939608090000000000000",
+          "entry_ms": 1734350400000,
+          "exit_ms": 1734357600000,
+          "exit_price": "1.059500000000000000",
+          "fees": "0.0253856000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.212000000000000000",
+          "minimum_equity": "102.8761603608090000000000000",
+          "net_pnl": "0.1866144000000000000000",
+          "plan": {
+            "decision_ms": 1734350400000,
+            "entry": "1.05420",
+            "exits": [
+              {
+                "price": "1.04410",
+                "quantity": "40",
+                "role": "STOP"
+              },
+              {
+                "price": "1.07250",
+                "quantity": "40",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "40",
+            "side": "BUY",
+            "signal_key": "daeb21fdc19d68839d270a2bd02868fd9871ea03e8f9e8c886c76b9cb6c438b0",
+            "stop": "1.04410",
+            "symbol": "ADAUSDT",
+            "tp1": "1.07250",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20073,
+          "stress_net_pnl": "0.1189548000000000000000"
+        },
+        {
+          "day_start_equity": "103.3552083608090000000000000",
+          "entry_ms": 1734394500000,
+          "exit_ms": 1734401700000,
+          "exit_price": "1.074800000000000000",
+          "fees": "0.0257312000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.320000000000000000",
+          "minimum_equity": "103.0626739608090000000000000",
+          "net_pnl": "0.2942688000000000000000",
+          "plan": {
+            "decision_ms": 1734394500000,
+            "entry": "1.06680",
+            "exits": [
+              {
+                "price": "1.05690",
+                "quantity": "40",
+                "role": "STOP"
+              },
+              {
+                "price": "1.08480",
+                "quantity": "40",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "40",
+            "side": "BUY",
+            "signal_key": "480d616c3e930a4a1179a4f0421a4a62d6dcd8068c193c44f96be5dcca5fcf85",
+            "stop": "1.05690",
+            "symbol": "ADAUSDT",
+            "tp1": "1.08480",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20074,
+          "stress_net_pnl": "0.2257056000000000000000"
+        },
+        {
+          "day_start_equity": "103.9494347408090000000000000",
+          "entry_ms": 1734477300000,
+          "exit_ms": 1734484500000,
+          "exit_price": "1.055700000000000000",
+          "fees": "0.0246113400000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00410202000000000000000000",
+          "gross_pnl": "0.460200000000000000",
+          "minimum_equity": "103.4968327208090000000000000",
+          "net_pnl": "0.43148664000000000000000000",
+          "plan": {
+            "decision_ms": 1734477300000,
+            "entry": "1.04390",
+            "exits": [
+              {
+                "price": "1.03340",
+                "quantity": "39",
+                "role": "STOP"
+              },
+              {
+                "price": "1.06310",
+                "quantity": "39",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "39",
+            "side": "BUY",
+            "signal_key": "54168d494e7eeb7f4489219df28b9392ab23d82824d13af7bcd194a5fa5d9677",
+            "stop": "1.03340",
+            "symbol": "ADAUSDT",
+            "tp1": "1.06310",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20075,
+          "stress_net_pnl": "0.36593310000000000000000000"
+        },
+        {
+          "day_start_equity": "104.0809638008090000000000000",
+          "entry_ms": 1736262900000,
+          "exit_ms": 1736263200000,
+          "exit_price": "1.06190",
+          "fees": "0.016651960",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.43160",
+          "minimum_equity": "103.6437556008090000000000000",
+          "net_pnl": "-0.448251960",
+          "plan": {
+            "decision_ms": 1736262900000,
+            "entry": "1.07850",
+            "exits": [
+              {
+                "price": "1.06190",
+                "quantity": "26",
+                "role": "STOP"
+              },
+              {
+                "price": "1.10880",
+                "quantity": "26",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "26",
+            "side": "BUY",
+            "signal_key": "554f36be51693e50756c16dc873ca2d7a102485812ae802bae29b3682686bc60",
+            "stop": "1.06190",
+            "symbol": "ADAUSDT",
+            "tp1": "1.10880",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.492729120"
+        },
+        {
+          "day_start_equity": "104.0809638008090000000000000",
+          "entry_ms": 1736263800000,
+          "exit_ms": 1736264400000,
+          "exit_price": "1.05550",
+          "fees": "0.015285600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.43200",
+          "minimum_equity": "103.1955590408090000000000000",
+          "net_pnl": "-0.447285600",
+          "plan": {
+            "decision_ms": 1736263800000,
+            "entry": "1.07350",
+            "exits": [
+              {
+                "price": "1.05550",
+                "quantity": "24",
+                "role": "STOP"
+              },
+              {
+                "price": "1.10630",
+                "quantity": "24",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "24",
+            "side": "BUY",
+            "signal_key": "3c0b02ae873c81614b2bdcdc6a1aa690d62f270489e31d1cd36ec225aa062b4d",
+            "stop": "1.05550",
+            "symbol": "ADAUSDT",
+            "tp1": "1.10630",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.488119200"
+        },
+        {
+          "day_start_equity": "104.0809638008090000000000000",
+          "entry_ms": 1736264700000,
+          "exit_ms": 1736271900000,
+          "exit_price": "1.033000000000000000",
+          "fees": "0.0130510800000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00218694000000000000000000",
+          "gross_pnl": "-0.176400000000000000",
+          "minimum_equity": "102.9394654208090000000000000",
+          "net_pnl": "-0.19163802000000000000000000",
+          "plan": {
+            "decision_ms": 1736264700000,
+            "entry": "1.04140",
+            "exits": [
+              {
+                "price": "1.02020",
+                "quantity": "21",
+                "role": "STOP"
+              },
+              {
+                "price": "1.08020",
+                "quantity": "21",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "21",
+            "side": "BUY",
+            "signal_key": "406e6da84abe19f4f20476e0378a8faada7d0169041808f34329f30a8737501c",
+            "stop": "1.02020",
+            "symbol": "ADAUSDT",
+            "tp1": "1.08020",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20095,
+          "stress_net_pnl": "-0.22647030000000000000000000"
+        }
+      ],
+      "unfilled": 16
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 47,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "102.9937882208090000000000000",
+          "entry_ms": 1737171900000,
+          "exit_ms": 1737174600000,
+          "exit_price": "1.09070",
+          "fees": "0.024947760",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.39900",
+          "minimum_equity": "102.5864191008090000000000000",
+          "net_pnl": "-0.423947760",
+          "plan": {
+            "decision_ms": 1737171900000,
+            "entry": "1.10120",
+            "exits": [
+              {
+                "price": "1.09070",
+                "quantity": "38",
+                "role": "STOP"
+              },
+              {
+                "price": "1.12020",
+                "quantity": "38",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "38",
+            "side": "BUY",
+            "signal_key": "85127eac306b5f7f4ddad32c051593a295d7e5bfabca8ee824e09f913abde7a2",
+            "stop": "1.09070",
+            "symbol": "ADAUSDT",
+            "tp1": "1.12020",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20106,
+          "stress_net_pnl": "-0.490541620"
+        },
+        {
+          "day_start_equity": "102.5698404608090000000000000",
+          "entry_ms": 1737279000000,
+          "exit_ms": 1737283800000,
+          "exit_price": "1.04840",
+          "fees": "0.013268480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.75520",
+          "minimum_equity": "102.4320817408090000000000000",
+          "net_pnl": "0.741931520",
+          "plan": {
+            "decision_ms": 1737279000000,
+            "entry": "1.02480",
+            "exits": [
+              {
+                "price": "1.01180",
+                "quantity": "32",
+                "role": "STOP"
+              },
+              {
+                "price": "1.04840",
+                "quantity": "32",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "32",
+            "side": "BUY",
+            "signal_key": "5a35f22bcf6a9d7398fcde5e14918fda17a51c700ddd417f4db3aeff24ba03d1",
+            "stop": "1.01180",
+            "symbol": "ADAUSDT",
+            "tp1": "1.04840",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20107,
+          "stress_net_pnl": "0.695491840"
+        },
+        {
+          "day_start_equity": "102.5698404608090000000000000",
+          "entry_ms": 1737322200000,
+          "exit_ms": 1737323400000,
+          "exit_price": "1.02140",
+          "fees": "0.020307540",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.41910",
+          "minimum_equity": "102.8858469208090000000000000",
+          "net_pnl": "-0.439407540",
+          "plan": {
+            "decision_ms": 1737322200000,
+            "entry": "1.03410",
+            "exits": [
+              {
+                "price": "1.02140",
+                "quantity": "33",
+                "role": "STOP"
+              },
+              {
+                "price": "1.05730",
+                "quantity": "33",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "33",
+            "side": "BUY",
+            "signal_key": "3b6ee5729bb802d5fe3f561c950eba0885092ba2b7ffad25c5806859469c00ea",
+            "stop": "1.02140",
+            "symbol": "ADAUSDT",
+            "tp1": "1.05730",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.493630830"
+        },
+        {
+          "day_start_equity": "102.5698404608090000000000000",
+          "entry_ms": 1737324900000,
+          "exit_ms": 1737327000000,
+          "exit_price": "1.01390",
+          "fees": "0.016510500",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.42660",
+          "minimum_equity": "102.4402040608090000000000000",
+          "net_pnl": "-0.443110500",
+          "plan": {
+            "decision_ms": 1737324900000,
+            "entry": "1.02970",
+            "exits": [
+              {
+                "price": "1.01390",
+                "quantity": "27",
+                "role": "STOP"
+              },
+              {
+                "price": "1.05860",
+                "quantity": "27",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "27",
+            "side": "BUY",
+            "signal_key": "8b7db23d67b071338971d37858b136fc07a7f15e0cccc5bf6fde506d4078aa9c",
+            "stop": "1.01390",
+            "symbol": "ADAUSDT",
+            "tp1": "1.05860",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20107,
+          "stress_net_pnl": "-0.487209600"
+        },
+        {
+          "day_start_equity": "102.4292539408090000000000000",
+          "entry_ms": 1737929700000,
+          "exit_ms": 1737932100000,
+          "exit_price": "0.97020",
+          "fees": "0.039070380",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34170",
+          "minimum_equity": "102.0744849208090000000000000",
+          "net_pnl": "-0.380770380",
+          "plan": {
+            "decision_ms": 1737929700000,
+            "entry": "0.97530",
+            "exits": [
+              {
+                "price": "0.97020",
+                "quantity": "67",
+                "role": "STOP"
+              },
+              {
+                "price": "0.98450",
+                "quantity": "67",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "67",
+            "side": "BUY",
+            "signal_key": "b92d8ad391b0e5a43c4069a55c99c18ca94f7205c9ddda5492c7f99ad9b77f01",
+            "stop": "0.97020",
+            "symbol": "ADAUSDT",
+            "tp1": "0.98450",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.485015010"
+        },
+        {
+          "day_start_equity": "102.4292539408090000000000000",
+          "entry_ms": 1737933300000,
+          "exit_ms": 1737933600000,
+          "exit_price": "0.95590",
+          "fees": "0.031618400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.36850",
+          "minimum_equity": "101.6693949608090000000000000",
+          "net_pnl": "-0.400118400",
+          "plan": {
+            "decision_ms": 1737933300000,
+            "entry": "0.96260",
+            "exits": [
+              {
+                "price": "0.95590",
+                "quantity": "55",
+                "role": "STOP"
+              },
+              {
+                "price": "0.97480",
+                "quantity": "55",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "55",
+            "side": "BUY",
+            "signal_key": "7e0fc3a8aeca10150349a482ac4aa5b56f358692fb8365bbdb44182c18595c63",
+            "stop": "0.95590",
+            "symbol": "ADAUSDT",
+            "tp1": "0.97480",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-0.484495550"
+        },
+        {
+          "day_start_equity": "101.3337811608090000000000000",
+          "entry_ms": 1737934200000,
+          "exit_ms": 1737936300000,
+          "exit_price": "0.95080",
+          "fees": "0.028600000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00476150000000000000000000",
+          "gross_pnl": "-0.38000",
+          "minimum_equity": "101.2540196608090000000000000",
+          "net_pnl": "-0.41336150000000000000000000",
+          "plan": {
+            "decision_ms": 1737934200000,
+            "entry": "0.95840",
+            "exits": [
+              {
+                "price": "0.95080",
+                "quantity": "50",
+                "role": "STOP"
+              },
+              {
+                "price": "0.97230",
+                "quantity": "50",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "50",
+            "side": "BUY",
+            "signal_key": "79aa776d4f8d910d1acd3855303321fdf4d8ba6bebb35aa68efc61a0567e3c8b",
+            "stop": "0.95080",
+            "symbol": "ADAUSDT",
+            "tp1": "0.97230",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20115,
+          "stress_net_pnl": "-0.48969150000000000000000000"
+        },
+        {
+          "day_start_equity": "101.2350036608090000000000000",
+          "entry_ms": 1745134200000,
+          "exit_ms": 1745141400000,
+          "exit_price": "0.622100000000000000",
+          "fees": "0.0470584800000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00787248000000000000000000",
+          "gross_pnl": "-0.138600000000000000",
+          "minimum_equity": "100.9594265408090000000000000",
+          "net_pnl": "-0.19353096000000000000000000",
+          "plan": {
+            "decision_ms": 1745134200000,
+            "entry": "0.62320",
+            "exits": [
+              {
+                "price": "0.62080",
+                "quantity": "126",
+                "role": "STOP"
+              },
+              {
+                "price": "0.62750",
+                "quantity": "126",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "126",
+            "side": "BUY",
+            "signal_key": "f783f7fb98f6dc0bf7d5611a9b389f6bed0c955327d1ba6a651a001aa0f959d0",
+            "stop": "0.62080",
+            "symbol": "ADAUSDT",
+            "tp1": "0.62750",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20198,
+          "stress_net_pnl": "-0.31904334000000000000000000"
+        },
+        {
+          "day_start_equity": "101.0414727008090000000000000",
+          "entry_ms": 1745667900000,
+          "exit_ms": 1745674500000,
+          "exit_price": "0.70180",
+          "fees": "0.027446900",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.38350",
+          "minimum_equity": "100.6487726008090000000000000",
+          "net_pnl": "-0.410946900",
+          "plan": {
+            "decision_ms": 1745667900000,
+            "entry": "0.70770",
+            "exits": [
+              {
+                "price": "0.70180",
+                "quantity": "65",
+                "role": "STOP"
+              },
+              {
+                "price": "0.71830",
+                "quantity": "65",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "65",
+            "side": "BUY",
+            "signal_key": "f9bbd98cf4b16f2a00ad240a6dcd75fa8435c9b2031502843dab6475a0aa80ff",
+            "stop": "0.70180",
+            "symbol": "ADAUSDT",
+            "tp1": "0.71830",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20204,
+          "stress_net_pnl": "-0.484202550"
+        },
+        {
+          "day_start_equity": "100.6305258008090000000000000",
+          "entry_ms": 1745804700000,
+          "exit_ms": 1745810400000,
+          "exit_price": "0.69560",
+          "fees": "0.017390520",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.69300",
+          "minimum_equity": "100.4328998408090000000000000",
+          "net_pnl": "0.675609480",
+          "plan": {
+            "decision_ms": 1745804700000,
+            "entry": "0.68460",
+            "exits": [
+              {
+                "price": "0.67850",
+                "quantity": "63",
+                "role": "STOP"
+              },
+              {
+                "price": "0.69560",
+                "quantity": "63",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "63",
+            "side": "BUY",
+            "signal_key": "53e4ab0acf4d9e658469b2c7112dfeaeb189408034566f869cc44cf3301deab0",
+            "stop": "0.67850",
+            "symbol": "ADAUSDT",
+            "tp1": "0.69560",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20206,
+          "stress_net_pnl": "0.614742660"
+        },
+        {
+          "day_start_equity": "100.6305258008090000000000000",
+          "entry_ms": 1745853300000,
+          "exit_ms": 1745854800000,
+          "exit_price": "0.68900",
+          "fees": "0.024056080",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.39440",
+          "minimum_equity": "100.9036640008090000000000000",
+          "net_pnl": "-0.418456080",
+          "plan": {
+            "decision_ms": 1745853300000,
+            "entry": "0.69580",
+            "exits": [
+              {
+                "price": "0.68900",
+                "quantity": "58",
+                "role": "STOP"
+              },
+              {
+                "price": "0.70820",
+                "quantity": "58",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "58",
+            "side": "BUY",
+            "signal_key": "f3c53302cc776c0fe87d1f4e6259234169f4800b3feb8caa9f7fc8795c293d13",
+            "stop": "0.68900",
+            "symbol": "ADAUSDT",
+            "tp1": "0.70820",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20206,
+          "stress_net_pnl": "-0.482671360"
+        },
+        {
+          "day_start_equity": "100.6305258008090000000000000",
+          "entry_ms": 1745855100000,
+          "exit_ms": 1745862300000,
+          "exit_price": "0.693600000000000000",
+          "fees": "0.0224229600000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00123139623600000000000000",
+          "gross_pnl": "0.248400000000000000",
+          "minimum_equity": "100.6036066045730000000000000",
+          "net_pnl": "0.22474564376400000000000000",
+          "plan": {
+            "decision_ms": 1745855100000,
+            "entry": "0.68900",
+            "exits": [
+              {
+                "price": "0.68160",
+                "quantity": "54",
+                "role": "STOP"
+              },
+              {
+                "price": "0.70240",
+                "quantity": "54",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "54",
+            "side": "BUY",
+            "signal_key": "97da4c65116c9e70c3c9ad4c23942e7516fb8916c92d4a11fb647d7346f25bc2",
+            "stop": "0.68160",
+            "symbol": "ADAUSDT",
+            "tp1": "0.70240",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20206,
+          "stress_net_pnl": "0.16499248376400000000000000"
+        },
+        {
+          "day_start_equity": "101.1124248445730000000000000",
+          "entry_ms": 1745961300000,
+          "exit_ms": 1745961900000,
+          "exit_price": "0.69460",
+          "fees": "0.037576800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34200",
+          "minimum_equity": "100.7578536445730000000000000",
+          "net_pnl": "-0.379576800",
+          "plan": {
+            "decision_ms": 1745961300000,
+            "entry": "0.69840",
+            "exits": [
+              {
+                "price": "0.69460",
+                "quantity": "90",
+                "role": "STOP"
+              },
+              {
+                "price": "0.70520",
+                "quantity": "90",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "90",
+            "side": "BUY",
+            "signal_key": "ff0fd335d65b0e99002f5d87c4ef7c163aedfaf54dcba445d5782071f41b9f8d",
+            "stop": "0.69460",
+            "symbol": "ADAUSDT",
+            "tp1": "0.70520",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20207,
+          "stress_net_pnl": "-0.479838600"
+        },
+        {
+          "day_start_equity": "100.7328480445730000000000000",
+          "entry_ms": 1746018000000,
+          "exit_ms": 1746018600000,
+          "exit_price": "0.68250",
+          "fees": "0.036104640",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34320",
+          "minimum_equity": "100.3775674045730000000000000",
+          "net_pnl": "-0.379304640",
+          "plan": {
+            "decision_ms": 1746018000000,
+            "entry": "0.68640",
+            "exits": [
+              {
+                "price": "0.68250",
+                "quantity": "88",
+                "role": "STOP"
+              },
+              {
+                "price": "0.69340",
+                "quantity": "88",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "88",
+            "side": "BUY",
+            "signal_key": "89266e65d8a1cbe7ef3c8e30ba4ee7290d87cf4678b46e3a8b21debaec945ad8",
+            "stop": "0.68250",
+            "symbol": "ADAUSDT",
+            "tp1": "0.69340",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-0.475640880"
+        },
+        {
+          "day_start_equity": "100.3535434045730000000000000",
+          "entry_ms": 1746947700000,
+          "exit_ms": 1746949500000,
+          "exit_price": "0.78920",
+          "fees": "0.025173940",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.38690",
+          "minimum_equity": "99.9582005045730000000000000",
+          "net_pnl": "-0.412073940",
+          "plan": {
+            "decision_ms": 1746947700000,
+            "entry": "0.79650",
+            "exits": [
+              {
+                "price": "0.78920",
+                "quantity": "53",
+                "role": "STOP"
+              },
+              {
+                "price": "0.80970",
+                "quantity": "53",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "53",
+            "side": "BUY",
+            "signal_key": "4c52662e230468b2860d665796e2ad39bef90e5d3ce749a655d2a307e720f608",
+            "stop": "0.78920",
+            "symbol": "ADAUSDT",
+            "tp1": "0.80970",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20219,
+          "stress_net_pnl": "-0.479268930"
+        },
+        {
+          "day_start_equity": "99.9414694645730000000000000",
+          "entry_ms": 1747102500000,
+          "exit_ms": 1747107000000,
+          "exit_price": "0.77760",
+          "fees": "0.022939840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.39200",
+          "minimum_equity": "99.5417705845730000000000000",
+          "net_pnl": "-0.414939840",
+          "plan": {
+            "decision_ms": 1747102500000,
+            "entry": "0.78560",
+            "exits": [
+              {
+                "price": "0.77760",
+                "quantity": "49",
+                "role": "STOP"
+              },
+              {
+                "price": "0.80010",
+                "quantity": "49",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "49",
+            "side": "BUY",
+            "signal_key": "e09e57f6e20471b9ebbe9475dc2371668b738106409342a765019720fb9204e6",
+            "stop": "0.77760",
+            "symbol": "ADAUSDT",
+            "tp1": "0.80010",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20221,
+          "stress_net_pnl": "-0.476178080"
+        },
+        {
+          "day_start_equity": "99.5265296245730000000000000",
+          "entry_ms": 1747500300000,
+          "exit_ms": 1747506000000,
+          "exit_price": "0.74490",
+          "fees": "0.016249200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.69300",
+          "minimum_equity": "99.1719743245730000000000000",
+          "net_pnl": "0.676750800",
+          "plan": {
+            "decision_ms": 1747500300000,
+            "entry": "0.73230",
+            "exits": [
+              {
+                "price": "0.72530",
+                "quantity": "55",
+                "role": "STOP"
+              },
+              {
+                "price": "0.74490",
+                "quantity": "55",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "55",
+            "side": "BUY",
+            "signal_key": "b360894e80d3276425e21bac831d4e346851fd66ae46ce068c60107b4e0718e6",
+            "stop": "0.72530",
+            "symbol": "ADAUSDT",
+            "tp1": "0.74490",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20225,
+          "stress_net_pnl": "0.619878600"
+        },
+        {
+          "day_start_equity": "100.2032804245730000000000000",
+          "entry_ms": 1747592100000,
+          "exit_ms": 1747592400000,
+          "exit_price": "0.73840",
+          "fees": "0.023117120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.39520",
+          "minimum_equity": "99.8003220245730000000000000",
+          "net_pnl": "-0.418317120",
+          "plan": {
+            "decision_ms": 1747592100000,
+            "entry": "0.74600",
+            "exits": [
+              {
+                "price": "0.73840",
+                "quantity": "52",
+                "role": "STOP"
+              },
+              {
+                "price": "0.75980",
+                "quantity": "52",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "52",
+            "side": "BUY",
+            "signal_key": "9b9db37c1825a77ee28477c14c99c329030dc8ca29a845cd62d6c0ef79e18df2",
+            "stop": "0.73840",
+            "symbol": "ADAUSDT",
+            "tp1": "0.75980",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20226,
+          "stress_net_pnl": "-0.480028640"
+        },
+        {
+          "day_start_equity": "100.2032804245730000000000000",
+          "entry_ms": 1747599300000,
+          "exit_ms": 1747602900000,
+          "exit_price": "0.74030",
+          "fees": "0.012288360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.74340",
+          "minimum_equity": "99.7578934645730000000000000",
+          "net_pnl": "0.731111640",
+          "plan": {
+            "decision_ms": 1747599300000,
+            "entry": "0.72260",
+            "exits": [
+              {
+                "price": "0.71280",
+                "quantity": "42",
+                "role": "STOP"
+              },
+              {
+                "price": "0.74030",
+                "quantity": "42",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "42",
+            "side": "BUY",
+            "signal_key": "9839111bf8a9d569dd023e0bb1e3dfd1bfba46ac772c151eeb2bdddf32dab771",
+            "stop": "0.71280",
+            "symbol": "ADAUSDT",
+            "tp1": "0.74030",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20226,
+          "stress_net_pnl": "0.688102380"
+        },
+        {
+          "day_start_equity": "100.5160749445730000000000000",
+          "entry_ms": 1748001600000,
+          "exit_ms": 1748001900000,
+          "exit_price": "0.77380",
+          "fees": "0.023757840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.39780",
+          "minimum_equity": "100.1103026245730000000000000",
+          "net_pnl": "-0.421557840",
+          "plan": {
+            "decision_ms": 1748001600000,
+            "entry": "0.78160",
+            "exits": [
+              {
+                "price": "0.77380",
+                "quantity": "51",
+                "role": "STOP"
+              },
+              {
+                "price": "0.79590",
+                "quantity": "51",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "51",
+            "side": "BUY",
+            "signal_key": "95d6da8b582e778fe4dd1964ae663fb98e7704ec0635caabd400ce48ebb9e3eb",
+            "stop": "0.77380",
+            "symbol": "ADAUSDT",
+            "tp1": "0.79590",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.484978380"
+        },
+        {
+          "day_start_equity": "100.5160749445730000000000000",
+          "entry_ms": 1748002500000,
+          "exit_ms": 1748002800000,
+          "exit_price": "0.76150",
+          "fees": "0.021097440",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.40020",
+          "minimum_equity": "99.6872312645730000000000000",
+          "net_pnl": "-0.421297440",
+          "plan": {
+            "decision_ms": 1748002500000,
+            "entry": "0.77020",
+            "exits": [
+              {
+                "price": "0.76150",
+                "quantity": "46",
+                "role": "STOP"
+              },
+              {
+                "price": "0.78600",
+                "quantity": "46",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "46",
+            "side": "BUY",
+            "signal_key": "2ddfc4ff2a68ba3e1a9113fdf001b8e31d692b7fdedd5d6cb7163b96cfafce15",
+            "stop": "0.76150",
+            "symbol": "ADAUSDT",
+            "tp1": "0.78600",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.477623980"
+        },
+        {
+          "day_start_equity": "100.5160749445730000000000000",
+          "entry_ms": 1748003400000,
+          "exit_ms": 1748010600000,
+          "exit_price": "0.783900000000000000",
+          "fees": "0.0196686000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.428400000000000000",
+          "minimum_equity": "99.4189205845730000000000000",
+          "net_pnl": "0.4087314000000000000000",
+          "plan": {
+            "decision_ms": 1748003400000,
+            "entry": "0.77370",
+            "exits": [
+              {
+                "price": "0.76390",
+                "quantity": "42",
+                "role": "STOP"
+              },
+              {
+                "price": "0.79140",
+                "quantity": "42",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "42",
+            "side": "BUY",
+            "signal_key": "b05c17f1f62b31b36382936b97079830e3c33b46ed2733ac444f22e4f101f0e0",
+            "stop": "0.76390",
+            "symbol": "ADAUSDT",
+            "tp1": "0.79140",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20231,
+          "stress_net_pnl": "0.3563532000000000000000"
+        },
+        {
+          "day_start_equity": "100.5160749445730000000000000",
+          "entry_ms": 1748043000000,
+          "exit_ms": 1748043600000,
+          "exit_price": "0.74430",
+          "fees": "0.027763600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.37820",
+          "minimum_equity": "99.6944461045730000000000000",
+          "net_pnl": "-0.405963600",
+          "plan": {
+            "decision_ms": 1748043000000,
+            "entry": "0.75040",
+            "exits": [
+              {
+                "price": "0.74430",
+                "quantity": "62",
+                "role": "STOP"
+              },
+              {
+                "price": "0.76150",
+                "quantity": "62",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "62",
+            "side": "BUY",
+            "signal_key": "8990907a18c475fedfa52ce43a898b18831d0ae256533c84407bfe637bd14416",
+            "stop": "0.74430",
+            "symbol": "ADAUSDT",
+            "tp1": "0.76150",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-0.480062900"
+        },
+        {
+          "day_start_equity": "99.6759874645730000000000000",
+          "entry_ms": 1750113900000,
+          "exit_ms": 1750118100000,
+          "exit_price": "0.63370",
+          "fees": "0.031629640",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.35690",
+          "minimum_equity": "99.3084966645730000000000000",
+          "net_pnl": "-0.388529640",
+          "plan": {
+            "decision_ms": 1750113900000,
+            "entry": "0.63800",
+            "exits": [
+              {
+                "price": "0.63370",
+                "quantity": "83",
+                "role": "STOP"
+              },
+              {
+                "price": "0.64580",
+                "quantity": "83",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "83",
+            "side": "BUY",
+            "signal_key": "dec79f36d4d3870cfc267eca96a9ac4dbd601b0f38606bafff50e2d677cd6f27",
+            "stop": "0.63370",
+            "symbol": "ADAUSDT",
+            "tp1": "0.64580",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20255,
+          "stress_net_pnl": "-0.472934830"
+        },
+        {
+          "day_start_equity": "99.2874578245730000000000000",
+          "entry_ms": 1750118400000,
+          "exit_ms": 1750118700000,
+          "exit_price": "0.62400",
+          "fees": "0.024414000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.39000",
+          "minimum_equity": "98.8892678245730000000000000",
+          "net_pnl": "-0.414414000",
+          "plan": {
+            "decision_ms": 1750118400000,
+            "entry": "0.63000",
+            "exits": [
+              {
+                "price": "0.62400",
+                "quantity": "65",
+                "role": "STOP"
+              },
+              {
+                "price": "0.64090",
+                "quantity": "65",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "65",
+            "side": "BUY",
+            "signal_key": "74e99a8452d8f0b263deca031f7904943ae4b61fa8c9ca6e12a91e6309250473",
+            "stop": "0.62400",
+            "symbol": "ADAUSDT",
+            "tp1": "0.64090",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20256,
+          "stress_net_pnl": "-0.479583000"
+        },
+        {
+          "day_start_equity": "99.2874578245730000000000000",
+          "entry_ms": 1750119300000,
+          "exit_ms": 1750121700000,
+          "exit_price": "0.63420",
+          "fees": "0.015076800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.72000",
+          "minimum_equity": "98.6375774245730000000000000",
+          "net_pnl": "0.704923200",
+          "plan": {
+            "decision_ms": 1750119300000,
+            "entry": "0.62220",
+            "exits": [
+              {
+                "price": "0.61560",
+                "quantity": "60",
+                "role": "STOP"
+              },
+              {
+                "price": "0.63420",
+                "quantity": "60",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "60",
+            "side": "BUY",
+            "signal_key": "7010ca35a9b27bb02ee5d8f37ba2a7b4e0db097958e01a85a381787e66865f19",
+            "stop": "0.61560",
+            "symbol": "ADAUSDT",
+            "tp1": "0.63420",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20256,
+          "stress_net_pnl": "0.652154400"
+        },
+        {
+          "day_start_equity": "99.5779670245730000000000000",
+          "entry_ms": 1751373000000,
+          "exit_ms": 1751375700000,
+          "exit_price": "0.55050",
+          "fees": "0.037060800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.33600",
+          "minimum_equity": "99.2295686245730000000000000",
+          "net_pnl": "-0.373060800",
+          "plan": {
+            "decision_ms": 1751373000000,
+            "entry": "0.55350",
+            "exits": [
+              {
+                "price": "0.55050",
+                "quantity": "112",
+                "role": "STOP"
+              },
+              {
+                "price": "0.55880",
+                "quantity": "112",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "112",
+            "side": "BUY",
+            "signal_key": "fe161c1c52d7745fc04398568adb18db471efb40308eb20ffba3f8963e348d18",
+            "stop": "0.55050",
+            "symbol": "ADAUSDT",
+            "tp1": "0.55880",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20270,
+          "stress_net_pnl": "-0.471945600"
+        },
+        {
+          "day_start_equity": "99.5779670245730000000000000",
+          "entry_ms": 1751380200000,
+          "exit_ms": 1751387400000,
+          "exit_price": "0.545700000000000000",
+          "fees": "0.0265291200000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00732432261600000000000000",
+          "gross_pnl": "-0.040500000000000000",
+          "minimum_equity": "98.9206577845730000000000000",
+          "net_pnl": "-0.05970479738400000000000000",
+          "plan": {
+            "decision_ms": 1751380200000,
+            "entry": "0.54620",
+            "exits": [
+              {
+                "price": "0.54150",
+                "quantity": "81",
+                "role": "STOP"
+              },
+              {
+                "price": "0.55460",
+                "quantity": "81",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "81",
+            "side": "BUY",
+            "signal_key": "ddd1cb9c6fb4c6dd9a603f95024874498f3a88ae0b1f65aba5a28a1950819c1f",
+            "stop": "0.54150",
+            "symbol": "ADAUSDT",
+            "tp1": "0.55460",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20270,
+          "stress_net_pnl": "-0.13045586738400000000000000"
+        },
+        {
+          "day_start_equity": "99.14520142718900000000000000",
+          "entry_ms": 1751616900000,
+          "exit_ms": 1751618400000,
+          "exit_price": "0.58110",
+          "fees": "0.022422520",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.62080",
+          "minimum_equity": "99.04675224718900000000000000",
+          "net_pnl": "0.598377480",
+          "plan": {
+            "decision_ms": 1751616900000,
+            "entry": "0.57470",
+            "exits": [
+              {
+                "price": "0.57110",
+                "quantity": "97",
+                "role": "STOP"
+              },
+              {
+                "price": "0.58110",
+                "quantity": "97",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "97",
+            "side": "BUY",
+            "signal_key": "843121aa0f50a15c3fa4cc2846860b2934f74794e65b7bd58328a01935ed2a54",
+            "stop": "0.57110",
+            "symbol": "ADAUSDT",
+            "tp1": "0.58110",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20273,
+          "stress_net_pnl": "0.519898660"
+        },
+        {
+          "day_start_equity": "100.1601471071890000000000000",
+          "entry_ms": 1752273000000,
+          "exit_ms": 1752280200000,
+          "exit_price": "0.707600000000000000",
+          "fees": "0.0173364400000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00290813000000000000000000",
+          "gross_pnl": "0.352600000000000000",
+          "minimum_equity": "99.64354710718900000000000000",
+          "net_pnl": "0.33235543000000000000000000",
+          "plan": {
+            "decision_ms": 1752273000000,
+            "entry": "0.69900",
+            "exits": [
+              {
+                "price": "0.68870",
+                "quantity": "41",
+                "role": "STOP"
+              },
+              {
+                "price": "0.71780",
+                "quantity": "41",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "41",
+            "side": "BUY",
+            "signal_key": "a9569faeec31ea482a686e043feea368294fe71bbf1a6dad8169543b3366a1e6",
+            "stop": "0.68870",
+            "symbol": "ADAUSDT",
+            "tp1": "0.71780",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20281,
+          "stress_net_pnl": "0.28618369000000000000000000"
+        },
+        {
+          "day_start_equity": "100.1601471071890000000000000",
+          "entry_ms": 1752335100000,
+          "exit_ms": 1752341100000,
+          "exit_price": "0.70700",
+          "fees": "0.012577500",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00312885000000000000000000",
+          "gross_pnl": "0.74250",
+          "minimum_equity": "99.9662198371890000000000000",
+          "net_pnl": "0.72679365000000000000000000",
+          "plan": {
+            "decision_ms": 1752335100000,
+            "entry": "0.69050",
+            "exits": [
+              {
+                "price": "0.68140",
+                "quantity": "45",
+                "role": "STOP"
+              },
+              {
+                "price": "0.70700",
+                "quantity": "45",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "45",
+            "side": "BUY",
+            "signal_key": "34eea9f6c9be88efca5b635dc6bac583050cd52cdb05eb71b1a05bfbdc66b9a4",
+            "stop": "0.68140",
+            "symbol": "ADAUSDT",
+            "tp1": "0.70700",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20281,
+          "stress_net_pnl": "0.68277240000000000000000000"
+        },
+        {
+          "day_start_equity": "100.8027279871890000000000000",
+          "entry_ms": 1752717600000,
+          "exit_ms": 1752723900000,
+          "exit_price": "0.74020",
+          "fees": "0.020510480",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.40480",
+          "minimum_equity": "100.3910371871890000000000000",
+          "net_pnl": "-0.425310480",
+          "plan": {
+            "decision_ms": 1752717600000,
+            "entry": "0.74900",
+            "exits": [
+              {
+                "price": "0.74020",
+                "quantity": "46",
+                "role": "STOP"
+              },
+              {
+                "price": "0.76500",
+                "quantity": "46",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "46",
+            "side": "BUY",
+            "signal_key": "7d5c8ded2c717696107b695eee2efd906a546b57af5cad96b04db8ee3252d84f",
+            "stop": "0.74020",
+            "symbol": "ADAUSDT",
+            "tp1": "0.76500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20286,
+          "stress_net_pnl": "-0.480072560"
+        }
+      ],
+      "unfilled": 15
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 29,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "100.3774175071890000000000000",
+          "entry_ms": 1753713000000,
+          "exit_ms": 1753720200000,
+          "exit_price": "0.806700000000000000",
+          "fees": "0.0241770000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00402700000000000000000000",
+          "gross_pnl": "0.120000000000000000",
+          "minimum_equity": "100.1903475071890000000000000",
+          "net_pnl": "0.09179600000000000000000000",
+          "plan": {
+            "decision_ms": 1753713000000,
+            "entry": "0.80430",
+            "exits": [
+              {
+                "price": "0.79640",
+                "quantity": "50",
+                "role": "STOP"
+              },
+              {
+                "price": "0.81860",
+                "quantity": "50",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "50",
+            "side": "BUY",
+            "signal_key": "0792427de6950e990284131fb2a272fb18a956c7bfd1b8a668a9cb39132442ec",
+            "stop": "0.79640",
+            "symbol": "ADAUSDT",
+            "tp1": "0.81860",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20297,
+          "stress_net_pnl": "0.02734400000000000000000000"
+        },
+        {
+          "day_start_equity": "100.4692135071890000000000000",
+          "entry_ms": 1753967700000,
+          "exit_ms": 1753969200000,
+          "exit_price": "0.76010",
+          "fees": "0.031539900",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.35880",
+          "minimum_equity": "100.0998523671890000000000000",
+          "net_pnl": "-0.390339900",
+          "plan": {
+            "decision_ms": 1753967700000,
+            "entry": "0.76530",
+            "exits": [
+              {
+                "price": "0.76010",
+                "quantity": "69",
+                "role": "STOP"
+              },
+              {
+                "price": "0.77470",
+                "quantity": "69",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "69",
+            "side": "BUY",
+            "signal_key": "a5eab56897b94db6e4c86c7f4da7d053fa6f7754e3ba550cbae750a83c8c1164",
+            "stop": "0.76010",
+            "symbol": "ADAUSDT",
+            "tp1": "0.77470",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.474506100"
+        },
+        {
+          "day_start_equity": "100.4692135071890000000000000",
+          "entry_ms": 1753969500000,
+          "exit_ms": 1753972200000,
+          "exit_price": "0.75700",
+          "fees": "0.030051120",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.36960",
+          "minimum_equity": "99.6992072871890000000000000",
+          "net_pnl": "-0.399651120",
+          "plan": {
+            "decision_ms": 1753969500000,
+            "entry": "0.76260",
+            "exits": [
+              {
+                "price": "0.75700",
+                "quantity": "66",
+                "role": "STOP"
+              },
+              {
+                "price": "0.77260",
+                "quantity": "66",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "66",
+            "side": "BUY",
+            "signal_key": "cfb85e915b358a5b02d388c55c08049b03620223ee11929fcae4f2bae7e225cd",
+            "stop": "0.75700",
+            "symbol": "ADAUSDT",
+            "tp1": "0.77260",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20300,
+          "stress_net_pnl": "-0.479849040"
+        },
+        {
+          "day_start_equity": "100.4692135071890000000000000",
+          "entry_ms": 1753972200000,
+          "exit_ms": 1753979400000,
+          "exit_price": "0.766700000000000000",
+          "fees": "0.0261105600000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00279985345200000000000000",
+          "gross_pnl": "0.552900000000000000",
+          "minimum_equity": "99.3912926871890000000000000",
+          "net_pnl": "0.52398958654800000000000000",
+          "plan": {
+            "decision_ms": 1753972200000,
+            "entry": "0.75700",
+            "exits": [
+              {
+                "price": "0.75030",
+                "quantity": "57",
+                "role": "STOP"
+              },
+              {
+                "price": "0.76920",
+                "quantity": "57",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "57",
+            "side": "BUY",
+            "signal_key": "72da8bfc59dbe0af47c16661064b2d5daae380aa2fbd285b5b9aca577e4cedae",
+            "stop": "0.75030",
+            "symbol": "ADAUSDT",
+            "tp1": "0.76920",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20300,
+          "stress_net_pnl": "0.45445357654800000000000000"
+        },
+        {
+          "day_start_equity": "100.2032120737370000000000000",
+          "entry_ms": 1754811900000,
+          "exit_ms": 1754819100000,
+          "exit_price": "0.798800000000000000",
+          "fees": "0.0243678000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.00307507090800000000000000",
+          "gross_pnl": "0.377400000000000000",
+          "minimum_equity": "99.8126397937370000000000000",
+          "net_pnl": "0.34995712909200000000000000",
+          "plan": {
+            "decision_ms": 1754811900000,
+            "entry": "0.79140",
+            "exits": [
+              {
+                "price": "0.78370",
+                "quantity": "51",
+                "role": "STOP"
+              },
+              {
+                "price": "0.80540",
+                "quantity": "51",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "51",
+            "side": "BUY",
+            "signal_key": "a78367976c266f1aecb5a9d4332d4de845c6f6f1774a9d75f83dea8300c774f9",
+            "stop": "0.78370",
+            "symbol": "ADAUSDT",
+            "tp1": "0.80540",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20310,
+          "stress_net_pnl": "0.28503922909200000000000000"
+        },
+        {
+          "day_start_equity": "100.5531692028290000000000000",
+          "entry_ms": 1754948700000,
+          "exit_ms": 1754951100000,
+          "exit_price": "0.76730",
+          "fees": "0.028158820",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.37820",
+          "minimum_equity": "100.1655325028290000000000000",
+          "net_pnl": "-0.406358820",
+          "plan": {
+            "decision_ms": 1754948700000,
+            "entry": "0.77350",
+            "exits": [
+              {
+                "price": "0.76730",
+                "quantity": "61",
+                "role": "STOP"
+              },
+              {
+                "price": "0.78470",
+                "quantity": "61",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "61",
+            "side": "BUY",
+            "signal_key": "5b88df19e2b83e48e7e9c5977aee11ec41c50564c723521f5ccf62b2bcc24e25",
+            "stop": "0.76730",
+            "symbol": "ADAUSDT",
+            "tp1": "0.78470",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20311,
+          "stress_net_pnl": "-0.481512040"
+        },
+        {
+          "day_start_equity": "100.1468103828290000000000000",
+          "entry_ms": 1755175500000,
+          "exit_ms": 1755176400000,
+          "exit_price": "0.91780",
+          "fees": "0.012203840",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.44440",
+          "minimum_equity": "99.6982831828290000000000000",
+          "net_pnl": "-0.456603840",
+          "plan": {
+            "decision_ms": 1755175500000,
+            "entry": "0.93800",
+            "exits": [
+              {
+                "price": "0.91780",
+                "quantity": "22",
+                "role": "STOP"
+              },
+              {
+                "price": "0.97500",
+                "quantity": "22",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "22",
+            "side": "BUY",
+            "signal_key": "630514b09434115706c2a6a50d1ad13a5729a39144aff132d3b665bdcdd1d24e",
+            "stop": "0.91780",
+            "symbol": "ADAUSDT",
+            "tp1": "0.97500",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20314,
+          "stress_net_pnl": "-0.489221480"
+        },
+        {
+          "day_start_equity": "99.6902065428290000000000000",
+          "entry_ms": 1757811600000,
+          "exit_ms": 1757811900000,
+          "exit_price": "0.91890",
+          "fees": "0.047473720",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.29240",
+          "minimum_equity": "99.3819429828290000000000000",
+          "net_pnl": "-0.339873720",
+          "plan": {
+            "decision_ms": 1757811600000,
+            "entry": "0.92230",
+            "exits": [
+              {
+                "price": "0.91890",
+                "quantity": "86",
+                "role": "STOP"
+              },
+              {
+                "price": "0.92840",
+                "quantity": "86",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "86",
+            "side": "BUY",
+            "signal_key": "db7dd41db6e638e827bbaf0687edf3f4c97a776f397096471a53b5d121a0d2de",
+            "stop": "0.91890",
+            "symbol": "ADAUSDT",
+            "tp1": "0.92840",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20345,
+          "stress_net_pnl": "-0.466519040"
+        },
+        {
+          "day_start_equity": "99.6902065428290000000000000",
+          "entry_ms": 1757853900000,
+          "exit_ms": 1757856600000,
+          "exit_price": "0.89110",
+          "fees": "0.035356200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34320",
+          "minimum_equity": "98.9953016628290000000000000",
+          "net_pnl": "-0.378556200",
+          "plan": {
+            "decision_ms": 1757853900000,
+            "entry": "0.89630",
+            "exits": [
+              {
+                "price": "0.89110",
+                "quantity": "66",
+                "role": "STOP"
+              },
+              {
+                "price": "0.90560",
+                "quantity": "66",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "66",
+            "side": "BUY",
+            "signal_key": "cce7a71b364734e59c2a51b22bf6da6984176d066265ec632d07ecc132944300",
+            "stop": "0.89110",
+            "symbol": "ADAUSDT",
+            "tp1": "0.90560",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20345,
+          "stress_net_pnl": "-0.472896600"
+        },
+        {
+          "day_start_equity": "98.9717766228290000000000000",
+          "entry_ms": 1757924100000,
+          "exit_ms": 1757926200000,
+          "exit_price": "0.85710",
+          "fees": "0.025275180",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.38220",
+          "minimum_equity": "98.5811006028290000000000000",
+          "net_pnl": "-0.407475180",
+          "plan": {
+            "decision_ms": 1757924100000,
+            "entry": "0.86490",
+            "exits": [
+              {
+                "price": "0.85710",
+                "quantity": "49",
+                "role": "STOP"
+              },
+              {
+                "price": "0.87910",
+                "quantity": "49",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "49",
+            "side": "BUY",
+            "signal_key": "135a9a05c62a1da9349a47866af4cae2213143a8158c9db87c1f59cd8502d00f",
+            "stop": "0.85710",
+            "symbol": "ADAUSDT",
+            "tp1": "0.87910",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20346,
+          "stress_net_pnl": "-0.474939360"
+        },
+        {
+          "day_start_equity": "98.5643014428290000000000000",
+          "entry_ms": 1758255300000,
+          "exit_ms": 1758257400000,
+          "exit_price": "0.92060",
+          "fees": "0.020492640",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.64400",
+          "minimum_equity": "98.5485195228290000000000000",
+          "net_pnl": "0.623507360",
+          "plan": {
+            "decision_ms": 1758255300000,
+            "entry": "0.90910",
+            "exits": [
+              {
+                "price": "0.90270",
+                "quantity": "56",
+                "role": "STOP"
+              },
+              {
+                "price": "0.92060",
+                "quantity": "56",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "56",
+            "side": "BUY",
+            "signal_key": "4b051a411b249389100e6b456246ebf642f6dca445244b38d83fc9a878f98bdc",
+            "stop": "0.90270",
+            "symbol": "ADAUSDT",
+            "tp1": "0.92060",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20350,
+          "stress_net_pnl": "0.551783120"
+        },
+        {
+          "day_start_equity": "99.1878088028290000000000000",
+          "entry_ms": 1759567500000,
+          "exit_ms": 1759574400000,
+          "exit_price": "0.84360",
+          "fees": "0.049153780",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.28130",
+          "minimum_equity": "98.8900867028290000000000000",
+          "net_pnl": "-0.330453780",
+          "plan": {
+            "decision_ms": 1759567500000,
+            "entry": "0.84650",
+            "exits": [
+              {
+                "price": "0.84360",
+                "quantity": "97",
+                "role": "STOP"
+              },
+              {
+                "price": "0.85160",
+                "quantity": "97",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "97",
+            "side": "BUY",
+            "signal_key": "da55ced4fbdfba11e289d32ca711d539d70f1a53b11984693dcc71ed28ebd157",
+            "stop": "0.84360",
+            "symbol": "ADAUSDT",
+            "tp1": "0.85160",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20365,
+          "stress_net_pnl": "-0.461577410"
+        },
+        {
+          "day_start_equity": "98.8573550228290000000000000",
+          "entry_ms": 1759688100000,
+          "exit_ms": 1759691400000,
+          "exit_price": "0.83600",
+          "fees": "0.034678020",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.33810",
+          "minimum_equity": "98.5076506028290000000000000",
+          "net_pnl": "-0.372778020",
+          "plan": {
+            "decision_ms": 1759688100000,
+            "entry": "0.84090",
+            "exits": [
+              {
+                "price": "0.83600",
+                "quantity": "69",
+                "role": "STOP"
+              },
+              {
+                "price": "0.84970",
+                "quantity": "69",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "69",
+            "side": "BUY",
+            "signal_key": "f31e5f8c1204a572b4ca7e5e5fb73702df5e7f6abbbbd6ffe4ab58ee529d5410",
+            "stop": "0.83600",
+            "symbol": "ADAUSDT",
+            "tp1": "0.84970",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20366,
+          "stress_net_pnl": "-0.465309090"
+        },
+        {
+          "day_start_equity": "98.8573550228290000000000000",
+          "entry_ms": 1759691700000,
+          "exit_ms": 1759698900000,
+          "exit_price": "0.834200000000000000",
+          "fees": "0.0305012200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.152500000000000000",
+          "minimum_equity": "98.2060302628290000000000000",
+          "net_pnl": "0.1219987800000000000000",
+          "plan": {
+            "decision_ms": 1759691700000,
+            "entry": "0.83170",
+            "exits": [
+              {
+                "price": "0.82580",
+                "quantity": "61",
+                "role": "STOP"
+              },
+              {
+                "price": "0.84250",
+                "quantity": "61",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "61",
+            "side": "BUY",
+            "signal_key": "e91776f83552d606dbfd38e486e34c3cf563cb61b0bc9df850e156d57c6b0e72",
+            "stop": "0.82580",
+            "symbol": "ADAUSDT",
+            "tp1": "0.84250",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20366,
+          "stress_net_pnl": "0.0406876100000000000000"
+        },
+        {
+          "day_start_equity": "98.6065757828290000000000000",
+          "entry_ms": 1759972500000,
+          "exit_ms": 1759974300000,
+          "exit_price": "0.82550",
+          "fees": "0.041667360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.31080",
+          "minimum_equity": "98.2818452228290000000000000",
+          "net_pnl": "-0.352467360",
+          "plan": {
+            "decision_ms": 1759972500000,
+            "entry": "0.82920",
+            "exits": [
+              {
+                "price": "0.82550",
+                "quantity": "84",
+                "role": "STOP"
+              },
+              {
+                "price": "0.83580",
+                "quantity": "84",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "84",
+            "side": "BUY",
+            "signal_key": "3c1520b322586156d5087c031b277051a2e93bf882c46cef73d2e1e8f8199489",
+            "stop": "0.82550",
+            "symbol": "ADAUSDT",
+            "tp1": "0.83580",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20370,
+          "stress_net_pnl": "-0.463632120"
+        },
+        {
+          "day_start_equity": "98.6065757828290000000000000",
+          "entry_ms": 1759974300000,
+          "exit_ms": 1759975800000,
+          "exit_price": "0.82140",
+          "fees": "0.041460720",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.31080",
+          "minimum_equity": "97.9294467428290000000000000",
+          "net_pnl": "-0.352260720",
+          "plan": {
+            "decision_ms": 1759974300000,
+            "entry": "0.82510",
+            "exits": [
+              {
+                "price": "0.82140",
+                "quantity": "84",
+                "role": "STOP"
+              },
+              {
+                "price": "0.83180",
+                "quantity": "84",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "84",
+            "side": "BUY",
+            "signal_key": "8c3131f1ab11cccea540dcf49b226c2c9e479cd52d2a937117ea811fdf961102",
+            "stop": "0.82140",
+            "symbol": "ADAUSDT",
+            "tp1": "0.83180",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20370,
+          "stress_net_pnl": "-0.462874440"
+        },
+        {
+          "day_start_equity": "98.6065757828290000000000000",
+          "entry_ms": 1759998600000,
+          "exit_ms": 1760005800000,
+          "exit_price": "0.804900000000000000",
+          "fees": "0.0352356400000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.094900000000000000",
+          "minimum_equity": "97.7441151428290000000000000",
+          "net_pnl": "0.0596643600000000000000",
+          "plan": {
+            "decision_ms": 1759998600000,
+            "entry": "0.80360",
+            "exits": [
+              {
+                "price": "0.79900",
+                "quantity": "73",
+                "role": "STOP"
+              },
+              {
+                "price": "0.81200",
+                "quantity": "73",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "73",
+            "side": "BUY",
+            "signal_key": "c4398101e716e56803b4d035d14ae5e34d5ee0d32f8f1bf849d689ed692cb1ae",
+            "stop": "0.79900",
+            "symbol": "ADAUSDT",
+            "tp1": "0.81200",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20370,
+          "stress_net_pnl": "-0.0342815300000000000000"
+        },
+        {
+          "day_start_equity": "97.9615120628290000000000000",
+          "entry_ms": 1768399200000,
+          "exit_ms": 1768400100000,
+          "exit_price": "0.41620",
+          "fees": "0.023352420",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.60630",
+          "minimum_equity": "97.9216964828290000000000000",
+          "net_pnl": "0.582947580",
+          "plan": {
+            "decision_ms": 1768399200000,
+            "entry": "0.41190",
+            "exits": [
+              {
+                "price": "0.40950",
+                "quantity": "141",
+                "role": "STOP"
+              },
+              {
+                "price": "0.41620",
+                "quantity": "141",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "141",
+            "side": "BUY",
+            "signal_key": "45d3ea1b6f621e494861e3476ecf5ec13df9ecc0a82eeb0687a4a0660ef99a29",
+            "stop": "0.40950",
+            "symbol": "ADAUSDT",
+            "tp1": "0.41620",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20467,
+          "stress_net_pnl": "0.501214110"
+        },
+        {
+          "day_start_equity": "98.5444596428290000000000000",
+          "entry_ms": 1768448700000,
+          "exit_ms": 1768455900000,
+          "exit_price": "0.402700000000000000",
+          "fees": "0.0286861400000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.333200000000000000",
+          "minimum_equity": "98.4754420228290000000000000",
+          "net_pnl": "0.3045138600000000000000",
+          "plan": {
+            "decision_ms": 1768448700000,
+            "entry": "0.39990",
+            "exits": [
+              {
+                "price": "0.39680",
+                "quantity": "119",
+                "role": "STOP"
+              },
+              {
+                "price": "0.40550",
+                "quantity": "119",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "119",
+            "side": "BUY",
+            "signal_key": "c7551b67aa804496dd66ca0973afe645d54fe399a87b6cd567d9f25cd9016678",
+            "stop": "0.39680",
+            "symbol": "ADAUSDT",
+            "tp1": "0.40550",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20468,
+          "stress_net_pnl": "0.2280730200000000000000"
+        },
+        {
+          "day_start_equity": "98.8489735028290000000000000",
+          "entry_ms": 1768577400000,
+          "exit_ms": 1768577700000,
+          "exit_price": "0.38250",
+          "fees": "0.033347100",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34800",
+          "minimum_equity": "98.4898114028290000000000000",
+          "net_pnl": "-0.381347100",
+          "plan": {
+            "decision_ms": 1768577400000,
+            "entry": "0.38490",
+            "exits": [
+              {
+                "price": "0.38250",
+                "quantity": "145",
+                "role": "STOP"
+              },
+              {
+                "price": "0.38910",
+                "quantity": "145",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "145",
+            "side": "BUY",
+            "signal_key": "5cc9b0cec3801674ee757db6f06f2d8a7d3ddcb5a46ef14586c0a18b2d57329a",
+            "stop": "0.38250",
+            "symbol": "ADAUSDT",
+            "tp1": "0.38910",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20469,
+          "stress_net_pnl": "-0.470330700"
+        },
+        {
+          "day_start_equity": "98.8489735028290000000000000",
+          "entry_ms": 1768579200000,
+          "exit_ms": 1768586400000,
+          "exit_price": "0.38660",
+          "fees": "0.018890340",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00501580224000000000000000",
+          "gross_pnl": "0.65190",
+          "minimum_equity": "98.3106464228290000000000000",
+          "net_pnl": "0.63802546224000000000000000",
+          "plan": {
+            "decision_ms": 1768579200000,
+            "entry": "0.38130",
+            "exits": [
+              {
+                "price": "0.37830",
+                "quantity": "123",
+                "role": "STOP"
+              },
+              {
+                "price": "0.38660",
+                "quantity": "123",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "123",
+            "side": "BUY",
+            "signal_key": "64a2a92c4b12b5303dbe9b10f75cead8784ee942c2fa7c918fc2f2c13be87c0f",
+            "stop": "0.37830",
+            "symbol": "ADAUSDT",
+            "tp1": "0.38660",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20469,
+          "stress_net_pnl": "0.57190927224000000000000000"
+        }
+      ],
+      "unfilled": 8
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 24,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "99.10565186506900000000000000",
+          "entry_ms": 1773836100000,
+          "exit_ms": 1773837300000,
+          "exit_price": "0.27640",
+          "fees": "0.026278560",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.37920",
+          "minimum_equity": "98.71764178506900000000000000",
+          "net_pnl": "-0.405478560",
+          "plan": {
+            "decision_ms": 1773836100000,
+            "entry": "0.27880",
+            "exits": [
+              {
+                "price": "0.27640",
+                "quantity": "158",
+                "role": "STOP"
+              },
+              {
+                "price": "0.28310",
+                "quantity": "158",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "158",
+            "side": "BUY",
+            "signal_key": "41f3a48c35be3ac33044b081ff9d304b379aef7713a2e999b920962a07b6f5b8",
+            "stop": "0.27640",
+            "symbol": "ADAUSDT",
+            "tp1": "0.28310",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-0.475617920"
+        },
+        {
+          "day_start_equity": "98.70017330506900000000000000",
+          "entry_ms": 1775958300000,
+          "exit_ms": 1775958600000,
+          "exit_price": "0.24290",
+          "fees": "0.029512200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.36360",
+          "minimum_equity": "98.32668742506900000000000000",
+          "net_pnl": "-0.393112200",
+          "plan": {
+            "decision_ms": 1775958300000,
+            "entry": "0.24470",
+            "exits": [
+              {
+                "price": "0.24290",
+                "quantity": "202",
+                "role": "STOP"
+              },
+              {
+                "price": "0.24780",
+                "quantity": "202",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "202",
+            "side": "BUY",
+            "signal_key": "bcd65d3c720ffb8e6bd2c2ec1efba291237f50c33150bcd88335d6746b3a4921",
+            "stop": "0.24290",
+            "symbol": "ADAUSDT",
+            "tp1": "0.24780",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.471872000"
+        },
+        {
+          "day_start_equity": "98.70017330506900000000000000",
+          "entry_ms": 1775959200000,
+          "exit_ms": 1775966400000,
+          "exit_price": "0.243700000000000000",
+          "fees": "0.0283705600000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.019400000000000000",
+          "minimum_equity": "98.08420166506900000000000000",
+          "net_pnl": "-0.0477705600000000000000",
+          "plan": {
+            "decision_ms": 1775959200000,
+            "entry": "0.24380",
+            "exits": [
+              {
+                "price": "0.24190",
+                "quantity": "194",
+                "role": "STOP"
+              },
+              {
+                "price": "0.24710",
+                "quantity": "194",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "194",
+            "side": "BUY",
+            "signal_key": "56c27ba0b2863f606d2e5e6ff88bc6e66473fb5298306c4e5d8d8f65dc774ccd",
+            "stop": "0.24190",
+            "symbol": "ADAUSDT",
+            "tp1": "0.24710",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.1234286200000000000000"
+        },
+        {
+          "day_start_equity": "98.70017330506900000000000000",
+          "entry_ms": 1775981700000,
+          "exit_ms": 1775985000000,
+          "exit_price": "0.23950",
+          "fees": "0.043457800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.30200",
+          "minimum_equity": "97.94276434506900000000000000",
+          "net_pnl": "-0.345457800",
+          "plan": {
+            "decision_ms": 1775981700000,
+            "entry": "0.24050",
+            "exits": [
+              {
+                "price": "0.23950",
+                "quantity": "302",
+                "role": "STOP"
+              },
+              {
+                "price": "0.24210",
+                "quantity": "302",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "302",
+            "side": "BUY",
+            "signal_key": "9f1a5fed2398f6e22e2433eeeb4df5f87d9dcaf1fd049e6b7ed96f970505aad3",
+            "stop": "0.23950",
+            "symbol": "ADAUSDT",
+            "tp1": "0.24210",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.461395600"
+        },
+        {
+          "day_start_equity": "98.70017330506900000000000000",
+          "entry_ms": 1775985300000,
+          "exit_ms": 1775986800000,
+          "exit_price": "0.23950",
+          "fees": "0.043313900",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.30100",
+          "minimum_equity": "97.59835464506900000000000000",
+          "net_pnl": "-0.344313900",
+          "plan": {
+            "decision_ms": 1775985300000,
+            "entry": "0.24050",
+            "exits": [
+              {
+                "price": "0.23950",
+                "quantity": "301",
+                "role": "STOP"
+              },
+              {
+                "price": "0.24220",
+                "quantity": "301",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "301",
+            "side": "BUY",
+            "signal_key": "085368fbdc6648c52b5d3f5ccc4516ba2279504b21b2d4e0d196360f7c608081",
+            "stop": "0.23950",
+            "symbol": "ADAUSDT",
+            "tp1": "0.24220",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20555,
+          "stress_net_pnl": "-0.459867800"
+        },
+        {
+          "day_start_equity": "97.56951884506900000000000000",
+          "entry_ms": 1776146400000,
+          "exit_ms": 1776150600000,
+          "exit_price": "0.24400",
+          "fees": "0.025941720",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.58740",
+          "minimum_equity": "97.31630672506900000000000000",
+          "net_pnl": "0.561458280",
+          "plan": {
+            "decision_ms": 1776146400000,
+            "entry": "0.24180",
+            "exits": [
+              {
+                "price": "0.24060",
+                "quantity": "267",
+                "role": "STOP"
+              },
+              {
+                "price": "0.24400",
+                "quantity": "267",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "267",
+            "side": "BUY",
+            "signal_key": "eecd1aeba651d6036fafb48fa8ee7a12d5d08d6cb9ccbd6f3e06f2ba65382833",
+            "stop": "0.24060",
+            "symbol": "ADAUSDT",
+            "tp1": "0.24400",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20557,
+          "stress_net_pnl": "0.470662260"
+        },
+        {
+          "day_start_equity": "98.13097712506900000000000000",
+          "entry_ms": 1776532500000,
+          "exit_ms": 1776539700000,
+          "exit_price": "0.248700000000000000",
+          "fees": "0.0375631200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.201600000000000000",
+          "minimum_equity": "97.94208296506900000000000000",
+          "net_pnl": "0.1640368800000000000000",
+          "plan": {
+            "decision_ms": 1776532500000,
+            "entry": "0.24790",
+            "exits": [
+              {
+                "price": "0.24660",
+                "quantity": "252",
+                "role": "STOP"
+              },
+              {
+                "price": "0.25010",
+                "quantity": "252",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "252",
+            "side": "BUY",
+            "signal_key": "5254c8f4c217362f30be0a530a0733565e34e465315ee57060d6da5da6bfb7db",
+            "stop": "0.24660",
+            "symbol": "ADAUSDT",
+            "tp1": "0.25010",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20561,
+          "stress_net_pnl": "0.0639021600000000000000"
+        },
+        {
+          "day_start_equity": "98.29501400506900000000000000",
+          "entry_ms": 1777267800000,
+          "exit_ms": 1777271700000,
+          "exit_price": "0.24700",
+          "fees": "0.032377360",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.34880",
+          "minimum_equity": "97.93537504506900000000000000",
+          "net_pnl": "-0.381177360",
+          "plan": {
+            "decision_ms": 1777267800000,
+            "entry": "0.24860",
+            "exits": [
+              {
+                "price": "0.24700",
+                "quantity": "218",
+                "role": "STOP"
+              },
+              {
+                "price": "0.25140",
+                "quantity": "218",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "218",
+            "side": "BUY",
+            "signal_key": "196921a8cee6263fb4063e1e9dad28a64e677e81e62d95cb1e8c35168c1d53a1",
+            "stop": "0.24700",
+            "symbol": "ADAUSDT",
+            "tp1": "0.25140",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20570,
+          "stress_net_pnl": "-0.467575120"
+        },
+        {
+          "day_start_equity": "97.91383664506900000000000000",
+          "entry_ms": 1778823900000,
+          "exit_ms": 1778829900000,
+          "exit_price": "0.26840",
+          "fees": "0.022752660",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.57510",
+          "minimum_equity": "97.71081782506900000000000000",
+          "net_pnl": "0.552347340",
+          "plan": {
+            "decision_ms": 1778823900000,
+            "entry": "0.26570",
+            "exits": [
+              {
+                "price": "0.26410",
+                "quantity": "213",
+                "role": "STOP"
+              },
+              {
+                "price": "0.26840",
+                "quantity": "213",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "213",
+            "side": "BUY",
+            "signal_key": "d6ec7f9f456d2ad2b5f643cbd1e587505068d150f9a160207b0a41506680bfda",
+            "stop": "0.26410",
+            "symbol": "ADAUSDT",
+            "tp1": "0.26840",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20588,
+          "stress_net_pnl": "0.472713030"
+        },
+        {
+          "day_start_equity": "98.46618398506900000000000000",
+          "entry_ms": 1784187900000,
+          "exit_ms": 1784189700000,
+          "exit_price": "0.16180",
+          "fees": "0.039090480",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00018629082000000000000000",
+          "gross_pnl": "-0.32160",
+          "minimum_equity": "98.13169723588900000000000000",
+          "net_pnl": "-0.36050418918000000000000000",
+          "plan": {
+            "decision_ms": 1784187900000,
+            "entry": "0.16260",
+            "exits": [
+              {
+                "price": "0.16180",
+                "quantity": "402",
+                "role": "STOP"
+              },
+              {
+                "price": "0.16390",
+                "quantity": "402",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "402",
+            "side": "BUY",
+            "signal_key": "973b688b722a97a6064a89c04ef58a5009406006a5a52a4f0a9c12e63824d273",
+            "stop": "0.16180",
+            "symbol": "ADAUSDT",
+            "tp1": "0.16390",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20650,
+          "stress_net_pnl": "-0.46479906918000000000000000"
+        },
+        {
+          "day_start_equity": "98.46618398506900000000000000",
+          "entry_ms": 1784189700000,
+          "exit_ms": 1784196900000,
+          "exit_price": "0.161900000000000000",
+          "fees": "0.0360691200000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "0.334800000000000000",
+          "minimum_equity": "98.05650139588900000000000000",
+          "net_pnl": "0.2987308800000000000000",
+          "plan": {
+            "decision_ms": 1784189700000,
+            "entry": "0.16100",
+            "exits": [
+              {
+                "price": "0.16010",
+                "quantity": "372",
+                "role": "STOP"
+              },
+              {
+                "price": "0.16260",
+                "quantity": "372",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "372",
+            "side": "BUY",
+            "signal_key": "e83300d64233a34d101d33064e4a2d5d12150ebc1bdf889a475d0a54c89d5e12",
+            "stop": "0.16010",
+            "symbol": "ADAUSDT",
+            "tp1": "0.16260",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20650,
+          "stress_net_pnl": "0.2026023600000000000000"
+        },
+        {
+          "day_start_equity": "98.40441067588900000000000000",
+          "entry_ms": 1784526300000,
+          "exit_ms": 1784529300000,
+          "exit_price": "0.16120",
+          "fees": "0.027639300",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.37050",
+          "minimum_equity": "98.02464817588900000000000000",
+          "net_pnl": "-0.398139300",
+          "plan": {
+            "decision_ms": 1784526300000,
+            "entry": "0.16250",
+            "exits": [
+              {
+                "price": "0.16120",
+                "quantity": "285",
+                "role": "STOP"
+              },
+              {
+                "price": "0.16470",
+                "quantity": "285",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "285",
+            "side": "BUY",
+            "signal_key": "df7fe034dfb21c1a649216def08c6cad5b87bdc1381c1a77961cb9134f306769",
+            "stop": "0.16120",
+            "symbol": "ADAUSDT",
+            "tp1": "0.16470",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20654,
+          "stress_net_pnl": "-0.471905850"
+        },
+        {
+          "day_start_equity": "98.40441067588900000000000000",
+          "entry_ms": 1784529900000,
+          "exit_ms": 1784537100000,
+          "exit_price": "0.161500000000000000",
+          "fees": "0.0276051000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00629508684000000000000000",
+          "gross_pnl": "0.057000000000000000",
+          "minimum_equity": "97.85457727588900000000000000",
+          "net_pnl": "0.03568998684000000000000000",
+          "plan": {
+            "decision_ms": 1784529900000,
+            "entry": "0.16130",
+            "exits": [
+              {
+                "price": "0.16000",
+                "quantity": "285",
+                "role": "STOP"
+              },
+              {
+                "price": "0.16350",
+                "quantity": "285",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "285",
+            "side": "BUY",
+            "signal_key": "c9759fac243c52154c41094ea63a1acac12566a87946eb81e256cb4872f6948c",
+            "stop": "0.16000",
+            "symbol": "ADAUSDT",
+            "tp1": "0.16350",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20654,
+          "stress_net_pnl": "-0.03791411316000000000000000"
+        },
+        {
+          "day_start_equity": "98.04196136272900000000000000",
+          "entry_ms": 1785163500000,
+          "exit_ms": 1785170700000,
+          "exit_price": "0.158700000000000000",
+          "fees": "0.0220771200000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.00737241108800000000000000",
+          "gross_pnl": "0.069600000000000000",
+          "minimum_equity": "97.68661160272900000000000000",
+          "net_pnl": "0.05489529108800000000000000",
+          "plan": {
+            "decision_ms": 1785163500000,
+            "entry": "0.15840",
+            "exits": [
+              {
+                "price": "0.15670",
+                "quantity": "232",
+                "role": "STOP"
+              },
+              {
+                "price": "0.16140",
+                "quantity": "232",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "232",
+            "side": "BUY",
+            "signal_key": "7fb78f2e5c104face26a1d8d13eba5ecfd02a4b532c63aef1984d341020b7b8b",
+            "stop": "0.15670",
+            "symbol": "ADAUSDT",
+            "tp1": "0.16140",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20661,
+          "stress_net_pnl": "-0.00396542891200000000000000"
+        },
+        {
+          "day_start_equity": "98.04196136272900000000000000",
+          "entry_ms": 1785192300000,
+          "exit_ms": 1785192600000,
+          "exit_price": "0.15570",
+          "fees": "0.030433000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-0.35750",
+          "minimum_equity": "97.72916465381700000000000000",
+          "net_pnl": "-0.387933000",
+          "plan": {
+            "decision_ms": 1785192300000,
+            "entry": "0.15680",
+            "exits": [
+              {
+                "price": "0.15570",
+                "quantity": "325",
+                "role": "STOP"
+              },
+              {
+                "price": "0.15860",
+                "quantity": "325",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "325",
+            "side": "BUY",
+            "signal_key": "f0d82f0d6fe31dadda669c53cb020f0db1d5630741488028808fb56a42a6069c",
+            "stop": "0.15570",
+            "symbol": "ADAUSDT",
+            "tp1": "0.15860",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20661,
+          "stress_net_pnl": "-0.469147250"
+        }
+      ],
+      "unfilled": 9
+    }
+  ]
+}

@@ -1,0 +1,3120 @@
+{
+  "assumptions": [
+    "current deployment filters apply; leverage defaults to 1 without verified brackets",
+    "single-symbol research equity; this is not exchange or portfolio qualification",
+    "daily loss is 5% of UTC day-start equity; OHLC execution is approximate",
+    "maker fill requires subsequent candle trade-through",
+    "ambiguous entry/stop candles resolve against the strategy",
+    "missing historical funding marks use the last closed execution candle",
+    "historical OHLCV replay does not qualify live microstructure by itself"
+  ],
+  "candidate_decision_on_development_sample": "REJECTED",
+  "capital_scenario": {
+    "account_observation_sha256": "191b875cefd399b8c6439a1c80812db1efaae00ea6aa5a244306051db1892e8d",
+    "evidence": {
+      "path": "artifacts/qualification/runtime-inputs/testnet-account-probe-20261014-1791918191661.json",
+      "sha256": "abf267ad7f2fb718490c1c58cabded2c2785f8226c7747db51b6209ee189bf4d"
+    },
+    "execution_authority": false,
+    "flat_account": true,
+    "observed_ms": 1791918191661,
+    "purpose": "historical_sizing_seed_only_not_live_daily_risk_evidence",
+    "schema": "authenticated-testnet-equity-scenario-v1",
+    "source": "binance_authenticated_rest",
+    "starting_equity": "4224.09882354",
+    "testnet": true,
+    "utc_day_start_baseline_verified": false,
+    "wallet_and_equity_reconciled": true
+  },
+  "configuration": {
+    "atr_period": "14",
+    "dist_atr_threshold": "-3.5",
+    "ema_span": "20",
+    "max_hold_bars": "8",
+    "rsi_threshold": "26.0",
+    "sl_atr_mult": "1.2",
+    "tp_atr_mult": "3.0",
+    "vol_spike_multiplier": "2.2"
+  },
+  "decision": "DEVELOPMENT_ONLY",
+  "execution_authority": false,
+  "family": "MACRO_SCALPER",
+  "gates": {
+    "drawdown": true,
+    "positive_net_edge": true,
+    "profit_factor": true,
+    "stress_positive": false,
+    "sufficient_oos_samples": true,
+    "window_consistency": true
+  },
+  "implementation": {
+    "scripts/qualify_runtime_scalper_variant.py": "136d1a2485b479b49dd23f1f00f3781876a5e7026f6f6bf632dadeaa653d9a89",
+    "src/autonomous_futures/execution/daily_risk.py": "a0cc6e3ab50e17356604b57994d6f05df2746701173c0ff9bf01685b497da54a",
+    "src/autonomous_futures/execution/trade_plan.py": "bd6175ba789cb16430f9e86a1c679fe97e3f6472da9375873fe95a86b53d9813",
+    "src/autonomous_futures/research/runtime_qualification.py": "611f2c96e5ca3c9b847825e6f8c5f43c8fef59b8e0d264974429cc09e4bed775",
+    "src/autonomous_futures/strategy/macro_liquidity_scalper.py": "166653671497bf61b24e740f04369ec5dfe37a1e7b06d42cdd15f95754c60299"
+  },
+  "metrics": {
+    "drawdown_usdt": "92.255279960000000000000000",
+    "net_pnl": "235.7455029497920000000000000",
+    "profitable_windows": 5,
+    "stress_net_pnl": "-10.5171005322080000000000000",
+    "trade_count": 70
+  },
+  "policy": {
+    "daily_loss_pct": "5",
+    "entry_ttl_ms": 300000,
+    "fee_stress_multiplier": "2",
+    "maker_fee": "0.000200",
+    "maximum_drawdown_pct": "5",
+    "minimum_profit_factor": "1.10",
+    "minimum_profitable_windows": 3,
+    "minimum_trades": 30,
+    "starting_equity": "4224.09882354",
+    "stress_slippage": "0.0005",
+    "taker_fee": "0.000400",
+    "trade_risk_pct": "0.5",
+    "trading_day_ms": 86400000,
+    "windows": 5
+  },
+  "policy_hash": "1e098be512d5748e6fc9a3d98fa8fad4a28827eac073e32a109f9cc0880743aa",
+  "rejection_reasons": {
+    "No permitted leverage can fund the position with a stop buffer": 1
+  },
+  "report_hash": "6876afc40dc4170520ee5ceb35973540d384368deaea05fd92e34d13048c4ef9",
+  "research_variant": {
+    "parameters": {
+      "distance_threshold": "-3.5",
+      "target_atr_multiplier": "3.0"
+    },
+    "reason": "The reference interval informed selection; it is not an untouched holdout.",
+    "reference_report": "C:\\Users\\thaqi\\Projects\\Autonomous Futures Bot\\artifacts\\qualification\\runtime-scalper-equity-4224-20261014\\XRPUSDT-6f83664d5cc275bc.json",
+    "reference_report_sha256": "0c4a928c06d031aae3a6aaff5620d47853c6025f95ee149551f00ff07b0b0e54",
+    "status": "development_only_not_admissible"
+  },
+  "source_files": [
+    {
+      "path": "artifacts/qualification/runtime-inputs/testnet-account-probe-20261014-1791918191661.json",
+      "sha256": "abf267ad7f2fb718490c1c58cabded2c2785f8226c7747db51b6209ee189bf4d"
+    },
+    {
+      "path": "artifacts/qualification/runtime-inputs/testnet-commissions-1791824521337.json",
+      "sha256": "dbd17cf71b6d3d112b7d3c925a87edc346df815632d1521beda45213e6e4e1ab"
+    },
+    {
+      "path": "artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/15m/canonical/XRPUSDT-15m.parquet",
+      "sha256": "bb8cb1d9e3b73b4a7b9d528cbb415485f80b5b809745e285f786fb7871eec7df"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/15m/manifests/XRPUSDT-15m.manifest.json",
+      "sha256": "a1e0278a9c3b4e1d816ed46da36ba57ee77cb5c3200c72d93561443200858921"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+      "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/1h/manifests/BTCUSDT-1h.manifest.json",
+      "sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/5m/canonical/XRPUSDT-5m.parquet",
+      "sha256": "24f2f830d5891e91931e473629e0a2c5f62da307e7ae831951e607723dca66f2"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/5m/manifests/XRPUSDT-5m.manifest.json",
+      "sha256": "232690277858d8a8cd07d6580073677eb3cec9c51f7e0710f699a378e1d05504"
+    },
+    {
+      "path": "research/immutable-data/runtime-official-20261013/funding/XRPUSDT-funding.csv",
+      "sha256": "da064e6696c2547fc2752b514905a59d2d5c2fd8cb45681023808492a033a0f7"
+    }
+  ],
+  "sources": {
+    "capital_scenario": {
+      "path": "artifacts/qualification/runtime-inputs/testnet-account-probe-20261014-1791918191661.json",
+      "sha256": "abf267ad7f2fb718490c1c58cabded2c2785f8226c7747db51b6209ee189bf4d"
+    },
+    "commissions": {
+      "maker": "0.000200",
+      "observed_ms": 1791824521337,
+      "path": "artifacts/qualification/runtime-inputs/testnet-commissions-1791824521337.json",
+      "sha256": "dbd17cf71b6d3d112b7d3c925a87edc346df815632d1521beda45213e6e4e1ab",
+      "source": "https://testnet.binancefuture.com/fapi/v1/commissionRate",
+      "symbol": "XRPUSDT",
+      "taker": "0.000400"
+    },
+    "exchange_filters": {
+      "observed_ms": 1791819557486,
+      "path": "artifacts/qualification/runtime-inputs/testnet-exchange-filters.json",
+      "sha256": "90d8216b20d33fdebfb60a5e7bc999db52faae4cf1730a83cf3768ddbef06ab2",
+      "source": "https://testnet.binancefuture.com/fapi/v1/exchangeInfo"
+    },
+    "execution": {
+      "dataset": {
+        "path": "research/immutable-data/runtime-official-20261013/5m/canonical/XRPUSDT-5m.parquet",
+        "sha256": "24f2f830d5891e91931e473629e0a2c5f62da307e7ae831951e607723dca66f2"
+      },
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest": {
+        "path": "research/immutable-data/runtime-official-20261013/5m/manifests/XRPUSDT-5m.manifest.json",
+        "sha256": "232690277858d8a8cd07d6580073677eb3cec9c51f7e0710f699a378e1d05504"
+      },
+      "rows": 376704
+    },
+    "funding": {
+      "path": "research/immutable-data/runtime-official-20261013/funding/XRPUSDT-funding.csv",
+      "sha256": "da064e6696c2547fc2752b514905a59d2d5c2fd8cb45681023808492a033a0f7"
+    },
+    "macro": {
+      "dataset": {
+        "path": "research/immutable-data/runtime-official-20261013/1h/canonical/BTCUSDT-1h.parquet",
+        "sha256": "1a1f181e968b8dd91953d141e32ada9f3e7c0b8ede6555e56e9f564d6ec16889"
+      },
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest": {
+        "path": "research/immutable-data/runtime-official-20261013/1h/manifests/BTCUSDT-1h.manifest.json",
+        "sha256": "9630d48017d3ccf4d857b95164a8441550ee68c9bd380b43f06995f3ca8d27ac"
+      },
+      "rows": 31392
+    },
+    "market": {
+      "dataset": {
+        "path": "research/immutable-data/runtime-official-20261013/15m/canonical/XRPUSDT-15m.parquet",
+        "sha256": "bb8cb1d9e3b73b4a7b9d528cbb415485f80b5b809745e285f786fb7871eec7df"
+      },
+      "first_ms": 1672531200000,
+      "last_close_ms": 1785542400000,
+      "manifest": {
+        "path": "research/immutable-data/runtime-official-20261013/15m/manifests/XRPUSDT-15m.manifest.json",
+        "sha256": "a1e0278a9c3b4e1d816ed46da36ba57ee77cb5c3200c72d93561443200858921"
+      },
+      "rows": 125568
+    }
+  },
+  "symbol": "XRPUSDT",
+  "version": 1,
+  "windows": [
+    {
+      "end_ms": 1720362000000,
+      "ineligible": 1,
+      "signals": 19,
+      "start_ms": 1704067200000,
+      "trades": [
+        {
+          "day_start_equity": "4224.09882354",
+          "entry_ms": 1704285000000,
+          "exit_ms": 1704292200000,
+          "exit_price": "0.560400000000000000",
+          "fees": "0.3456356480000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "1.4403200000000000000",
+          "minimum_equity": "4205.8769237000000000000",
+          "net_pnl": "1.0946843520000000000000000",
+          "plan": {
+            "decision_ms": 1704285000000,
+            "entry": "0.5590",
+            "exits": [
+              {
+                "price": "0.5399",
+                "quantity": "1028.8",
+                "role": "STOP"
+              },
+              {
+                "price": "0.6067",
+                "quantity": "1028.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1028.8",
+            "side": "BUY",
+            "signal_key": "5fd31bdf08c5ed00554e9354ba60153bf7c333073c57e10729976702ab80a87a",
+            "stop": "0.5399",
+            "symbol": "XRPUSDT",
+            "tp1": "0.6067",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19725,
+          "stress_net_pnl": "0.1732293440000000000000000"
+        },
+        {
+          "day_start_equity": "4225.193507892000000000000000",
+          "entry_ms": 1704666600000,
+          "exit_ms": 1704666900000,
+          "exit_price": "0.5540",
+          "fees": "1.69732812000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.76460",
+          "minimum_equity": "4210.861296572000000000000000",
+          "net_pnl": "-15.46192812000",
+          "plan": {
+            "decision_ms": 1704666600000,
+            "entry": "0.5567",
+            "exits": [
+              {
+                "price": "0.5540",
+                "quantity": "5098.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5633",
+                "quantity": "5098.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5098.0",
+            "side": "BUY",
+            "signal_key": "83414fd5f7b7f07ebcf2b47ef3d217d38f0f1ff0f5a040788a83962833bff39e",
+            "stop": "0.5540",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5633",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-19.99043054000"
+        },
+        {
+          "day_start_equity": "4225.193507892000000000000000",
+          "entry_ms": 1704667500000,
+          "exit_ms": 1704668400000,
+          "exit_price": "0.5508",
+          "fees": "1.50328480000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-14.52800",
+          "minimum_equity": "4194.700547772000000000000000",
+          "net_pnl": "-16.03128480000",
+          "plan": {
+            "decision_ms": 1704667500000,
+            "entry": "0.5540",
+            "exits": [
+              {
+                "price": "0.5508",
+                "quantity": "4540.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5618",
+                "quantity": "4540.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4540.0",
+            "side": "BUY",
+            "signal_key": "08140b05ad1911a2b23482aead47064f743c495b3a2fcef625ba31b71426b82f",
+            "stop": "0.5508",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5618",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19729,
+          "stress_net_pnl": "-20.04246560000"
+        },
+        {
+          "day_start_equity": "4212.462213618000000000000000",
+          "entry_ms": 1704670200000,
+          "exit_ms": 1704673800000,
+          "exit_price": "0.5568",
+          "fees": "0.78191505000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.195425571000000000000000000",
+          "gross_pnl": "39.36171",
+          "minimum_equity": "4192.249443618000000000000000",
+          "net_pnl": "38.38436937900000000000000000",
+          "plan": {
+            "decision_ms": 1704670200000,
+            "entry": "0.5457",
+            "exits": [
+              {
+                "price": "0.5412",
+                "quantity": "3546.1",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5568",
+                "quantity": "3546.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3546.1",
+            "side": "BUY",
+            "signal_key": "3e903770ff0bedca3fed07545e85de763dcf739763ca9bc86abe245a1c597150",
+            "stop": "0.5412",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5568",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19730,
+          "stress_net_pnl": "35.64766670400000000000000000"
+        },
+        {
+          "day_start_equity": "4232.084664351000000000000000",
+          "entry_ms": 1710470700000,
+          "exit_ms": 1710471000000,
+          "exit_price": "0.6450",
+          "fees": "1.09740595200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.39776",
+          "minimum_equity": "4215.318915999000000000000000",
+          "net_pnl": "-17.49516595200",
+          "plan": {
+            "decision_ms": 1710470700000,
+            "entry": "0.6508",
+            "exits": [
+              {
+                "price": "0.6450",
+                "quantity": "2827.2",
+                "role": "STOP"
+              },
+              {
+                "price": "0.6651",
+                "quantity": "2827.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2827.2",
+            "side": "BUY",
+            "signal_key": "8c8fa78c561a6da534b58e20fb7b0db8b140b6e818759baf70a9b0690a9d9205",
+            "stop": "0.6450",
+            "symbol": "XRPUSDT",
+            "tp1": "0.6651",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19797,
+          "stress_net_pnl": "-20.42431478400"
+        },
+        {
+          "day_start_equity": "4214.589498399000000000000000",
+          "entry_ms": 1712928600000,
+          "exit_ms": 1712929500000,
+          "exit_price": "0.5946",
+          "fees": "1.69225503800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.73353",
+          "minimum_equity": "4200.290052249000000000000000",
+          "net_pnl": "-15.42578503800",
+          "plan": {
+            "decision_ms": 1712928600000,
+            "entry": "0.5975",
+            "exits": [
+              {
+                "price": "0.5946",
+                "quantity": "4735.7",
+                "role": "STOP"
+              },
+              {
+                "price": "0.6047",
+                "quantity": "4735.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4735.7",
+            "side": "BUY",
+            "signal_key": "80a8c1869d1f8456c45dd4a13a043cd063856c3ade949b036fd6d66113d7b926",
+            "stop": "0.5946",
+            "symbol": "XRPUSDT",
+            "tp1": "0.6047",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19825,
+          "stress_net_pnl": "-19.94075406100"
+        },
+        {
+          "day_start_equity": "4214.589498399000000000000000",
+          "entry_ms": 1712929500000,
+          "exit_ms": 1712936700000,
+          "exit_price": "0.594200000000000000",
+          "fees": "1.5463374300000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "3.9055500000000000000",
+          "minimum_equity": "4192.139538291000000000000000",
+          "net_pnl": "2.3592125700000000000000000",
+          "plan": {
+            "decision_ms": 1712929500000,
+            "entry": "0.5933",
+            "exits": [
+              {
+                "price": "0.5900",
+                "quantity": "4339.5",
+                "role": "STOP"
+              },
+              {
+                "price": "0.6015",
+                "quantity": "4339.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4339.5",
+            "side": "BUY",
+            "signal_key": "d44469e18a3dac963390131808bab7affd624b169b65abc2ea4fe786557eb6db",
+            "stop": "0.5900",
+            "symbol": "XRPUSDT",
+            "tp1": "0.6015",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19825,
+          "stress_net_pnl": "-1.7637029850000000000000000"
+        },
+        {
+          "day_start_equity": "4201.522925931000000000000000",
+          "entry_ms": 1713163500000,
+          "exit_ms": 1713170700000,
+          "exit_price": "0.515800000000000000",
+          "fees": "1.1312395200000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.146936833600000000000000000",
+          "gross_pnl": "-1.0968000000000000000",
+          "minimum_equity": "4189.228129164600000000000000",
+          "net_pnl": "-2.081102686400000000000000000",
+          "plan": {
+            "decision_ms": 1713163500000,
+            "entry": "0.5155",
+            "exits": [
+              {
+                "price": "0.5199",
+                "quantity": "3656.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5047",
+                "quantity": "3656.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3656.0",
+            "side": "SELL",
+            "signal_key": "6f014a6a99a876f44e7d765b8d6786b90c769c22eae048e29c9c4b79680fbe8d",
+            "stop": "0.5199",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5047",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19828,
+          "stress_net_pnl": "-5.097558606400000000000000000"
+        },
+        {
+          "day_start_equity": "4199.441823244600000000000000",
+          "entry_ms": 1717783200000,
+          "exit_ms": 1717783500000,
+          "exit_price": "0.5108",
+          "fees": "1.68234249400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.70075",
+          "minimum_equity": "4185.178465646600000000000000",
+          "net_pnl": "-15.38309249400",
+          "plan": {
+            "decision_ms": 1717783200000,
+            "entry": "0.5133",
+            "exits": [
+              {
+                "price": "0.5108",
+                "quantity": "5480.3",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5195",
+                "quantity": "5480.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5480.3",
+            "side": "BUY",
+            "signal_key": "70dcd480179780433797d2182d1a29c26414da8b1fa93129d5170177e0dc8b58",
+            "stop": "0.5108",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5195",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19881,
+          "stress_net_pnl": "-19.87162260300"
+        },
+        {
+          "day_start_equity": "4199.441823244600000000000000",
+          "entry_ms": 1717784100000,
+          "exit_ms": 1717784700000,
+          "exit_price": "0.4744",
+          "fees": "0.42857457400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "44.96505",
+          "minimum_equity": "4166.785279968600000000000000",
+          "net_pnl": "44.53647542600",
+          "plan": {
+            "decision_ms": 1717784100000,
+            "entry": "0.4549",
+            "exits": [
+              {
+                "price": "0.4470",
+                "quantity": "2305.9",
+                "role": "STOP"
+              },
+              {
+                "price": "0.4744",
+                "quantity": "2305.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2305.9",
+            "side": "BUY",
+            "signal_key": "cabfd7fa93a0068ca6b0aff5b97cdf2ad5bd5556c8c646739df9631b15aa1f27",
+            "stop": "0.4470",
+            "symbol": "XRPUSDT",
+            "tp1": "0.4744",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19881,
+          "stress_net_pnl": "43.03646441700"
+        },
+        {
+          "day_start_equity": "4228.595206176600000000000000",
+          "entry_ms": 1718534700000,
+          "exit_ms": 1718541900000,
+          "exit_price": "0.493100000000000000",
+          "fees": "1.7444075040000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "29.9665800000000000000",
+          "minimum_equity": "4224.484261464600000000000000",
+          "net_pnl": "28.2221724960000000000000000",
+          "plan": {
+            "decision_ms": 1718534700000,
+            "entry": "0.4982",
+            "exits": [
+              {
+                "price": "0.5005",
+                "quantity": "5875.8",
+                "role": "STOP"
+              },
+              {
+                "price": "0.4927",
+                "quantity": "5875.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5875.8",
+            "side": "SELL",
+            "signal_key": "77607f81906484e9e998afa5eef4a78b044bcfb8b0ce0968f80e4652bb02bb07",
+            "stop": "0.5005",
+            "symbol": "XRPUSDT",
+            "tp1": "0.4927",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19890,
+          "stress_net_pnl": "23.5654247220000000000000000"
+        },
+        {
+          "day_start_equity": "4256.817378672600000000000000",
+          "entry_ms": 1718634600000,
+          "exit_ms": 1718641200000,
+          "exit_price": "0.5050",
+          "fees": "0.69605010000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "-0.116524180260000000000000000",
+          "gross_pnl": "41.20050",
+          "minimum_equity": "4243.185733572600000000000000",
+          "net_pnl": "40.62097408026000000000000000",
+          "plan": {
+            "decision_ms": 1718634600000,
+            "entry": "0.5171",
+            "exits": [
+              {
+                "price": "0.5220",
+                "quantity": "3405.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5050",
+                "quantity": "3405.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3405.0",
+            "side": "SELL",
+            "signal_key": "ea088f5fdedcc8f11527f40231d8029e52db17fc305ad25898d80ad9f8471019",
+            "stop": "0.5220",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5050",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19891,
+          "stress_net_pnl": "38.18479873026000000000000000"
+        }
+      ],
+      "unfilled": 6
+    },
+    {
+      "end_ms": 1736656800000,
+      "ineligible": 0,
+      "signals": 19,
+      "start_ms": 1720362000000,
+      "trades": [
+        {
+          "day_start_equity": "4297.438352752860000000000000",
+          "entry_ms": 1720429200000,
+          "exit_ms": 1720436400000,
+          "exit_price": "0.431800000000000000",
+          "fees": "1.2037837600000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "13.4444000000000000000",
+          "minimum_equity": "4282.663698912860000000000000",
+          "net_pnl": "12.2406162400000000000000000",
+          "plan": {
+            "decision_ms": 1720429200000,
+            "entry": "0.4347",
+            "exits": [
+              {
+                "price": "0.4382",
+                "quantity": "4636.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.4262",
+                "quantity": "4636.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4636.0",
+            "side": "SELL",
+            "signal_key": "5e0703123c60615241b4d3b103f502f5a9c15385ba75c21c54f8c96311e5afc8",
+            "stop": "0.4382",
+            "symbol": "XRPUSDT",
+            "tp1": "0.4262",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19912,
+          "stress_net_pnl": "9.0282854800000000000000000"
+        },
+        {
+          "day_start_equity": "4309.678968992860000000000000",
+          "entry_ms": 1720839600000,
+          "exit_ms": 1720841100000,
+          "exit_price": "0.4882",
+          "fees": "1.54950800000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-14.84000",
+          "minimum_equity": "4294.324444992860000000000000",
+          "net_pnl": "-16.38950800000",
+          "plan": {
+            "decision_ms": 1720839600000,
+            "entry": "0.4854",
+            "exits": [
+              {
+                "price": "0.4882",
+                "quantity": "5300.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.4786",
+                "quantity": "5300.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "5300.0",
+            "side": "SELL",
+            "signal_key": "e03446004daa1d5596c699697e61a6fd9f0ade57540fc533df8531a982fc6487",
+            "stop": "0.4882",
+            "symbol": "XRPUSDT",
+            "tp1": "0.4786",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19917,
+          "stress_net_pnl": "-20.51905600000"
+        },
+        {
+          "day_start_equity": "4309.678968992860000000000000",
+          "entry_ms": 1720848600000,
+          "exit_ms": 1720853400000,
+          "exit_price": "0.5131",
+          "fees": "0.95058726000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.35440",
+          "minimum_equity": "4275.620512492860000000000000",
+          "net_pnl": "-18.30498726000",
+          "plan": {
+            "decision_ms": 1720848600000,
+            "entry": "0.5075",
+            "exits": [
+              {
+                "price": "0.5131",
+                "quantity": "3099.0",
+                "role": "STOP"
+              },
+              {
+                "price": "0.4937",
+                "quantity": "3099.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3099.0",
+            "side": "SELL",
+            "signal_key": "0789842fc3e6c4229ef387a219b31034d96a46c26c8c9ff9109e6947f066570d",
+            "stop": "0.5131",
+            "symbol": "XRPUSDT",
+            "tp1": "0.4937",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19917,
+          "stress_net_pnl": "-20.83699422000"
+        },
+        {
+          "day_start_equity": "4274.984473732860000000000000",
+          "entry_ms": 1723060800000,
+          "exit_ms": 1723061400000,
+          "exit_price": "0.5151",
+          "fees": "0.52128301600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "44.51372",
+          "minimum_equity": "4268.751060852860000000000000",
+          "net_pnl": "43.99243698400",
+          "plan": {
+            "decision_ms": 1723060800000,
+            "entry": "0.5330",
+            "exits": [
+              {
+                "price": "0.5402",
+                "quantity": "2486.8",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5151",
+                "quantity": "2486.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2486.8",
+            "side": "SELL",
+            "signal_key": "54f24b413789e9a5b7fc12750cbd320b79ec1c4f10f70db5b346aa0905d27677",
+            "stop": "0.5402",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5151",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19942,
+          "stress_net_pnl": "42.16794642800"
+        },
+        {
+          "day_start_equity": "4274.984473732860000000000000",
+          "entry_ms": 1723061700000,
+          "exit_ms": 1723062000000,
+          "exit_price": "0.5612",
+          "fees": "0.62056365600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-18.91284",
+          "minimum_equity": "4299.859737876860000000000000",
+          "net_pnl": "-19.53340365600",
+          "plan": {
+            "decision_ms": 1723061700000,
+            "entry": "0.5510",
+            "exits": [
+              {
+                "price": "0.5612",
+                "quantity": "1854.2",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5258",
+                "quantity": "1854.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1854.2",
+            "side": "SELL",
+            "signal_key": "86804b03a52b94422e396ed42b9f3f7d343136e3305bafb39933841d9b2653d0",
+            "stop": "0.5612",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5258",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19942,
+          "stress_net_pnl": "-21.18508793200"
+        },
+        {
+          "day_start_equity": "4274.984473732860000000000000",
+          "entry_ms": 1723062600000,
+          "exit_ms": 1723064100000,
+          "exit_price": "0.5760",
+          "fees": "0.26594256000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "48.91920",
+          "minimum_equity": "4293.746643860860000000000000",
+          "net_pnl": "48.65325744000",
+          "plan": {
+            "decision_ms": 1723062600000,
+            "entry": "0.6200",
+            "exits": [
+              {
+                "price": "0.6377",
+                "quantity": "1111.8",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5760",
+                "quantity": "1111.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1111.8",
+            "side": "SELL",
+            "signal_key": "1b258fae7244311089b1294e4c6a367a7ff03c405845079d741af9919dd63852",
+            "stop": "0.6377",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5760",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 19942,
+          "stress_net_pnl": "47.72245848000"
+        },
+        {
+          "day_start_equity": "4348.096764500860000000000000",
+          "entry_ms": 1724089500000,
+          "exit_ms": 1724092500000,
+          "exit_price": "0.6061",
+          "fees": "1.20015073800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.54650",
+          "minimum_equity": "4331.152420454860000000000000",
+          "net_pnl": "-17.74665073800",
+          "plan": {
+            "decision_ms": 1724089500000,
+            "entry": "0.6011",
+            "exits": [
+              {
+                "price": "0.6061",
+                "quantity": "3309.3",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5888",
+                "quantity": "3309.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3309.3",
+            "side": "SELL",
+            "signal_key": "e2f5603e3c820acaabb84fa43fa26d4f4e936a87bed84fe76fab82694c41ed6d",
+            "stop": "0.6061",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5888",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 19954,
+          "stress_net_pnl": "-20.94429495600"
+        },
+        {
+          "day_start_equity": "4330.350113762860000000000000",
+          "entry_ms": 1726794900000,
+          "exit_ms": 1726802100000,
+          "exit_price": "0.583400000000000000",
+          "fees": "1.6794105780000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "30.3351300000000000000",
+          "minimum_equity": "4328.349824920860000000000000",
+          "net_pnl": "28.6557194220000000000000000",
+          "plan": {
+            "decision_ms": 1726794900000,
+            "entry": "0.5771",
+            "exits": [
+              {
+                "price": "0.5741",
+                "quantity": "4815.1",
+                "role": "STOP"
+              },
+              {
+                "price": "0.5845",
+                "quantity": "4815.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "4815.1",
+            "side": "BUY",
+            "signal_key": "470293759163cdf3b18728ec4dac9d6dad05d423815d6c432b7299fc32bd211c",
+            "stop": "0.5741",
+            "symbol": "XRPUSDT",
+            "tp1": "0.5845",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 19986,
+          "stress_net_pnl": "24.1823470690000000000000000"
+        },
+        {
+          "day_start_equity": "4359.005833184860000000000000",
+          "entry_ms": 1732452300000,
+          "exit_ms": 1732454700000,
+          "exit_price": "1.3896",
+          "fees": "0.30354480000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "49.74480",
+          "minimum_equity": "4358.577035264860000000000000",
+          "net_pnl": "49.44125520000",
+          "plan": {
+            "decision_ms": 1732452300000,
+            "entry": "1.3014",
+            "exits": [
+              {
+                "price": "1.2661",
+                "quantity": "564.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3896",
+                "quantity": "564.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "564.0",
+            "side": "BUY",
+            "signal_key": "64f59f3a9787cb291554fe756fd244c5362adb8eb46f65711422f8e09bebbb91",
+            "stop": "1.2661",
+            "symbol": "XRPUSDT",
+            "tp1": "1.3896",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20051,
+          "stress_net_pnl": "48.37884840000"
+        },
+        {
+          "day_start_equity": "4408.447088384860000000000000",
+          "entry_ms": 1735748100000,
+          "exit_ms": 1735755300000,
+          "exit_price": "2.258100000000000000",
+          "fees": "0.9634533480000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "2.7717300000000000000",
+          "minimum_equity": "4393.200867704860000000000000",
+          "net_pnl": "1.8082766520000000000000000",
+          "plan": {
+            "decision_ms": 1735748100000,
+            "entry": "2.2620",
+            "exits": [
+              {
+                "price": "2.2871",
+                "quantity": "710.7",
+                "role": "STOP"
+              },
+              {
+                "price": "2.1993",
+                "quantity": "710.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "710.7",
+            "side": "SELL",
+            "signal_key": "83716809c74a4d4a1d705ed64df3751f7dbd07cf99269120386367f3828975e6",
+            "stop": "2.2871",
+            "symbol": "XRPUSDT",
+            "tp1": "2.1993",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20089,
+          "stress_net_pnl": "-0.7613942310000000000000000"
+        },
+        {
+          "day_start_equity": "4410.255365036860000000000000",
+          "entry_ms": 1735777800000,
+          "exit_ms": 1735785000000,
+          "exit_price": "2.405500000000000000",
+          "fees": "0.7842006400000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "20.4849500000000000000",
+          "minimum_equity": "4409.558833496860000000000000",
+          "net_pnl": "19.7007493600000000000000000",
+          "plan": {
+            "decision_ms": 1735777800000,
+            "entry": "2.4434",
+            "exits": [
+              {
+                "price": "2.4778",
+                "quantity": "540.5",
+                "role": "STOP"
+              },
+              {
+                "price": "2.3575",
+                "quantity": "540.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "540.5",
+            "side": "SELL",
+            "signal_key": "8526037646f81d3a6cbd5837054da351295f0cc4d42791a9acfd3f329623d3a9",
+            "stop": "2.4778",
+            "symbol": "XRPUSDT",
+            "tp1": "2.3575",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20090,
+          "stress_net_pnl": "17.6061334950000000000000000"
+        },
+        {
+          "day_start_equity": "4429.956114396860000000000000",
+          "entry_ms": 1736262900000,
+          "exit_ms": 1736263200000,
+          "exit_price": "2.3127",
+          "fees": "0.97782871200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.90355",
+          "minimum_equity": "4411.724234352860000000000000",
+          "net_pnl": "-18.88137871200",
+          "plan": {
+            "decision_ms": 1736262900000,
+            "entry": "2.3382",
+            "exits": [
+              {
+                "price": "2.3127",
+                "quantity": "702.1",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4019",
+                "quantity": "702.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "702.1",
+            "side": "BUY",
+            "signal_key": "4a1ed2e31c3deb75c6b89c502a1ff6103aa6b7b518f9633fd8b57a5f329adca3",
+            "stop": "2.3127",
+            "symbol": "XRPUSDT",
+            "tp1": "2.4019",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20095,
+          "stress_net_pnl": "-21.49190586900"
+        },
+        {
+          "day_start_equity": "4411.074735684860000000000000",
+          "entry_ms": 1736596800000,
+          "exit_ms": 1736604000000,
+          "exit_price": "2.393300000000000000",
+          "fees": "1.3994522100000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "24.8601600000000000000",
+          "minimum_equity": "4399.437286926860000000000000",
+          "net_pnl": "23.4607077900000000000000000",
+          "plan": {
+            "decision_ms": 1736596800000,
+            "entry": "2.4189",
+            "exits": [
+              {
+                "price": "2.4353",
+                "quantity": "971.1",
+                "role": "STOP"
+              },
+              {
+                "price": "2.3781",
+                "quantity": "971.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "971.1",
+            "side": "SELL",
+            "signal_key": "a8f5dd8b63e60a19fb353e44eba7acd79ef52d597b1b9f7a9c7d966ddfaa4557",
+            "stop": "2.4353",
+            "symbol": "XRPUSDT",
+            "tp1": "2.3781",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20099,
+          "stress_net_pnl": "19.7246918700000000000000000"
+        },
+        {
+          "day_start_equity": "4411.074735684860000000000000",
+          "entry_ms": 1736614800000,
+          "exit_ms": 1736617200000,
+          "exit_price": "2.4953",
+          "fees": "1.20977790000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.93527",
+          "minimum_equity": "4417.199172210860000000000000",
+          "net_pnl": "-18.14504790000",
+          "plan": {
+            "decision_ms": 1736614800000,
+            "entry": "2.4744",
+            "exits": [
+              {
+                "price": "2.4953",
+                "quantity": "810.3",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4224",
+                "quantity": "810.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "810.3",
+            "side": "SELL",
+            "signal_key": "3c6ea281e609f7955b5d746b74042d012b181a947b31498a6384b224f6d1f6a7",
+            "stop": "2.4953",
+            "symbol": "XRPUSDT",
+            "tp1": "2.4224",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20099,
+          "stress_net_pnl": "-21.36829975500"
+        }
+      ],
+      "unfilled": 5
+    },
+    {
+      "end_ms": 1752951600000,
+      "ineligible": 0,
+      "signals": 22,
+      "start_ms": 1736656800000,
+      "trades": [
+        {
+          "day_start_equity": "4416.390395574860000000000000",
+          "entry_ms": 1737929700000,
+          "exit_ms": 1737932700000,
+          "exit_price": "3.0676",
+          "fees": "2.02543502000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.29790",
+          "minimum_equity": "4402.415577514860000000000000",
+          "net_pnl": "-15.32333502000",
+          "plan": {
+            "decision_ms": 1737929700000,
+            "entry": "3.0797",
+            "exits": [
+              {
+                "price": "3.0676",
+                "quantity": "1099.0",
+                "role": "STOP"
+              },
+              {
+                "price": "3.1098",
+                "quantity": "1099.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1099.0",
+            "side": "BUY",
+            "signal_key": "11e43e4a92e19a22d4fd86fed61182c6c21de9f6867545d6b91ba2e46aaec20e",
+            "stop": "3.0676",
+            "symbol": "XRPUSDT",
+            "tp1": "3.1098",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20114,
+          "stress_net_pnl": "-20.72671139000"
+        },
+        {
+          "day_start_equity": "4401.067060554860000000000000",
+          "entry_ms": 1738349100000,
+          "exit_ms": 1738355100000,
+          "exit_price": "3.0065",
+          "fees": "1.55729030400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-15.25032",
+          "minimum_equity": "4385.295610410860000000000000",
+          "net_pnl": "-16.80761030400",
+          "plan": {
+            "decision_ms": 1738349100000,
+            "entry": "3.0242",
+            "exits": [
+              {
+                "price": "3.0065",
+                "quantity": "861.6",
+                "role": "STOP"
+              },
+              {
+                "price": "3.0683",
+                "quantity": "861.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "861.6",
+            "side": "BUY",
+            "signal_key": "8fbe8e7548cc9f7f04ede43a7c0fbc43e8c5d7e8c858fe71ef65f20009d24daa",
+            "stop": "3.0065",
+            "symbol": "XRPUSDT",
+            "tp1": "3.0683",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20119,
+          "stress_net_pnl": "-20.96292616800"
+        },
+        {
+          "day_start_equity": "4384.259450250860000000000000",
+          "entry_ms": 1739521800000,
+          "exit_ms": 1739524200000,
+          "exit_price": "2.7426",
+          "fees": "0.99582624800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-17.61170",
+          "minimum_equity": "4366.318156394860000000000000",
+          "net_pnl": "-18.60752624800",
+          "plan": {
+            "decision_ms": 1739521800000,
+            "entry": "2.7136",
+            "exits": [
+              {
+                "price": "2.7426",
+                "quantity": "607.3",
+                "role": "STOP"
+              },
+              {
+                "price": "2.6412",
+                "quantity": "607.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "607.3",
+            "side": "SELL",
+            "signal_key": "c4bd7ba1e11a799bb49d659ded62ce40e87d9e81f422dbd3155064b43655fd8b",
+            "stop": "2.7426",
+            "symbol": "XRPUSDT",
+            "tp1": "2.6412",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20133,
+          "stress_net_pnl": "-21.26012762600"
+        },
+        {
+          "day_start_equity": "4384.259450250860000000000000",
+          "entry_ms": 1739524500000,
+          "exit_ms": 1739531700000,
+          "exit_price": "2.746700000000000000",
+          "fees": "0.7897211300000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "7.3658200000000000000",
+          "minimum_equity": "4359.169801516860000000000000",
+          "net_pnl": "6.5760988700000000000000000",
+          "plan": {
+            "decision_ms": 1739524500000,
+            "entry": "2.7621",
+            "exits": [
+              {
+                "price": "2.8005",
+                "quantity": "478.3",
+                "role": "STOP"
+              },
+              {
+                "price": "2.6662",
+                "quantity": "478.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "478.3",
+            "side": "SELL",
+            "signal_key": "e046f3fbaf0597ffa76439756e548e5f44ee8e9afd70202b145988314d491560",
+            "stop": "2.8005",
+            "symbol": "XRPUSDT",
+            "tp1": "2.6662",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20133,
+          "stress_net_pnl": "4.4689482200000000000000000"
+        },
+        {
+          "day_start_equity": "4372.228022872860000000000000",
+          "entry_ms": 1740296700000,
+          "exit_ms": 1740302700000,
+          "exit_price": "2.5697",
+          "fees": "1.38871684200",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.075244855221000000000000000",
+          "gross_pnl": "31.60515",
+          "minimum_equity": "4371.396013936860000000000000",
+          "net_pnl": "30.14118830277900000000000000",
+          "plan": {
+            "decision_ms": 1740296700000,
+            "entry": "2.5932",
+            "exits": [
+              {
+                "price": "2.6027",
+                "quantity": "1344.9",
+                "role": "STOP"
+              },
+              {
+                "price": "2.5697",
+                "quantity": "1344.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1344.9",
+            "side": "SELL",
+            "signal_key": "fa5cd7c3ad6261ef68bc5e2f16ec326128cf14bfbd41bb5869e29510ffd04878",
+            "stop": "2.6027",
+            "symbol": "XRPUSDT",
+            "tp1": "2.5697",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20142,
+          "stress_net_pnl": "25.28067935577900000000000000"
+        },
+        {
+          "day_start_equity": "4402.369211175639000000000000",
+          "entry_ms": 1740930300000,
+          "exit_ms": 1740930900000,
+          "exit_price": "2.4908",
+          "fees": "0.30466808400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "49.78314",
+          "minimum_equity": "4397.922798819639000000000000",
+          "net_pnl": "49.47847191600",
+          "plan": {
+            "decision_ms": 1740930300000,
+            "entry": "2.6591",
+            "exits": [
+              {
+                "price": "2.7265",
+                "quantity": "295.8",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4908",
+                "quantity": "295.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "295.8",
+            "side": "SELL",
+            "signal_key": "b77b0b0c431cdfa1b08722c0b6194abf04f241de110d3d32171354fec6d59c8a",
+            "stop": "2.7265",
+            "symbol": "XRPUSDT",
+            "tp1": "2.4908",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20149,
+          "stress_net_pnl": "48.41213362200"
+        },
+        {
+          "day_start_equity": "4402.369211175639000000000000",
+          "entry_ms": 1740933900000,
+          "exit_ms": 1740941100000,
+          "exit_price": "2.771600000000000000",
+          "fees": "0.2873567340000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "22.4361900000000000000",
+          "minimum_equity": "4439.790876021639000000000000",
+          "net_pnl": "22.1488332660000000000000000",
+          "plan": {
+            "decision_ms": 1740933900000,
+            "entry": "2.9035",
+            "exits": [
+              {
+                "price": "3.0266",
+                "quantity": "170.1",
+                "role": "STOP"
+              },
+              {
+                "price": "2.5959",
+                "quantity": "170.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "170.1",
+            "side": "SELL",
+            "signal_key": "181497b80c9607bce5707f4188aa56274e43378db7e25b41d9ba7d2c783f88c4",
+            "stop": "3.0266",
+            "symbol": "XRPUSDT",
+            "tp1": "2.5959",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20149,
+          "stress_net_pnl": "21.3788092770000000000000000"
+        },
+        {
+          "day_start_equity": "4473.996516357639000000000000",
+          "entry_ms": 1744113600000,
+          "exit_ms": 1744120800000,
+          "exit_price": "1.950400000000000000",
+          "fees": "1.0393688600000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "6.8299000000000000000",
+          "minimum_equity": "4458.836249417639000000000000",
+          "net_pnl": "5.7905311400000000000000000",
+          "plan": {
+            "decision_ms": 1744113600000,
+            "entry": "1.9581",
+            "exits": [
+              {
+                "price": "1.9782",
+                "quantity": "887.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.9081",
+                "quantity": "887.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "887.0",
+            "side": "SELL",
+            "signal_key": "e03565e0567f18ff65b1bb23c509474df936b4e35da0ed42baf6a48a3bd47e02",
+            "stop": "1.9782",
+            "symbol": "XRPUSDT",
+            "tp1": "1.9081",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20186,
+          "stress_net_pnl": "3.0177425300000000000000000"
+        },
+        {
+          "day_start_equity": "4479.787047497639000000000000",
+          "entry_ms": 1745962200000,
+          "exit_ms": 1745965500000,
+          "exit_price": "2.2466",
+          "fees": "2.02183546200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.63089",
+          "minimum_equity": "4465.480394891639000000000000",
+          "net_pnl": "-15.65272546200",
+          "plan": {
+            "decision_ms": 1745962200000,
+            "entry": "2.2557",
+            "exits": [
+              {
+                "price": "2.2466",
+                "quantity": "1497.9",
+                "role": "STOP"
+              },
+              {
+                "price": "2.2784",
+                "quantity": "1497.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1497.9",
+            "side": "BUY",
+            "signal_key": "2a9a43e922bf088c741d10e4717b071be9b4326bf06180b9391dd591fe470c13",
+            "stop": "2.2466",
+            "symbol": "XRPUSDT",
+            "tp1": "2.2784",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20207,
+          "stress_net_pnl": "-21.04655850900"
+        },
+        {
+          "day_start_equity": "4464.134322035639000000000000",
+          "entry_ms": 1746018900000,
+          "exit_ms": 1746020700000,
+          "exit_price": "2.1473",
+          "fees": "1.40577449600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.22014",
+          "minimum_equity": "4447.443427851639000000000000",
+          "net_pnl": "-17.62591449600",
+          "plan": {
+            "decision_ms": 1746018900000,
+            "entry": "2.1622",
+            "exits": [
+              {
+                "price": "2.1473",
+                "quantity": "1088.6",
+                "role": "STOP"
+              },
+              {
+                "price": "2.1994",
+                "quantity": "1088.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1088.6",
+            "side": "BUY",
+            "signal_key": "e8e4c9df9895b1e0d1c4fdac461a4684f664081de400690a8f76515f616ce280",
+            "stop": "2.1473",
+            "symbol": "XRPUSDT",
+            "tp1": "2.1994",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20208,
+          "stress_net_pnl": "-21.37734984200"
+        },
+        {
+          "day_start_equity": "4446.508407539639000000000000",
+          "entry_ms": 1748001600000,
+          "exit_ms": 1748001900000,
+          "exit_price": "2.3454",
+          "fees": "1.37418703600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.26914",
+          "minimum_equity": "4429.779035975639000000000000",
+          "net_pnl": "-17.64332703600",
+          "plan": {
+            "decision_ms": 1748001600000,
+            "entry": "2.3621",
+            "exits": [
+              {
+                "price": "2.3454",
+                "quantity": "974.2",
+                "role": "STOP"
+              },
+              {
+                "price": "2.4036",
+                "quantity": "974.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "974.2",
+            "side": "BUY",
+            "signal_key": "9307f53de3a8d137f63e358fe6f209f0767788e61a49353d72aa73371728cb4f",
+            "stop": "2.3454",
+            "symbol": "XRPUSDT",
+            "tp1": "2.4036",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-21.31053732200"
+        },
+        {
+          "day_start_equity": "4446.508407539639000000000000",
+          "entry_ms": 1748002500000,
+          "exit_ms": 1748002800000,
+          "exit_price": "2.3172",
+          "fees": "1.24226468800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.75268",
+          "minimum_equity": "4411.696078583639000000000000",
+          "net_pnl": "-17.99494468800",
+          "plan": {
+            "decision_ms": 1748002500000,
+            "entry": "2.3360",
+            "exits": [
+              {
+                "price": "2.3172",
+                "quantity": "891.1",
+                "role": "STOP"
+              },
+              {
+                "price": "2.3829",
+                "quantity": "891.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "891.1",
+            "side": "BUY",
+            "signal_key": "d5f7595b421b2d5e940cfbb5240f3fc379298eb7497ffe65db636c5a9373bf3b",
+            "stop": "2.3172",
+            "symbol": "XRPUSDT",
+            "tp1": "2.3829",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20231,
+          "stress_net_pnl": "-21.31044263600"
+        },
+        {
+          "day_start_equity": "4410.870135815639000000000000",
+          "entry_ms": 1750119300000,
+          "exit_ms": 1750126500000,
+          "exit_price": "2.241800000000000000",
+          "fees": "1.0768720520000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "24.2064200000000000000",
+          "minimum_equity": "4401.587785987639000000000000",
+          "net_pnl": "23.1295479480000000000000000",
+          "plan": {
+            "decision_ms": 1750119300000,
+            "entry": "2.2117",
+            "exits": [
+              {
+                "price": "2.1900",
+                "quantity": "804.2",
+                "role": "STOP"
+              },
+              {
+                "price": "2.2657",
+                "quantity": "804.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "804.2",
+            "side": "BUY",
+            "signal_key": "90fbe8b74bb166b081ea7e26b0fb10b0838a8c10302fa87a2f30777b8f1f4e37",
+            "stop": "2.1900",
+            "symbol": "XRPUSDT",
+            "tp1": "2.2657",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20256,
+          "stress_net_pnl": "20.2619235460000000000000000"
+        }
+      ],
+      "unfilled": 9
+    },
+    {
+      "end_ms": 1769246400000,
+      "ineligible": 0,
+      "signals": 20,
+      "start_ms": 1752951600000,
+      "trades": [
+        {
+          "day_start_equity": "4433.999683763639000000000000",
+          "entry_ms": 1754811900000,
+          "exit_ms": 1754819100000,
+          "exit_price": "3.208000000000000000",
+          "fees": "1.3881788940000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.149209485962700000000000000",
+          "gross_pnl": "29.7687300000000000000",
+          "minimum_equity": "4422.096986629639000000000000",
+          "net_pnl": "28.23134162003730000000000000",
+          "plan": {
+            "decision_ms": 1754811900000,
+            "entry": "3.1669",
+            "exits": [
+              {
+                "price": "3.1445",
+                "quantity": "724.3",
+                "role": "STOP"
+              },
+              {
+                "price": "3.2226",
+                "quantity": "724.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "724.3",
+            "side": "BUY",
+            "signal_key": "9de5184474d1ec017114aae4d793c80b26afdef2b9046bc7152a1174136c8c0f",
+            "stop": "3.1445",
+            "symbol": "XRPUSDT",
+            "tp1": "3.2226",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20310,
+          "stress_net_pnl": "24.53449269103730000000000000"
+        },
+        {
+          "day_start_equity": "4462.231025383676300000000000",
+          "entry_ms": 1755873000000,
+          "exit_ms": 1755877200000,
+          "exit_price": "3.0358",
+          "fees": "0.79877255200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-18.85768",
+          "minimum_equity": "4443.109602223676300000000000",
+          "net_pnl": "-19.65645255200",
+          "plan": {
+            "decision_ms": 1755873000000,
+            "entry": "2.9930",
+            "exits": [
+              {
+                "price": "3.0358",
+                "quantity": "440.6",
+                "role": "STOP"
+              },
+              {
+                "price": "2.8862",
+                "quantity": "440.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "440.6",
+            "side": "SELL",
+            "signal_key": "356b08129023d3c3079fcf63c7d5cc889a3759a1a48e08725b2d645fdd4ab8b2",
+            "stop": "3.0358",
+            "symbol": "XRPUSDT",
+            "tp1": "2.8862",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20322,
+          "stress_net_pnl": "-21.78336974400"
+        },
+        {
+          "day_start_equity": "4442.574572831676300000000000",
+          "entry_ms": 1756238400000,
+          "exit_ms": 1756245600000,
+          "exit_price": "3.029300000000000000",
+          "fees": "1.3784894760000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "22.9037700000000000000",
+          "minimum_equity": "4440.524632503676300000000000",
+          "net_pnl": "21.5252805240000000000000000",
+          "plan": {
+            "decision_ms": 1756238400000,
+            "entry": "3.0596",
+            "exits": [
+              {
+                "price": "3.0810",
+                "quantity": "755.9",
+                "role": "STOP"
+              },
+              {
+                "price": "3.0063",
+                "quantity": "755.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "755.9",
+            "side": "SELL",
+            "signal_key": "b0c5f19b590ec7606629a16726b3f0bc8a033ef21539c7bfe82782660446f70d",
+            "stop": "3.0810",
+            "symbol": "XRPUSDT",
+            "tp1": "3.0063",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20326,
+          "stress_net_pnl": "17.8454912930000000000000000"
+        },
+        {
+          "day_start_equity": "4464.099853355676300000000000",
+          "entry_ms": 1756602000000,
+          "exit_ms": 1756604700000,
+          "exit_price": "2.8512",
+          "fees": "2.52582620400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-11.37906",
+          "minimum_equity": "4451.880368495676300000000000",
+          "net_pnl": "-13.90488620400",
+          "plan": {
+            "decision_ms": 1756602000000,
+            "entry": "2.8435",
+            "exits": [
+              {
+                "price": "2.8512",
+                "quantity": "1477.8",
+                "role": "STOP"
+              },
+              {
+                "price": "2.8245",
+                "quantity": "1477.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1477.8",
+            "side": "SELL",
+            "signal_key": "fdb226389da97cadc6cdf21cc562804918479b4ef32ad863d6df462aaf6ea545",
+            "stop": "2.8512",
+            "symbol": "XRPUSDT",
+            "tp1": "2.8245",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20331,
+          "stress_net_pnl": "-20.63852623800"
+        },
+        {
+          "day_start_equity": "4464.099853355676300000000000",
+          "entry_ms": 1756605600000,
+          "exit_ms": 1756612800000,
+          "exit_price": "2.850300000000000000",
+          "fees": "2.2213252800000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "14.3989200000000000000",
+          "minimum_equity": "4447.117645535676300000000000",
+          "net_pnl": "12.1775947200000000000000000",
+          "plan": {
+            "decision_ms": 1756605600000,
+            "entry": "2.8614",
+            "exits": [
+              {
+                "price": "2.8711",
+                "quantity": "1297.2",
+                "role": "STOP"
+              },
+              {
+                "price": "2.8372",
+                "quantity": "1297.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1297.2",
+            "side": "SELL",
+            "signal_key": "6e6c5648c0df59064a8511331c713b51f7096185109db3dd52afc3f703f07822",
+            "stop": "2.8711",
+            "symbol": "XRPUSDT",
+            "tp1": "2.8372",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20331,
+          "stress_net_pnl": "6.2516608200000000000000000"
+        },
+        {
+          "day_start_equity": "4462.372561871676300000000000",
+          "entry_ms": 1757926800000,
+          "exit_ms": 1757934000000,
+          "exit_price": "2.977900000000000000",
+          "fees": "1.4429659440000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "16.1070600000000000000",
+          "minimum_equity": "4456.875440831676300000000000",
+          "net_pnl": "14.6640940560000000000000000",
+          "plan": {
+            "decision_ms": 1757926800000,
+            "entry": "2.9580",
+            "exits": [
+              {
+                "price": "2.9381",
+                "quantity": "809.4",
+                "role": "STOP"
+              },
+              {
+                "price": "3.0077",
+                "quantity": "809.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "809.4",
+            "side": "BUY",
+            "signal_key": "1adcd3f13d3376c399741c484c2c00c78f26f446e065317fd1d27407190220f6",
+            "stop": "2.9381",
+            "symbol": "XRPUSDT",
+            "tp1": "3.0077",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20346,
+          "stress_net_pnl": "10.8188693820000000000000000"
+        },
+        {
+          "day_start_equity": "4477.036655927676300000000000",
+          "entry_ms": 1762536600000,
+          "exit_ms": 1762543800000,
+          "exit_price": "2.336800000000000000",
+          "fees": "0.8465979900000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-11.8072500000000000000",
+          "minimum_equity": "4458.167180897676300000000000",
+          "net_pnl": "-12.6538479900000000000000000",
+          "plan": {
+            "decision_ms": 1762536600000,
+            "entry": "2.3173",
+            "exits": [
+              {
+                "price": "2.3482",
+                "quantity": "605.5",
+                "role": "STOP"
+              },
+              {
+                "price": "2.2402",
+                "quantity": "605.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "605.5",
+            "side": "SELL",
+            "signal_key": "d342f325aff576d8c747720661cd6e933a892fd16996d86e907b578462613f96",
+            "stop": "2.3482",
+            "symbol": "XRPUSDT",
+            "tp1": "2.2402",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20399,
+          "stress_net_pnl": "-14.9094747550000000000000000"
+        },
+        {
+          "day_start_equity": "4464.382807937676300000000000",
+          "entry_ms": 1763865900000,
+          "exit_ms": 1763871600000,
+          "exit_price": "2.0521",
+          "fees": "1.26815560000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.83301",
+          "minimum_equity": "4447.129323805676300000000000",
+          "net_pnl": "-18.10116560000",
+          "plan": {
+            "decision_ms": 1763865900000,
+            "entry": "2.0358",
+            "exits": [
+              {
+                "price": "2.0521",
+                "quantity": "1032.7",
+                "role": "STOP"
+              },
+              {
+                "price": "1.9952",
+                "quantity": "1032.7",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1032.7",
+            "side": "SELL",
+            "signal_key": "73525fd481ed29694f0e4e4e6984f80c38c9add2e6a28122e68ae929f9a8536d",
+            "stop": "2.0521",
+            "symbol": "XRPUSDT",
+            "tp1": "1.9952",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20415,
+          "stress_net_pnl": "-21.48010836500"
+        },
+        {
+          "day_start_equity": "4446.281642337676300000000000",
+          "entry_ms": 1764686700000,
+          "exit_ms": 1764687600000,
+          "exit_price": "2.0889",
+          "fees": "1.53498176000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-15.58544",
+          "minimum_equity": "4430.186619809676300000000000",
+          "net_pnl": "-17.12042176000",
+          "plan": {
+            "decision_ms": 1764686700000,
+            "entry": "2.0762",
+            "exits": [
+              {
+                "price": "2.0889",
+                "quantity": "1227.2",
+                "role": "STOP"
+              },
+              {
+                "price": "2.0446",
+                "quantity": "1227.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1227.2",
+            "side": "SELL",
+            "signal_key": "e6de247df79325941ba58a994a401dd5e387d0471b3f66844036bc61fd0fe00c",
+            "stop": "2.0889",
+            "symbol": "XRPUSDT",
+            "tp1": "2.0446",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20424,
+          "stress_net_pnl": "-21.21110888000"
+        },
+        {
+          "day_start_equity": "4429.161220577676300000000000",
+          "entry_ms": 1766223900000,
+          "exit_ms": 1766229300000,
+          "exit_price": "1.9333",
+          "fees": "1.24842325600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "34.67664",
+          "minimum_equity": "4427.088681285676300000000000",
+          "net_pnl": "33.42821674400",
+          "plan": {
+            "decision_ms": 1766223900000,
+            "entry": "1.9549",
+            "exits": [
+              {
+                "price": "1.9636",
+                "quantity": "1605.4",
+                "role": "STOP"
+              },
+              {
+                "price": "1.9333",
+                "quantity": "1605.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1605.4",
+            "side": "SELL",
+            "signal_key": "0ae5a415c4f0661d61f1bc11f189eb2c8329f92bdec025c3d00671ed25e9ce54",
+            "stop": "1.9636",
+            "symbol": "XRPUSDT",
+            "tp1": "1.9333",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20442,
+          "stress_net_pnl": "29.05873534800"
+        },
+        {
+          "day_start_equity": "4462.589437321676300000000000",
+          "entry_ms": 1767717000000,
+          "exit_ms": 1767721800000,
+          "exit_price": "2.2603",
+          "fees": "0.98575207200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-18.03258",
+          "minimum_equity": "4444.225868953676300000000000",
+          "net_pnl": "-19.01833207200",
+          "plan": {
+            "decision_ms": 1767717000000,
+            "entry": "2.2852",
+            "exits": [
+              {
+                "price": "2.2603",
+                "quantity": "724.2",
+                "role": "STOP"
+              },
+              {
+                "price": "2.3473",
+                "quantity": "724.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "724.2",
+            "side": "BUY",
+            "signal_key": "bddf5863458a31161695bf70f0e70608c30b6560031b5dac8e56a79d3086c164",
+            "stop": "2.2603",
+            "symbol": "XRPUSDT",
+            "tp1": "2.3473",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20459,
+          "stress_net_pnl": "-21.65000969400"
+        },
+        {
+          "day_start_equity": "4462.589437321676300000000000",
+          "entry_ms": 1767722400000,
+          "exit_ms": 1767729600000,
+          "exit_price": "2.227000000000000000",
+          "fees": "0.7292115740000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "10.4534300000000000000",
+          "minimum_equity": "4440.921308515676300000000000",
+          "net_pnl": "9.7242184260000000000000000",
+          "plan": {
+            "decision_ms": 1767722400000,
+            "entry": "2.2079",
+            "exits": [
+              {
+                "price": "2.1730",
+                "quantity": "547.3",
+                "role": "STOP"
+              },
+              {
+                "price": "2.2950",
+                "quantity": "547.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "547.3",
+            "side": "BUY",
+            "signal_key": "4188f1de3cfda2783f1b1e2df5c60670c2ddd4c29fde15dade08941959ce659f",
+            "stop": "2.1730",
+            "symbol": "XRPUSDT",
+            "tp1": "2.2950",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20459,
+          "stress_net_pnl": "7.7813964670000000000000000"
+        },
+        {
+          "day_start_equity": "4453.295323675676300000000000",
+          "entry_ms": 1768779900000,
+          "exit_ms": 1768780200000,
+          "exit_price": "1.9971",
+          "fees": "1.66978422000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-15.02280",
+          "minimum_equity": "4437.713925895676300000000000",
+          "net_pnl": "-16.69258422000",
+          "plan": {
+            "decision_ms": 1768779900000,
+            "entry": "2.0079",
+            "exits": [
+              {
+                "price": "1.9971",
+                "quantity": "1391.0",
+                "role": "STOP"
+              },
+              {
+                "price": "2.0347",
+                "quantity": "1391.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1391.0",
+            "side": "BUY",
+            "signal_key": "810c442103cb6ac84eced43933fc7c4cd04c11f7d414f003c7aec62903751824",
+            "stop": "1.9971",
+            "symbol": "XRPUSDT",
+            "tp1": "2.0347",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20471,
+          "stress_net_pnl": "-21.14784594000"
+        }
+      ],
+      "unfilled": 7
+    },
+    {
+      "end_ms": 1785542400000,
+      "ineligible": 0,
+      "signals": 26,
+      "start_ms": 1769246400000,
+      "trades": [
+        {
+          "day_start_equity": "4436.602739455676300000000000",
+          "entry_ms": 1770374700000,
+          "exit_ms": 1770381900000,
+          "exit_price": "1.371400000000000000",
+          "fees": "0.7427716280000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "5.3182600000000000000",
+          "minimum_equity": "4431.847439811676300000000000",
+          "net_pnl": "4.5754883720000000000000000",
+          "plan": {
+            "decision_ms": 1770374700000,
+            "entry": "1.3773",
+            "exits": [
+              {
+                "price": "1.3983",
+                "quantity": "901.4",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3250",
+                "quantity": "901.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "901.4",
+            "side": "SELL",
+            "signal_key": "10249020402caad80cf14ce38cb872fd9695a017557a84847e30b90db8cd7c4d",
+            "stop": "1.3983",
+            "symbol": "XRPUSDT",
+            "tp1": "1.3250",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20490,
+          "stress_net_pnl": "2.5938776540000000000000000"
+        },
+        {
+          "day_start_equity": "4436.602739455676300000000000",
+          "entry_ms": 1770392700000,
+          "exit_ms": 1770399900000,
+          "exit_price": "1.496300000000000000",
+          "fees": "0.5304399580000000000000000",
+          "funding_mark_approximations": 1,
+          "funding_payment": "0.391203589884300000000000000",
+          "gross_pnl": "25.7444000000000000000",
+          "minimum_equity": "4440.354371921676300000000000",
+          "net_pnl": "24.82275645211570000000000000",
+          "plan": {
+            "decision_ms": 1770392700000,
+            "entry": "1.5403",
+            "exits": [
+              {
+                "price": "1.5742",
+                "quantity": "585.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.4558",
+                "quantity": "585.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "585.1",
+            "side": "SELL",
+            "signal_key": "1d8deed7fb92ce942450e84a3d206e43e1297755f782798200780e000110b2ea",
+            "stop": "1.5742",
+            "symbol": "XRPUSDT",
+            "tp1": "1.4558",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20490,
+          "stress_net_pnl": "23.40395916411570000000000000"
+        },
+        {
+          "day_start_equity": "4466.000984279792000000000000",
+          "entry_ms": 1772287200000,
+          "exit_ms": 1772291700000,
+          "exit_price": "1.3104",
+          "fees": "0.76369087200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "42.92988",
+          "minimum_equity": "4452.361325855792000000000000",
+          "net_pnl": "42.16618912800",
+          "plan": {
+            "decision_ms": 1772287200000,
+            "entry": "1.3402",
+            "exits": [
+              {
+                "price": "1.3522",
+                "quantity": "1440.6",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3104",
+                "quantity": "1440.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1440.6",
+            "side": "SELL",
+            "signal_key": "8848762adcfee45d58578d4b69ac1b62be3c36d61fdfbe1018fadf29c8640006",
+            "stop": "1.3522",
+            "symbol": "XRPUSDT",
+            "tp1": "1.3104",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20512,
+          "stress_net_pnl": "39.49327107600"
+        },
+        {
+          "day_start_equity": "4508.167173407792000000000000",
+          "entry_ms": 1773834300000,
+          "exit_ms": 1773836100000,
+          "exit_price": "1.4839",
+          "fees": "1.76834035200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-14.87100",
+          "minimum_equity": "4492.704743823792000000000000",
+          "net_pnl": "-16.63934035200",
+          "plan": {
+            "decision_ms": 1773834300000,
+            "entry": "1.4914",
+            "exits": [
+              {
+                "price": "1.4839",
+                "quantity": "1982.8",
+                "role": "STOP"
+              },
+              {
+                "price": "1.5100",
+                "quantity": "1982.8",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1982.8",
+            "side": "BUY",
+            "signal_key": "31fe0a2ff53669dd2cad45411ad1204ab007079a7f1f4289b3f6fa0c2856f7e6",
+            "stop": "1.4839",
+            "symbol": "XRPUSDT",
+            "tp1": "1.5100",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-21.35739312400"
+        },
+        {
+          "day_start_equity": "4508.167173407792000000000000",
+          "entry_ms": 1773837000000,
+          "exit_ms": 1773837300000,
+          "exit_price": "1.4706",
+          "fees": "1.58395356000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-15.58692",
+          "minimum_equity": "4475.410850279792000000000000",
+          "net_pnl": "-17.17087356000",
+          "plan": {
+            "decision_ms": 1773837000000,
+            "entry": "1.4793",
+            "exits": [
+              {
+                "price": "1.4706",
+                "quantity": "1791.6",
+                "role": "STOP"
+              },
+              {
+                "price": "1.5008",
+                "quantity": "1791.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1791.6",
+            "side": "BUY",
+            "signal_key": "182d3b6590b1c3af30bcf27a16ab343c862f43083e82128eaa850a1ea58fde89",
+            "stop": "1.4706",
+            "symbol": "XRPUSDT",
+            "tp1": "1.5008",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-21.39734754000"
+        },
+        {
+          "day_start_equity": "4508.167173407792000000000000",
+          "entry_ms": 1773837900000,
+          "exit_ms": 1773839100000,
+          "exit_price": "1.4572",
+          "fees": "1.39028923200",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.33992",
+          "minimum_equity": "4457.551431095792000000000000",
+          "net_pnl": "-17.73020923200",
+          "plan": {
+            "decision_ms": 1773837900000,
+            "entry": "1.4675",
+            "exits": [
+              {
+                "price": "1.4572",
+                "quantity": "1586.4",
+                "role": "STOP"
+              },
+              {
+                "price": "1.4931",
+                "quantity": "1586.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1586.4",
+            "side": "BUY",
+            "signal_key": "f748f8fb0edb4409665fab5494eca8421ee624de232f6e9ee50c63292edaa86e",
+            "stop": "1.4572",
+            "symbol": "XRPUSDT",
+            "tp1": "1.4931",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20530,
+          "stress_net_pnl": "-21.44037050400"
+        },
+        {
+          "day_start_equity": "4456.626750263792000000000000",
+          "entry_ms": 1776903300000,
+          "exit_ms": 1776903600000,
+          "exit_price": "1.4180",
+          "fees": "2.46700004000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-11.58760",
+          "minimum_equity": "4444.215271903792000000000000",
+          "net_pnl": "-14.05460004000",
+          "plan": {
+            "decision_ms": 1776903300000,
+            "entry": "1.4220",
+            "exits": [
+              {
+                "price": "1.4180",
+                "quantity": "2896.9",
+                "role": "STOP"
+              },
+              {
+                "price": "1.4319",
+                "quantity": "2896.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2896.9",
+            "side": "BUY",
+            "signal_key": "8f41860ea9eeb624ba5cc2d4751fe8be0f019d17b1fb8e0442fc2b6bb11b28a1",
+            "stop": "1.4180",
+            "symbol": "XRPUSDT",
+            "tp1": "1.4319",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20566,
+          "stress_net_pnl": "-20.63519808000"
+        },
+        {
+          "day_start_equity": "4442.572150223792000000000000",
+          "entry_ms": 1779569100000,
+          "exit_ms": 1779570000000,
+          "exit_price": "1.3698",
+          "fees": "2.01353749600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.49260",
+          "minimum_equity": "4428.410170071792000000000000",
+          "net_pnl": "-15.50613749600",
+          "plan": {
+            "decision_ms": 1779569100000,
+            "entry": "1.3643",
+            "exits": [
+              {
+                "price": "1.3698",
+                "quantity": "2453.2",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3507",
+                "quantity": "2453.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2453.2",
+            "side": "SELL",
+            "signal_key": "3dacb35789ef9b117db3e4a6c00ffe947396fbc3e7f4c6dc8818d2d8d4746f33",
+            "stop": "1.3698",
+            "symbol": "XRPUSDT",
+            "tp1": "1.3507",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20596,
+          "stress_net_pnl": "-20.87332205200"
+        },
+        {
+          "day_start_equity": "4442.572150223792000000000000",
+          "entry_ms": 1779570000000,
+          "exit_ms": 1779572100000,
+          "exit_price": "1.3558",
+          "fees": "1.24800182400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "34.78368",
+          "minimum_equity": "4415.911893447792000000000000",
+          "net_pnl": "33.53567817600",
+          "plan": {
+            "decision_ms": 1779570000000,
+            "entry": "1.3710",
+            "exits": [
+              {
+                "price": "1.3771",
+                "quantity": "2288.4",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3558",
+                "quantity": "2288.4",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2288.4",
+            "side": "SELL",
+            "signal_key": "853158f6a3a21976b6b47896380ca2f2057fe21ea74db2a9451d741a8ebccda1",
+            "stop": "1.3771",
+            "symbol": "XRPUSDT",
+            "tp1": "1.3558",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20596,
+          "stress_net_pnl": "29.16767179200"
+        },
+        {
+          "day_start_equity": "4460.601690903792000000000000",
+          "entry_ms": 1780104600000,
+          "exit_ms": 1780111800000,
+          "exit_price": "1.357600000000000000",
+          "fees": "1.5743185080000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "5.7939000000000000000",
+          "minimum_equity": "4450.805905547792000000000000",
+          "net_pnl": "4.2195814920000000000000000",
+          "plan": {
+            "decision_ms": 1780104600000,
+            "entry": "1.3606",
+            "exits": [
+              {
+                "price": "1.3686",
+                "quantity": "1931.3",
+                "role": "STOP"
+              },
+              {
+                "price": "1.3408",
+                "quantity": "1931.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1931.3",
+            "side": "SELL",
+            "signal_key": "dedf45ffcd3666bf96567dd4c7039710d46aeb1763abac7914c8e17cde5103ea",
+            "stop": "1.3686",
+            "symbol": "XRPUSDT",
+            "tp1": "1.3408",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20603,
+          "stress_net_pnl": "0.0204331540000000000000000"
+        },
+        {
+          "day_start_equity": "4464.821272395792000000000000",
+          "entry_ms": 1780795800000,
+          "exit_ms": 1780800600000,
+          "exit_price": "1.1216",
+          "fees": "1.46870480000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-15.96656",
+          "minimum_equity": "4448.367273003792000000000000",
+          "net_pnl": "-17.43526480000",
+          "plan": {
+            "decision_ms": 1780795800000,
+            "entry": "1.1143",
+            "exits": [
+              {
+                "price": "1.1216",
+                "quantity": "2187.2",
+                "role": "STOP"
+              },
+              {
+                "price": "1.0963",
+                "quantity": "2187.2",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2187.2",
+            "side": "SELL",
+            "signal_key": "93bbe9b9cdfe585c0b5081be6c61f5ada1dc6675518aa20c60301b44d98e5f12",
+            "stop": "1.1216",
+            "symbol": "XRPUSDT",
+            "tp1": "1.0963",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20611,
+          "stress_net_pnl": "-21.34914984000"
+        },
+        {
+          "day_start_equity": "4464.821272395792000000000000",
+          "entry_ms": 1780822800000,
+          "exit_ms": 1780823100000,
+          "exit_price": "1.1629",
+          "fees": "1.39286650800",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-16.20729",
+          "minimum_equity": "4430.716589731792000000000000",
+          "net_pnl": "-17.60015650800",
+          "plan": {
+            "decision_ms": 1780822800000,
+            "entry": "1.1548",
+            "exits": [
+              {
+                "price": "1.1629",
+                "quantity": "2000.9",
+                "role": "STOP"
+              },
+              {
+                "price": "1.1348",
+                "quantity": "2000.9",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2000.9",
+            "side": "SELL",
+            "signal_key": "9bd56716aca2f954d2b2416cab4fa35c803f27332fc0d47fa0b4e67ff3566b5f",
+            "stop": "1.1629",
+            "symbol": "XRPUSDT",
+            "tp1": "1.1348",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20611,
+          "stress_net_pnl": "-21.31176598100"
+        },
+        {
+          "day_start_equity": "4464.821272395792000000000000",
+          "entry_ms": 1780823700000,
+          "exit_ms": 1780826700000,
+          "exit_price": "1.1434",
+          "fees": "0.87095932000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "40.74840",
+          "minimum_equity": "4419.159196587792000000000000",
+          "net_pnl": "39.87744068000",
+          "plan": {
+            "decision_ms": 1780823700000,
+            "entry": "1.1650",
+            "exits": [
+              {
+                "price": "1.1737",
+                "quantity": "1886.5",
+                "role": "STOP"
+              },
+              {
+                "price": "1.1434",
+                "quantity": "1886.5",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "1886.5",
+            "side": "SELL",
+            "signal_key": "240c67b808710b8320478f60b49d1834833decfce862f86255d33a49a45515a6",
+            "stop": "1.1737",
+            "symbol": "XRPUSDT",
+            "tp1": "1.1434",
+            "tp2": null
+          },
+          "reason": "TAKE_PROFIT",
+          "risk_day": 20611,
+          "stress_net_pnl": "36.82908306000"
+        },
+        {
+          "day_start_equity": "4469.663291767792000000000000",
+          "entry_ms": 1781099100000,
+          "exit_ms": 1781106300000,
+          "exit_price": "1.127500000000000000",
+          "fees": "1.4213616560000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "18.4412800000000000000",
+          "minimum_equity": "4467.929685711792000000000000",
+          "net_pnl": "17.0199183440000000000000000",
+          "plan": {
+            "decision_ms": 1781099100000,
+            "entry": "1.1363",
+            "exits": [
+              {
+                "price": "1.1440",
+                "quantity": "2095.6",
+                "role": "STOP"
+              },
+              {
+                "price": "1.1171",
+                "quantity": "2095.6",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "2095.6",
+            "side": "SELL",
+            "signal_key": "26a7a352c8e31896a2602a2b7abda7f3edb163f567dca6947607a28934acd217",
+            "stop": "1.1440",
+            "symbol": "XRPUSDT",
+            "tp1": "1.1171",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20614,
+          "stress_net_pnl": "13.2265470480000000000000000"
+        },
+        {
+          "day_start_equity": "4486.683210111792000000000000",
+          "entry_ms": 1781932500000,
+          "exit_ms": 1781939700000,
+          "exit_price": "1.145700000000000000",
+          "fees": "2.1757353520000000000000000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "20.5341500000000000000",
+          "minimum_equity": "4484.059767107792000000000000",
+          "net_pnl": "18.3584146480000000000000000",
+          "plan": {
+            "decision_ms": 1781932500000,
+            "entry": "1.1522",
+            "exits": [
+              {
+                "price": "1.1563",
+                "quantity": "3159.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.1421",
+                "quantity": "3159.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3159.1",
+            "side": "SELL",
+            "signal_key": "e107b04836d83afc1fdc367b24c579c1a17830122c9a93099e3b5d9365b19d3c",
+            "stop": "1.1563",
+            "symbol": "XRPUSDT",
+            "tp1": "1.1421",
+            "tp2": null
+          },
+          "reason": "TIME_STOP",
+          "risk_day": 20624,
+          "stress_net_pnl": "12.5530313510000000000000000"
+        },
+        {
+          "day_start_equity": "4505.041624759792000000000000",
+          "entry_ms": 1784810700000,
+          "exit_ms": 1784811900000,
+          "exit_price": "1.1186",
+          "fees": "2.47558300000",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-11.79200",
+          "minimum_equity": "4492.422858159792000000000000",
+          "net_pnl": "-14.26758300000",
+          "plan": {
+            "decision_ms": 1784810700000,
+            "entry": "1.1218",
+            "exits": [
+              {
+                "price": "1.1186",
+                "quantity": "3685.0",
+                "role": "STOP"
+              },
+              {
+                "price": "1.1296",
+                "quantity": "3685.0",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3685.0",
+            "side": "BUY",
+            "signal_key": "1f1e9f9dcf3705ae680b18b935ea0dc49542bbf15e2297cb6cb0a5abf0196ec2",
+            "stop": "1.1186",
+            "symbol": "XRPUSDT",
+            "tp1": "1.1296",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-20.87110300000"
+        },
+        {
+          "day_start_equity": "4505.041624759792000000000000",
+          "entry_ms": 1784813400000,
+          "exit_ms": 1784818500000,
+          "exit_price": "1.1086",
+          "fees": "2.13999353400",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.17453",
+          "minimum_equity": "4476.884423977792000000000000",
+          "net_pnl": "-15.31452353400",
+          "plan": {
+            "decision_ms": 1784813400000,
+            "entry": "1.1127",
+            "exits": [
+              {
+                "price": "1.1086",
+                "quantity": "3213.3",
+                "role": "STOP"
+              },
+              {
+                "price": "1.1229",
+                "quantity": "3213.3",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3213.3",
+            "side": "BUY",
+            "signal_key": "e050e12e9082b342dec9778cadd4dba8da3bcf7a4020d7416e5ea31e30a09b3d",
+            "stop": "1.1086",
+            "symbol": "XRPUSDT",
+            "tp1": "1.1229",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20657,
+          "stress_net_pnl": "-21.02336871300"
+        },
+        {
+          "day_start_equity": "4475.459518225792000000000000",
+          "entry_ms": 1785192300000,
+          "exit_ms": 1785192900000,
+          "exit_price": "1.0675",
+          "fees": "2.02676173600",
+          "funding_mark_approximations": 0,
+          "funding_payment": "0",
+          "gross_pnl": "-13.58843",
+          "minimum_equity": "4461.193689189792000000000000",
+          "net_pnl": "-15.61519173600",
+          "plan": {
+            "decision_ms": 1785192300000,
+            "entry": "1.0718",
+            "exits": [
+              {
+                "price": "1.0675",
+                "quantity": "3160.1",
+                "role": "STOP"
+              },
+              {
+                "price": "1.0824",
+                "quantity": "3160.1",
+                "role": "TP1"
+              }
+            ],
+            "family": "MACRO_SCALPER",
+            "hold_ms": 7200000,
+            "leverage": 1,
+            "quantity": "3160.1",
+            "side": "BUY",
+            "signal_key": "80d9c8ee1e1c0afbb6abc254fb25bf2e1a4e17591f7bbce066ec1b5ec4d6db21",
+            "stop": "1.0675",
+            "symbol": "XRPUSDT",
+            "tp1": "1.0824",
+            "tp2": null
+          },
+          "reason": "STOP_LOSS",
+          "risk_day": 20661,
+          "stress_net_pnl": "-21.02215443700"
+        }
+      ],
+      "unfilled": 8
+    }
+  ]
+}

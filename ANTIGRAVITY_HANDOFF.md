@@ -1,5 +1,7 @@
 # Antigravity takeover — Autonomous Futures Bot
 
+> **Current transfer, 14 October 2026:** Start with [ANTIGRAVITY_HANDOFF_2026-10-14.md](ANTIGRAVITY_HANDOFF_2026-10-14.md), then canonical [CODEX_HANDOFF.md](CODEX_HANDOFF.md). The owner is returning engineering work from Codex to Antigravity. Everything below is the preserved 8 October historical transfer, including old source/approval/status observations; it does not override current policy, the protected PID 87549 constraint or the empty admission manifest.
+
 **Canonical full-project handoff, 2026-10-08. Project: NOT COMPLETE / NOT PRODUCTION READY.**
 
 The owner's latest instruction is to stop Hermes development and return the entire project to Antigravity. Antigravity is the next sole writer. This transfers the repository context, local research data/evidence locations, unfinished outcomes and safety constraints. It does not launch Antigravity, deploy code, restart services or grant trading authority. Hermes changed documentation only for this transfer.

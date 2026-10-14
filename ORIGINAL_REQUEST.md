@@ -3652,3 +3652,76 @@ Integrity mode: development
 - [ ] `npm test --prefix frontend` (Vitest) passes with 100% success rate across all test files.
 - [ ] Backend Pytest test suites pass with 100% success rate.
 - [ ] Kainode Linux VPS trader daemon (`autonomous-futures-trader.service`) Main PID 87549 remains active and uninterrupted with `NRestarts=0`.
+
+
+## 2026-10-11T17:06:58Z
+
+Implement Phase 317 for Autonomous Futures Bot: Ingesting and codifying the ICT Market Maker Model (MMXM, MMBM/MMSM), Power of Three (Po3 / AMD), Change in State of Delivery (CISD), Fair Value Gaps (FVG/IFVG/BISI/SIBI), Optimal Trade Entry (OTE 62%-79%), and the Twins Reversal Model into an autonomous quantitative trading strategy and research evolution engine, allowing the bot to execute high-probability smart money setups while continuously researching, autopsying, and evolving strategy parameters, while preserving strict micro-capital limits, zero-drift double-entry solvency, and uninterrupted continuity of the 24/7 background trader daemon (Main PID 87549).
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Quantitative ICT Core Engine & Pattern Recognizer
+- Implement a mathematical ICT pattern recognition module in `src/autonomous_futures/strategy/ict_mmxm.py`:
+  - **Higher Time Frame (HTF) PD Arrays**: Detect and track Order Blocks (OB), Breaker Blocks (BB), Fair Value Gaps (FVG / BISI / SIBI), and Old Highs/Lows across 1h and 4h horizons.
+  - **Change in State of Delivery (CISD) & Market Structure Shift (MSS)**: Identify true CISD as the first candle taking price into HTF levels and requiring subsequent engulfing invalidation to confirm real order flow change.
+  - **Twins Reversal Setup**: Enforce the exact 6-step mechanical sequence:
+    1. HTF Level hit (15m+ PDA).
+    2. 5-minute CISD formed.
+    3. Two 1-minute FVGs within the 5-minute CISD ("Twins").
+    4. OTE Retracement (62% - 79% Fibonacci range from swing low to swing high).
+    5. Formation of 1-minute CISD confirmation.
+    6. Stop Loss placement above/below 79% or above/below ITH/ITL (protected swing).
+  - **Standard Deviation & Terminus Projections**: Compute Fib extension projections from the manipulation leg (1.0, 1.5, 2.0, 2.5, 4.0 STDV), setting partial targets at 2.0 STDV and final Terminus at 4.0 STDV or Opposite HTF PDA.
+
+### R2. Multi-Timeframe Market Ingress & Candle Sequencing
+- Extend the market feed sequencing in `src/autonomous_futures/feed/` and `continuous_trader.py` to support multi-timeframe alignment across all 8 active pairs (`BTC`, `ETH`, `SOL`, `DOGE`, `BNB`, `XRP`, `SUI`, `AVAX`):
+  - Ingest 1h/4h macro candles for HTF PD Arrays and trend context.
+  - Ingest 15m and 5m candles for intermediate market structure, CISD, and consolidation ranges (Asia / London / NY killzones).
+  - Support sub-structure 1m tick/candle processing for precise Twins FVG identification and OTE entry execution.
+
+### R3. Autonomous Dual-Channel Execution & Micro-Capital Governance
+- Integrate the ICT MMXM strategy into `SelfDrivingTradingEngine` and `ContinuousSelfDrivingTrader` as an active high-probability strategy family:
+  - Generate typed, causal parent order intentions with deterministic client tags (`c=canary-p317-ict-{sym}-{ts}-{uuid}`).
+  - Maintain strict micro-capital limits: micro child order cap <= $5.00 USDT, aggregate portfolio exposure <= $25.00 USDT across all active positions, cash reserve >= 75.0%, and daily loss ceiling <= $3.00 USDT with fail-closed flattening.
+  - Reconcile continuous double-entry ledger balance:
+    Cash + Allocated Margin + Unrealized PnL = Starting Equity + Realized PnL
+    guaranteeing exact zero balance drift (|Delta| < 10^-15 USDT).
+
+### R4. Continuous Self-Learning, Strategy Autopsy & Genome Mutation
+- Connect ICT trade executions and shadow signals to the Phase 306/315 `StrategyAutopsyEngine` and `ContinuousSelfLearningDaemon`:
+  - Register active ICT candidates in `candidate_registry.json` (`cand-btcusdt-ict-001`, `cand-ethusdt-ict-001`, `cand-solusdt-ict-001`, etc.).
+  - Decompose trade autopsies into entry timing error, FVG slippage, adverse selection, and net edge.
+  - Mutate ICT hyperparameters (OTE upper/lower bounds [e.g. 62%-79% vs 66%-70.5%], STDV target multipliers [2.0 vs 2.5 vs 4.0], and HTF lookback windows).
+  - Subject mutated variants to the 5 Walk-Forward Out-of-Sample (OOS) qualification gates (Return >= 0%, Drawdown <= 15%, Profit Factor >= 1.05, Minimum 5 Trades, Stress Resilience) before live promotion.
+
+### R5. Mission Control Dashboard ICT Radar & Non-Disruptive VPS Deployment
+- Expose read-only endpoints `GET /api/v1/strategy/ict-signals` and integrate with the Executive Dashboard:
+  - Update `strategy-confluence-radar.tsx` with an **ICT MMXM & Twins Radar** displaying active PD Arrays, CISD states, OTE retracement depth, and STDV targets.
+  - Update TradingView Lightweight Charts with visual FVG zones, CISD horizontal markers, and 62%-79% OTE fib boxes.
+- Compile production bundle (`npm run build`) and hot-sync to `/opt/autonomous-futures-bot/frontend/dist` on Kainode Linux VPS (`147.79.18.15`).
+- Ensure `autonomous-futures-trader.service` (Main PID 87549) runs 100% continuously with zero process interruptions or restarts.
+
+## Acceptance Criteria
+
+### ICT Core Engine & Pattern Recognition
+- [ ] Mathematical detectors accurately identify Order Blocks, FVGs (BISI/SIBI), CISD, and Breaker Blocks on historical and live price sequences.
+- [ ] The Twins Model correctly validates all 6 steps before dispatching order signals, rejecting premature entries before 1m CISD confirmation.
+- [ ] Standard Deviation projections (1.5, 2.0, 2.5, 4.0 STDV) and Opposite Array targets calculate with exact Decimal precision.
+
+### Autonomous Execution & Risk Interlocks
+- [ ] Child orders strictly respect the <= $5.00 USDT notional cap with Binance ROUND_DOWN filter quantization across all 8 active pairs.
+- [ ] Total portfolio exposure remains bound to <= $25.00 USDT with >= 75.0% liquid cash reserve.
+- [ ] Continuous double-entry reconciliation proves exact zero balance drift (|Delta| = 0.00 < 10^-15 USDT).
+
+### Strategy Autopsy & Evolution Gating
+- [ ] Trade outcomes and shadow validations trigger automated autopsy decomposition and record to SQLite / JSONL event logs.
+- [ ] ICT candidate strategies advance through the dynamic 5-stage evolution pipeline and evaluate against OOS qualification gates.
+
+### Quality Gates, Dashboard & VPS Continuity
+- [ ] Vitest test suite (`npm test --prefix frontend`) passes with 100% success rate across all updated components.
+- [ ] Pytest test suite passes with 100% success rate covering ICT detectors, multi-timeframe sequencing, and solvency invariants.
+- [ ] Production web dashboard at `https://futures.semua.dev/` renders ICT confluence metrics and chart overlays in 100% English.
+- [ ] VPS background trader daemon (`autonomous-futures-trader.service`) Main PID 87549 continues running 100% uninterrupted with NRestarts=0.
