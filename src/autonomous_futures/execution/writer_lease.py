@@ -21,6 +21,13 @@ class PosixLocks(Protocol):
     def flock(self, descriptor: int, operation: int) -> None: ...
 
 
+class WinLocks(Protocol):
+    LK_NBLCK: int
+    LK_UNLCK: int
+
+    def locking(self, descriptor: int, mode: int, nbytes: int) -> None: ...
+
+
 class ExecutionLease:
     def __init__(self, path: Path) -> None:
         self.path = path.resolve()
@@ -41,9 +48,8 @@ class ExecutionLease:
                 os.fsync(stream.fileno())
             stream.seek(0)
             if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                win_locks = cast(WinLocks, importlib.import_module("msvcrt"))
+                win_locks.locking(stream.fileno(), win_locks.LK_NBLCK, 1)
             else:
                 locks = cast(PosixLocks, importlib.import_module("fcntl"))
                 locks.flock(stream.fileno(), locks.LOCK_EX | locks.LOCK_NB)
@@ -67,9 +73,8 @@ class ExecutionLease:
         stream = self.descriptor
         stream.seek(0)
         if os.name == "nt":
-            import msvcrt
-
-            msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            win_locks = cast(WinLocks, importlib.import_module("msvcrt"))
+            win_locks.locking(stream.fileno(), win_locks.LK_UNLCK, 1)
         else:
             locks = cast(PosixLocks, importlib.import_module("fcntl"))
             locks.flock(stream.fileno(), locks.LOCK_UN)
