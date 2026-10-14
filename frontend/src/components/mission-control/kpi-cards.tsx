@@ -180,8 +180,8 @@ export function KpiCards({ kpis }: KpiCardsProps) {
             </span>
           </div>
           <div className="flex items-center justify-between text-[11px] text-zinc-500">
-            <span>Order Cap:</span>
-            <span>≤ $5.00 USDT / child</span>
+            <span>Risk Policy:</span>
+            <span>0.5% Risk / 5% Daily Loss</span>
           </div>
         </div>
       </div>
@@ -207,13 +207,13 @@ export function KpiCards({ kpis }: KpiCardsProps) {
           <div className="flex items-baseline gap-2 mb-1.5">
             <span className="text-2xl sm:text-3xl font-mono font-bold tracking-tight text-emerald-400 flex items-center gap-2">
               <Scale className="w-5 h-5 text-emerald-400 shrink-0" />
-              |Δ| &lt; 10⁻¹⁵
+              100% Solvency
             </span>
           </div>
 
           <div className="flex items-center gap-1.5 mb-3 text-xs text-emerald-400 font-mono">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span>Zero-Drift Solvency</span>
+            <span>Zero-Drift Solvency (|Δ| &lt; 10⁻¹⁵)</span>
           </div>
         </div>
 

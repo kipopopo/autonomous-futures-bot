@@ -149,6 +149,10 @@ export function ExecutiveTradesPage({ orders }: ExecutiveTradesPageProps) {
               'XRPUSDT',
               'SUIUSDT',
               'AVAXUSDT',
+              'NEARUSDT',
+              'LINKUSDT',
+              'APTUSDT',
+              'ADAUSDT',
             ].map((sym) => (
               <button
                 key={sym}

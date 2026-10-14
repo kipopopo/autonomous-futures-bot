@@ -19,8 +19,8 @@ describe('TestnetBridgePage component', () => {
     execution_authority: false,
     bridge: {
       connection_state: 'CONNECTED',
-      api_key_masked: 'mock-****-7f89',
-      is_mock_credentials: true,
+      api_key_masked: 'testnet-key-****-1234',
+      is_mock_credentials: false,
       clock_offset_ms: 12,
       clock_skew_verified: true,
       listen_key: 'lk-testnet-live-bridge-001',
@@ -136,15 +136,17 @@ describe('TestnetBridgePage component', () => {
     // Header & phase badges
     expect(html).toContain('PHASE 307')
     expect(html).toContain('TESTNET_BRIDGE_VERIFIED')
+    expect(html).toContain('badge-success')
     expect(html).toContain('PAPER-SAFE:')
     expect(html).toContain('TRUE')
-    expect(html).toContain('EXECUTION AUTHORITY: OFF')
+    expect(html).toContain('EXECUTION AUTHORITY:')
+    expect(html).toContain('OFF')
     expect(html).toContain('ZERO-DRIFT:')
     expect(html).toContain('VERIFIED')
 
     // KPI cards
     expect(html).toContain('CONNECTED')
-    expect(html).toContain('mock-****-7f89')
+    expect(html).toContain('testnet-key-****-1234')
     expect(html).toContain('12 ms')
     expect(html).toContain('100.0%')
     expect(html).toContain('18.5')
@@ -168,14 +170,42 @@ describe('TestnetBridgePage component', () => {
     expect(html).toContain('4eb405de6cdc48e26fddaa4a2ed8bd91ef9e0843a4b71cfd0cb643a15e7ceb16')
   })
 
-  it('renders fallback model gracefully without throwing when data is null', () => {
+  it('keeps unavailable bridge evidence unknown when data is null', () => {
     const model = buildTestnetBridgeModel(null)
     const html = renderToString(<TestnetBridgePage model={model} />)
 
     expect(html).toContain('PHASE 307')
     expect(html).toContain('UNAVAILABLE')
+    expect(html).toContain('badge-warning')
+    expect(model.isPaperSafe).toBeNull()
+    expect(model.isExecutionOff).toBeNull()
+    expect(model.isZeroDrift).toBeNull()
+    expect(model.bridge).toBeNull()
+    expect(model.performance).toBeNull()
+    expect(model.exchangeFilters).toEqual({})
     expect(html).toContain('PAPER-SAFE:')
-    expect(html).toContain('TRUE')
-    expect(html).toContain('EXECUTION AUTHORITY: OFF')
+    expect(html).toContain('EXECUTION AUTHORITY:')
+    expect(html).toContain('UNKNOWN')
+    expect(html).toContain('ZERO-DRIFT:')
+    expect(html).toContain('UNAVAILABLE')
+    expect(html).not.toContain('CONNECTED')
+    expect(html).not.toContain('mock-')
+    expect(html).not.toContain('100.12')
+  })
+
+  it('does not infer verification from a partial API response', () => {
+    const model = buildTestnetBridgeModel({
+      phase: 'phase_307',
+      verified: false,
+      status: 'PARTIAL',
+    })
+
+    expect(model.verified).toBe(false)
+    expect(model.isPaperSafe).toBeNull()
+    expect(model.isExecutionOff).toBeNull()
+    expect(model.isZeroDrift).toBeNull()
+    expect(model.bridge).toBeNull()
+    expect(model.performance).toBeNull()
+    expect(model.upstreamHash).toBe('')
   })
 })

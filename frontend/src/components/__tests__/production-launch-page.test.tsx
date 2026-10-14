@@ -161,4 +161,29 @@ describe('ProductionLaunchPage component', () => {
     expect(html).toContain('No verified simulation artifact is available')
     expect(html).not.toContain('BTCUSDT')
   })
+
+  it('does not fabricate $100 balances, orders, or micro-capital caps on partial unverified payloads', () => {
+    const partialPayload = {
+      phase: 'phase_309',
+      status: 'PARTIAL_UNVERIFIED_ARTIFACT',
+    } as unknown as CanaryProductionLaunchData
+
+    const model = buildProductionLaunchModel(partialPayload)
+    const html = renderToString(<ProductionLaunchPage model={model} />)
+
+    expect(model.verified).toBe(false)
+    expect(model.isPaperSafe).toBe(false)
+    expect(model.candidates).toEqual([])
+    expect(model.candidateAllocations).toEqual([])
+    expect(model.recentOrders).toEqual([])
+    expect(model.solvency.total_equity_usdt).toBe(0)
+    expect(model.confinement.max_micro_order_notional_usdt).toBe(0)
+    expect(model.confinement.max_aggregate_exposure_usdt).toBe(0)
+    expect(model.confinement.min_cash_reserve_pct).toBe(0)
+    expect(model.upstreamHash).toBe('')
+    expect(model.merkleRoot).toBe('')
+    expect(html).not.toContain('BTCUSDT')
+    expect(html).not.toContain('ord-p309')
+    expect(html).not.toContain('5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844')
+  })
 })

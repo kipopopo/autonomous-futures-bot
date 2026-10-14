@@ -441,7 +441,7 @@ describe('Empirical Adversarial Stress Suite: Milestone M2 (challenger_m2_2)', (
       expect(adapted).toBeDefined()
       expect(adapted.kpis.activeExposureUsdt).toBe(0)
       expect(adapted.kpis.totalEquityUsdt).toBe(100.0)
-      expect(adapted.positions.length).toBe(8)
+      expect(adapted.positions.length).toBe(12)
       expect(adapted.botStatus.state).toBe('ACTIVE 24/7')
 
       // Verify that M2-owned subcomponents rendered from this adapted model leak ZERO Malay

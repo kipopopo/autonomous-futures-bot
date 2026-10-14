@@ -81,6 +81,10 @@ function createVerifiedEvolutionFixture(
         'XRPUSDT',
         'SUIUSDT',
         'AVAXUSDT',
+        'NEARUSDT',
+        'LINKUSDT',
+        'APTUSDT',
+        'ADAUSDT',
       ],
       oos_gate: {
         samples_required: 5,
@@ -221,10 +225,10 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
       const htmlNeg = renderToString(React.createElement(EvolutionPage, { model: modelNeg })).replace(/<!-- -->/g, '')
       expect(htmlNeg).toContain('Next Cycle')
 
-      // next_cycle_seconds is missing / undefined -> defaults to 15
+      // next_cycle_seconds is missing / undefined -> renders Unavailable truthfully
       const modelUndef = createVerifiedEvolutionFixture({ next_cycle_seconds: undefined })
       const htmlUndef = renderToString(React.createElement(EvolutionPage, { model: modelUndef })).replace(/<!-- -->/g, '')
-      expect(htmlUndef).toContain('15s')
+      expect(htmlUndef).toContain('Unavailable')
     })
 
     it('renders all 4 real-time telemetry boxes in EvolutionPage with valid timestamps', () => {
@@ -233,29 +237,29 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
 
       // Box 1: Current System Time (MYT)
       expect(html).toContain('Current Time (MYT)')
-      expect(html).toContain('MYT')
+      expect(html).toContain('GMT+8')
 
       // Box 2: Last Cycle & Candle Fetch
       expect(html).toContain('Last Cycle')
       expect(html).toContain('Candle Fetch:')
-      expect(html).toContain('Scan (8 Pairs):')
-      expect(html).toContain('BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT, BNBUSDT, XRPUSDT, SUIUSDT, AVAXUSDT')
+      expect(html).toContain('Scan (12 Pairs):')
+      expect(html).toContain('BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT, BNBUSDT, XRPUSDT, SUIUSDT, AVAXUSDT, NEARUSDT, LINKUSDT, APTUSDT, ADAUSDT')
 
       // Box 3: Next Cycle Heartbeat
       expect(html).toContain('Next Cycle')
-      expect(html).toContain('/ 15s window')
+      expect(html).toContain('/ runtime-reported interval')
 
       // Box 4: Latency & Daemon Status
       expect(html).toContain('DAEMON PID: 87549')
-      expect(html).toContain('ONLINE 24/7')
+      expect(html).toContain('ACTIVE')
     })
   })
 
   // ===========================================================================
   // 2. Precision Formatting Consistency Across Adapter Layer and Chart Series
   // ===========================================================================
-  describe('Precision Formatting Consistency (All 8 Pairs)', () => {
-    it('adapter configures all 8 perpetual pairs with exact fallback and ATR multipliers', () => {
+  describe('Precision Formatting Consistency (All 12 Pairs)', () => {
+    it('adapter configures all 12 perpetual pairs with exact fallback and ATR multipliers', () => {
       const { prod, liveMkt, brackets, micro } = createDefaultDashboardModels()
       const adapted = buildExecutiveDashboardModel(
         prod,
@@ -266,7 +270,7 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
         new Date(),
       )
 
-      expect(adapted.positions).toHaveLength(8)
+      expect(adapted.positions).toHaveLength(12)
 
       const expectedSymbols = [
         'SOLUSDT',
@@ -277,6 +281,10 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
         'XRPUSDT',
         'SUIUSDT',
         'AVAXUSDT',
+        'NEARUSDT',
+        'LINKUSDT',
+        'APTUSDT',
+        'ADAUSDT',
       ]
       expect(adapted.positions.map((p) => p.symbol)).toEqual(expectedSymbols)
 
@@ -427,16 +435,16 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
         React.createElement(MarketPositionsCard, { positions: adapted.positions }),
       )
 
-      expect(html).toContain('8 Perpetual Pairs')
+      expect(html).toContain('12 Perpetual Pairs')
 
-      // Verify all 8 test ids exist
-      const symbols = ['solusdt', 'ethusdt', 'btcusdt', 'dogeusdt', 'bnbusdt', 'xrpusdt', 'suiusdt', 'avaxusdt']
+      // Verify all 12 test ids exist
+      const symbols = ['solusdt', 'ethusdt', 'btcusdt', 'dogeusdt', 'bnbusdt', 'xrpusdt', 'suiusdt', 'avaxusdt', 'nearusdt', 'linkusdt', 'aptusdt', 'adausdt']
       for (const s of symbols) {
         expect(html).toContain(`data-testid="market-pair-card-${s}"`)
       }
 
       // Verify selector pills
-      for (const pill of ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']) {
+      for (const pill of ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX', 'NEAR', 'LINK', 'APT', 'ADA']) {
         expect(html).toContain(pill)
       }
     })
@@ -505,10 +513,10 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
       ).replace(/<!-- -->/g, '')
 
       expect(html).toContain('Detailed Positions &amp; Markets')
-      expect(html).toContain('0 Open / 8 Monitored')
+      expect(html).toContain('0 Open / 12 Monitored')
 
       // Pills
-      for (const pill of ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']) {
+      for (const pill of ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX', 'NEAR', 'LINK', 'APT', 'ADA']) {
         expect(html).toContain(pill)
       }
     })

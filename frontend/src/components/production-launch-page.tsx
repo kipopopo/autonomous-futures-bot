@@ -34,15 +34,18 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
   const solvency = model.solvency
   const ledger = model.ledger
 
-  const startingEquity = solvency?.starting_equity_usdt ?? ledger?.starting_equity ?? 100.0
-  const cash = solvency?.cash_usdt ?? ledger?.cash ?? 100.0
+  const startingEquity = solvency?.starting_equity_usdt ?? ledger?.starting_equity ?? 0.0
+  const cash = solvency?.cash_usdt ?? ledger?.cash ?? 0.0
   const allocatedMargin = solvency?.allocated_margin_usdt ?? ledger?.allocated_margin ?? 0.0
   const unrealizedPnl = solvency?.unrealized_pnl_usdt ?? ledger?.unrealized_pnl ?? 0.0
   const totalEquity = solvency?.total_equity_usdt ?? cash + allocatedMargin + unrealizedPnl
   const drift = solvency?.drift_usdt ?? ledger?.drift ?? 0.0
   const isZeroDrift = model.isZeroDrift
   const cashReservePct =
-    solvency?.cash_reserve_pct ?? (startingEquity > 0 ? (cash / startingEquity) * 100 : 100)
+    solvency?.cash_reserve_pct ?? (startingEquity > 0 ? (cash / startingEquity) * 100 : 0.0)
+  const realizedPnl = solvency?.realized_pnl_usdt ?? ledger?.realized_pnl ?? 0.0
+  const universeLabel =
+    model.candidates.length > 0 ? model.candidates.join(' / ') : 'UNSPECIFIED'
 
   return (
     <div className="space-y-8 p-6">
@@ -51,7 +54,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-base-content">
-              Phase 309 Simulation Artifact — Micro-Capital Self-Driving Engine
+              Phase 309 Simulation Artifact — Historical Self-Driving Engine
             </h1>
             <span className="badge badge-primary font-mono text-xs font-semibold">
               PHASE 309
@@ -62,7 +65,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
             </span>
           </div>
           <p className="mt-2 text-sm text-base-content/70">
-            Deterministic simulated fills only. This hash-verified artifact does not prove exchange connectivity, live execution, or production readiness.
+            Deterministic simulated fills only. This hash-verified artifact does not prove exchange connectivity, live execution, or production readiness. Current runtime policy uses 0.5% account-equity trade risk and 5% UTC day-start daily loss with no fixed dollar margin/notional/reserve caps.
           </p>
         </div>
 
@@ -73,11 +76,11 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
           </div>
           <div className="badge badge-outline gap-1 font-mono text-xs">
             <Lock className="h-3.5 w-3.5 text-warning" />
-            EXECUTION AUTHORITY: OFF
+            {`EXECUTION AUTHORITY: ${model.isExecutionOff ? 'OFF' : 'ON'}`}
           </div>
           <div className="badge badge-outline gap-1 font-mono text-xs">
             <Scale className="h-3.5 w-3.5 text-info" />
-            ZERO-DRIFT: {isZeroDrift ? 'VERIFIED (0.00)' : 'BREACH'}
+            ZERO-DRIFT: {isZeroDrift ? 'VERIFIED (0.00)' : 'UNVERIFIED'}
           </div>
         </div>
       </div>
@@ -111,7 +114,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
           </div>
         </div>
 
-        {/* Card 2: Micro-Capital Execution Metrics */}
+        {/* Card 2: Artifact Execution Metrics */}
         <div className="card border border-base-300 bg-base-100 shadow-sm transition hover:shadow-md">
           <div className="card-body p-5">
             <div className="flex items-center justify-between text-base-content/70">
@@ -129,23 +132,27 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Aggregate Exposure</span>
               <span className="font-mono font-bold text-base-content">
-                ${model.aggregateExposureUsdt.toFixed(2)} / ${confinement?.max_aggregate_exposure_usdt?.toFixed(2) ?? '25.00'}
+                ${model.aggregateExposureUsdt.toFixed(2)}
+                {confinement?.max_aggregate_exposure_usdt != null &&
+                confinement.max_aggregate_exposure_usdt > 0
+                  ? ` / $${confinement.max_aggregate_exposure_usdt.toFixed(2)}`
+                  : ''}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
-              <span>Active Candidates</span>
+              <span>Artifact Candidates</span>
               <span className="font-mono font-bold text-accent">
-                {`${model.candidates.length} TRADING`}
+                {`${model.candidates.length} RECORDED`}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Card 3: Capital Confinement & Cash Floor */}
+        {/* Card 3: Artifact Confinement Parameters */}
         <div className="card border border-base-300 bg-base-100 shadow-sm transition hover:shadow-md">
           <div className="card-body p-5">
             <div className="flex items-center justify-between text-base-content/70">
-              <span className="text-xs font-bold uppercase tracking-wider">Cash Reserve Floor</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Artifact Cash Ratio</span>
               <Coins className="h-4 w-4 text-warning" />
             </div>
             <div className="mt-2 flex items-baseline gap-2">
@@ -153,19 +160,29 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
                 {`${cashReservePct.toFixed(1)}%`}
               </span>
               <span className="text-xs font-semibold text-base-content/60">
-                (Floor: &ge; {confinement?.min_cash_reserve_pct?.toFixed(0) ?? '75'}%)
+                {confinement?.min_cash_reserve_pct != null && confinement.min_cash_reserve_pct > 0
+                  ? `(Artifact Floor: ≥ ${confinement.min_cash_reserve_pct.toFixed(0)}%)`
+                  : '(Current Policy: No Fixed Floor)'}
               </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Intra-Day Loss</span>
               <span className="font-mono font-bold text-success">
-                {`$${model.intraDayLossUsdt.toFixed(2)} / $${confinement?.intra_day_loss_ceiling_usdt?.toFixed(2) ?? '3.00'}`}
+                {`$${model.intraDayLossUsdt.toFixed(2)}${
+                  confinement?.intra_day_loss_ceiling_usdt != null &&
+                  confinement.intra_day_loss_ceiling_usdt > 0
+                    ? ` / $${confinement.intra_day_loss_ceiling_usdt.toFixed(2)}`
+                    : ' (5% UTC Day-Start Policy)'
+                }`}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
-              <span>Micro Order Cap</span>
+              <span>Order Sizing</span>
               <span className="font-mono font-bold text-warning">
-                {`≤ $${confinement?.max_micro_order_notional_usdt?.toFixed(2) ?? '5.00'}`}
+                {confinement?.max_micro_order_notional_usdt != null &&
+                confinement.max_micro_order_notional_usdt > 0
+                  ? `Artifact ≤ $${confinement.max_micro_order_notional_usdt.toFixed(2)}`
+                  : '0.5% Account Equity Risk'}
               </span>
             </div>
           </div>
@@ -182,18 +199,22 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
               <span className="text-2xl font-black tracking-tight text-success font-mono">
                 {`$${totalEquity.toFixed(2)}`}
               </span>
-              <span className="badge badge-sm badge-success">ZERO-DRIFT</span>
+              <span className={`badge badge-sm ${isZeroDrift ? 'badge-success' : 'badge-warning'}`}>
+                {isZeroDrift ? 'ZERO-DRIFT' : 'UNVERIFIED'}
+              </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Realized PnL</span>
               <span className="font-mono font-bold text-success">
-                {`+$${(solvency?.realized_pnl_usdt ?? 0.02).toFixed(2)} USDT`}
+                {`${realizedPnl >= 0 ? '+' : ''}$${realizedPnl.toFixed(2)} USDT`}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
               <span>Balance Drift</span>
               <span className="font-mono font-bold text-success">
-                {Math.abs(drift) < 1e-15 ? '0.00 USDT' : `${drift.toExponential(2)} USDT`}
+                {isZeroDrift && Math.abs(drift) < 1e-15
+                  ? '0.00 USDT'
+                  : `${drift.toExponential(2)} USDT`}
               </span>
             </div>
           </div>
@@ -219,7 +240,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
                 onClick={() => setActiveTab('orders')}
               >
                 <Zap className="mr-1.5 h-4 w-4" />
-                Live Self-Driving Orders ({orders.length})
+                Simulated Orders ({orders.length})
               </button>
               <button
                 type="button"
@@ -227,11 +248,11 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
                 onClick={() => setActiveTab('confinement')}
               >
                 <ShieldCheck className="mr-1.5 h-4 w-4" />
-                Micro-Capital Confinement Rules
+                Artifact Confinement Parameters
               </button>
             </div>
             <span className="badge badge-outline badge-sm font-mono">
-              Auto-Driving Universe: BTC / ETH / SOL
+              Artifact Universe: {universeLabel}
             </span>
           </div>
 
@@ -397,17 +418,20 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
             </div>
           )}
 
-          {/* TAB 3: Micro-Capital Confinement Rules */}
+          {/* TAB 3: Artifact Confinement Parameters */}
           {activeTab === 'confinement' && (
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
               <div className="rounded-xl border border-base-300 bg-base-200/40 p-4">
                 <span className="badge badge-primary badge-sm font-mono">RULE 1</span>
-                <h3 className="mt-2 font-bold text-base-content">Micro Child Sizing &amp; Step-Up</h3>
+                <h3 className="mt-2 font-bold text-base-content">Per-Trade Risk &amp; Order Sizing</h3>
                 <p className="mt-1 text-xs text-base-content/70">
-                  Target chunk size strictly &le; $5.00 USDT. If exchange filter requires &ge; $5.00 min notional, precise step-up ensures valid submission without exceeding safety margins.
+                  Current runtime policy sizes orders from 0.5% of actual exchange account equity at the protective stop distance, with no fixed dollar child-order cap.
                 </p>
                 <div className="mt-3 font-mono text-xs font-bold text-primary">
-                  Limit: &le; ${confinement?.max_micro_order_notional_usdt?.toFixed(2) ?? '5.00'} USDT
+                  {confinement?.max_micro_order_notional_usdt != null &&
+                  confinement.max_micro_order_notional_usdt > 0
+                    ? `Historical Artifact Cap: ≤ $${confinement.max_micro_order_notional_usdt.toFixed(2)} USDT`
+                    : 'Current Policy: 0.5% Account Equity Risk'}
                 </div>
               </div>
 
@@ -415,21 +439,27 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
                 <span className="badge badge-accent badge-sm font-mono">RULE 2</span>
                 <h3 className="mt-2 font-bold text-base-content">Aggregate Portfolio Exposure</h3>
                 <p className="mt-1 text-xs text-base-content/70">
-                  Global sum of open margin and nominal position value across all symbols (BTC, ETH, SOL) is strictly capped at $25.00 USDT.
+                  Current runtime policy enforces exchange available-margin and leverage-bracket sufficiency across the 12-pair universe without a fixed dollar aggregate cap.
                 </p>
                 <div className="mt-3 font-mono text-xs font-bold text-accent">
-                  Ceiling: &le; ${confinement?.max_aggregate_exposure_usdt?.toFixed(2) ?? '25.00'} USDT
+                  {confinement?.max_aggregate_exposure_usdt != null &&
+                  confinement.max_aggregate_exposure_usdt > 0
+                    ? `Historical Artifact Ceiling: ≤ $${confinement.max_aggregate_exposure_usdt.toFixed(2)} USDT`
+                    : 'Current Policy: Available Margin & Leverage Tier'}
                 </div>
               </div>
 
               <div className="rounded-xl border border-base-300 bg-base-200/40 p-4">
                 <span className="badge badge-warning badge-sm font-mono">RULE 3</span>
-                <h3 className="mt-2 font-bold text-base-content">Unencumbered Cash Floor</h3>
+                <h3 className="mt-2 font-bold text-base-content">Cash Reserve &amp; Margin Basis</h3>
                 <p className="mt-1 text-xs text-base-content/70">
-                  At least 75.0% of portfolio equity must remain in unencumbered cash reserves at all times to prevent margin pressure and liquidation.
+                  Current runtime policy removes the historical fixed cash-reserve floor and binds capital reconciliation directly to authenticated exchange account equity.
                 </p>
                 <div className="mt-3 font-mono text-xs font-bold text-warning">
-                  Floor: &ge; {confinement?.min_cash_reserve_pct?.toFixed(0) ?? '75'}% Reserve
+                  {confinement?.min_cash_reserve_pct != null &&
+                  confinement.min_cash_reserve_pct > 0
+                    ? `Historical Artifact Floor: ≥ ${confinement.min_cash_reserve_pct.toFixed(0)}% Reserve`
+                    : 'Current Policy: No Fixed Reserve Floor'}
                 </div>
               </div>
 
@@ -437,10 +467,13 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
                 <span className="badge badge-error badge-sm font-mono">RULE 4</span>
                 <h3 className="mt-2 font-bold text-base-content">Intra-Day Loss Circuit</h3>
                 <p className="mt-1 text-xs text-base-content/70">
-                  Daily drawdown capped at $3.00 USDT. If cumulative daily loss breaches ceiling, all positions are emergency-flattened and bot halts.
+                  Current runtime policy halts new entries and flattens owned positions if cumulative daily loss reaches 5% of authentic UTC day-start account equity.
                 </p>
                 <div className="mt-3 font-mono text-xs font-bold text-error">
-                  Ceiling: &le; ${confinement?.intra_day_loss_ceiling_usdt?.toFixed(2) ?? '3.00'} USDT
+                  {confinement?.intra_day_loss_ceiling_usdt != null &&
+                  confinement.intra_day_loss_ceiling_usdt > 0
+                    ? `Historical Artifact Ceiling: ≤ $${confinement.intra_day_loss_ceiling_usdt.toFixed(2)} USDT`
+                    : 'Current Policy: 5% UTC Day-Start Equity'}
                 </div>
               </div>
 
@@ -448,10 +481,10 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
                 <span className="badge badge-info badge-sm font-mono">RULE 5</span>
                 <h3 className="mt-2 font-bold text-base-content">Hawkes Supercritical Cutoff</h3>
                 <p className="mt-1 text-xs text-base-content/70">
-                  If multivariate Hawkes spectral radius &rho; &ge; 1.0 (supercritical runaway), new order dispatch is throttled instantly.
+                  If multivariate Hawkes spectral radius &rho; &ge; 1.0 (supercritical runaway) or fit is boundary-pinned, new order dispatch is vetoed.
                 </p>
                 <div className="mt-3 font-mono text-xs font-bold text-info">
-                  Boundary: &rho; &lt; 1.0 (Safe)
+                  Boundary: &rho; &lt; 1.0 (Identified Fit)
                 </div>
               </div>
 
@@ -459,7 +492,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
                 <span className="badge badge-secondary badge-sm font-mono">RULE 6</span>
                 <h3 className="mt-2 font-bold text-base-content">Gateway Latency Threshold</h3>
                 <p className="mt-1 text-xs text-base-content/70">
-                  Gateway heartbeat age and round-trip latency must remain &le; 500 ms. Stale telemetry immediately engages Level 2 Lockout.
+                  Gateway heartbeat age and round-trip latency must remain &le; 500 ms. Stale telemetry immediately blocks new order admission.
                 </p>
                 <div className="mt-3 font-mono text-xs font-bold text-secondary">
                   Threshold: &le; 500 ms Staleness
@@ -531,7 +564,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
               </div>
               <h3 className="mt-1 font-bold text-xs text-primary">Live Production Launch</h3>
               <p className="mt-1 text-[11px] text-base-content/80 font-medium">
-                Micro-capital self-driving engine with mathematical zero-drift ledger.
+                Historical simulation artifact with mathematical zero-drift ledger.
               </p>
             </div>
           </div>
@@ -553,7 +586,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
                 Phase 308 Upstream Root
               </span>
               <p className="mt-1 font-mono text-xs break-all text-base-content/80">
-                {model.upstreamHash}
+                {model.upstreamHash || '—'}
               </p>
             </div>
             <div className="rounded-xl border border-base-300 bg-base-200/50 p-4">
@@ -569,7 +602,7 @@ export function ProductionLaunchPage({ model }: { model: ProductionLaunchModel }
                 Phase 309 Merkle Root
               </span>
               <p className="mt-1 font-mono text-xs break-all font-bold text-primary">
-                {model.merkleRoot || '5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844'}
+                {model.merkleRoot || '—'}
               </p>
             </div>
           </div>

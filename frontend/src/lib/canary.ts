@@ -241,6 +241,7 @@ export interface ExecutionPositionItemData {
   status?: string
   entry_price?: number | null
   mark_price?: number | null
+  last_price?: number | null
   unrealized_pnl_usdt?: number
   allocated_margin_usdt?: number
   take_profit_price?: number | null
@@ -267,6 +268,7 @@ export interface ExecutionOrderItemData {
 export interface ExecutionSolvencyData {
   starting_equity_usdt?: number
   cash_usdt?: number
+  available_balance_usdt?: number
   allocated_margin_usdt?: number
   unrealized_pnl_usdt?: number
   realized_pnl_usdt?: number
@@ -275,6 +277,17 @@ export interface ExecutionSolvencyData {
   zero_balance_drift_verified?: boolean
   cash_reserve_pct?: number
   unencumbered_cash_verified?: boolean
+}
+
+export interface ExecutionDailyRiskData {
+  verified: boolean
+  day_start_equity_usdt?: number | null
+  limit_pct?: number | null
+  limit_usdt?: number | null
+  loss_usdt?: number | null
+  remaining_usdt?: number | null
+  breached?: boolean | null
+  equity_basis?: string | null
 }
 
 export interface ExecutionStatusResponse {
@@ -289,7 +302,8 @@ export interface ExecutionStatusResponse {
   recent_orders: ExecutionOrderItemData[]
   total_orders: number
   interlock_blocks_count: number
-  intra_day_loss_usdt: number
+  intra_day_loss_usdt?: number | null
+  daily_risk?: ExecutionDailyRiskData
 }
 
 export interface MicrostructureModel {
@@ -1296,14 +1310,24 @@ export interface StressFaultInjectionModel {
   timestampMs: number
   timestampUtc: string
   isPaperSafe: boolean
+  paperSafetyEvidenceAvailable: boolean
   isExecutionOff: boolean
-  isZeroDrift: boolean
-  subMillisecondLatencyVerified: boolean
+  executionAuthorityAvailable: boolean
+  isZeroDrift: boolean | null
+  subMillisecondLatencyVerified: boolean | null
   shockVectors: ShockVectorStatusItem[]
   circuitBreakerLatencies: CircuitBreakerLatencyItem[]
   autoFlatteningAudits: AutoFlatteningAuditItem[]
-  ledger: LedgerReconciliationItem
-  solvency: DoubleEntrySolvencyItem
+  ledger: {
+    starting_equity?: number | null
+    cash?: number | null
+    allocated_margin?: number | null
+    unrealized_pnl?: number | null
+    realized_pnl?: number | null
+    drift?: number | null
+    zero_balance_drift?: boolean | null
+  } | null
+  solvency: { [K in keyof DoubleEntrySolvencyItem]: DoubleEntrySolvencyItem[K] | null } | null
   capitalPreservationStats: {
     pre_flatten_equity_usdt: number
     post_flatten_cash_usdt: number
@@ -1312,7 +1336,7 @@ export interface StressFaultInjectionModel {
     actual_loss_usdt: number
     loss_ceiling_breached: boolean
     circuit_state: string
-  }
+  } | null
   upstreamHash: string
   phaseHash: string
   merkleRoot: string
@@ -1323,166 +1347,61 @@ export function buildStressFaultInjectionModel(
 ): StressFaultInjectionModel {
   if (!data) {
     return {
-      phase: 'phase_297',
+      phase: 'UNKNOWN',
       verified: false,
       status: 'UNAVAILABLE',
       circuitState: 'UNKNOWN',
       timestampMs: 0,
       timestampUtc: '',
-      isPaperSafe: true,
-      isExecutionOff: true,
-      isZeroDrift: true,
-      subMillisecondLatencyVerified: true,
-      shockVectors: [
-        {
-          vector_id: 'vector_flash_crash',
-          name: 'Flash Crash Shock',
-          status: 'NORMAL',
-          intensity: '-20.0% sudden price drop within 100 ms',
-          action_taken: 'TRIP_BREAKER & AUTO_FLATTEN',
-          timestamp_utc: '',
-        },
-        {
-          vector_id: 'vector_liquidity_evaporation',
-          name: 'Liquidity Evaporation & Wide Spread',
-          status: 'NORMAL',
-          intensity: 'Spread 10.0% (1000 bps) & 95% depth depletion',
-          action_taken: 'SPREAD_SHOCK_VETO & HALT_NEW_ORDERS',
-          timestamp_utc: '',
-        },
-        {
-          vector_id: 'vector_phantom_depth_spoofing',
-          name: 'Phantom Depth / Spoofing & Toxic Flow',
-          status: 'NORMAL',
-          intensity: 'Asymmetry |OFI| > 0.95 & rapid quote cancellations',
-          action_taken: 'HAZARD_VETO & CANCEL_RESTING_ORDERS',
-          timestamp_utc: '',
-        },
-        {
-          vector_id: 'vector_telemetry_degradation',
-          name: 'Telemetry Degradation & Clock Skew',
-          status: 'NORMAL',
-          intensity: 'Clock skew > 500 ms & packet sequence gap > 1,000',
-          action_taken: 'HEARTBEAT_VETO & FAIL_CLOSED_LOCKOUT',
-          timestamp_utc: '',
-        },
-      ],
-      circuitBreakerLatencies: [
-        {
-          breaker_id: 'cb_default_001',
-          vector_id: 'FLASH_CRASH',
-          detection_latency_us: 13.3,
-          trigger_latency_us: 13.3,
-          action: 'HALT_DISPATCH',
-          tripped: false,
-          sub_millisecond: true,
-        },
-      ],
+      isPaperSafe: false,
+      paperSafetyEvidenceAvailable: false,
+      isExecutionOff: false,
+      executionAuthorityAvailable: false,
+      isZeroDrift: null,
+      subMillisecondLatencyVerified: null,
+      shockVectors: [],
+      circuitBreakerLatencies: [],
       autoFlatteningAudits: [],
-      ledger: {
-        starting_equity: 100.0,
-        cash: 100.0,
-        allocated_margin: 0.0,
-        unrealized_pnl: 0.0,
-        realized_pnl: 0.0,
-        drift: 0.0,
-        zero_balance_drift: true,
-      },
-      solvency: {
-        starting_equity_usdt: 100.0,
-        cash_usdt: 100.0,
-        allocated_margin_usdt: 0.0,
-        unrealized_pnl_usdt: 0.0,
-        realized_pnl_usdt: 0.0,
-        total_equity_usdt: 100.0,
-        total_fees_usdt: 0.0,
-        total_slippage_usdt: 0.0,
-        drift_usdt: 0.0,
-        zero_balance_drift_verified: true,
-        tolerance_ceiling_usdt: 1e-15,
-        solvency_ratio_pct: 100.0,
-        cash_reserve_pct: 100.0,
-        unencumbered_cash_verified: true,
-      },
-      capitalPreservationStats: {
-        pre_flatten_equity_usdt: 100.0,
-        post_flatten_cash_usdt: 100.0,
-        capital_preserved_pct: 100.0,
-        max_loss_budget_usdt: 7.00,
-        actual_loss_usdt: 0.0,
-        loss_ceiling_breached: false,
-        circuit_state: 'UNKNOWN',
-      },
-      upstreamHash: '—',
-      phaseHash: '—',
-      merkleRoot: '—',
+      ledger: null,
+      solvency: null,
+      capitalPreservationStats: null,
+      upstreamHash: '',
+      phaseHash: '',
+      merkleRoot: '',
     }
   }
 
-  const isZeroDrift =
-    data.solvency?.zero_balance_drift_verified ??
-    (data.ledger?.zero_balance_drift !== undefined
-      ? Boolean(data.ledger.zero_balance_drift)
-      : Math.abs(data.ledger?.drift ?? 0) < 1e-15)
+  const isZeroDrift = data.solvency?.zero_balance_drift_verified ??
+    data.ledger?.zero_balance_drift ??
+    (typeof data.ledger?.drift === 'number' ? Math.abs(data.ledger.drift) < 1e-15 : null)
 
   const subMillisecondLatencyVerified =
     data.circuit_breaker_latencies?.length > 0
       ? data.circuit_breaker_latencies.every((cb) => cb.sub_millisecond && cb.detection_latency_us < 1000.0)
-      : true
-
-  const defaultSolvency: DoubleEntrySolvencyItem = {
-    starting_equity_usdt: data.ledger?.starting_equity ?? 100.0,
-    cash_usdt: data.ledger?.cash ?? 100.0,
-    allocated_margin_usdt: data.ledger?.allocated_margin ?? 0.0,
-    unrealized_pnl_usdt: data.ledger?.unrealized_pnl ?? 0.0,
-    realized_pnl_usdt: data.ledger?.realized_pnl ?? 0.0,
-    total_equity_usdt: (data.ledger?.cash ?? 100.0) + (data.ledger?.allocated_margin ?? 0.0) + (data.ledger?.unrealized_pnl ?? 0.0),
-    total_fees_usdt: 0.0,
-    total_slippage_usdt: 0.0,
-    drift_usdt: data.ledger?.drift ?? 0.0,
-    zero_balance_drift_verified: isZeroDrift,
-    tolerance_ceiling_usdt: 1e-15,
-    solvency_ratio_pct: 100.0,
-    cash_reserve_pct: data.ledger?.starting_equity ? roundTo((data.ledger.cash / data.ledger.starting_equity) * 100.0, 2) : 100.0,
-    unencumbered_cash_verified: true,
-  }
+      : null
 
   return {
     phase: data.phase,
-    verified: Boolean(data.verified ?? true),
+    verified: data.verified === true,
     status: data.status,
-    circuitState: data.circuit_state || 'HALTED',
+    circuitState: data.circuit_state || 'UNKNOWN',
     timestampMs: data.timestamp_ms,
     timestampUtc: data.timestamp_utc || (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
-    isPaperSafe: data.paper_safe,
-    isExecutionOff: !data.execution_authority,
+    isPaperSafe: data.paper_safe === true,
+    paperSafetyEvidenceAvailable: typeof data.paper_safe === 'boolean',
+    isExecutionOff: data.execution_authority === false,
+    executionAuthorityAvailable: typeof data.execution_authority === 'boolean',
     isZeroDrift,
     subMillisecondLatencyVerified,
-    shockVectors: data.shock_vectors || [],
-    circuitBreakerLatencies: data.circuit_breaker_latencies || [],
-    autoFlatteningAudits: data.auto_flattening_audits || [],
-    ledger: data.ledger || {
-      starting_equity: 100.0,
-      cash: 100.0,
-      allocated_margin: 0.0,
-      unrealized_pnl: 0.0,
-      realized_pnl: 0.0,
-      drift: 0.0,
-      zero_balance_drift: true,
-    },
-    solvency: data.solvency || defaultSolvency,
-    capitalPreservationStats: data.capital_preservation_stats || {
-      pre_flatten_equity_usdt: 100.0,
-      post_flatten_cash_usdt: 100.0,
-      capital_preserved_pct: 100.0,
-      max_loss_budget_usdt: 7.00,
-      actual_loss_usdt: 0.0,
-      loss_ceiling_breached: false,
-      circuit_state: data.circuit_state || 'HALTED',
-    },
-    upstreamHash: data.upstream_hash || '—',
-    phaseHash: data.phase_hash || '—',
-    merkleRoot: data.merkle_root || '—',
+    shockVectors: data.shock_vectors ?? [],
+    circuitBreakerLatencies: data.circuit_breaker_latencies ?? [],
+    autoFlatteningAudits: data.auto_flattening_audits ?? [],
+    ledger: data.ledger ?? null,
+    solvency: data.solvency ?? null,
+    capitalPreservationStats: data.capital_preservation_stats ?? null,
+    upstreamHash: data.upstream_hash ?? '',
+    phaseHash: data.phase_hash ?? '',
+    merkleRoot: data.merkle_root ?? '',
   }
 }
 
@@ -3984,8 +3903,13 @@ export interface AutoEvolutionModel {
   timestampMs: number
   timestampUtc: string
   isPaperSafe: boolean
+  paperSafetyEvidenceAvailable: boolean
   isExecutionOff: boolean
+  executionAuthorityAvailable: boolean
   isZeroDrift: boolean
+  accountingEvidenceAvailable: boolean
+  performanceDataAvailable: boolean
+  solvencyDataAvailable: boolean
   candidates: string[]
   performance: EvolutionPerformanceData
   autopsiesTrace: AutopsyRecordData[]
@@ -4016,30 +3940,30 @@ export function buildAutoEvolutionModel(
   }
 
   const defaultSolvency: DoubleEntrySolvencyItem = {
-    starting_equity_usdt: 100.0,
-    cash_usdt: 100.0,
+    starting_equity_usdt: 0.0,
+    cash_usdt: 0.0,
     allocated_margin_usdt: 0.0,
     unrealized_pnl_usdt: 0.0,
     realized_pnl_usdt: 0.0,
-    total_equity_usdt: 100.0,
+    total_equity_usdt: 0.0,
     total_fees_usdt: 0.0,
     total_slippage_usdt: 0.0,
     drift_usdt: 0.0,
-    zero_balance_drift_verified: true,
+    zero_balance_drift_verified: false,
     tolerance_ceiling_usdt: 1e-15,
-    solvency_ratio_pct: 100.0,
-    cash_reserve_pct: 100.0,
-    unencumbered_cash_verified: true,
+    solvency_ratio_pct: 0.0,
+    cash_reserve_pct: 0.0,
+    unencumbered_cash_verified: false,
   }
 
   const defaultLedger: LedgerReconciliationItem = {
-    starting_equity: 100.0,
-    cash: 100.0,
+    starting_equity: 0.0,
+    cash: 0.0,
     allocated_margin: 0.0,
     unrealized_pnl: 0.0,
     realized_pnl: 0.0,
     drift: 0.0,
-    zero_balance_drift: true,
+    zero_balance_drift: false,
   }
 
   if (!data) {
@@ -4051,8 +3975,13 @@ export function buildAutoEvolutionModel(
       timestampMs: 0,
       timestampUtc: '',
       isPaperSafe: false,
+      paperSafetyEvidenceAvailable: false,
       isExecutionOff: true,
+      executionAuthorityAvailable: false,
       isZeroDrift: false,
+      accountingEvidenceAvailable: false,
+      performanceDataAvailable: false,
+      solvencyDataAvailable: false,
       candidates: [],
       performance: defaultPerformance,
       autopsiesTrace: [],
@@ -4070,26 +3999,27 @@ export function buildAutoEvolutionModel(
   const isZeroDrift = Boolean(
     data.solvency?.zero_balance_drift_verified ??
       data.ledger?.zero_balance_drift ??
-      true,
+      false,
   )
 
   return {
     phase: data.phase || 'phase_306',
-    verified: Boolean(data.verified ?? true),
-    status: data.status || 'SIMULATION_ARTIFACT_VERIFIED',
-    circuitState: data.circuit_state || 'NORMAL',
+    verified: Boolean(data.verified ?? false),
+    status: data.status || 'UNVERIFIED',
+    circuitState: data.circuit_state || 'UNKNOWN',
     timestampMs: data.timestamp_ms ?? 0,
     timestampUtc:
       data.timestamp_utc ||
       (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
-    isPaperSafe: data.paper_safe ?? true,
+    isPaperSafe: data.paper_safe ?? false,
+    paperSafetyEvidenceAvailable: typeof data.paper_safe === 'boolean',
     isExecutionOff: !(data.execution_authority ?? false),
+    executionAuthorityAvailable: typeof data.execution_authority === 'boolean',
     isZeroDrift,
-    candidates: data.candidates || [
-      'cand-btcusdt-dcb-002',
-      'cand-ethusdt-dcb-003',
-      'cand-solusdt-rgb-001',
-    ],
+    accountingEvidenceAvailable: Boolean(data.solvency || data.ledger),
+    performanceDataAvailable: Boolean(data.performance),
+    solvencyDataAvailable: Boolean(data.solvency),
+    candidates: data.candidates ?? [],
     performance: data.performance || defaultPerformance,
     autopsiesTrace: data.autopsies_trace || [],
     healthEvaluations: data.health_evaluations || {},
@@ -4097,74 +4027,10 @@ export function buildAutoEvolutionModel(
     shadowEvaluations: data.shadow_evaluations || [],
     solvency: data.solvency || defaultSolvency,
     ledger: data.ledger || defaultLedger,
-    upstreamHash:
-      data.upstream_hash ||
-      '0cbf6a93a5332789d5053f72e7e494b03b48ccd0ff7c62118bb339d5d905aa7c',
+    upstreamHash: data.upstream_hash ?? '',
     phaseHash: data.phase_hash || '',
     merkleRoot: data.merkle_root || '',
-    liveProgress: data.live_progress
-      ? {
-          ...data.live_progress,
-          scanned_symbols: data.live_progress.scanned_symbols || [
-            'BTCUSDT',
-            'ETHUSDT',
-            'SOLUSDT',
-            'DOGEUSDT',
-            'BNBUSDT',
-            'XRPUSDT',
-            'SUIUSDT',
-            'AVAXUSDT',
-          ],
-        }
-      : {
-          is_live_daemon_active: true,
-          current_cycle_stage: 'SHADOW_OOS_GATE',
-          cycle_progress_pct: 80.0,
-          stage_status: 'WAITING_FOR_SAMPLES',
-          stage_status_label: 'WAITING_FOR_SAMPLES (0/5)',
-          closed_trades_count: 0,
-          required_trades_count: 5,
-          sharpe_hurdle_pct: 15.0,
-          current_sharpe_improvement_pct: 0.0,
-          active_generation: 'GEN #2',
-          next_target_generation: 'GEN #3',
-          last_evaluated_timestamp_ms: data.timestamp_ms || Date.now(),
-          last_candle_fetch_timestamp_ms: (data.timestamp_ms || Date.now()) - 5000,
-          next_cycle_seconds: 15,
-          heartbeat_latency_ms: 42.0,
-          daemon_status: 'ONLINE 24/7',
-          daemon_pid: 87549,
-          scanned_symbols: [
-            'BTCUSDT',
-            'ETHUSDT',
-            'SOLUSDT',
-            'DOGEUSDT',
-            'BNBUSDT',
-            'XRPUSDT',
-            'SUIUSDT',
-            'AVAXUSDT',
-          ],
-          oos_gate: {
-            samples_required: 5,
-            samples_acquired: 0,
-            sharpe_hurdle_pct: 15.0,
-            current_sharpe_improvement_pct: 0.0,
-            status: 'WAITING_FOR_SAMPLES',
-            status_label: 'WAITING_FOR_SAMPLES (0/5)',
-            explanation:
-              'Waiting for 5 completed trade samples to evaluate out-of-sample Sharpe (current: 0/5, hurdle >= 15.0%).',
-          },
-          macro_gating_state: {
-            regime: 'BEARISH',
-            longs_filtered: true,
-            is_long_allowed: false,
-            explanation_ms:
-              'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
-            explanation:
-              'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
-          },
-          recent_events: [],
-        },
+    liveProgress: data.live_progress ?? undefined,
   }
 }
 
@@ -4270,18 +4136,18 @@ export interface TestnetBridgeModel {
   verified: boolean
   status: string
   circuitState: string
-  timestampMs: number
+  timestampMs: number | null
   timestampUtc: string
-  isPaperSafe: boolean
-  isExecutionOff: boolean
-  isZeroDrift: boolean
-  bridge: CanaryBridgeStatusItem
-  performance: CanaryTestnetBridgePerformanceItem
+  isPaperSafe: boolean | null
+  isExecutionOff: boolean | null
+  isZeroDrift: boolean | null
+  bridge: CanaryBridgeStatusItem | null
+  performance: CanaryTestnetBridgePerformanceItem | null
   exchangeFilters: Record<string, CanaryExchangeFilterInfoItem>
   dispatchedOrdersTrace: CanaryDispatchedOrderItem[]
   userDataEventsTrace: CanaryUserDataStreamEventRecordItem[]
-  solvency: DoubleEntrySolvencyItem
-  ledger: LedgerReconciliationItem
+  solvency: DoubleEntrySolvencyItem | null
+  ledger: LedgerReconciliationItem | null
   upstreamHash: string
   phaseHash: string
   merkleRoot: string
@@ -4290,147 +4156,32 @@ export interface TestnetBridgeModel {
 export function buildTestnetBridgeModel(
   data: CanaryTestnetBridgeData | null,
 ): TestnetBridgeModel {
-  const defaultBridge: CanaryBridgeStatusItem = {
-    connection_state: 'CONNECTED',
-    api_key_masked: 'mock-****-7f89',
-    is_mock_credentials: true,
-    clock_offset_ms: 12,
-    clock_skew_verified: true,
-    listen_key: 'lk-testnet-live-bridge-001',
-    listen_key_active: true,
-  }
-
-  const defaultPerformance: CanaryTestnetBridgePerformanceItem = {
-    total_orders_dispatched: 12,
-    total_orders_filled: 12,
-    fill_rate_pct: 100.0,
-    mean_round_trip_ms: 18.5,
-    mean_filter_latency_us: 14.2,
-    mean_sign_latency_us: 28.6,
-    max_micro_notional_usdt: 5.71,
-    micro_cap_verified: true,
-    lot_size_filter_verified: true,
-    price_filter_verified: true,
-    min_notional_verified: true,
-  }
-
-  const defaultFilters: Record<string, CanaryExchangeFilterInfoItem> = {
-    BTCUSDT: {
-      symbol: 'BTCUSDT',
-      step_size: 0.00001,
-      min_qty: 0.00001,
-      max_qty: 100.0,
-      tick_size: 0.1,
-      min_price: 1000.0,
-      max_price: 500000.0,
-      min_notional_usdt: 5.0,
-      max_micro_cap_usdt: 5.0,
-    },
-    ETHUSDT: {
-      symbol: 'ETHUSDT',
-      step_size: 0.001,
-      min_qty: 0.001,
-      max_qty: 1000.0,
-      tick_size: 0.01,
-      min_price: 100.0,
-      max_price: 50000.0,
-      min_notional_usdt: 5.0,
-      max_micro_cap_usdt: 5.0,
-    },
-    SOLUSDT: {
-      symbol: 'SOLUSDT',
-      step_size: 0.01,
-      min_qty: 0.01,
-      max_qty: 10000.0,
-      tick_size: 0.01,
-      min_price: 1.0,
-      max_price: 5000.0,
-      min_notional_usdt: 5.0,
-      max_micro_cap_usdt: 5.0,
-    },
-  }
-
-  const defaultSolvency: DoubleEntrySolvencyItem = {
-    starting_equity_usdt: 100.0,
-    cash_usdt: 100.12,
-    allocated_margin_usdt: 0.0,
-    unrealized_pnl_usdt: 0.0,
-    realized_pnl_usdt: 0.12,
-    total_equity_usdt: 100.12,
-    total_fees_usdt: 0.01,
-    total_slippage_usdt: 0.0,
-    drift_usdt: 0.0,
-    zero_balance_drift_verified: true,
-    tolerance_ceiling_usdt: 1e-15,
-    solvency_ratio_pct: 100.0,
-    cash_reserve_pct: 100.0,
-    unencumbered_cash_verified: true,
-  }
-
-  const defaultLedger: LedgerReconciliationItem = {
-    starting_equity: 100.0,
-    cash: 100.12,
-    allocated_margin: 0.0,
-    unrealized_pnl: 0.0,
-    realized_pnl: 0.12,
-    drift: 0.0,
-    zero_balance_drift: true,
-  }
-
-  if (!data) {
-    return {
-      phase: 'phase_307',
-      verified: false,
-      status: 'UNAVAILABLE',
-      circuitState: 'NORMAL',
-      timestampMs: 0,
-      timestampUtc: '',
-      isPaperSafe: true,
-      isExecutionOff: true,
-      isZeroDrift: true,
-      bridge: defaultBridge,
-      performance: defaultPerformance,
-      exchangeFilters: defaultFilters,
-      dispatchedOrdersTrace: [],
-      userDataEventsTrace: [],
-      solvency: defaultSolvency,
-      ledger: defaultLedger,
-      upstreamHash: '818fd82458a8fb19420dd0179c8f78b0c273e5d2a71b1968b083d20f99e23dbe',
-      phaseHash: '',
-      merkleRoot: '',
-    }
-  }
-
-  const isZeroDrift = Boolean(
-    data.solvency?.zero_balance_drift_verified ??
-      data.ledger?.zero_balance_drift ??
-      true,
-  )
+  const isZeroDrift =
+    data?.solvency?.zero_balance_drift_verified ?? data?.ledger?.zero_balance_drift ?? null
 
   return {
-    phase: data.phase || 'phase_307',
-    verified: Boolean(data.verified ?? true),
-    status: data.status || 'TESTNET_BRIDGE_VERIFIED',
-    circuitState: data.circuit_state || 'NORMAL',
-    timestampMs: data.timestamp_ms ?? 0,
+    phase: data?.phase ?? 'phase_307',
+    verified: data?.verified === true,
+    status: data?.status ?? 'UNAVAILABLE',
+    circuitState: data?.circuit_state ?? 'UNKNOWN',
+    timestampMs: data?.timestamp_ms ?? null,
     timestampUtc:
-      data.timestamp_utc ||
-      (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
-    isPaperSafe: data.paper_safe ?? true,
-    isExecutionOff: !(data.execution_authority ?? false),
+      data?.timestamp_utc ??
+      (data?.timestamp_ms !== undefined ? new Date(data.timestamp_ms).toISOString() : ''),
+    isPaperSafe: data?.paper_safe ?? null,
+    isExecutionOff:
+      data?.execution_authority === undefined ? null : !data.execution_authority,
     isZeroDrift,
-    bridge: data.bridge || defaultBridge,
-    performance: data.performance || defaultPerformance,
-    exchangeFilters: data.exchange_filters || defaultFilters,
-    dispatchedOrdersTrace: data.dispatched_orders_trace || [],
-    userDataEventsTrace: data.user_data_events_trace || [],
-    solvency: data.solvency || defaultSolvency,
-    ledger: data.ledger || defaultLedger,
-    upstreamHash:
-      data.upstream_hash ||
-      '818fd82458a8fb19420dd0179c8f78b0c273e5d2a71b1968b083d20f99e23dbe',
-    phaseHash: data.phase_hash || '',
-    merkleRoot: data.merkle_root || '',
+    bridge: data?.bridge ?? null,
+    performance: data?.performance ?? null,
+    exchangeFilters: data?.exchange_filters ?? {},
+    dispatchedOrdersTrace: data?.dispatched_orders_trace ?? [],
+    userDataEventsTrace: data?.user_data_events_trace ?? [],
+    solvency: data?.solvency ?? null,
+    ledger: data?.ledger ?? null,
+    upstreamHash: data?.upstream_hash ?? '',
+    phaseHash: data?.phase_hash ?? '',
+    merkleRoot: data?.merkle_root ?? '',
   }
 }
 
@@ -4803,106 +4554,39 @@ export interface ProductionLaunchModel {
 export function buildProductionLaunchModel(
   data: CanaryProductionLaunchData | null,
 ): ProductionLaunchModel {
-  const defaultAllocations: CanaryCandidateAllocationItem[] = [
-    {
-      symbol: 'BTCUSDT',
-      current_price: 95000.0,
-      position_qty: 0.0,
-      entry_price: 0.0,
-      allocated_exposure_usdt: 0.0,
-      unrealized_pnl_usdt: 0.0,
-      realized_pnl_usdt: 0.02,
-      total_fees_usdt: 0.002,
-      trades_count: 2,
-    },
-    {
-      symbol: 'ETHUSDT',
-      current_price: 3300.0,
-      position_qty: 0.0,
-      entry_price: 0.0,
-      allocated_exposure_usdt: 0.0,
-      unrealized_pnl_usdt: 0.0,
-      realized_pnl_usdt: 0.01,
-      total_fees_usdt: 0.002,
-      trades_count: 2,
-    },
-    {
-      symbol: 'SOLUSDT',
-      current_price: 185.0,
-      position_qty: 0.0,
-      entry_price: 0.0,
-      allocated_exposure_usdt: 0.0,
-      unrealized_pnl_usdt: 0.0,
-      realized_pnl_usdt: 0.01,
-      total_fees_usdt: 0.002,
-      trades_count: 2,
-    },
-  ]
-
-  const defaultOrders: CanarySelfDrivingOrderItem[] = [
-    {
-      order_id: 'ord-btc-01',
-      symbol: 'BTCUSDT',
-      side: 'BUY',
-      order_type: 'LIMIT',
-      price: 95000.0,
-      quantity: 0.00006,
-      notional_usdt: 5.70,
-      status: 'FILLED',
-      fill_price: 95000.0,
-      fee_usdt: 0.002,
-      realized_pnl_usdt: 0.0,
-      timestamp_ms: 1790200000000,
-    },
-    {
-      order_id: 'ord-btc-02',
-      symbol: 'BTCUSDT',
-      side: 'SELL',
-      order_type: 'LIMIT',
-      price: 95300.0,
-      quantity: 0.00006,
-      notional_usdt: 5.718,
-      status: 'FILLED',
-      fill_price: 95300.0,
-      fee_usdt: 0.002,
-      realized_pnl_usdt: 0.018,
-      timestamp_ms: 1790200002000,
-    },
-  ]
-
-  const defaultConfinement: CanaryMicroCapitalConfinementItem = {
-    max_micro_order_notional_usdt: 5.0,
-    max_aggregate_exposure_usdt: 25.0,
-    min_cash_reserve_pct: 75.0,
-    intra_day_loss_ceiling_usdt: 3.0,
-    intra_day_loss_observed_usdt: 0.0,
+  const emptyConfinement: CanaryMicroCapitalConfinementItem = {
+    max_micro_order_notional_usdt: 0,
+    max_aggregate_exposure_usdt: 0,
+    min_cash_reserve_pct: 0,
+    intra_day_loss_ceiling_usdt: 0,
+    intra_day_loss_observed_usdt: 0,
   }
 
-  const defaultSolvency: DoubleEntrySolvencyItem = {
-    starting_equity_usdt: 100.0,
-    cash_usdt: 100.02,
-    allocated_margin_usdt: 0.0,
-    unrealized_pnl_usdt: 0.0,
-    realized_pnl_usdt: 0.02,
-    total_equity_usdt: 100.02,
-    total_fees_usdt: 0.006,
-    total_slippage_usdt: 0.0,
-    drift_usdt: 0.0,
-    zero_balance_drift_verified: true,
-    tolerance_ceiling_usdt: 1e-15,
-    solvency_ratio_pct: 100.0,
-    cash_reserve_pct: 100.0,
-    unencumbered_cash_verified: true,
+  const emptySolvency: DoubleEntrySolvencyItem = {
+    starting_equity_usdt: 0,
+    cash_usdt: 0,
+    allocated_margin_usdt: 0,
+    unrealized_pnl_usdt: 0,
+    realized_pnl_usdt: 0,
+    total_equity_usdt: 0,
+    total_fees_usdt: 0,
+    total_slippage_usdt: 0,
+    drift_usdt: 0,
+    zero_balance_drift_verified: false,
+    tolerance_ceiling_usdt: 0,
+    solvency_ratio_pct: 0,
+    cash_reserve_pct: 0,
+    unencumbered_cash_verified: false,
   }
 
-  const defaultLedger: LedgerReconciliationItem = {
-    starting_equity: 100.0,
-    cash: 100.02,
-    allocated_margin: 0.0,
-    unrealized_pnl: 0.0,
-    realized_pnl: 0.02,
-    drift: 0.0,
-    zero_balance_drift: true,
+  const emptyLedger: LedgerReconciliationItem = {
+    starting_equity: 0,
+    cash: 0,
+    allocated_margin: 0,
+    unrealized_pnl: 0,
+    realized_pnl: 0,
+    drift: 0,
+    zero_balance_drift: false,
   }
 
   if (!data) {
@@ -4925,38 +4609,9 @@ export function buildProductionLaunchModel(
       candidates: [],
       candidateAllocations: [],
       recentOrders: [],
-      confinement: {
-        max_micro_order_notional_usdt: 0,
-        max_aggregate_exposure_usdt: 0,
-        min_cash_reserve_pct: 0,
-        intra_day_loss_ceiling_usdt: 0,
-        intra_day_loss_observed_usdt: 0,
-      },
-      solvency: {
-        starting_equity_usdt: 0,
-        cash_usdt: 0,
-        allocated_margin_usdt: 0,
-        unrealized_pnl_usdt: 0,
-        realized_pnl_usdt: 0,
-        total_equity_usdt: 0,
-        total_fees_usdt: 0,
-        total_slippage_usdt: 0,
-        drift_usdt: 0,
-        zero_balance_drift_verified: false,
-        tolerance_ceiling_usdt: 0,
-        solvency_ratio_pct: 0,
-        cash_reserve_pct: 0,
-        unencumbered_cash_verified: false,
-      },
-      ledger: {
-        starting_equity: 0,
-        cash: 0,
-        allocated_margin: 0,
-        unrealized_pnl: 0,
-        realized_pnl: 0,
-        drift: 0,
-        zero_balance_drift: false,
-      },
+      confinement: emptyConfinement,
+      solvency: emptySolvency,
+      ledger: emptyLedger,
       upstreamHash: '',
       phaseHash: '',
       merkleRoot: '',
@@ -4966,40 +4621,36 @@ export function buildProductionLaunchModel(
   const isZeroDrift = Boolean(
     data.solvency?.zero_balance_drift_verified ??
       data.ledger?.zero_balance_drift ??
-      true,
+      false,
   )
 
   return {
     phase: data.phase || 'phase_309',
-    verified: Boolean(data.verified ?? true),
-    status: data.status || 'SIMULATION_ARTIFACT_VERIFIED',
-    circuitState: data.circuit_state || 'NORMAL',
-    engineState: data.engine_state || 'MICRO_CAPITAL_ACTIVE',
+    verified: data.verified === true,
+    status: data.status || 'UNAVAILABLE',
+    circuitState: data.circuit_state || 'UNAVAILABLE',
+    engineState: data.engine_state || 'UNAVAILABLE',
     timestampMs: data.timestamp_ms ?? 0,
     timestampUtc:
       data.timestamp_utc ||
       (data.timestamp_ms ? new Date(data.timestamp_ms).toISOString() : ''),
-    isPaperSafe: data.paper_safe ?? true,
+    isPaperSafe: data.paper_safe === true,
     isExecutionOff: !(data.execution_authority ?? false),
     isZeroDrift,
-    totalOrders: data.total_orders ?? (data.recent_orders?.length ?? 6),
-    totalTrades: data.total_trades ?? (data.recent_orders?.length ?? 6),
+    totalOrders: data.total_orders ?? (data.recent_orders?.length ?? 0),
+    totalTrades: data.total_trades ?? (data.recent_orders?.length ?? 0),
     interlockBlocksCount: data.interlock_blocks_count ?? 0,
     intraDayLossUsdt: data.intra_day_loss_usdt ?? 0.0,
     aggregateExposureUsdt: data.aggregate_exposure_usdt ?? 0.0,
-    candidates: data.candidates || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
-    candidateAllocations: data.candidate_allocations || defaultAllocations,
-    recentOrders: data.recent_orders || defaultOrders,
-    confinement: data.confinement || defaultConfinement,
-    solvency: data.solvency || defaultSolvency,
-    ledger: data.ledger || defaultLedger,
-    upstreamHash:
-      data.upstream_hash ||
-      '65c2e7d2b3dc5d0f63773ef531c700a0fa2f6e73bdc094c7fad1105fc675e31e',
-    phaseHash: data.phase_hash || '',
-    merkleRoot:
-      data.merkle_root ||
-      '5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844',
+    candidates: data.candidates ?? [],
+    candidateAllocations: data.candidate_allocations ?? [],
+    recentOrders: data.recent_orders ?? [],
+    confinement: data.confinement ?? emptyConfinement,
+    solvency: data.solvency ?? emptySolvency,
+    ledger: data.ledger ?? emptyLedger,
+    upstreamHash: data.upstream_hash ?? '',
+    phaseHash: data.phase_hash ?? '',
+    merkleRoot: data.merkle_root ?? '',
   }
 }
 

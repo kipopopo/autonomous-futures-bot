@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import {
   Brain,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Cpu,
   Gauge,
   Layers,
@@ -11,9 +14,14 @@ import { ProvenanceBadge } from './provenance-badge'
 
 export interface StrategyEvolutionRadarProps {
   evolutionRadar: StrategyEvolutionRadarData
+  compact?: boolean
 }
 
-export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRadarProps) {
+export function StrategyEvolutionRadar({
+  evolutionRadar,
+  compact = false,
+}: StrategyEvolutionRadarProps) {
+  const [isExpanded, setIsExpanded] = useState(false)
   const {
     activeStrategyFamily,
     microstructureFilter,
@@ -32,6 +40,57 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
   } = evolutionRadar
 
   const passedGatesCount = gates.filter((g) => g.passed).length
+
+  if (compact && !isExpanded) {
+    return (
+      <div className="glass-panel rounded-2xl p-4 mb-6 relative overflow-hidden border border-purple-500/20 bg-gradient-to-r from-purple-500/5 via-transparent to-cyan-500/5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
+              <Brain className="w-5 h-5 text-purple-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold tracking-tight text-white flex items-center gap-2">
+                  <span>🧠 Strategy Evolution &amp; Autopsy Status</span>
+                  <span className="text-[10px] font-mono font-semibold py-0.5 px-2 rounded-md bg-purple-500/15 border border-purple-500/25 text-purple-300">
+                    {generation || 'GEN #2'}
+                  </span>
+                  <span className="badge badge-xs font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    {candidateHealthTier}
+                  </span>
+                </h2>
+                <ProvenanceBadge source="DAEMON 24/7" />
+              </div>
+              <p className="text-xs text-zinc-400 font-mono mt-0.5">
+                <span className="text-zinc-200 font-semibold">{activeStrategyFamily}</span> · {passedGatesCount}/{gates.length} OOS Gates Passed · {winRatePct.toFixed(1)}% Win Rate
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="badge badge-sm font-mono font-semibold py-1 px-3 badge-success bg-emerald-500/15 border-emerald-500/30 text-emerald-400">
+              ⚡ ACTIVE DAEMON LOOP
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsExpanded(true)}
+              className="btn btn-xs bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 border border-white/[0.08] font-mono inline-flex items-center gap-1"
+            >
+              <span>Show Details</span>
+              <ChevronDown className="w-3 h-3" />
+            </button>
+            <a
+              href="#/evolution"
+              className="btn btn-xs bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 font-medium transition-colors"
+            >
+              🔬 Full Autopsy &amp; Evolution →
+            </a>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="glass-panel rounded-2xl p-5 mb-6 relative overflow-hidden">
@@ -64,6 +123,16 @@ export function StrategyEvolutionRadar({ evolutionRadar }: StrategyEvolutionRada
           <span className="badge badge-sm font-mono font-semibold py-1 px-3 badge-success bg-emerald-500/15 border-emerald-500/30 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]">
             ⚡ ACTIVE DAEMON LOOP
           </span>
+          {compact && (
+            <button
+              type="button"
+              onClick={() => setIsExpanded(false)}
+              className="btn btn-xs bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 border border-white/[0.08] font-mono inline-flex items-center gap-1"
+            >
+              <span>Collapse</span>
+              <ChevronUp className="w-3 h-3" />
+            </button>
+          )}
           <a
             href="#/evolution"
             className="btn btn-xs bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 font-medium transition-colors"

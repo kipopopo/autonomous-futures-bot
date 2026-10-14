@@ -158,18 +158,18 @@ describe('StressPage component', () => {
     const model = buildStressFaultInjectionModel(verifiedFixture)
     const html = renderToString(<StressPage model={model} />)
 
-    expect(html).toContain('STRESS RESILIENCE VERIFIED')
-    expect(html).toContain('PAPER-SAFE')
+    expect(html).toContain('HISTORICAL ARTIFACT VERIFIED')
+    expect(html).toContain('PAPER-SAFE IN REPORT')
     expect(html).toContain('EXECUTION AUTHORITY: OFF')
-    expect(html).toContain('SUB-MS LATENCY (&lt; 1 ms)')
-    expect(html).toContain('ZERO-DRIFT VERIFIED')
+    expect(html).toContain('RECORDED LATENCY &lt; 1 ms')
+    expect(html).toContain('ZERO-DRIFT VERIFIED IN REPORT')
   })
 
-  it('renders real-time shock vector status matrix with all 4 calibrated vectors', () => {
+  it('renders recorded shock vector status with all 4 report vectors', () => {
     const model = buildStressFaultInjectionModel(verifiedFixture)
     const html = renderToString(<StressPage model={model} />)
 
-    expect(html).toContain('Real-time Shock Vector Status Matrix')
+    expect(html).toContain('Recorded Shock Vector Status')
     expect(html).toContain('SHOCK_01_FLASH_CRASH')
     expect(html).toContain('Flash Crash Simulation')
     expect(html).toContain('-8.5% price drop in 300ms')
@@ -189,7 +189,7 @@ describe('StressPage component', () => {
     const model = buildStressFaultInjectionModel(verifiedFixture)
     const html = renderToString(<StressPage model={model} />)
 
-    expect(html).toContain('Circuit Breaker Reaction Latencies (&lt; 1 ms Trigger Time)')
+    expect(html).toContain('Recorded Circuit Breaker Latencies')
     expect(html).toContain('hawkes_runaway_cutoff')
     expect(html).toContain('120.0 μs')
     expect(html).toContain('emergency_auto_flattening')
@@ -210,16 +210,17 @@ describe('StressPage component', () => {
     expect(html).toContain('Liquidity collapse bid vacuum detection')
   })
 
-  it('renders double-entry solvency meter and continuous zero-drift verification', () => {
+  it('renders recorded double-entry solvency and zero-drift evidence', () => {
     const model = buildStressFaultInjectionModel(verifiedFixture)
     const html = renderToString(<StressPage model={model} />)
 
-    expect(html).toContain('Double-Entry Solvency Meter (|drift| &lt; 10⁻¹⁵ USDT)')
+    expect(html).toContain('Recorded Double-Entry Solvency Check')
     expect(html).toContain('100.00 USDT')
     expect(html).toContain('99.18 USDT')
     expect(html).toContain('|drift| &lt; 10⁻¹⁵ USDT')
-    expect(html).toContain('Continuous mathematical accounting conservation')
-    expect(html).toContain('RESERVE BUFFER VERIFIED')
+    expect(html).toContain('Recorded accounting identity')
+    expect(html).toContain('Verified in report')
+    expect(html).toContain('current runtime policy has no cash-reserve floor')
   })
 
   it('renders cryptographic SHA-256 Merkle DAG provenance linking Phase 296 parent hash', () => {
@@ -227,21 +228,28 @@ describe('StressPage component', () => {
     const html = renderToString(<StressPage model={model} />)
 
     expect(html).toContain('Cryptographic SHA-256 Merkle DAG Provenance')
-    expect(html).toContain('Phase 297 Merkle Root:')
+    expect(html).toContain('Merkle Root:')
     expect(html).toContain('9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d')
     expect(html).toContain('Upstream Phase 296 Parent Hash:')
     expect(html).toContain('aadff07fae3505f6f2b7f57519dc4d322a1d9d913d697be02354dea3b0c5c718')
-    expect(html).toContain('MERKLE ROOT VERIFIED')
+    expect(html).toContain('ARTIFACT HASH VERIFIED')
   })
 
-  it('handles default/null model safely without throwing', () => {
+  it('shows unavailable state instead of fabricated account or protection metrics', () => {
     const defaultModel = buildStressFaultInjectionModel(null)
     const html = renderToString(<StressPage model={defaultModel} />)
 
     expect(html).toBeDefined()
-    expect(html).toContain('Phase 297 / Stress Resilience Plane')
-    expect(html).toContain('Real-time Shock Vector Status Matrix')
-    expect(html).toContain('Circuit Breaker Reaction Latencies (&lt; 1 ms Trigger Time)')
-    expect(html).toContain('Double-Entry Solvency Meter (|drift| &lt; 10⁻¹⁵ USDT)')
+    expect(defaultModel.verified).toBe(false)
+    expect(defaultModel.ledger).toBeNull()
+    expect(defaultModel.solvency).toBeNull()
+    expect(defaultModel.capitalPreservationStats).toBeNull()
+    expect(defaultModel.isZeroDrift).toBeNull()
+    expect(defaultModel.subMillisecondLatencyVerified).toBeNull()
+    expect(html).toContain('Stress evidence unavailable')
+    expect(html).not.toContain('100.00 USDT')
+    expect(html).not.toContain('7.00 USDT')
+    expect(html).not.toContain('ZERO-DRIFT VERIFIED')
+    expect(html).not.toContain('SUB-MS LATENCY')
   })
 })

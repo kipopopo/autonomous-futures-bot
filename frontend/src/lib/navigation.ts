@@ -1,6 +1,7 @@
 export type DashboardPage =
-  // 5 Primary Executive Navigation Pages
+  // Primary Executive Navigation Pages
   | 'overview'
+  | 'pair'
   | 'positions'
   | 'trades'
   | 'safety'
@@ -29,12 +30,20 @@ export type DashboardPage =
   | 'production'
   | 'production-launch'
 
+export function getPairSymbolFromHash(hash: string): string | null {
+  const match = hash.match(/^#\/?pair[/-]([a-zA-Z0-9]+)/i)
+  return match ? match[1].toUpperCase() : null
+}
+
 export function pageFromHash(hash: string): DashboardPage {
   const normalized = hash.replace(/^#\/?/, '')
 
-  // 4 Primary Executive Pages
+  // Primary Executive Pages
   if (normalized === '' || normalized === 'overview' || normalized === 'dashboard') {
     return 'overview'
+  }
+  if (normalized === 'pair' || normalized.startsWith('pair/') || normalized.startsWith('pair-')) {
+    return 'pair'
   }
   if (normalized === 'positions') {
     return 'positions'
@@ -76,6 +85,7 @@ export function pageFromHash(hash: string): DashboardPage {
 export function isArchivePage(page: DashboardPage): boolean {
   return (
     page !== 'overview' &&
+    page !== 'pair' &&
     page !== 'positions' &&
     page !== 'trades' &&
     page !== 'safety' &&

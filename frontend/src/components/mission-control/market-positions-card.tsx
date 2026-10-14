@@ -7,15 +7,17 @@ import {
   Radio,
   Shield,
   Target,
+  Zap,
 } from 'lucide-react'
 import { useState } from 'react'
 import { PairCandlestickChart } from './pair-candlestick-chart'
 import type { OhlcSummary } from '../../lib/chart-indicators'
-import type { PositionTelemetry } from './types'
+import type { PairTicker, PositionTelemetry } from './types'
 import { ProvenanceBadge } from './provenance-badge'
 
 export interface MarketPositionsCardProps {
   positions: PositionTelemetry[]
+  pairTickers?: PairTicker[]
   initialExpanded?: boolean | Record<string, boolean>
   defaultInterval?: '15m' | '1h'
 }
@@ -29,6 +31,7 @@ function formatPrice(val?: number): string {
 
 export function MarketPositionsCard({
   positions,
+  pairTickers,
   initialExpanded = false,
   defaultInterval = '15m',
 }: MarketPositionsCardProps) {
@@ -92,12 +95,25 @@ export function MarketPositionsCard({
   }
 
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ALL')
-  const symbolPills = ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']
+  const symbolPills = ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX', 'NEAR', 'LINK', 'APT', 'ADA']
 
   const filteredPositions = positions.filter((p) => {
     if (selectedSymbol === 'ALL') return true
     return p.symbol.startsWith(selectedSymbol) || p.symbol === `${selectedSymbol}USDT`
   })
+
+  const resolvedTickers: PairTicker[] =
+    pairTickers && pairTickers.length > 0
+      ? pairTickers
+      : positions.map((p) => ({
+          symbol: p.symbol,
+          lastPrice: p.lastPrice || p.currentPrice,
+          markPrice: p.markPrice || p.currentPrice,
+          indexPrice: p.indexPrice || p.markPrice || p.currentPrice,
+          fundingRate: p.fundingRate ?? 0.0001,
+          basis: p.basis ?? 0,
+          basisPct: p.basisPct ?? 0,
+        }))
 
   const allExpanded =
     filteredPositions.length > 0 &&
@@ -129,12 +145,12 @@ export function MarketPositionsCard({
                 Live Positions &amp; Markets
               </h2>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-cyan-500/10 border border-cyan-500/25 text-cyan-400">
-                {positions.length > 0 ? `${positions.length} Perpetual Pairs` : '8 Perpetual Pairs'}
+                {positions.length > 0 ? `${positions.length} Perpetual Pairs` : '12 Perpetual Pairs'}
               </span>
               <ProvenanceBadge source="LIVE EXCHANGE" />
             </div>
             <p className="text-xs text-zinc-400">
-              Real-time mark prices, open positions, and ATR bracket TP/SL target telemetry
+              Real-time mark &amp; last prices, open positions, and ATR bracket TP/SL target telemetry
             </p>
           </div>
         </div>
@@ -158,6 +174,57 @@ export function MarketPositionsCard({
           </span>
         </div>
       </div>
+
+      {/* Real-Time Crypto Pairs Last Price Ticker (At a Glance) */}
+      {resolvedTickers.length > 0 && (
+        <div className="mb-5 p-3 rounded-xl bg-black/30 border border-white/[0.06]" data-testid="last-price-ticker-strip">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2">
+              <Zap className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="text-xs font-mono font-bold text-white tracking-tight">
+                Real-Time Crypto Pairs Last Price Ticker (At a Glance)
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                LIVE TICKER
+              </span>
+            </div>
+            <span className="text-[10px] font-mono text-zinc-400">
+              Click pair to filter
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+            {resolvedTickers.map((ticker) => {
+              const isSelected = selectedSymbol !== 'ALL' && (ticker.symbol.startsWith(selectedSymbol) || ticker.symbol === `${selectedSymbol}USDT`)
+              return (
+                <button
+                  key={ticker.symbol}
+                  type="button"
+                  onClick={() => setSelectedSymbol(selectedSymbol === ticker.symbol.replace('USDT', '') ? 'ALL' : ticker.symbol.replace('USDT', ''))}
+                  className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-cyan-500/15 border-cyan-500/50 shadow-xs'
+                      : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12]'
+                  }`}
+                  title={`Filter by ${ticker.symbol}`}
+                >
+                  <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400 mb-0.5">
+                    <span className="font-bold text-zinc-200">{ticker.symbol.replace('USDT', '')}</span>
+                    <span className="text-[9px] text-cyan-400">PERP</span>
+                  </div>
+                  <div className="text-xs sm:text-sm font-mono font-bold text-white tracking-tight tabular-nums truncate">
+                    ${formatPrice(ticker.lastPrice)}
+                  </div>
+                  <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500 mt-0.5">
+                    <span>Mark:</span>
+                    <span className="tabular-nums text-zinc-400">${formatPrice(ticker.markPrice)}</span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Responsive Symbol Selector Pills */}
       <div className="flex items-center gap-1.5 overflow-x-auto py-1 mb-5 no-scrollbar">
@@ -261,17 +328,32 @@ export function MarketPositionsCard({
                   </span>
                 </div>
 
-                {/* Mark Price & Active Details */}
+                {/* Mark Price & Last Price Details */}
                 <div className="mb-4">
-                  <div className="flex items-baseline justify-between mb-1.5">
-                    <span className="text-xs text-zinc-400 font-mono">
-                      Mark Price:
+                  <div className="flex items-baseline justify-between mb-1">
+                    <span className="text-xs text-zinc-400 font-mono flex items-center gap-1">
+                      <span>Mark Price:</span>
+                      <span className="text-[10px] text-zinc-500 font-normal">(Fair Val)</span>
                     </span>
-                    <span className="text-xl font-mono font-bold text-white tracking-tight tabular-nums">
-                      ${pos.currentPrice.toLocaleString('en-US', {
-                        minimumFractionDigits: pos.currentPrice < 10 ? 4 : 2,
-                        maximumFractionDigits: pos.currentPrice < 10 ? 4 : 2,
-                      })}
+                    <span className="text-base font-mono font-bold text-white tracking-tight tabular-nums">
+                      ${formatPrice(pos.markPrice ?? pos.currentPrice)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-baseline justify-between mb-1.5">
+                    <span className="text-xs text-zinc-400 font-mono flex items-center gap-1">
+                      <span>Last Price:</span>
+                      <span className="text-[10px] text-cyan-400 font-normal">(Ticker)</span>
+                    </span>
+                    <span className="text-sm font-mono font-semibold text-cyan-300 tracking-tight tabular-nums">
+                      ${formatPrice(pos.lastPrice ?? pos.currentPrice)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-baseline justify-between mb-1.5 text-[11px] font-mono">
+                    <span className="text-zinc-500">Basis Spread:</span>
+                    <span className={`font-semibold tabular-nums ${(pos.basis ?? 0) > 0 ? 'text-emerald-400' : (pos.basis ?? 0) < 0 ? 'text-rose-400' : 'text-zinc-400'}`}>
+                      {(pos.basis ?? 0) > 0 ? `+$${(pos.basis ?? 0).toFixed(4)}` : (pos.basis ?? 0) < 0 ? `-$${Math.abs(pos.basis ?? 0).toFixed(4)}` : '$0.0000'} ({(pos.basisPct ?? 0) > 0 ? '+' : ''}{(pos.basisPct ?? 0).toFixed(3)}%)
                     </span>
                   </div>
 

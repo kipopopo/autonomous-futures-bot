@@ -276,6 +276,114 @@ describe('PairCandlestickChart component', () => {
     expect(html).toContain('data-interval="15m"')
   })
 
+  // --- Milestone 5: Timeframe Buttons & ICT Overlays Tests ---
+  it('renders all 5 timeframe selector buttons (1m, 5m, 15m, 1h, 4h)', () => {
+    const html = renderToString(<PairCandlestickChart {...defaultProps} />)
+    expect(html).toContain('data-testid="timeframe-1m-solusdt"')
+    expect(html).toContain('data-testid="timeframe-5m-solusdt"')
+    expect(html).toContain('data-testid="timeframe-15m-solusdt"')
+    expect(html).toContain('data-testid="timeframe-1h-solusdt"')
+    expect(html).toContain('data-testid="timeframe-4h-solusdt"')
+  })
+
+  it('highlights the active timeframe with cyan styling classes', () => {
+    const html = renderToString(
+      <PairCandlestickChart {...defaultProps} interval="5m" />
+    )
+    expect(html).toContain('data-interval="5m"')
+    expect(html).toContain('data-testid="timeframe-5m-solusdt"')
+  })
+
+  it('renders PDA box overlay layer and FVG zones when ictSignal is provided', () => {
+    const sampleIctSignal = {
+      twins_state: {
+        symbol: 'SOLUSDT',
+        step_1_htf_hit: true,
+        step_2_m5_cisd: true,
+        step_3_twins_fvg: true,
+        step_4_ote_retrace: true,
+        step_5_m1_cisd: true,
+        step_6_ready: true,
+        m5_cisd_price: 182.5,
+        m1_cisd_price: 184.2,
+        ote_62: 183.0,
+        ote_705: 183.6,
+        ote_79: 184.4,
+        stdv_2_0: 192.0,
+        stdv_4_0: 198.5,
+        side: 'BUY' as const,
+      },
+      pd_arrays: [
+        {
+          array_type: 'FVG_BISI' as const,
+          timeframe: '15m' as const,
+          top: 185.0,
+          bottom: 182.0,
+          mean_threshold: 183.5,
+          direction: 'BULLISH' as const,
+          creation_ts: Date.now() - 60000,
+          is_mitigated: false,
+        },
+        {
+          array_type: 'BREAKER_BLOCK' as const,
+          timeframe: '1h' as const,
+          top: 181.0,
+          bottom: 179.5,
+          mean_threshold: 180.25,
+          direction: 'BULLISH' as const,
+          creation_ts: Date.now() - 3600000,
+          is_mitigated: false,
+        },
+      ],
+    }
+
+    const html = renderToString(
+      <PairCandlestickChart
+        {...defaultProps}
+        ictSignal={sampleIctSignal}
+        ictOverlays={{ showFvg: true, showBreakers: true, showOte: true, showStdv: true }}
+      />
+    )
+    expect(html).toContain('data-testid="pda-box-overlay"')
+    expect(html).toContain('data-testid="pda-box-fvg_bisi"')
+  })
+
+  it('renders Inversion FVG (IFVG) purple box zone correctly', () => {
+    const ifvgSignal = {
+      twins_state: {
+        symbol: 'ETHUSDT',
+        step_1_htf_hit: true,
+        step_2_m5_cisd: false,
+        step_3_twins_fvg: false,
+        step_4_ote_retrace: false,
+        step_5_m1_cisd: false,
+        step_6_ready: false,
+      },
+      pd_arrays: [
+        {
+          array_type: 'INVERSION_FVG' as const,
+          timeframe: '1h' as const,
+          top: 2700.0,
+          bottom: 2680.0,
+          mean_threshold: 2690.0,
+          direction: 'BULLISH' as const,
+          creation_ts: Date.now() - 3600000,
+          is_mitigated: false,
+        },
+      ],
+    }
+
+    const html = renderToString(
+      <PairCandlestickChart
+        symbol="ETHUSDT"
+        interval="1h"
+        activeIndicators={{ ema50: true, ema200: true, volume: true }}
+        ictSignal={ifvgSignal}
+      />
+    )
+    expect(html).toContain('data-testid="pda-box-inversion_fvg"')
+  })
+
   it('renders default export identical to named export', async () => {
     const DefaultImportModule = await import('./pair-candlestick-chart')
     expect(DefaultImportModule.default).toBe(DefaultImportModule.PairCandlestickChart)

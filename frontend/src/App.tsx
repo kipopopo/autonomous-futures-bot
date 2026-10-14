@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 
 import { ExecutiveDashboard } from '@/components/mission-control/executive-dashboard'
+import { PairDetailPage } from '@/components/pair-detail-page'
 import { buildExecutiveDashboardModel } from '@/components/mission-control/adapter'
 import { ExecutivePositionsPage } from '@/components/executive-positions-page'
 import { ExecutiveTradesPage } from '@/components/executive-trades-page'
@@ -85,7 +86,7 @@ import {
   type DashboardApiData,
   type OverviewModel,
 } from '@/lib/dashboard'
-import { pageFromHash, isArchivePage, type DashboardPage } from '@/lib/navigation'
+import { pageFromHash, isArchivePage, getPairSymbolFromHash, type DashboardPage } from '@/lib/navigation'
 import './App.css'
 
 const EMPTY_API_DATA: DashboardApiData = {
@@ -264,6 +265,9 @@ function App() {
   const [page, setPage] = useState<DashboardPage>(() => (
     typeof window === 'undefined' ? 'overview' : pageFromHash(window.location.hash)
   ))
+  const [currentPairSymbol, setCurrentPairSymbol] = useState<string>(() => (
+    typeof window === 'undefined' ? 'SOLUSDT' : (getPairSymbolFromHash(window.location.hash) || 'SOLUSDT')
+  ))
   const [state, setState] = useState<LoadState>('loading')
   const [apiData, setApiData] = useState<DashboardApiData>(EMPTY_API_DATA)
   const [canaryData, setCanaryData] = useState<CanaryDashboardData>(EMPTY_CANARY_DATA)
@@ -360,6 +364,8 @@ function App() {
         strategyMiningModel,
         canaryData.executionStatus ?? null,
         liveMarketPrices?.btc_macro ?? null,
+        null,
+        liveMarketPrices,
       ),
     [
       productionLaunchModel,
@@ -372,6 +378,7 @@ function App() {
       strategyMiningModel,
       canaryData.executionStatus,
       liveMarketPrices?.btc_macro,
+      liveMarketPrices,
     ],
   )
 
@@ -479,7 +486,13 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const handleHashChange = () => setPage(pageFromHash(window.location.hash))
+    const handleHashChange = () => {
+      setPage(pageFromHash(window.location.hash))
+      const sym = getPairSymbolFromHash(window.location.hash)
+      if (sym) {
+        setCurrentPairSymbol(sym)
+      }
+    }
     window.addEventListener('hashchange', handleHashChange)
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
@@ -518,6 +531,7 @@ function App() {
     canaryData.productionLaunch?.verified
   )
   const isOverviewPage = page === 'overview'
+  const isPairPage = page === 'pair'
   const isPositionsPage = page === 'positions'
   const isTradesPage = page === 'trades'
   const isSafetyPage = page === 'safety'
@@ -836,12 +850,16 @@ function App() {
           </div>
         )}
 
-        {/* Executive Landing Page (Executive Overview - R1 to R4) */}
+        {/* Executive Landing Page (Executive Overview - Simplified & Streamlined) */}
         {isOverviewPage && state === 'ready' && (
           <ExecutiveDashboard
             model={executiveModel}
             onRefresh={() => void loadData()}
             isLoading={false}
+            onSelectPair={(sym) => {
+              setCurrentPairSymbol(sym)
+              window.location.hash = `#/pair/${sym}`
+            }}
           />
         )}
 
@@ -868,10 +886,32 @@ function App() {
         )}
 
         <ErrorBoundary key={page}>
+          {/* Dedicated Pair Deep-Dive Terminal Page */}
+          {isPairPage && state === 'ready' && (
+            <PairDetailPage
+              symbol={currentPairSymbol}
+              positions={executiveModel.positions}
+              pairTickers={executiveModel.pairTickers}
+              orders={executiveModel.orders}
+              btcMacroTrend={executiveModel.radar.btcMacroTrend}
+              scalperCriteria={executiveModel.radar.scalperCriteria}
+              hawkesHazard={executiveModel.radar.hawkesHazard}
+              evolutionRadar={executiveModel.evolutionRadar}
+              onBack={() => {
+                window.location.hash = '#overview'
+              }}
+              onSelectPair={(sym) => {
+                setCurrentPairSymbol(sym)
+                window.location.hash = `#/pair/${sym}`
+              }}
+            />
+          )}
+
           {/* Executive Subpages (R5) */}
           {isPositionsPage && state === 'ready' && (
             <ExecutivePositionsPage
               positions={executiveModel.positions}
+              pairTickers={executiveModel.pairTickers}
               bracketPositionsModel={bracketPositionsModel}
               liveMarketModel={liveMarketModel}
             />
@@ -924,7 +964,9 @@ function App() {
         </footer>
       </main>
 
-      {/* Mobile Bottom Navigation Bar (< 768px) */}
+
+
+      {/* Mobile Bottom Navigation Bar (< 768px only) */}
       <nav className="mobile-bottom-nav md:hidden" aria-label="Mobile Navigation">
         <a
           href="#overview"

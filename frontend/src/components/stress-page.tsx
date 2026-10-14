@@ -15,26 +15,47 @@ import type { StressFaultInjectionModel } from '@/lib/canary'
 
 export function StressPage({ model }: { model: StressFaultInjectionModel }) {
   const [vectorFilter, setVectorFilter] = useState<string>('ALL')
+  const phaseLabel = model.phase.replace(/^phase_/i, '')
 
-  const startingEquity = model.solvency?.starting_equity_usdt ?? model.ledger?.starting_equity ?? 100.0
-  const cash = model.solvency?.cash_usdt ?? model.ledger?.cash ?? 100.0
-  const allocatedMargin = model.solvency?.allocated_margin_usdt ?? model.ledger?.allocated_margin ?? 0.0
-  const unrealizedPnl = model.solvency?.unrealized_pnl_usdt ?? model.ledger?.unrealized_pnl ?? 0.0
-  const realizedPnl = model.solvency?.realized_pnl_usdt ?? model.ledger?.realized_pnl ?? 0.0
-  const drift = model.solvency?.drift_usdt ?? model.ledger?.drift ?? 0.0
-  const isZeroDrift = model.isZeroDrift
-
-  const preEquity = model.capitalPreservationStats?.pre_flatten_equity_usdt ?? 100.0
-  const postCash = model.capitalPreservationStats?.post_flatten_cash_usdt ?? 100.0
-  const preservedPct = model.capitalPreservationStats?.capital_preserved_pct ?? 100.0
-  const maxLossBudget = model.capitalPreservationStats?.max_loss_budget_usdt ?? 7.00
-  const actualLoss = model.capitalPreservationStats?.actual_loss_usdt ?? 0.0
-  const circuitState = model.circuitState || 'HALTED'
+  const startingEquity = model.solvency?.starting_equity_usdt ?? model.ledger?.starting_equity ?? null
+  const cash = model.solvency?.cash_usdt ?? model.ledger?.cash ?? null
+  const allocatedMargin = model.solvency?.allocated_margin_usdt ?? model.ledger?.allocated_margin ?? null
+  const unrealizedPnl = model.solvency?.unrealized_pnl_usdt ?? model.ledger?.unrealized_pnl ?? null
+  const realizedPnl = model.solvency?.realized_pnl_usdt ?? model.ledger?.realized_pnl ?? null
+  const drift = model.solvency?.drift_usdt ?? model.ledger?.drift ?? null
+  const cashReservePct = model.solvency?.cash_reserve_pct ??
+    (startingEquity !== null && startingEquity > 0 && cash !== null
+      ? (cash / startingEquity) * 100
+      : null)
+  const reserveStatus = model.solvency?.unencumbered_cash_verified
+  const preEquity = model.capitalPreservationStats?.pre_flatten_equity_usdt ?? null
+  const postCash = model.capitalPreservationStats?.post_flatten_cash_usdt ?? null
+  const preservedPct = model.capitalPreservationStats?.capital_preserved_pct ?? null
+  const maxLossBudget = model.capitalPreservationStats?.max_loss_budget_usdt ?? null
+  const actualLoss = model.capitalPreservationStats?.actual_loss_usdt ?? null
+  const circuitState = model.circuitState || 'UNKNOWN'
+  const formatAmount = (value: number | null | undefined, decimals = 2) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(decimals)} USDT` : '—'
+  const formatPercent = (value: number | null | undefined, decimals = 2) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(decimals)}%` : '—'
 
   const filteredVectors = model.shockVectors.filter((v) => {
     if (vectorFilter === 'ALL') return true
     return v.status === vectorFilter
   })
+
+  if (!model.verified) {
+    return (
+      <section className="card border border-warning/40 bg-base-200 p-6 space-y-2" aria-labelledby="stress-unavailable-heading">
+        <h2 id="stress-unavailable-heading" className="text-lg font-bold">Stress evidence unavailable</h2>
+        <p className="text-sm text-base-content/70">
+          No verified stress-fault-injection artifact is available for this view. Current runtime health,
+          execution authority, and account solvency cannot be inferred from missing evidence.
+        </p>
+        <p className="text-xs font-mono text-base-content/60">Status: {model.status || 'UNKNOWN'}</p>
+      </section>
+    )
+  }
 
   return (
     <div className="space-y-6" aria-labelledby="stress-resilience-heading">
@@ -42,54 +63,59 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 pb-4">
         <div>
           <p className="text-xs font-mono uppercase tracking-widest text-primary font-bold">
-            Phase 297 / Stress Resilience Plane
+            Phase {phaseLabel} / Historical Stress Evidence
           </p>
           <h2 id="stress-resilience-heading" className="text-xl font-bold tracking-tight mt-0.5">
-            Canary Stress Resilience: Extreme Market Distress &amp; Fault Injection
+            Recorded Stress Fault-Injection Results
           </h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="badge badge-error gap-1.5 py-2.5 px-3 font-semibold text-xs shadow-sm">
             <Flame size={14} />
-            STRESS RESILIENCE VERIFIED
+            HISTORICAL ARTIFACT VERIFIED
           </span>
-          <span className="badge badge-success gap-1.5 py-2.5 px-3 font-semibold text-xs shadow-sm">
+          <span className={`badge ${model.isPaperSafe ? 'badge-success' : 'badge-warning'} gap-1.5 py-2.5 px-3 font-semibold text-xs shadow-sm`}>
             <ShieldCheck size={14} />
-            PAPER-SAFE
+            {model.paperSafetyEvidenceAvailable ? (model.isPaperSafe ? 'PAPER-SAFE IN REPORT' : 'PAPER SAFETY FAILED') : 'PAPER SAFETY UNKNOWN'}
           </span>
-          <span className="badge badge-outline badge-error font-mono text-[11px] font-bold tracking-wider py-2.5 px-3">
+          <span className={`badge badge-outline ${model.executionAuthorityAvailable ? (model.isExecutionOff ? 'badge-success' : 'badge-error') : 'badge-warning'} font-mono text-[11px] font-bold tracking-wider py-2.5 px-3`}>
             <Lock size={12} className="inline mr-1" />
-            EXECUTION AUTHORITY: OFF
+            {model.executionAuthorityAvailable ? (model.isExecutionOff ? 'EXECUTION AUTHORITY: OFF' : 'EXECUTION AUTHORITY: ON') : 'EXECUTION AUTHORITY: UNKNOWN'}
           </span>
-          <span className="badge badge-info gap-1.5 py-2.5 px-3 font-semibold text-xs shadow-sm">
+          <span className={`badge ${model.subMillisecondLatencyVerified === true ? 'badge-success' : model.subMillisecondLatencyVerified === false ? 'badge-error' : 'badge-warning'} gap-1.5 py-2.5 px-3 font-semibold text-xs shadow-sm`}>
             <Zap size={14} />
-            SUB-MS LATENCY (&lt; 1 ms)
+            {model.subMillisecondLatencyVerified === true
+              ? 'RECORDED LATENCY < 1 ms'
+              : model.subMillisecondLatencyVerified === false
+                ? 'LATENCY GATE FAILED'
+                : 'LATENCY DATA UNAVAILABLE'}
           </span>
-          <span className="badge badge-success badge-outline font-mono text-[11px] font-bold py-2.5 px-3">
+          <span className={`badge badge-outline ${model.isZeroDrift === true ? 'badge-success' : model.isZeroDrift === false ? 'badge-error' : 'badge-warning'} font-mono text-[11px] font-bold py-2.5 px-3`}>
             <Scale size={12} className="inline mr-1" />
-            ZERO-DRIFT VERIFIED
+            {model.isZeroDrift === true
+              ? 'ZERO-DRIFT VERIFIED IN REPORT'
+              : model.isZeroDrift === false
+                ? 'ZERO-DRIFT GATE FAILED'
+                : 'ZERO-DRIFT UNKNOWN'}
           </span>
         </div>
       </div>
 
       <p className="text-sm text-base-content/70">
-        Online microstructure stress testing and synthetic fault injection harness evaluating extreme market distress across
-        Binance USDⓈ-M depth snapshots, aggregate trades, and Hawkes jump intensity metrics. Enforces fail-closed sub-millisecond
-        circuit breaker tripping (<code>&lt; 1 ms</code> latency), emergency auto-flattening capital preservation (loss budget{' '}
-        <code>&le; 7.00 USDT</code> ceiling strictly maintained), and continuous mathematical double-entry zero-drift balance governance{' '}
-        (<code>|drift| &lt; 10⁻¹⁵ USDT</code>) under strict paper-safe confinement (<code>EXECUTION AUTHORITY: OFF</code>).
+        This page displays values recorded in the verified Phase {phaseLabel} research artifact. They are historical test
+        results, not live runtime telemetry, an account reconciliation, or proof that protective controls are currently armed.
       </p>
 
-      {/* 2. Real-time Shock Vector Status Matrix */}
+      {/* 2. Recorded Shock Vector Status Matrix */}
       <section aria-labelledby="shock-vectors-heading" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 id="shock-vectors-heading" className="text-base font-bold flex items-center gap-2">
               <Activity size={18} className="text-error" />
-              Real-time Shock Vector Status Matrix
+              Recorded Shock Vector Status
             </h3>
             <p className="text-xs text-base-content/60">
-              Calibrated synthetic microstructure perturbations injected into the live market feed stream.
+              Shock vectors and outcomes recorded by this artifact.
             </p>
           </div>
           <div className="flex items-center gap-1.5">
@@ -157,15 +183,15 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
         </div>
       </section>
 
-      {/* 3. Circuit Breaker Reaction Latencies (< 1 ms trigger time) */}
+      {/* 3. Recorded Circuit Breaker Latencies */}
       <section aria-labelledby="latency-heading" className="space-y-3">
         <div>
           <h3 id="latency-heading" className="text-base font-bold flex items-center gap-2">
             <Zap size={18} className="text-warning" />
-            Circuit Breaker Reaction Latencies (&lt; 1 ms Trigger Time)
+            Recorded Circuit Breaker Latencies
           </h3>
           <p className="text-xs text-base-content/60">
-            Sub-millisecond anomaly detection and automated breaker trip latency verification.
+            Latency measurements recorded by this artifact; an empty table does not pass the latency gate.
           </p>
         </div>
 
@@ -223,7 +249,7 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
             Auto-Flattening &amp; Capital Preservation Audit
           </h3>
           <p className="text-xs text-base-content/60">
-            Emergency position liquidation, resting order purge, and intra-phase loss budget ceiling governance.
+            Position and order outcomes recorded by the historical artifact.
           </p>
         </div>
 
@@ -234,7 +260,7 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
               Pre-Flatten Equity
             </span>
             <span className="text-lg font-mono font-bold text-base-content mt-1">
-              {`${preEquity.toFixed(2)} USDT`}
+              {formatAmount(preEquity)}
             </span>
             <span className="text-[10px] text-base-content/50 mt-1">Baseline account equity</span>
           </div>
@@ -244,7 +270,7 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
               Post-Flatten Cash
             </span>
             <span className="text-lg font-mono font-bold text-success mt-1">
-              {`${postCash.toFixed(2)} USDT`}
+              {formatAmount(postCash)}
             </span>
             <span className="text-[10px] text-success/80 mt-1">Cash preserved post-liquidation</span>
           </div>
@@ -254,9 +280,9 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
               Capital Preserved
             </span>
             <span className="text-lg font-mono font-bold text-success mt-1">
-              {`${preservedPct.toFixed(2)}%`}
+              {formatPercent(preservedPct)}
             </span>
-            <span className="text-[10px] text-success/80 mt-1">&ge; 93.0% survival floor</span>
+            <span className="text-[10px] text-base-content/60 mt-1">Recorded outcome; no current survival floor is asserted.</span>
           </div>
 
           <div className="card bg-base-200 border border-base-300 p-3 shadow-sm">
@@ -264,10 +290,10 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
               Intra-Phase Loss
             </span>
             <span className="text-lg font-mono font-bold text-warning mt-1">
-              {`${actualLoss.toFixed(4)} USDT`}
+              {formatAmount(actualLoss, 4)}
             </span>
             <span className="text-[10px] text-warning/80 mt-1">
-              {`Ceiling \u2264 ${maxLossBudget.toFixed(2)} USDT`}
+              {`Artifact loss threshold: ${formatAmount(maxLossBudget)}`}
             </span>
           </div>
 
@@ -280,7 +306,7 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
                 {circuitState}
               </span>
             </div>
-            <span className="text-[10px] text-base-content/50 mt-1">Fail-closed emergency halt</span>
+            <span className="text-[10px] text-base-content/50 mt-1">State captured in this report</span>
           </div>
         </div>
 
@@ -314,7 +340,7 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
                     <td className="text-success font-bold">{`${a.capital_preserved_pct.toFixed(1)}%`}</td>
                     <td>
                       <span className="badge badge-error badge-outline badge-xs font-mono font-bold py-1 px-1.5">
-                        OFF
+                        {a.execution_authority ? 'ON' : 'OFF'}
                       </span>
                     </td>
                   </tr>
@@ -331,63 +357,76 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
         </div>
       </section>
 
-      {/* 5. Double-Entry Solvency Meter (|drift| < 10^-15 USDT) */}
+      {/* 5. Recorded Double-Entry Solvency Check */}
       <section aria-labelledby="solvency-heading" className="space-y-3">
         <div>
           <h3 id="solvency-heading" className="text-base font-bold flex items-center gap-2">
             <Scale size={18} className="text-success" />
-            Double-Entry Solvency Meter (|drift| &lt; 10⁻¹⁵ USDT)
+            Recorded Double-Entry Solvency Check
           </h3>
           <p className="text-xs text-base-content/60">
-            Continuous mathematical accounting conservation: Cash + Allocated Margin + Unrealized PnL = Starting Equity + Realized PnL.
+            Recorded accounting identity: cash + allocated margin + unrealized PnL = starting equity + realized PnL.
           </p>
         </div>
 
         <div className="card bg-base-200 border border-base-300 p-4 shadow-sm space-y-4">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs font-semibold">
-              <span className="text-base-content/70">Unencumbered Cash Reserve Buffer:</span>
+              <span className="text-base-content/70">Historical cash ratio:</span>
               <span className="font-mono text-success font-bold">
-                {`${(startingEquity > 0 ? (cash / startingEquity) * 100 : 100).toFixed(2)}%`}
+                {formatPercent(cashReservePct)}
               </span>
             </div>
-            <progress
-              className="progress progress-success w-full h-3"
-              value={startingEquity > 0 ? (cash / startingEquity) * 100 : 100}
-              max={100}
-              aria-label="Unencumbered cash reserve ratio progress"
-            />
+            {cashReservePct !== null ? (
+              <progress
+                className="progress progress-success w-full h-3"
+                value={Math.min(100, Math.max(0, cashReservePct))}
+                max={100}
+                aria-label="Historical cash ratio"
+              />
+            ) : (
+              <p className="text-[11px] text-base-content/50">Cash ratio unavailable in this artifact.</p>
+            )}
             <div className="flex items-center justify-between text-[11px] text-base-content/50 font-mono">
-              <span>Reserve Floor: &ge; 40.0%</span>
-              <span className="text-success font-bold">RESERVE BUFFER VERIFIED</span>
+              <span>Recorded cash ratio: {formatPercent(cashReservePct)}</span>
+              <span className="font-bold">
+                {reserveStatus === true ? 'Verified in report' : reserveStatus === false ? 'Failed in report' : 'Not reported'}
+              </span>
             </div>
+            <p className="text-[11px] text-base-content/50">
+              Historical cash ratio only. The current runtime policy has no cash-reserve floor.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2 border-t border-base-300">
             <div>
               <span className="text-[11px] text-base-content/60 uppercase font-semibold">Starting Equity:</span>
-              <p className="font-mono text-sm font-bold mt-0.5">{`${startingEquity.toFixed(2)} USDT`}</p>
+              <p className="font-mono text-sm font-bold mt-0.5">{formatAmount(startingEquity)}</p>
             </div>
             <div>
               <span className="text-[11px] text-base-content/60 uppercase font-semibold">Final Cash:</span>
-              <p className="font-mono text-sm font-bold text-success mt-0.5">{`${cash.toFixed(2)} USDT`}</p>
+              <p className="font-mono text-sm font-bold text-success mt-0.5">{formatAmount(cash)}</p>
             </div>
             <div>
               <span className="text-[11px] text-base-content/60 uppercase font-semibold">Allocated Margin:</span>
-              <p className="font-mono text-sm font-bold text-warning mt-0.5">{`${allocatedMargin.toFixed(2)} USDT`}</p>
+              <p className="font-mono text-sm font-bold text-warning mt-0.5">{formatAmount(allocatedMargin)}</p>
             </div>
             <div>
               <span className="text-[11px] text-base-content/60 uppercase font-semibold">Unrealized PnL:</span>
-              <p className="font-mono text-sm font-bold mt-0.5">{`${unrealizedPnl.toFixed(4)} USDT`}</p>
+              <p className="font-mono text-sm font-bold mt-0.5">{formatAmount(unrealizedPnl, 4)}</p>
             </div>
             <div>
               <span className="text-[11px] text-base-content/60 uppercase font-semibold">Realized PnL:</span>
-              <p className="font-mono text-sm font-bold mt-0.5">{`${realizedPnl.toFixed(4)} USDT`}</p>
+              <p className="font-mono text-sm font-bold mt-0.5">{formatAmount(realizedPnl, 4)}</p>
             </div>
             <div>
               <span className="text-[11px] text-base-content/60 uppercase font-semibold">Mathematical Drift:</span>
               <p className="font-mono text-xs font-bold text-success mt-1">
-                {isZeroDrift ? '|drift| < 10⁻¹⁵ USDT' : `${drift.toExponential(4)} USDT`}
+                {model.isZeroDrift === true
+                  ? '|drift| < 10⁻¹⁵ USDT'
+                  : typeof drift === 'number' && Number.isFinite(drift)
+                    ? `${drift.toExponential(4)} USDT`
+                    : '—'}
               </p>
             </div>
           </div>
@@ -402,35 +441,35 @@ export function StressPage({ model }: { model: StressFaultInjectionModel }) {
             Cryptographic SHA-256 Merkle DAG Provenance
           </h3>
           <p className="text-xs text-base-content/60">
-            Immutable cryptographic hash chain anchoring Phase 297 stress fault injection artifacts to Phase 296 parent root.
+            Hash provenance for this stored stress fault-injection artifact. It does not establish current runtime health.
           </p>
         </div>
 
         <div className="card bg-base-200 border border-base-300 p-4 shadow-sm space-y-3 font-mono text-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-base-300 pb-2">
-            <span className="text-base-content/60 font-semibold">Phase 297 Merkle Root:</span>
+            <span className="text-base-content/60 font-semibold">Phase {phaseLabel} Merkle Root:</span>
             <span className="text-primary font-bold break-all">{model.merkleRoot}</span>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-base-300 pb-2">
-            <span className="text-base-content/60 font-semibold">Phase 297 Summary Hash:</span>
+            <span className="text-base-content/60 font-semibold">Phase {phaseLabel} Summary Hash:</span>
             <span className="text-base-content/90 break-all">{model.phaseHash}</span>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
             <span className="text-base-content/60 font-semibold">Upstream Phase 296 Parent Hash:</span>
             <span className="text-success font-bold break-all">
-              {model.upstreamHash || 'aadff07fae3505f6f2b7f57519dc4d322a1d9d913d697be02354dea3b0c5c718'}
+              {model.upstreamHash || 'Unavailable'}
             </span>
           </div>
 
           <div className="pt-2 flex items-center gap-2">
             <span className="badge badge-success badge-sm gap-1 py-2 px-2.5 font-bold font-sans">
               <CheckCircle2 size={12} />
-              MERKLE ROOT VERIFIED
+              ARTIFACT HASH VERIFIED
             </span>
             <span className="text-[11px] text-base-content/50 font-sans">
-              Cryptographic integrity verified against immutable research storage.
+              Cryptographic integrity was verified when this artifact was loaded.
             </span>
           </div>
         </div>

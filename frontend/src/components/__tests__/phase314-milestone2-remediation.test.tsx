@@ -118,7 +118,7 @@ describe('Phase 314 Milestone 2 Remediation Suite', () => {
         new Date(),
       )
 
-      expect(adapted.positions.length).toBe(8)
+      expect(adapted.positions.length).toBe(12)
       for (const pos of adapted.positions) {
         expect(pos.size).toBe(0.0)
         expect(pos.takeProfitPrice).toBe(0.0)
@@ -329,6 +329,24 @@ describe('Phase 314 Milestone 2 Remediation Suite', () => {
       const customMicro = {
         ...buildMicrostructureModel(null),
         maxSpectralRadius: 0.185,
+        snapshots: [
+          {
+            record_id: 1,
+            track_id: 'runtime',
+            symbol: 'BTCUSDT',
+            timestamp_utc: '2026-10-14T00:00:00Z',
+            jump_intensity: '0.1',
+            branching_ratio: '0.185',
+            spectral_radius: '0.185',
+            self_excitation_alpha: '0.05',
+            cross_excitation_json: '{}',
+            cascade_state: 'NORMAL',
+            regime: 'SUBCRITICAL',
+            pacing_interval_ms: 1000,
+            limit_offset_cushion_bps: '0',
+            full_branching_matrix_json: '[]',
+          },
+        ],
         hawkes: {
           spectralRadius: 0.185,
           isExcited: false,

@@ -56,6 +56,7 @@ function formatUtc(ts: number | string | Date): string {
 }
 
 function formatRelativeTime(timestampMs: number, nowMs: number): string {
+  if (timestampMs <= 0 || nowMs <= 0) return 'Unavailable'
   const diffSec = Math.max(0, Math.floor((nowMs - timestampMs) / 1000))
   if (diffSec < 5) return 'Just now'
   if (diffSec < 60) return `${diffSec}s ago`
@@ -67,17 +68,28 @@ function formatRelativeTime(timestampMs: number, nowMs: number): string {
   return `${diffDays}d ago`
 }
 
+function formatCountdown(seconds: number): string {
+  const remaining = Math.ceil(seconds)
+  const minutes = Math.floor(remaining / 60)
+  return `${minutes}:${String(remaining % 60).padStart(2, '0')}`
+}
+
 export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ALL')
-  const [nowMs, setNowMs] = useState<number>(Date.now())
-  const [countdown, setCountdown] = useState<number>(() => {
-    return model.liveProgress?.next_cycle_seconds ?? 15
-  })
+  const [nowMs, setNowMs] = useState<number>(0)
+  const nextCycleSeconds = model.liveProgress?.next_cycle_seconds
+  const nextCycleLabel =
+    typeof nextCycleSeconds === 'number' && Number.isFinite(nextCycleSeconds) && nextCycleSeconds >= 0
+      ? `${Math.ceil(nextCycleSeconds)}s`
+      : 'Unavailable'
+  const nextCycleClock =
+    typeof nextCycleSeconds === 'number' && Number.isFinite(nextCycleSeconds) && nextCycleSeconds >= 0
+      ? formatCountdown(nextCycleSeconds)
+      : 'Unavailable'
 
   useEffect(() => {
     const timer = setInterval(() => {
       setNowMs(Date.now())
-      setCountdown((prev) => (prev <= 1 ? 15 : prev - 1))
     }, 1000)
     return () => clearInterval(timer)
   }, [])
@@ -92,18 +104,16 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
   }
 
   const perf = model.performance
+  const performanceDataAvailable = model.performanceDataAvailable
   const solvency = model.solvency
   const ledger = model.ledger
 
-  const startingEquity = solvency?.starting_equity_usdt ?? ledger?.starting_equity ?? 100.0
-  const cash = solvency?.cash_usdt ?? ledger?.cash ?? 100.0
-  const allocatedMargin = solvency?.allocated_margin_usdt ?? ledger?.allocated_margin ?? 0.0
-  const unrealizedPnl = solvency?.unrealized_pnl_usdt ?? ledger?.unrealized_pnl ?? 0.0
-  const totalEquity = solvency?.total_equity_usdt ?? cash + allocatedMargin + unrealizedPnl
-  const drift = solvency?.drift_usdt ?? ledger?.drift ?? 0.0
+  const totalEquity = model.solvencyDataAvailable ? solvency.total_equity_usdt : undefined
+  const drift = model.accountingEvidenceAvailable
+    ? solvency?.drift_usdt ?? ledger?.drift
+    : undefined
   const isZeroDrift = model.isZeroDrift
-  const cashReservePct =
-    solvency?.cash_reserve_pct ?? (startingEquity > 0 ? (cash / startingEquity) * 100 : 100)
+  const cashReservePct = model.solvencyDataAvailable ? solvency.cash_reserve_pct : undefined
 
   const autopsiesTrace = model.autopsiesTrace || []
   const healthEvaluations = model.healthEvaluations || {}
@@ -147,162 +157,100 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
     }
   }
 
-  const liveProgress = model.liveProgress || {
-    is_live_daemon_active: true,
-    current_cycle_stage: 'SHADOW_OOS_GATE',
-    cycle_progress_pct: 80.0,
-    stage_status: 'WAITING_FOR_SAMPLES',
-    stage_status_label: 'WAITING_FOR_SAMPLES (0/5)',
-    closed_trades_count: 0,
-    required_trades_count: 5,
-    sharpe_hurdle_pct: 15.0,
-    current_sharpe_improvement_pct: 0.0,
-    active_generation: 'GEN #2',
-    next_target_generation: 'GEN #3',
-    last_evaluated_timestamp_ms: model.timestampMs || Date.now() - 17000,
-    last_candle_fetch_timestamp_ms: (model.timestampMs || Date.now()) - 22000,
-    next_cycle_seconds: 15,
-    heartbeat_latency_ms: 42.0,
-    daemon_status: 'ONLINE 24/7',
-    daemon_pid: 87549,
-    scanned_symbols: [
-      'BTCUSDT',
-      'ETHUSDT',
-      'SOLUSDT',
-      'DOGEUSDT',
-      'BNBUSDT',
-      'XRPUSDT',
-      'SUIUSDT',
-      'AVAXUSDT',
-    ],
-    oos_gate: {
-      samples_required: 5,
-      samples_acquired: 0,
-      sharpe_hurdle_pct: 15.0,
-      current_sharpe_improvement_pct: 0.0,
-      status: 'WAITING_FOR_SAMPLES',
-      status_label: 'WAITING_FOR_SAMPLES (0/5)',
-      explanation:
-        'Waiting for 5 completed trade samples to evaluate out-of-sample Sharpe (current: 0/5, hurdle >= 15.0%).',
-    },
-    macro_gating_state: {
-      regime: 'BEARISH',
-      longs_filtered: true,
-      is_long_allowed: false,
-      explanation_ms:
-        'Active BTC Macro Trend Filter: Long entries temporarily paused because BTC 1h/4h trend is in a Bearish regime (EMA 50 < EMA 200) to protect bot micro-capital.',
-      explanation:
-        'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
-    },
-    recent_events: [],
-  }
+  const liveProgress: Partial<NonNullable<AutoEvolutionModel['liveProgress']>> =
+    model.liveProgress ?? {}
+  const daemonActive = liveProgress.is_live_daemon_active === true
+  const daemonStatusLabel = !model.liveProgress
+    ? 'Unavailable'
+    : liveProgress.is_live_daemon_active === true
+      ? 'ACTIVE'
+      : liveProgress.is_live_daemon_active === false
+        ? 'INACTIVE'
+        : liveProgress.daemon_status ?? 'UNKNOWN'
 
   const currentStage =
-    liveProgress.current_stage || liveProgress.current_cycle_stage || 'SHADOW_OOS_GATE'
+    liveProgress.current_stage || liveProgress.current_cycle_stage || 'UNKNOWN'
   const closedTrades =
-    liveProgress.closed_trades_count ?? liveProgress.oos_gate?.samples_acquired ?? 0
+    liveProgress.closed_trades_count ?? liveProgress.oos_gate?.samples_acquired
   const requiredTrades =
-    liveProgress.required_trades_count ?? liveProgress.oos_gate?.samples_required ?? 5
+    liveProgress.required_trades_count ?? liveProgress.oos_gate?.samples_required
   const sharpeHurdle =
-    liveProgress.sharpe_hurdle_pct ?? liveProgress.oos_gate?.sharpe_hurdle_pct ?? 15.0
+    liveProgress.sharpe_hurdle_pct ?? liveProgress.oos_gate?.sharpe_hurdle_pct
   const sharpeImprovement =
     liveProgress.current_sharpe_improvement_pct ??
-    liveProgress.oos_gate?.current_sharpe_improvement_pct ??
-    0.0
+    liveProgress.oos_gate?.current_sharpe_improvement_pct
   const stageStatus =
     liveProgress.stage_status ??
     liveProgress.oos_gate?.status ??
-    (closedTrades < requiredTrades ? 'WAITING_FOR_SAMPLES' : 'EVALUATING')
+    'UNKNOWN'
 
   const oosGateExplanation =
     liveProgress.oos_gate?.explanation ||
-    (closedTrades < requiredTrades
-      ? `Waiting for ${requiredTrades} completed trade samples to evaluate out-of-sample Sharpe (current: ${closedTrades}/${requiredTrades}, hurdle >= ${sharpeHurdle.toFixed(1)}%).`
-      : `Evaluating shadow promotion: Sharpe improvement (+${sharpeImprovement.toFixed(1)}%) being tested against hurdle +${sharpeHurdle.toFixed(1)}%.`)
+    (closedTrades === undefined || requiredTrades === undefined || sharpeHurdle === undefined
+      ? 'Out-of-sample qualification telemetry is unavailable.'
+      : closedTrades < requiredTrades
+        ? `Waiting for ${requiredTrades} completed trade samples to evaluate out-of-sample Sharpe (current: ${closedTrades}/${requiredTrades}, hurdle >= ${sharpeHurdle.toFixed(1)}%).`
+        : sharpeImprovement === undefined
+          ? 'The sample target is met, but Sharpe improvement telemetry is unavailable.'
+          : `Evaluating shadow promotion: Sharpe improvement (${sharpeImprovement >= 0 ? '+' : ''}${sharpeImprovement.toFixed(1)}%) is tested against hurdle +${sharpeHurdle.toFixed(1)}%.`)
 
   const macroState = liveProgress.macro_gating_state || liveProgress.macro_gating || {
-    regime: 'BEARISH',
-    longs_filtered: true,
-    is_long_allowed: false,
-    explanation_ms:
-      'Active BTC Macro Trend Filter: Long entries temporarily paused because BTC 1h/4h trend is in a Bearish regime (EMA 50 < EMA 200) to protect bot micro-capital.',
-    explanation:
-      'Long entries temporarily paused by BTC 1h/4h Bearish regime filter for capital protection (EMA 50 < EMA 200).',
+    regime: 'UNKNOWN', longs_filtered: true, is_long_allowed: false,
+    explanation: 'Fresh macro regime evidence is unavailable.',
+    explanation_ms: 'Fresh macro regime evidence is unavailable.',
   }
+  const macroEvidenceAvailable = Boolean(
+    liveProgress.macro_gating_state || liveProgress.macro_gating,
+  )
 
-  const lastEvalMs =
-    liveProgress.last_evaluated_timestamp_ms || model.timestampMs || (nowMs - 17000)
-  const lastCandleFetchMs =
-    liveProgress.last_candle_fetch_timestamp_ms || (lastEvalMs - 5000)
+  const lastEvalMs = liveProgress.last_evaluated_timestamp_ms
+  const lastCandleFetchMs = liveProgress.last_candle_fetch_timestamp_ms
 
   const cycleProgressPct =
     liveProgress.cycle_progress_pct ??
-    (requiredTrades > 0
-      ? Number((80.0 + (Math.min(closedTrades, requiredTrades) / requiredTrades) * 20.0).toFixed(1))
-      : 80.0)
+    (currentStage === 'SHADOW_OOS_GATE' &&
+    typeof closedTrades === 'number' &&
+    typeof requiredTrades === 'number' &&
+    requiredTrades > 0
+      ? Math.min(
+          100,
+          Math.round(80 + (Math.min(Math.max(0, closedTrades), requiredTrades) / requiredTrades) * 20),
+        )
+      : undefined)
 
-  const scannedSymbols =
-    liveProgress.scanned_symbols && liveProgress.scanned_symbols.length > 0
-      ? liveProgress.scanned_symbols
-      : [
-          'BTCUSDT',
-          'ETHUSDT',
-          'SOLUSDT',
-          'DOGEUSDT',
-          'BNBUSDT',
-          'XRPUSDT',
-          'SUIUSDT',
-          'AVAXUSDT',
-        ]
+  const scannedSymbols = liveProgress.scanned_symbols ?? []
+  const eventsList = liveProgress.recent_events ?? []
 
-  const eventsList =
-    liveProgress.recent_events && liveProgress.recent_events.length > 0
-      ? liveProgress.recent_events
-      : [
-          {
-            event_type: 'HEARTBEAT_INGRESS',
-            title: 'Heartbeat & Market Ingress',
-            detail: `Binance Futures 15m & 1h klines streaming synchronized (8 pairs: ${scannedSymbols.join(', ')})`,
-            latency_ms: 42.0,
-            status: 'HEALTHY',
-            timestamp_ms: lastEvalMs - 15000,
-          },
-          {
-            event_type: 'SOLVENCY_AUDIT',
-            title: 'Continuous Double-Entry Ledger Audit',
-            detail: 'Balance $100.12 USDT verified with zero mathematical drift (|Δ| = 0.00 < 10^-15 USDT)',
-            latency_ms: 0.5,
-            status: 'VERIFIED',
-            timestamp_ms: lastEvalMs - 45000,
-          },
-          {
-            event_type: 'CANDIDATE_HEALTH',
-            title: 'Candidate Strategy Health Evaluation',
-            detail: 'BTCUSDT & ETHUSDT evaluated as ELITE; SOLUSDT evaluated as DEGRADED and routed to mutation',
-            latency_ms: 1.2,
-            status: 'EVALUATED',
-            timestamp_ms: lastEvalMs - 120000,
-          },
-          {
-            event_type: 'MUTATION_STAGING',
-            title: 'Parameter Genome Mutation (Gen #2)',
-            detail: 'cand-ethusdt-evo-002 generated with Donchian period 24, ATR 2.5x, Hawkes 0.65',
-            latency_ms: 2.8,
-            status: 'STAGED',
-            timestamp_ms: lastEvalMs - 300000,
-          },
-          {
-            event_type: 'SHADOW_VALIDATION',
-            title: 'Shadow Simulation & OOS Promotion Gate',
-            detail:
-              closedTrades < requiredTrades
-                ? `OOS Gate: ${closedTrades}/${requiredTrades} samples acquired, Sharpe hurdle >= ${sharpeHurdle.toFixed(1)}% (${stageStatus})`
-                : 'Shadow Sharpe 2.10 vs parent -5.00 (+100.0% improvement) cleared OOS hurdle',
-            latency_ms: 5.4,
-            status: closedTrades < requiredTrades ? 'WAITING' : 'PROMOTED',
-            timestamp_ms: lastEvalMs - 600000,
-          },
-        ]
+  const pipelineStages = [
+    'INGRESS',
+    'HEALTH_EVALUATION',
+    'TRADE_AUTOPSY',
+    'MUTATION_STAGING',
+    'SHADOW_OOS_GATE',
+  ]
+  const currentStageIndex = pipelineStages.indexOf(currentStage)
+  const stageState = (stage: string): 'ACTIVE' | 'COMPLETE' | 'WAITING' | 'UNAVAILABLE' => {
+    if (!model.liveProgress || currentStageIndex < 0) return 'UNAVAILABLE'
+    if (currentStage === stage) return 'ACTIVE'
+    return pipelineStages.indexOf(stage) < currentStageIndex ? 'COMPLETE' : 'WAITING'
+  }
+  const stageCardClass = (stage: string) => {
+    const state = stageState(stage)
+    if (state === 'ACTIVE') return 'bg-primary/10 border-2 border-primary shadow-sm'
+    if (state === 'COMPLETE') return 'bg-base-100 border border-success/30'
+    return 'bg-base-100 border border-base-200'
+  }
+  const stageBadgeClass = (stage: string) => {
+    const state = stageState(stage)
+    if (state === 'ACTIVE') return 'badge-primary'
+    if (state === 'COMPLETE') return 'badge-success'
+    if (state === 'WAITING') return 'badge-ghost'
+    return 'badge-ghost'
+  }
+  const stageLabel = (stage: string) => {
+    const state = stageState(stage)
+    return state === 'UNAVAILABLE' ? 'Unavailable' : state
+  }
 
   return (
     <div className="space-y-8 p-6">
@@ -320,7 +268,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               <CheckCircle2 className="h-3.5 w-3.5" />
               {model.status}
             </span>
-            <ProvenanceBadge source="DAEMON 24/7" />
+            <ProvenanceBadge source={daemonActive ? 'DAEMON 24/7' : 'RESEARCH ARTIFACT / SIMULATION'} />
           </div>
           <p className="mt-2 text-sm text-base-content/70">
             Hash-verified simulation artifact only. It does not establish real feedback learning,
@@ -331,15 +279,32 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
         <div className="flex flex-wrap items-center gap-2">
           <div className="badge badge-outline gap-1 font-mono text-xs">
             <ShieldCheck className="h-3.5 w-3.5 text-success" />
-            PAPER-SAFE: {model.isPaperSafe ? 'TRUE' : 'FALSE'}
+            {`PAPER-SAFE: ${
+              model.paperSafetyEvidenceAvailable
+                ? model.isPaperSafe
+                  ? 'TRUE'
+                  : 'FALSE'
+                : 'UNAVAILABLE'
+            }`}
           </div>
           <div className="badge badge-outline gap-1 font-mono text-xs">
             <Lock className="h-3.5 w-3.5 text-warning" />
-            EXECUTION AUTHORITY: OFF
+            {`EXECUTION AUTHORITY: ${
+              model.executionAuthorityAvailable
+                ? model.isExecutionOff
+                  ? 'OFF'
+                  : 'ON'
+                : 'UNAVAILABLE'
+            }`}
           </div>
           <div className="badge badge-outline gap-1 font-mono text-xs">
             <Scale className="h-3.5 w-3.5 text-info" />
-            ZERO-DRIFT: {isZeroDrift ? 'VERIFIED (0.00)' : 'BREACH'}
+            ZERO-DRIFT:{' '}
+            {isZeroDrift
+              ? 'VERIFIED'
+              : model.accountingEvidenceAvailable
+                ? 'BREACH'
+                : 'UNAVAILABLE'}
           </div>
         </div>
       </div>
@@ -394,7 +359,11 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
         </div>
         <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
           <div className="badge badge-outline text-xs font-mono">
-            {macroState.is_long_allowed ? 'LONGS: ALLOWED' : 'LONGS: BLOCKED'}
+            {!macroEvidenceAvailable
+              ? 'LONGS: UNAVAILABLE'
+              : macroState.is_long_allowed
+                ? 'LONGS: ALLOWED'
+                : 'LONGS: BLOCKED'}
           </div>
         </div>
       </div>
@@ -408,20 +377,26 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-base-200 pb-4">
             <div className="flex items-center gap-3">
               <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20">
-                <Dna className="h-5 w-5 animate-pulse" />
-                <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-success"></span>
-                </span>
+                <Dna className={`h-5 w-5 ${daemonActive ? 'animate-pulse' : ''}`} />
+                {daemonActive && (
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-success"></span>
+                  </span>
+                )}
               </div>
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-lg font-bold text-base-content flex items-center gap-1.5">
                     Current Evolution Progress &amp; Status
                   </h2>
-                  <span className="badge badge-success badge-sm font-semibold gap-1">
+                  <span
+                    className={`badge badge-sm font-semibold gap-1 ${
+                      daemonActive ? 'badge-success' : 'badge-ghost'
+                    }`}
+                  >
                     <Activity className="h-3 w-3" />
-                    ACTIVE 24/7 LOOP
+                    {daemonStatusLabel}
                   </span>
                 </div>
                 <p className="text-xs text-base-content/60">
@@ -433,11 +408,11 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             <div className="flex flex-wrap items-center gap-2">
               <div className="badge badge-neutral font-mono text-xs gap-1">
                 <Cpu className="h-3.5 w-3.5 text-primary" />
-                DAEMON PID: {liveProgress.daemon_pid ?? 87549}
+                DAEMON PID: {liveProgress.daemon_pid ?? 'Unavailable'}
               </div>
-              <div className="badge badge-outline font-mono text-xs gap-1 text-success border-success/30">
-                <Radio className="h-3.5 w-3.5 animate-pulse" />
-                {liveProgress.daemon_status ?? 'ONLINE 24/7'}
+              <div className="badge badge-outline font-mono text-xs gap-1">
+                <Radio className={`h-3.5 w-3.5 ${daemonActive ? 'animate-pulse text-success' : ''}`} />
+                {daemonStatusLabel}
               </div>
             </div>
           </div>
@@ -454,10 +429,10 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 <span className="badge badge-ghost badge-xs font-mono">GMT+8</span>
               </div>
               <div className="mt-2 font-mono text-base sm:text-lg font-black text-base-content tracking-tight">
-                {formatMyt(nowMs)}
+                {nowMs > 0 ? formatMyt(nowMs) : 'Unavailable'}
               </div>
               <div className="mt-1 font-mono text-[10px] text-base-content/50 truncate">
-                {formatUtc(nowMs)}
+                {nowMs > 0 ? formatUtc(nowMs) : 'Unavailable'}
               </div>
             </div>
 
@@ -469,11 +444,11 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   Last Cycle
                 </span>
                 <span className="badge badge-info badge-xs font-mono text-info-content">
-                  {formatRelativeTime(lastEvalMs, nowMs)}
+                  {lastEvalMs === undefined ? 'Unavailable' : formatRelativeTime(lastEvalMs, nowMs)}
                 </span>
               </div>
               <div className="mt-2 font-mono text-sm font-bold text-base-content">
-                {formatMyt(lastEvalMs)}
+                {lastEvalMs === undefined ? 'Unavailable' : formatMyt(lastEvalMs)}
               </div>
               <div className="mt-1 flex items-center justify-between text-[10px] text-base-content/70">
                 <span className="flex items-center gap-1">
@@ -481,11 +456,13 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   Candle Fetch:
                 </span>
                 <span className="font-mono font-semibold text-info">
-                  {formatMyt(lastCandleFetchMs)}
+                  {lastCandleFetchMs === undefined ? 'Unavailable' : formatMyt(lastCandleFetchMs)}
                 </span>
               </div>
               <div className="mt-1.5 pt-1.5 border-t border-base-200/80 text-[10px] text-base-content/60">
-                <span className="font-semibold text-base-content/80">{`Scan (${scannedSymbols.length} Pairs): `}</span>
+                <span className="font-semibold text-base-content/80">
+                  {scannedSymbols.length > 0 ? `Scan (${scannedSymbols.length} Pairs): ` : 'Scan: Unavailable'}
+                </span>
                 <span className="font-mono text-success font-semibold truncate block">
                   {scannedSymbols.join(', ')}
                 </span>
@@ -500,23 +477,16 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   Next Cycle
                 </span>
                 <span className="badge badge-warning badge-xs font-mono">
-                  {countdown}s
+                  {model.liveProgress ? nextCycleLabel : 'Unavailable'}
                 </span>
               </div>
               <div className="mt-2 flex items-baseline gap-2">
                 <span className="font-mono text-lg font-black text-warning">
-                  00:{countdown.toString().padStart(2, '0')}
+                  {model.liveProgress ? nextCycleClock : 'Unavailable'}
                 </span>
                 <span className="text-[11px] text-base-content/60 font-mono">
-                  / 15s window
+                  / runtime-reported interval
                 </span>
-              </div>
-              <div className="mt-2 w-full">
-                <progress
-                  className="progress progress-warning w-full h-1.5"
-                  value={15 - countdown}
-                  max="15"
-                />
               </div>
             </div>
 
@@ -525,23 +495,27 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               <div className="flex items-center justify-between text-base-content/70">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-success flex items-center gap-1">
                   <Zap className="h-3.5 w-3.5" />
-                  Telemetry Integrity
+                  Heartbeat Telemetry
                 </span>
-                <span className="badge badge-success badge-xs font-mono text-success-content">
-                  NORMAL
+                <span className="badge badge-ghost badge-xs font-mono">
+                  {liveProgress.heartbeat_latency_ms === undefined ? 'Unavailable' : 'Reported'}
                 </span>
               </div>
               <div className="mt-2 flex items-baseline gap-2">
                 <span className="font-mono text-lg font-black text-success">
-                  {liveProgress.heartbeat_latency_ms ?? 42.0} ms
+                  {liveProgress.heartbeat_latency_ms === undefined
+                    ? 'Unavailable'
+                    : `${liveProgress.heartbeat_latency_ms} ms`}
                 </span>
                 <span className="text-[11px] text-base-content/60 font-mono">
-                  (&lt; 500ms limit)
+                  (reported latency)
                 </span>
               </div>
               <div className="mt-1 flex items-center gap-1 text-[10px] text-base-content/60">
                 <span>Ledger Drift:</span>
-                <span className="font-mono text-success font-semibold">|&Delta;| = 0.00 USDT</span>
+                <span className="font-mono font-semibold">
+                  {drift === undefined ? 'Unavailable' : `|Δ| = ${drift.toFixed(12)} USDT`}
+                </span>
               </div>
             </div>
           </div>
@@ -551,7 +525,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <div className="text-xs font-bold uppercase tracking-wider text-base-content/70">
-                  Current Evolution Cycle Progress ({liveProgress.active_generation ?? 'GEN #2'} &rarr; {liveProgress.next_target_generation ?? 'GEN #3'})
+                  Current Evolution Cycle Progress ({liveProgress.active_generation ?? 'Unavailable'} &rarr; {liveProgress.next_target_generation ?? 'Unavailable'})
                 </div>
                 <div className="text-sm font-semibold text-base-content mt-0.5">
                   Current Stage:{' '}
@@ -570,7 +544,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm font-black text-primary">
-                  {`${cycleProgressPct}% COMPLETE`}
+                  {cycleProgressPct === undefined ? 'Unavailable' : `${cycleProgressPct}% COMPLETE`}
                 </span>
               </div>
             </div>
@@ -578,7 +552,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             {/* Main Progress Bar */}
             <progress
               className="progress progress-primary w-full h-2.5"
-              value={cycleProgressPct}
+              value={cycleProgressPct ?? 0}
               max="100"
             />
 
@@ -587,9 +561,7 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
               {/* Step 1 */}
               <div
                 className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
-                  currentStage === 'INGRESS'
-                    ? 'bg-primary/10 border-2 border-primary shadow-sm'
-                    : 'bg-base-100 border border-success/30'
+                  stageCardClass('INGRESS')
                 }`}
               >
                 <div className="flex items-center justify-between text-success">
@@ -599,19 +571,17 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 <p className="text-[10px] text-base-content/60 mt-1">15m &amp; 1h Klines streaming</p>
                 <div
                   className={`badge badge-xs mt-2 font-mono ${
-                    currentStage === 'INGRESS' ? 'badge-primary' : 'badge-success'
+                    stageBadgeClass('INGRESS')
                   }`}
                 >
-                  {currentStage === 'INGRESS' ? 'ACTIVE' : '100% COMPLETE'}
+                  {stageLabel('INGRESS')}
                 </div>
               </div>
 
               {/* Step 2 */}
               <div
                 className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
-                  currentStage === 'HEALTH_EVALUATION'
-                    ? 'bg-primary/10 border-2 border-primary shadow-sm'
-                    : 'bg-base-100 border border-success/30'
+                  stageCardClass('HEALTH_EVALUATION')
                 }`}
               >
                 <div className="flex items-center justify-between text-success">
@@ -621,21 +591,17 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 <p className="text-[10px] text-base-content/60 mt-1">Rolling Sharpe &amp; Hawkes &rho;</p>
                 <div
                   className={`badge badge-xs mt-2 font-mono ${
-                    currentStage === 'HEALTH_EVALUATION' ? 'badge-primary' : 'badge-success'
+                    stageBadgeClass('HEALTH_EVALUATION')
                   }`}
                 >
-                  {currentStage === 'HEALTH_EVALUATION'
-                    ? 'ACTIVE'
-                    : `${Object.keys(healthEvaluations).length || 3} ACTIVE CANDIDATES`}
+                  {stageLabel('HEALTH_EVALUATION')}
                 </div>
               </div>
 
               {/* Step 3 */}
               <div
                 className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
-                  currentStage === 'TRADE_AUTOPSY'
-                    ? 'bg-primary/10 border-2 border-primary shadow-sm'
-                    : 'bg-base-100 border border-success/30'
+                  stageCardClass('TRADE_AUTOPSY')
                 }`}
               >
                 <div className="flex items-center justify-between text-success">
@@ -645,21 +611,17 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                 <p className="text-[10px] text-base-content/60 mt-1">Timing, Slip &amp; Adverse Sel</p>
                 <div
                   className={`badge badge-xs mt-2 font-mono ${
-                    currentStage === 'TRADE_AUTOPSY' ? 'badge-primary' : 'badge-info'
+                    stageBadgeClass('TRADE_AUTOPSY')
                   }`}
                 >
-                  {currentStage === 'TRADE_AUTOPSY'
-                    ? 'ACTIVE'
-                    : `${model.performance?.total_autopsies_conducted || 16} AUDITED`}
+                  {stageLabel('TRADE_AUTOPSY')}
                 </div>
               </div>
 
               {/* Step 4 */}
               <div
                 className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
-                  currentStage === 'MUTATION_STAGING'
-                    ? 'bg-primary/10 border-2 border-primary shadow-sm'
-                    : 'bg-base-100 border border-primary/30'
+                  stageCardClass('MUTATION_STAGING')
                 }`}
               >
                 <div className="flex items-center justify-between text-primary">
@@ -667,24 +629,24 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   <Sparkles className="h-3.5 w-3.5" />
                 </div>
                 <p className="text-[10px] text-base-content/60 mt-1">Adaptive parameters tuned</p>
-                <div className="badge badge-primary badge-xs mt-2 font-mono">
-                  {currentStage === 'MUTATION_STAGING' ? 'ACTIVE' : `${liveProgress.active_generation ?? 'GEN #2'} STAGED`}
+                <div className={`badge badge-xs mt-2 font-mono ${stageBadgeClass('MUTATION_STAGING')}`}>
+                  {stageLabel('MUTATION_STAGING')}
                 </div>
               </div>
 
               {/* Step 5 */}
               <div
                 className={`rounded-lg p-2.5 flex flex-col justify-between transition ${
-                  currentStage === 'SHADOW_OOS_GATE'
-                    ? 'bg-warning/10 border-2 border-warning shadow-sm'
-                    : 'bg-base-100 border border-warning/40'
+                  stageCardClass('SHADOW_OOS_GATE')
                 }`}
               >
                 <div className="flex items-center justify-between text-warning">
                   <span className="font-bold">5. OOS Gate &amp; Promotion</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </div>
-                <p className="text-[10px] text-base-content/60 mt-1">Sharpe &ge; {sharpeHurdle.toFixed(0)}% hurdle</p>
+                <p className="text-[10px] text-base-content/60 mt-1">
+                  Sharpe &ge; {sharpeHurdle?.toFixed(0) ?? 'Unavailable'}% hurdle
+                </p>
                 <div
                   className={`badge badge-xs mt-2 font-mono ${
                     stageStatus === 'QUALIFIED'
@@ -694,11 +656,15 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                       : 'badge-warning'
                   }`}
                 >
-                  {stageStatus === 'WAITING_FOR_SAMPLES'
+                  {stageStatus === 'WAITING_FOR_SAMPLES' &&
+                  closedTrades !== undefined &&
+                  requiredTrades !== undefined
                     ? `${closedTrades}/${requiredTrades} SAMPLES`
                     : stageStatus === 'QUALIFIED'
                     ? 'QUALIFIED / PROMOTED'
-                    : 'EVALUATING'}
+                    : stageStatus === 'EVALUATING'
+                      ? 'EVALUATING'
+                      : 'Unavailable'}
                 </div>
               </div>
             </div>
@@ -737,19 +703,29 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-base-content/70 font-semibold">Closed Trade Samples:</span>
                     <span className="font-mono font-black text-base-content">
-                      {`${closedTrades} / ${requiredTrades} required trades`}
+                      {closedTrades === undefined || requiredTrades === undefined
+                        ? 'Unavailable'
+                        : `${closedTrades} / ${requiredTrades} required trades`}
                     </span>
                   </div>
                   <progress
                     className={`progress w-full h-2 ${
-                      closedTrades >= requiredTrades ? 'progress-success' : 'progress-warning'
+                      closedTrades !== undefined &&
+                      requiredTrades !== undefined &&
+                      closedTrades >= requiredTrades
+                        ? 'progress-success'
+                        : 'progress-warning'
                     }`}
-                    value={requiredTrades > 0 ? closedTrades : 0}
-                    max={Math.max(1, requiredTrades)}
+                    value={closedTrades ?? 0}
+                    max={Math.max(1, requiredTrades ?? 0)}
                   />
                   <div className="flex justify-between text-[11px] text-base-content/50 font-mono">
                     <span>0 samples</span>
-                    <span>{requiredTrades} required qualification target</span>
+                    <span>
+                      {requiredTrades === undefined
+                        ? 'Qualification target unavailable'
+                        : `${requiredTrades} required qualification target`}
+                    </span>
                   </div>
                 </div>
 
@@ -758,21 +734,29 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-base-content/70 font-semibold">Sharpe Minimum Hurdle:</span>
                     <span className="font-mono font-black text-warning">
-                      {`≥ ${sharpeHurdle.toFixed(1)}% improvement`}
+                      {sharpeHurdle === undefined
+                        ? 'Unavailable'
+                        : `≥ ${sharpeHurdle.toFixed(1)}% improvement`}
                     </span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg bg-base-200/50 p-2 font-mono text-xs">
                     <span className="text-base-content/60">Current Improvement:</span>
                     <span
                       className={`font-black ${
+                        sharpeImprovement !== undefined &&
+                        sharpeHurdle !== undefined &&
                         sharpeImprovement >= sharpeHurdle
                           ? 'text-success'
-                          : sharpeImprovement > 0
+                          : sharpeImprovement !== undefined && sharpeImprovement > 0
                           ? 'text-info'
                           : 'text-base-content/70'
                       }`}
                     >
-                      {sharpeImprovement >= 0 ? `+${sharpeImprovement.toFixed(1)}%` : `${sharpeImprovement.toFixed(1)}%`}
+                      {sharpeImprovement === undefined
+                        ? 'Unavailable'
+                        : sharpeImprovement >= 0
+                          ? `+${sharpeImprovement.toFixed(1)}%`
+                          : `${sharpeImprovement.toFixed(1)}%`}
                     </span>
                   </div>
                 </div>
@@ -791,13 +775,17 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-base-content/70 flex items-center gap-1.5">
                 <History className="h-3.5 w-3.5 text-primary" />
-                Recent Evolution Events Timeline (Live Audit Timeline)
+                Recent Evolution Events
               </h3>
               <span className="badge badge-ghost badge-xs font-mono">Malaysia Time (MYT)</span>
             </div>
 
             <div className="space-y-2">
-              {eventsList.map((evt, idx) => (
+              {eventsList.length === 0 ? (
+                <p className="rounded-lg bg-base-100 p-3 text-sm text-base-content/60">
+                  No live evolution events are available.
+                </p>
+              ) : eventsList.map((evt, idx) => (
                 <div
                   key={idx}
                   className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-base-100 p-2.5 border border-base-200/60 hover:border-base-300 transition"
@@ -850,20 +838,22 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black tracking-tight text-base-content font-mono">
-                GEN #2
+                {liveProgress.active_generation ?? 'Unavailable'}
               </span>
-              <span className="badge badge-sm badge-success">ACTIVE</span>
+              <span className={`badge badge-sm ${daemonActive ? 'badge-success' : 'badge-ghost'}`}>
+                {daemonStatusLabel}
+              </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Staged Mutations</span>
               <span className="font-mono font-bold text-base-content">
-                {perf?.staged_mutations_count ?? 0}
+                {performanceDataAvailable ? perf.staged_mutations_count : 'Unavailable'}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
               <span>Promoted Candidates</span>
               <span className="font-mono font-bold text-success">
-                {perf?.promoted_candidates_count ?? 0}
+                {performanceDataAvailable ? perf.promoted_candidates_count : 'Unavailable'}
               </span>
             </div>
           </div>
@@ -878,20 +868,26 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black tracking-tight text-base-content font-mono">
-                {perf?.total_autopsies_conducted ?? 0}
+                {performanceDataAvailable ? perf.total_autopsies_conducted : 'Unavailable'}
               </span>
-              <span className="badge badge-sm badge-info font-mono">100% AUDITED</span>
+              <span className="badge badge-sm badge-info font-mono">
+                {model.verified ? 'HASH VERIFIED' : 'UNVERIFIED'}
+              </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Organic Alpha Trades</span>
               <span className="font-mono font-bold text-success">
-                {perf?.autopsy_cause_distribution?.ORGANIC_ALPHA ?? 0}
+                {performanceDataAvailable
+                  ? (perf.autopsy_cause_distribution.ORGANIC_ALPHA ?? 0)
+                  : 'Unavailable'}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
               <span>Hawkes Cluster Drag</span>
               <span className="font-mono font-bold text-error">
-                {perf?.autopsy_cause_distribution?.HAWKES_CLUSTER ?? 0}
+                {performanceDataAvailable
+                  ? (perf.autopsy_cause_distribution.HAWKES_CLUSTER ?? 0)
+                  : 'Unavailable'}
               </span>
             </div>
           </div>
@@ -906,20 +902,24 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black tracking-tight text-warning font-mono">
-                +{perf?.mean_realized_edge_bps?.toFixed(2) ?? '0.00'}
+                {performanceDataAvailable ? `+${perf.mean_realized_edge_bps.toFixed(2)}` : 'Unavailable'}
               </span>
               <span className="text-xs text-base-content/60">bps Net Edge</span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Timing Error / Hawkes Drag</span>
               <span className="font-mono font-bold text-base-content">
-                {perf?.mean_entry_timing_error_bps?.toFixed(1) ?? '0.0'} / {perf?.mean_hawkes_slip_drag_bps?.toFixed(1) ?? '0.0'} bps
+                {performanceDataAvailable
+                  ? `${perf.mean_entry_timing_error_bps.toFixed(1)} / ${perf.mean_hawkes_slip_drag_bps.toFixed(1)} bps`
+                  : 'Unavailable'}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
               <span>Adverse Selection</span>
               <span className="font-mono font-bold text-base-content">
-                {perf?.mean_adverse_selection_bps?.toFixed(1) ?? '0.0'} bps
+                {performanceDataAvailable
+                  ? `${perf.mean_adverse_selection_bps.toFixed(1)} bps`
+                  : 'Unavailable'}
               </span>
             </div>
           </div>
@@ -934,21 +934,17 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black tracking-tight text-success font-mono">
-                ${totalEquity.toFixed(2)}
+                {totalEquity === undefined ? 'Unavailable' : `$${totalEquity.toFixed(2)}`}
               </span>
               <span className="badge badge-sm badge-success font-mono">
-                {cashReservePct.toFixed(0)}% CASH
+                {cashReservePct === undefined ? 'Unavailable' : `${cashReservePct.toFixed(0)}% CASH`}
               </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Mathematical Drift</span>
               <span className="font-mono font-bold text-success">
-                ${drift.toFixed(2)} USDT
+                {drift === undefined ? 'Unavailable' : `${drift.toFixed(12)} USDT`}
               </span>
-            </div>
-            <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
-              <span>Micro Child Chunk Cap</span>
-              <span className="font-mono font-bold text-base-content">&le; $5.00 USDT</span>
             </div>
           </div>
         </div>
@@ -1079,6 +1075,10 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
                   'XRPUSDT',
                   'SUIUSDT',
                   'AVAXUSDT',
+                  'NEARUSDT',
+                  'LINKUSDT',
+                  'APTUSDT',
+                  'ADAUSDT',
                 ].map((sym) => (
                   <button
                     key={sym}

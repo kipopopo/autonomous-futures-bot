@@ -201,16 +201,37 @@ describe('EvolutionPage component', () => {
   })
 
   it('renders live evolution progress card with MYT timestamps and stage stepper', () => {
-    const model = buildAutoEvolutionModel(verifiedFixture)
+    const fixtureWithLiveProgress: CanaryAutoEvolutionData = {
+      ...verifiedFixture,
+      live_progress: {
+        is_live_daemon_active: true,
+        daemon_status: 'RUNNING',
+        daemon_pid: 87549,
+        current_stage: 'INGRESS',
+        cycle_progress_pct: 20,
+        closed_trades_count: 0,
+        required_trades_count: 5,
+        sharpe_hurdle_pct: 15,
+        current_sharpe_improvement_pct: 0,
+        stage_status: 'WAITING_FOR_SAMPLES',
+        last_evaluated_timestamp_ms: 1790146800000,
+        last_candle_fetch_timestamp_ms: 1790146795000,
+        next_cycle_seconds: 90,
+        scanned_symbols: ['BTCUSDT'],
+      },
+    }
+    const model = buildAutoEvolutionModel(fixtureWithLiveProgress)
     const html = renderToString(<EvolutionPage model={model} />)
 
     expect(html).toContain('Current Evolution Progress &amp; Status')
-    expect(html).toContain('ACTIVE 24/7 LOOP')
+    expect(html).toContain('ACTIVE')
     expect(html).toContain('Current Time (MYT)')
     expect(html).toContain('MYT')
     expect(html).toContain('Last Cycle')
     expect(html).toContain('Next Cycle')
-    expect(html).toContain('Telemetry Integrity')
+    expect(html).toContain('90s')
+    expect(html).toContain('1:30')
+    expect(html).toContain('Heartbeat Telemetry')
     expect(html).toContain('1. Market Ingress')
     expect(html).toContain('2. Candidate Health')
     expect(html).toContain('3. Trade Autopsy')
@@ -218,16 +239,38 @@ describe('EvolutionPage component', () => {
     expect(html).toContain('5. OOS Gate &amp; Promotion')
   })
 
-  it('renders recent evolution events timeline with timestamps and status badges', () => {
+  it('does not invent recent evolution events when live telemetry is absent', () => {
     const model = buildAutoEvolutionModel(verifiedFixture)
     const html = renderToString(<EvolutionPage model={model} />)
 
-    expect(html).toContain('Recent Evolution Events Timeline')
+    expect(html).toContain('Recent Evolution Events')
+    expect(html).toContain('No live evolution events are available.')
+    expect(html).not.toContain('Heartbeat &amp; Market Ingress')
+    expect(html).not.toContain('Balance $100.12 USDT')
+  })
+
+  it('renders only event records supplied by live telemetry', () => {
+    const fixtureWithEvent: CanaryAutoEvolutionData = {
+      ...verifiedFixture,
+      live_progress: {
+        recent_events: [
+          {
+            event_type: 'HEARTBEAT_INGRESS',
+            title: 'Heartbeat & Market Ingress',
+            detail: 'Measured heartbeat event',
+            latency_ms: 42,
+            status: 'HEALTHY',
+            timestamp_ms: 1790146800000,
+          },
+        ],
+      },
+    }
+    const model = buildAutoEvolutionModel(fixtureWithEvent)
+    const html = renderToString(<EvolutionPage model={model} />)
+
     expect(html).toContain('Heartbeat &amp; Market Ingress')
-    expect(html).toContain('Continuous Double-Entry Ledger Audit')
-    expect(html).toContain('Candidate Strategy Health Evaluation')
-    expect(html).toContain('Parameter Genome Mutation (Gen #2)')
-    expect(html).toContain('Shadow Simulation &amp; OOS Promotion Gate')
+    expect(html).toContain('Measured heartbeat event')
+    expect(html).not.toContain('Continuous Double-Entry Ledger Audit')
   })
 
   it('renders BTC Macro Trend Gating Banner with regime and institutional English explanation', () => {
@@ -293,16 +336,20 @@ describe('EvolutionPage component', () => {
     expect(html).toContain('20% COMPLETE')
   })
 
-  it('renders all 8 scanned perpetual universe pairs and candle fetch timestamp in Box 2', () => {
+  it('does not invent live daemon state from historical artifacts', () => {
     const model = buildAutoEvolutionModel(verifiedFixture)
     const html = renderToString(<EvolutionPage model={model} />)
-
-    expect(html).toContain('Candle Fetch:')
-    expect(html).toContain('Scan (8 Pairs):')
-    expect(html).toContain('BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT, BNBUSDT, XRPUSDT, SUIUSDT, AVAXUSDT')
+    expect(model.liveProgress).toBeUndefined()
+    expect(html).toContain('Scan: Unavailable')
+    expect(html).toContain('No live evolution events are available.')
+    expect(html).not.toContain('87549')
+    expect(html).not.toContain('ONLINE 24/7')
+    expect(html).not.toContain('GEN #2')
+    expect(html).not.toContain('$5.00 USDT')
+    expect(html).toContain('RESEARCH ARTIFACT / SIMULATION')
   })
 
-  it('renders 8 filter symbol pills in trade autopsy trace section', () => {
+  it('renders 12 filter symbol pills in trade autopsy trace section', () => {
     const model = buildAutoEvolutionModel(verifiedFixture)
     const html = renderToString(<EvolutionPage model={model} />)
 
@@ -316,5 +363,9 @@ describe('EvolutionPage component', () => {
     expect(html).toContain('>XRPUSDT</button>')
     expect(html).toContain('>SUIUSDT</button>')
     expect(html).toContain('>AVAXUSDT</button>')
+    expect(html).toContain('>NEARUSDT</button>')
+    expect(html).toContain('>LINKUSDT</button>')
+    expect(html).toContain('>APTUSDT</button>')
+    expect(html).toContain('>ADAUSDT</button>')
   })
 })

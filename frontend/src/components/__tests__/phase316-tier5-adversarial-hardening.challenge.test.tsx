@@ -467,7 +467,7 @@ describe('Phase 316 — Tier 5 Frontend Adversarial Hardening Challenge', () => 
       expect(model.kpis.totalEquityUsdt).toBe(100.0)
       expect(model.kpis.cashReservePct).toBe(100.0)
       expect(model.kpis.activeExposureUsdt).toBe(0.0)
-      expect(model.positions).toHaveLength(8)
+      expect(model.positions).toHaveLength(12)
       expect(model.orders.length).toBeGreaterThan(0) // Falls back to authentic fallback orders
       expect(model.radar.btcMacroTrend.regime).toBeDefined()
     })
@@ -489,14 +489,14 @@ describe('Phase 316 — Tier 5 Frontend Adversarial Hardening Challenge', () => 
       })
       const html = renderToString(<EvolutionPage model={sparseAutoEvo} />)
       expect(html).toContain('1. Market Ingress')
-      expect(html).toContain('ACTIVE 24/7 LOOP')
+      expect(html).toContain('RESEARCH ARTIFACT / SIMULATION')
       expect(html).not.toContain('NaN')
     })
 
     it('C2.4: MarketPositionsCard handles empty positions array [] without throwing', () => {
       const html = renderToString(<MarketPositionsCard positions={[]} />)
       expect(html).toContain('Live Positions &amp; Markets')
-      expect(html).toContain('8 Perpetual Pairs') // Fallback label when empty
+      expect(html).toContain('12 Perpetual Pairs') // Fallback label when empty
     })
 
     it('C2.5: OrderFeedTable handles empty orders array [] with centered empty notice', () => {
@@ -636,6 +636,7 @@ describe('Phase 316 — Tier 5 Frontend Adversarial Hardening Challenge', () => 
           closed_trades_count: 5,
           required_trades_count: 5,
           sharpe_hurdle_pct: 15.0,
+          current_sharpe_improvement_pct: 18.5,
           stage_status: 'EVALUATING',
         },
       }
@@ -772,7 +773,7 @@ describe('Phase 316 — Tier 5 Frontend Adversarial Hardening Challenge', () => 
       expect(solvency.zero_balance_drift_verified).toBe(true)
     })
 
-    it('C5.2: ExecutiveSafetyPage displays Zero-Drift Verified badge and solvency proof', () => {
+    it('C5.2: ExecutiveSafetyPage displays ACCOUNT LEDGER VERIFIED badge and solvency proof when live evidence is provided', () => {
       const prod = buildProductionLaunchModel(null)
       const risk = buildRiskModel(null)
       const kill = buildKillSwitchModel(null)
@@ -782,12 +783,38 @@ describe('Phase 316 — Tier 5 Frontend Adversarial Hardening Challenge', () => 
           productionLaunchModel={prod}
           riskModel={risk}
           killSwitchModel={kill}
+          executionStatus={{
+            verified: true,
+            status: 'ACCOUNT_VERIFIED',
+            engine_state: 'ONLINE 24/7',
+            timestamp_ms: 1710000000000,
+            positions: {},
+            candidate_allocations: [],
+            aggregate_exposure_usdt: 0.0,
+            recent_orders: [],
+            total_orders: 0,
+            interlock_blocks_count: 0,
+            intra_day_loss_usdt: 0.0,
+            solvency: {
+              starting_equity_usdt: 5000.0,
+              cash_usdt: 5000.0,
+              available_balance_usdt: 5000.0,
+              allocated_margin_usdt: 0.0,
+              unrealized_pnl_usdt: 0.0,
+              realized_pnl_usdt: 0.0,
+              total_equity_usdt: 5000.0,
+              drift_usdt: 0.0,
+              zero_balance_drift_verified: true,
+              cash_reserve_pct: 100.0,
+              unencumbered_cash_verified: true,
+            },
+          }}
         />,
       )
       expect(html).toContain('Risk Controls &amp; Ledger Integrity')
-      expect(html).toContain('Zero-Drift Verified')
-      expect(html).toContain('CIRCUIT: NORMAL')
-      expect(html).toContain('0 Active Tripwires')
+      expect(html).toContain('ACCOUNT LEDGER VERIFIED')
+      expect(html).toContain('Zero drift verified')
+      expect(html).toContain('0 observed tripwires')
     })
 
     it('C5.3: Micro-capital governance boundaries are strictly satisfied across fixtures', () => {

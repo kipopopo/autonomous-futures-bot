@@ -7,10 +7,12 @@ import type {
   StrategyMiningModel,
   ExecutionStatusResponse,
 } from '@/lib/canary'
+import type { LiveMarketPricesResponse } from '@/lib/api'
 import type { TelemetryState } from '@/lib/websocket'
 import type {
   ExecutiveDashboardModel,
   PositionTelemetry,
+  PairTicker,
   OrderFeedItem,
   StrategyEvolutionRadarData,
   MacroRegime,
@@ -90,6 +92,7 @@ export function buildExecutiveDashboardModel(
   executionStatus?: ExecutionStatusResponse | null,
   btcMacro?: BtcMacroTrendInput | null,
   scalperCriteriaInput?: Partial<ScalperCriteria> | null,
+  liveMarketPricesInput?: LiveMarketPricesResponse | null,
 ): ExecutiveDashboardModel {
   // 1. Bot & Gateway Status
   const isCircuitNormal =
@@ -219,6 +222,34 @@ export function buildExecutiveDashboardModel(
       atrMultiplierSl: 1.2,
       typicalAtr: 0.75,
     },
+    {
+      symbol: 'NEARUSDT',
+      fallbackPrice: 2.50,
+      atrMultiplierTp: 2.0,
+      atrMultiplierSl: 1.2,
+      typicalAtr: 0.12,
+    },
+    {
+      symbol: 'LINKUSDT',
+      fallbackPrice: 15.0,
+      atrMultiplierTp: 2.0,
+      atrMultiplierSl: 1.2,
+      typicalAtr: 0.65,
+    },
+    {
+      symbol: 'APTUSDT',
+      fallbackPrice: 6.50,
+      atrMultiplierTp: 2.0,
+      atrMultiplierSl: 1.2,
+      typicalAtr: 0.30,
+    },
+    {
+      symbol: 'ADAUSDT',
+      fallbackPrice: 0.70,
+      atrMultiplierTp: 2.0,
+      atrMultiplierSl: 1.2,
+      typicalAtr: 0.035,
+    },
   ]
 
   const isStalePhase309 = productionLaunch.phase === 'phase_309'
@@ -232,27 +263,52 @@ export function buildExecutiveDashboardModel(
     p.entry_price === 2500
 
   const positions: PositionTelemetry[] = symbolConfigs.map((cfg) => {
-    // Look up live price from liveMarket first for up-to-the-second pricing
+    // 2. Look up live mark price
+    const apiMarkPrice = liveMarketPricesInput?.mark_prices?.[cfg.symbol]
     const marketMarkPriceStr = liveMarket?.markPrices?.[cfg.symbol]?.mark_price
     const parsedMarkPrice = marketMarkPriceStr ? Number(marketMarkPriceStr) : 0
+
+    // Check live daemon execution status if available
+    const liveExecPos = executionStatus?.positions?.[cfg.symbol]
+    const hasLiveExecData = Boolean(liveExecPos)
+
+    // 1. Look up live last traded price
+    const apiLastPrice =
+      liveMarketPricesInput?.last_prices?.[cfg.symbol] ??
+      liveMarketPricesInput?.prices?.[cfg.symbol]
+    const lastPrice =
+      apiLastPrice && apiLastPrice > 0
+        ? apiLastPrice
+        : liveExecPos?.last_price && liveExecPos.last_price > 0
+          ? liveExecPos.last_price
+          : parsedMarkPrice > 0
+            ? parsedMarkPrice
+            : cfg.fallbackPrice
 
     // When phase is phase_309, ignore stale simulation candidate allocations
     const alloc = isStalePhase309
       ? undefined
       : productionLaunch.candidateAllocations.find((a) => a.symbol === cfg.symbol)
 
-    // Check live daemon execution status if available
-    const liveExecPos = executionStatus?.positions?.[cfg.symbol]
-    const hasLiveExecData = Boolean(liveExecPos)
-
-    const currentPrice =
-      parsedMarkPrice > 0
-        ? parsedMarkPrice
+    const markPrice =
+      apiMarkPrice && apiMarkPrice > 0
+        ? apiMarkPrice
         : liveExecPos?.mark_price && liveExecPos.mark_price > 0
           ? liveExecPos.mark_price
-          : alloc?.current_price && alloc.current_price > 0
-            ? alloc.current_price
-            : cfg.fallbackPrice
+          : parsedMarkPrice > 0
+            ? parsedMarkPrice
+            : alloc?.current_price && alloc.current_price > 0
+              ? alloc.current_price
+              : lastPrice > 0
+                ? lastPrice
+                : cfg.fallbackPrice
+
+    const currentPrice = lastPrice
+    const indexPrice = liveMarketPricesInput?.index_prices?.[cfg.symbol] ?? markPrice
+    const fundingRate = liveMarketPricesInput?.funding_rates?.[cfg.symbol] ?? 0.0001
+    const basis = Number((lastPrice - markPrice).toFixed(4))
+    const basisPct =
+      markPrice > 0 ? Number((((lastPrice - markPrice) / markPrice) * 100).toFixed(4)) : 0
 
     // Check bracket position if any (only active if size > 0 and not stale)
     const bracketPos = bracketPositions?.positions?.find(
@@ -320,6 +376,12 @@ export function buildExecutiveDashboardModel(
     return {
       symbol: cfg.symbol,
       currentPrice,
+      lastPrice,
+      markPrice,
+      indexPrice,
+      fundingRate,
+      basis,
+      basisPct,
       state: hasActivePosition ? 'LONG' : 'SCANNING / STANDBY',
       entryPrice,
       size,
@@ -330,6 +392,41 @@ export function buildExecutiveDashboardModel(
       takeProfitPrice,
       stopLossPrice,
       riskRewardRatio,
+    }
+  })
+
+  // 4. All-Pairs Real-Time Ticker for Glanceable Overview
+  const pairTickers: PairTicker[] = symbolConfigs.map((cfg) => {
+    const apiMp = liveMarketPricesInput?.mark_prices?.[cfg.symbol]
+    const parsedLiveMark = liveMarket?.markPrices?.[cfg.symbol]?.mark_price
+      ? Number(liveMarket.markPrices[cfg.symbol].mark_price)
+      : 0
+
+    const apiLp =
+      liveMarketPricesInput?.last_prices?.[cfg.symbol] ??
+      liveMarketPricesInput?.prices?.[cfg.symbol]
+    const lp =
+      apiLp && apiLp > 0
+        ? apiLp
+        : parsedLiveMark > 0
+          ? parsedLiveMark
+          : cfg.fallbackPrice
+
+    const mp = apiMp && apiMp > 0 ? apiMp : parsedLiveMark > 0 ? parsedLiveMark : lp
+
+    const ip = liveMarketPricesInput?.index_prices?.[cfg.symbol] ?? mp
+    const fr = liveMarketPricesInput?.funding_rates?.[cfg.symbol] ?? 0.0001
+    const basis = Number((lp - mp).toFixed(4))
+    const basisPct = mp > 0 ? Number((((lp - mp) / mp) * 100).toFixed(4)) : 0
+
+    return {
+      symbol: cfg.symbol,
+      lastPrice: lp,
+      markPrice: mp,
+      indexPrice: ip,
+      fundingRate: fr,
+      basis,
+      basisPct,
     }
   })
 
@@ -717,6 +814,7 @@ export function buildExecutiveDashboardModel(
       isZeroDriftVerified,
     },
     positions,
+    pairTickers,
     radar: {
       btcMacroTrend: btcTrend,
       scalperCriteria,

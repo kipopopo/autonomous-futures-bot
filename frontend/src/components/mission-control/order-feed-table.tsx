@@ -62,6 +62,10 @@ export function OrderFeedTable({ orders }: OrderFeedTableProps) {
             'XRPUSDT',
             'SUIUSDT',
             'AVAXUSDT',
+            'NEARUSDT',
+            'LINKUSDT',
+            'APTUSDT',
+            'ADAUSDT',
           ].map((sym) => (
             <button
               key={sym}

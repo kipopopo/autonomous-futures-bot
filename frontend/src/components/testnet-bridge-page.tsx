@@ -24,15 +24,16 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
   const ledger = model.ledger
   const filters = model.exchangeFilters || {}
 
-  const startingEquity = solvency?.starting_equity_usdt ?? ledger?.starting_equity ?? 100.0
-  const cash = solvency?.cash_usdt ?? ledger?.cash ?? 100.0
-  const allocatedMargin = solvency?.allocated_margin_usdt ?? ledger?.allocated_margin ?? 0.0
-  const unrealizedPnl = solvency?.unrealized_pnl_usdt ?? ledger?.unrealized_pnl ?? 0.0
-  const totalEquity = solvency?.total_equity_usdt ?? cash + allocatedMargin + unrealizedPnl
-  const drift = solvency?.drift_usdt ?? ledger?.drift ?? 0.0
+  const startingEquity = solvency?.starting_equity_usdt ?? ledger?.starting_equity ?? null
+  const cash = solvency?.cash_usdt ?? ledger?.cash ?? null
+  const totalEquity = solvency?.total_equity_usdt ?? null
+  const drift = solvency?.drift_usdt ?? ledger?.drift ?? null
   const isZeroDrift = model.isZeroDrift
   const cashReservePct =
-    solvency?.cash_reserve_pct ?? (startingEquity > 0 ? (cash / startingEquity) * 100 : 100)
+    solvency?.cash_reserve_pct ??
+    (startingEquity !== null && cash !== null && startingEquity > 0
+      ? (cash / startingEquity) * 100
+      : null)
 
   const dispatchedOrders = model.dispatchedOrdersTrace || []
   const userDataEvents = model.userDataEventsTrace || []
@@ -41,6 +42,7 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
     if (selectedSymbol === 'ALL') return true
     return order.symbol === selectedSymbol
   })
+  const symbols = ['ALL', ...new Set([...Object.keys(filters), ...dispatchedOrders.map((order) => order.symbol)])]
 
   return (
     <div className="space-y-8 p-6">
@@ -54,29 +56,33 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
             <span className="badge badge-primary font-mono text-xs font-semibold">
               PHASE 307
             </span>
-            <span className="badge badge-success gap-1 text-xs font-semibold">
+            <span
+              className={`badge ${model.verified ? 'badge-success' : 'badge-warning'} gap-1 text-xs font-semibold`}
+            >
               <CheckCircle2 className="h-3.5 w-3.5" />
               {model.status}
             </span>
           </div>
           <p className="mt-2 text-sm text-base-content/70">
-            Authenticated REST/WebSocket gateway, HMAC-SHA256 signature pipeline, exchange filter validation,
-            user data stream event lifecycle, and double-entry zero-drift balance invariant governance.
+            Exchange connectivity, order lifecycle, filter, and ledger evidence appear here when the API supplies them.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="badge badge-outline gap-1 font-mono text-xs">
             <ShieldCheck className="h-3.5 w-3.5 text-success" />
-            PAPER-SAFE: {model.isPaperSafe ? 'TRUE' : 'FALSE'}
+            PAPER-SAFE:{' '}
+            {model.isPaperSafe === null ? 'UNKNOWN' : model.isPaperSafe ? 'TRUE' : 'FALSE'}
           </div>
           <div className="badge badge-outline gap-1 font-mono text-xs">
             <Lock className="h-3.5 w-3.5 text-warning" />
-            EXECUTION AUTHORITY: OFF
+            EXECUTION AUTHORITY:{' '}
+            {model.isExecutionOff === null ? 'UNKNOWN' : model.isExecutionOff ? 'OFF' : 'ON'}
           </div>
           <div className="badge badge-outline gap-1 font-mono text-xs">
             <Scale className="h-3.5 w-3.5 text-info" />
-            ZERO-DRIFT: {isZeroDrift ? 'VERIFIED (0.00)' : 'BREACH'}
+            ZERO-DRIFT:{' '}
+            {isZeroDrift === null ? 'UNAVAILABLE' : isZeroDrift ? 'VERIFIED' : 'BREACH'}
           </div>
         </div>
       </div>
@@ -92,20 +98,22 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black tracking-tight text-success font-mono">
-                {bridge?.connection_state ?? 'CONNECTED'}
+                {bridge?.connection_state ?? 'UNAVAILABLE'}
               </span>
-              <span className="badge badge-sm badge-success">ACTIVE</span>
+              <span className="badge badge-sm">
+                {bridge ? (bridge.listen_key_active ? 'ACTIVE' : 'INACTIVE') : 'UNKNOWN'}
+              </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>API Key</span>
               <span className="font-mono font-bold text-base-content">
-                {bridge?.api_key_masked ?? 'mock-****-7f89'}
+                {bridge?.api_key_masked ?? '—'}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
               <span>Clock Offset</span>
               <span className="font-mono font-bold text-success">
-                {`${bridge?.clock_offset_ms ?? 12} ms`}
+                {bridge ? `${bridge.clock_offset_ms} ms` : '—'}
               </span>
             </div>
           </div>
@@ -120,22 +128,22 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black tracking-tight text-base-content font-mono">
-                {perf?.total_orders_dispatched ?? 0}
+                {perf?.total_orders_dispatched ?? '—'}
               </span>
               <span className="badge badge-sm badge-info font-mono">
-                {perf?.fill_rate_pct ? `${perf.fill_rate_pct.toFixed(1)}%` : '100.0%'} FILLED
+                {perf ? `${perf.fill_rate_pct.toFixed(1)}%` : '—'} FILLED
               </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Total Filled</span>
               <span className="font-mono font-bold text-base-content">
-                {perf?.total_orders_filled ?? 0}
+                {perf?.total_orders_filled ?? '—'}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
               <span>Max Micro Notional</span>
               <span className="font-mono font-bold text-info">
-                ${(perf?.max_micro_notional_usdt ?? 5.71).toFixed(2)} USDT
+                {perf ? `$${perf.max_micro_notional_usdt.toFixed(2)} USDT` : '—'}
               </span>
             </div>
           </div>
@@ -150,20 +158,20 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black tracking-tight text-warning font-mono">
-                {(perf?.mean_round_trip_ms ?? 18.5).toFixed(1)}
+                {perf?.mean_round_trip_ms.toFixed(1) ?? '—'}
               </span>
               <span className="text-xs font-semibold text-base-content/60">ms</span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Filter Validation</span>
               <span className="font-mono font-bold text-base-content">
-                {(perf?.mean_filter_latency_us ?? 14.2).toFixed(1)} µs
+                {perf?.mean_filter_latency_us.toFixed(1) ?? '—'} µs
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
               <span>HMAC Signature</span>
               <span className="font-mono font-bold text-base-content">
-                {(perf?.mean_sign_latency_us ?? 28.6).toFixed(1)} µs
+                {perf?.mean_sign_latency_us.toFixed(1) ?? '—'} µs
               </span>
             </div>
           </div>
@@ -178,20 +186,29 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black tracking-tight text-success font-mono">
-                ${totalEquity.toFixed(2)}
+                {totalEquity === null ? '—' : `$${totalEquity.toFixed(2)}`}
               </span>
-              <span className="badge badge-sm badge-success">ZERO-DRIFT</span>
+              <span className="badge badge-sm">
+                {isZeroDrift === null ? 'UNAVAILABLE' : isZeroDrift ? 'ZERO-DRIFT' : 'DRIFT BREACH'}
+              </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-base-content/60">
               <span>Cash Reserve</span>
               <span className="font-mono font-bold text-base-content">
-                {cashReservePct.toFixed(1)}% (${cash.toFixed(2)})
+                {cashReservePct === null ? '—' : `${cashReservePct.toFixed(1)}%`}
+                {' ('}
+                {cash === null ? '—' : `$${cash.toFixed(2)}`}
+                {')'}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-xs text-base-content/60">
               <span>Balance Drift</span>
               <span className="font-mono font-bold text-success">
-                {Math.abs(drift) < 1e-15 ? '0.00 USDT' : `${drift.toExponential(2)} USDT`}
+                {drift === null
+                  ? '—'
+                  : Math.abs(drift) < 1e-15
+                    ? '0.00 USDT'
+                    : `${drift.toExponential(2)} USDT`}
               </span>
             </div>
           </div>
@@ -226,7 +243,13 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
                 </tr>
               </thead>
               <tbody>
-                {Object.values(filters).map((f) => (
+                {Object.values(filters).length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-6 text-center text-base-content/50">
+                      Exchange filter evidence unavailable.
+                    </td>
+                  </tr>
+                ) : Object.values(filters).map((f) => (
                   <tr key={f.symbol}>
                     <td className="font-mono font-bold">{f.symbol}</td>
                     <td className="font-mono">{f.step_size}</td>
@@ -259,7 +282,7 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
 
             {/* Symbol Filter Controls */}
             <div className="flex flex-wrap items-center gap-1">
-              {['ALL', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT'].map((sym) => (
+              {symbols.map((sym) => (
                 <button
                   key={sym}
                   type="button"
@@ -352,7 +375,7 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
               </h2>
             </div>
             <span className="badge badge-outline badge-xs font-mono">
-              ListenKey: {bridge?.listen_key ?? 'lk-testnet-live-bridge-001'}
+              ListenKey: {bridge?.listen_key ?? '—'}
             </span>
           </div>
 
@@ -390,7 +413,7 @@ export function TestnetBridgePage({ model }: { model: TestnetBridgeModel }) {
                       <td className="font-mono">{evt.order_id ?? '—'}</td>
                       <td>
                         <span className="badge badge-success badge-xs font-mono">
-                          {evt.order_status ?? 'FILLED'}
+                          {evt.order_status ?? 'UNKNOWN'}
                         </span>
                       </td>
                       <td className="font-mono font-semibold">

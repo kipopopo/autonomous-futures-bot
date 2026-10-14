@@ -5,6 +5,7 @@ import {
   buildLiveMarketModel,
   buildMicrostructureModel,
   buildPaperExecutionModel,
+  buildProductionLaunchModel,
   buildRiskModel,
   buildStrategyActivationModel,
   type CanaryAccountingResponse,
@@ -14,6 +15,7 @@ import {
   type CanaryRiskResponse,
   type CanaryStrategyActivationResponse,
 } from './canary'
+import { getFallbackIctSignals } from './use-ict-signals'
 
 describe('canary models', () => {
   describe('buildMicrostructureModel', () => {
@@ -519,6 +521,24 @@ describe('canary models', () => {
       expect(model.fillsCount).toBe(9)
       expect(model.upstreamHash).toBe('3f04f21a64c4c23db2be92c10b47fe7343e2646271c66299b9cf9c63fb93cb89')
       expect(model.phaseHash).toBe('2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae')
+    })
+  })
+
+  describe('fail-closed provenance for production launch and ICT signals fallback', () => {
+    it('returns unverified UNAVAILABLE state for buildProductionLaunchModel(null)', () => {
+      const model = buildProductionLaunchModel(null)
+      expect(model.verified).toBe(false)
+      expect(model.status).toBe('UNAVAILABLE')
+      expect(model.circuitState).toBe('UNAVAILABLE')
+      expect(model.solvency.total_equity_usdt).toBe(0)
+      expect(model.isZeroDrift).toBe(false)
+      expect(model.recentOrders).toHaveLength(0)
+    })
+
+    it('marks getFallbackIctSignals() as verified: false so fallback state never masquerades as live exchange telemetry', () => {
+      const fallback = getFallbackIctSignals()
+      expect(fallback.verified).toBe(false)
+      expect(Object.keys(fallback.signals)).toHaveLength(12)
     })
   })
 })

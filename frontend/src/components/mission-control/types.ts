@@ -9,6 +9,12 @@ export type OrderStatus = 'FILLED' | 'NEW' | 'CANCELED'
 export interface PositionTelemetry {
   symbol: string
   currentPrice: number
+  lastPrice?: number
+  markPrice?: number
+  indexPrice?: number
+  fundingRate?: number
+  basis?: number
+  basisPct?: number
   state: PositionState
   entryPrice: number
   size: number
@@ -21,6 +27,16 @@ export interface PositionTelemetry {
   riskRewardRatio: string
   atrDistanceSlPct?: number
   atrDistanceTpPct?: number
+}
+
+export interface PairTicker {
+  symbol: string
+  lastPrice: number
+  markPrice: number
+  indexPrice: number
+  fundingRate: number
+  basis: number
+  basisPct: number
 }
 
 export interface BtcMacroTrend {
@@ -128,6 +144,7 @@ export interface ExecutiveDashboardModel {
     isZeroDriftVerified: boolean
   }
   positions: PositionTelemetry[]
+  pairTickers?: PairTicker[]
   radar: {
     btcMacroTrend: BtcMacroTrend
     scalperCriteria: ScalperCriteria
@@ -135,4 +152,97 @@ export interface ExecutiveDashboardModel {
   }
   orders: OrderFeedItem[]
   evolutionRadar: StrategyEvolutionRadarData
+}
+
+// ============================================================================
+// Phase 317 ICT Market Maker Model & Twins Reversal Types
+// ============================================================================
+
+export type IctTwinsStepName =
+  | 'IDLE'
+  | 'STEP_1_HTF_HIT'
+  | 'STEP_2_M5_CISD'
+  | 'STEP_3_TWINS_FVG'
+  | 'STEP_4_OTE_RETRACE'
+  | 'STEP_5_M1_CISD'
+  | 'STEP_6_READY'
+  | 'DISPATCHED'
+  | 'INVALIDATED'
+
+export type IctSide = 'BUY' | 'SELL' | 'NEUTRAL'
+export type IctHealthTier = 'HEALTHY' | 'INCUBATING' | 'DEGRADED' | 'ELITE' | 'PROBATIONARY'
+export type IctPdArrayType =
+  | 'ORDER_BLOCK'
+  | 'BREAKER_BLOCK'
+  | 'FVG_BISI'
+  | 'FVG_SIBI'
+  | 'INVERSION_FVG'
+  | 'OLD_HIGH'
+  | 'OLD_LOW'
+
+export interface IctPdArrayInfo {
+  array_type: IctPdArrayType
+  timeframe: '4h' | '1h' | '15m' | '5m' | '1m'
+  top: number
+  bottom: number
+  mean_threshold: number
+  direction: 'BULLISH' | 'BEARISH'
+  is_mitigated: boolean
+  creation_ts?: number
+}
+
+export interface IctCisdInfo {
+  m5_cisd_price: number | null
+  m1_cisd_price: number | null
+}
+
+export interface IctExecutionTargets {
+  ote_lower: number | null
+  ote_sweet_spot: number | null
+  ote_upper: number | null
+  stop_loss: number | null
+  stdv_2_0: number | null
+  stdv_4_0: number | null
+  take_profit_partial: number | null
+  take_profit_final: number | null
+  risk_reward_ratio?: string
+}
+
+export interface IctCandidateGenomeInfo {
+  candidate_id: string
+  health_tier: IctHealthTier
+  generation: number
+  ote_bounds: string
+  stdv_tp1: number
+  stdv_tp2: number
+  swing_lookback: number
+  fvg_threshold_pct: string
+}
+
+export interface IctPairSignal {
+  symbol: string
+  step: IctTwinsStepName
+  step_number: number
+  steps: {
+    step_1_htf_hit: boolean
+    step_2_m5_cisd: boolean
+    step_3_twins_fvg: boolean
+    step_4_ote_retrace: boolean
+    step_5_m1_cisd: boolean
+    step_6_ready: boolean
+  }
+  side: IctSide
+  active_pda: IctPdArrayInfo | null
+  cisd: IctCisdInfo
+  targets: IctExecutionTargets
+  candidate: IctCandidateGenomeInfo
+  invalidation_reason: string
+}
+
+export interface IctSignalsResponse {
+  verified: boolean
+  timestamp_ms: number
+  active_family: string
+  latency_ms?: number
+  signals: Record<string, IctPairSignal>
 }

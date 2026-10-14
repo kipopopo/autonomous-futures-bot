@@ -7,6 +7,7 @@ import { MarketPositionsCard } from '../mission-control/market-positions-card'
 import { StrategyConfluenceRadar } from '../mission-control/strategy-confluence-radar'
 import { StrategyEvolutionRadar } from '../mission-control/strategy-evolution-radar'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
+import { PairPriceTickersCard } from '../mission-control/pair-price-tickers-card'
 import { ResearchArchiveDrawer, ARCHIVE_PHASES } from '../mission-control/research-archive-drawer'
 import { ExecutiveDashboard } from '../mission-control/executive-dashboard'
 import { buildExecutiveDashboardModel } from '../mission-control/adapter'
@@ -495,7 +496,7 @@ describe('ResearchArchiveDrawer component', () => {
 })
 
 describe('ExecutiveDashboard component', () => {
-  it('assembles the full executive landing page cleanly', () => {
+  it('assembles the simplified executive landing page cleanly', () => {
     const html = renderToString(
       <ExecutiveDashboard
         model={MOCK_MODEL}
@@ -506,10 +507,28 @@ describe('ExecutiveDashboard component', () => {
 
     expect(html).toContain('Autonomous Futures')
     expect(html).toContain('Total Balance &amp; Equity')
-    expect(html).toContain('Live Positions &amp; Markets')
-    expect(html).toContain('Strategy Confluence Radar &amp; 15m Scalper')
-    expect(html).toContain('Strategy Evolution &amp; Autopsy Status')
+    expect(html).toContain('Live Pair Tickers &amp; Opportunity Radar')
     expect(html).toContain('Recent Orders &amp; Execution Feed')
+  })
+})
+
+describe('PairPriceTickersCard component', () => {
+  it('renders pair tickers grid with dynamic entry badges across pairs', () => {
+    const html = renderToString(
+      <PairPriceTickersCard
+        positions={MOCK_MODEL.positions}
+        scalperCriteria={MOCK_MODEL.radar.scalperCriteria}
+        btcMacroTrend={MOCK_MODEL.radar.btcMacroTrend}
+      />,
+    )
+
+    expect(html).toContain('Live Pair Tickers &amp; Opportunity Radar')
+    expect(html).toContain('12 Perpetual Pairs')
+    expect(html).toContain('SOLUSDT')
+    expect(html).toContain('ETHUSDT')
+    expect(html).toContain('BTCUSDT')
+    expect(html).toContain('STANDBY / SCANNING')
+    expect(html).toContain('Terminal')
   })
 })
 
@@ -603,7 +622,7 @@ describe('buildExecutiveDashboardModel adapter', () => {
     expect(adapted.kpis.maxExposureCapUsdt).toBe(25.0)
     expect(adapted.kpis.minCashReserveFloorPct).toBe(75.0)
 
-    expect(adapted.positions.length).toBe(8)
+    expect(adapted.positions.length).toBe(12)
     expect(adapted.positions[0].symbol).toBe('SOLUSDT')
     expect(adapted.positions[1].symbol).toBe('ETHUSDT')
     expect(adapted.positions[2].symbol).toBe('BTCUSDT')

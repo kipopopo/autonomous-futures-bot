@@ -309,9 +309,24 @@ export async function fetchCanaryAccounting(): Promise<CanaryAccountingResponse 
   return (await response.json()) as CanaryAccountingResponse
 }
 
+export interface PairTickerItem {
+  symbol: string
+  last_price: number
+  mark_price: number
+  index_price?: number
+  funding_rate?: number
+  basis?: number
+  basis_pct?: number
+}
+
 export interface LiveMarketPricesResponse {
   timestamp_ms: number
   prices: Record<string, number>
+  last_prices?: Record<string, number>
+  mark_prices?: Record<string, number>
+  index_prices?: Record<string, number>
+  funding_rates?: Record<string, number>
+  pair_tickers?: PairTickerItem[]
   btc_macro?: {
     current_price: number
     ema50_1h: number
@@ -335,31 +350,104 @@ export async function fetchLiveMarketPrices(): Promise<LiveMarketPricesResponse 
     // ignore
   }
 
-  // 2. Direct fallback to Binance public futures ticker
+  // 2. Direct fallback to Binance public futures ticker + premium index
   try {
     const symbols =
-      '["BTCUSDT","ETHUSDT","SOLUSDT","DOGEUSDT","BNBUSDT","XRPUSDT","SUIUSDT","AVAXUSDT"]'
-    const res = await fetch(
-      `https://fapi.binance.com/fapi/v1/ticker/price?symbols=${encodeURIComponent(symbols)}`,
-    )
-    if (res.ok) {
-      const items = (await res.json()) as Array<{ symbol: string; price: string }>
-      const prices: Record<string, number> = {}
+      '["BTCUSDT","ETHUSDT","SOLUSDT","DOGEUSDT","BNBUSDT","XRPUSDT","SUIUSDT","AVAXUSDT","NEARUSDT","LINKUSDT","APTUSDT","ADAUSDT"]'
+    const [tickerRes, premRes] = await Promise.allSettled([
+      fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbols=${encodeURIComponent(symbols)}`),
+      fetch('https://fapi.binance.com/fapi/v1/premiumIndex'),
+    ])
+
+    const lastPrices: Record<string, number> = {}
+    if (tickerRes.status === 'fulfilled' && tickerRes.value.ok) {
+      const items = (await tickerRes.value.json()) as Array<{ symbol: string; price: string }>
       for (const item of items) {
-        prices[item.symbol] = Number(item.price)
+        lastPrices[item.symbol] = Number(item.price)
       }
-      const btc = prices['BTCUSDT'] ?? 82600.0
+    }
+
+    const markPrices: Record<string, number> = {}
+    const indexPrices: Record<string, number> = {}
+    const fundingRates: Record<string, number> = {}
+    if (premRes.status === 'fulfilled' && premRes.value.ok) {
+      const premItems = (await premRes.value.json()) as Array<{
+        symbol: string
+        markPrice: string
+        indexPrice?: string
+        lastFundingRate?: string
+      }>
+      const targetSet = new Set([
+        'BTCUSDT',
+        'ETHUSDT',
+        'SOLUSDT',
+        'DOGEUSDT',
+        'BNBUSDT',
+        'XRPUSDT',
+        'SUIUSDT',
+        'AVAXUSDT',
+        'NEARUSDT',
+        'LINKUSDT',
+        'APTUSDT',
+        'ADAUSDT',
+      ])
+      for (const p of premItems) {
+        if (targetSet.has(p.symbol)) {
+          markPrices[p.symbol] = Number(p.markPrice)
+          if (p.indexPrice) indexPrices[p.symbol] = Number(p.indexPrice)
+          if (p.lastFundingRate) fundingRates[p.symbol] = Number(p.lastFundingRate)
+        }
+      }
+    }
+
+    const targetList = [
+      'BTCUSDT',
+      'ETHUSDT',
+      'SOLUSDT',
+      'DOGEUSDT',
+      'BNBUSDT',
+      'XRPUSDT',
+      'SUIUSDT',
+      'AVAXUSDT',
+      'NEARUSDT',
+      'LINKUSDT',
+      'APTUSDT',
+      'ADAUSDT',
+    ]
+    const pairTickers: PairTickerItem[] = targetList.map((sym) => {
+      const lp = lastPrices[sym] ?? markPrices[sym] ?? 0
+      const mp = markPrices[sym] ?? lp
+      const ip = indexPrices[sym] ?? mp
+      const fr = fundingRates[sym] ?? 0.0001
+      const basis = Number((lp - mp).toFixed(4))
+      const basisPct = mp > 0 ? Number((((lp - mp) / mp) * 100).toFixed(4)) : 0
       return {
-        timestamp_ms: Date.now(),
-        prices,
-        btc_macro: {
-          current_price: btc,
-          ema50_1h: Number((btc * 1.004).toFixed(1)),
-          ema200_1h: Number((btc * 0.988).toFixed(1)),
-          regime: 'BULLISH ALIGNED',
-        },
-        source: 'binance_direct',
+        symbol: sym,
+        last_price: lp,
+        mark_price: mp,
+        index_price: ip,
+        funding_rate: fr,
+        basis,
+        basis_pct: basisPct,
       }
+    })
+
+    const btc = lastPrices['BTCUSDT'] ?? markPrices['BTCUSDT'] ?? 82600.0
+    return {
+      timestamp_ms: Date.now(),
+      prices: lastPrices,
+      last_prices: lastPrices,
+      mark_prices: markPrices,
+      index_prices: indexPrices,
+      funding_rates: fundingRates,
+      pair_tickers: pairTickers,
+      btc_macro: {
+        current_price: btc,
+        ema50_1h: Number((btc * 1.004).toFixed(1)),
+        ema200_1h: Number((btc * 0.988).toFixed(1)),
+        regime: 'BULLISH ALIGNED',
+      },
+      source: 'binance_direct',
     }
   } catch {
     // ignore

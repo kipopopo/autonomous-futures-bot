@@ -921,7 +921,7 @@ describe('Phase 316 Institutional English Standardization E2E Test Suite', () =>
 
       expect(adapted.botStatus.state).toBe('ACTIVE 24/7')
       expect(adapted.kpis.totalEquityUsdt).toBeGreaterThanOrEqual(95.0)
-      expect(adapted.positions.length).toBe(8)
+      expect(adapted.positions.length).toBe(12)
       expect(adapted.kpis.isZeroDriftVerified).toBe(true)
 
       const html = renderToString(
@@ -1051,7 +1051,7 @@ describe('Phase 316 Institutional English Standardization E2E Test Suite', () =>
 
       expect(html).toContain('100.1200')
       expect(html).toContain('95.6200')
-      expect(html).toContain('Drift = 0.000000000000000 USDT')
+      expect(html).toContain('|Δ| = 0.000000000000000 USDT')
     })
   })
 })

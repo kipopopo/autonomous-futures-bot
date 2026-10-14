@@ -58,7 +58,7 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
       expect(adapted.botStatus.isStreaming).toBe(false)
       expect(adapted.botStatus.lastSyncedAtMyt).not.toBe('—')
       expect(adapted.kpis.totalEquityUsdt).toBeGreaterThanOrEqual(100.0)
-      expect(adapted.positions.length).toBe(8)
+      expect(adapted.positions.length).toBe(12)
       expect(adapted.orders.length).toBeGreaterThan(0)
 
       // Ensure the assembled dashboard renders without any exceptions
@@ -488,9 +488,36 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
           productionLaunchModel={prodLaunch}
           riskModel={risk}
           killSwitchModel={killSwitch}
+          executionStatus={{
+            verified: true,
+            status: 'ACCOUNT_VERIFIED',
+            engine_state: 'ONLINE 24/7',
+            timestamp_ms: 1710000000000,
+            positions: {},
+            candidate_allocations: [],
+            aggregate_exposure_usdt: 0.0,
+            recent_orders: [],
+            total_orders: 0,
+            interlock_blocks_count: 0,
+            intra_day_loss_usdt: 0.0,
+            solvency: {
+              starting_equity_usdt: 5000.0,
+              cash_usdt: 5000.0,
+              available_balance_usdt: 5000.0,
+              allocated_margin_usdt: 0.0,
+              unrealized_pnl_usdt: 0.0,
+              realized_pnl_usdt: 0.0,
+              total_equity_usdt: 5000.0,
+              drift_usdt: 0.0,
+              zero_balance_drift_verified: true,
+              cash_reserve_pct: 100.0,
+              unencumbered_cash_verified: true,
+            },
+          }}
         />,
       )
-      expect(verifiedHtml).toContain('Zero-Drift Verified')
+      expect(verifiedHtml).toContain('ACCOUNT LEDGER VERIFIED')
+      expect(verifiedHtml).toContain('Zero drift verified')
 
       const driftedProd: ProductionLaunchModel = {
         ...prodLaunch,
@@ -508,7 +535,8 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
           killSwitchModel={killSwitch}
         />,
       )
-      expect(driftedHtml).toContain('Continuous Verification')
+      expect(driftedHtml).toContain('ACCOUNT LEDGER UNVERIFIED')
+      expect(driftedHtml).toContain('Fresh reconciled evidence required')
     })
   })
 

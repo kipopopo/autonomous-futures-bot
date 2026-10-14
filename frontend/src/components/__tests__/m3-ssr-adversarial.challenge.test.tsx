@@ -328,7 +328,7 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
       const text = cleanSsrText(html)
 
       expect(text).toContain('0 / 5 required trades')
-      expect(text).toContain('Sharpe hurdle &gt;= 15.0%')
+      expect(text).toContain('hurdle &gt;= 15.0%')
       expect(text).toContain('LONGS: BLOCKED')
       expect(text).toContain('BEARISH')
       expect(text).toContain('80% COMPLETE')
@@ -524,11 +524,13 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
 
       expect(text).toContain('Risk Controls &amp; Ledger Integrity')
       expect(text).toContain('Double-Entry Invariant')
-      expect(text).toContain('Micro-Exposure Limits')
-      expect(text).toContain('Cash Floor Reserve')
-      expect(text).toContain('Daily Loss Ceiling')
-      expect(text).toContain('Mathematical Double-Entry Ledger Invariant Proof')
-      expect(text).toContain('Circuit Breaker Conditions &amp; Emergency Kill Switch')
+      expect(text).toContain('Open Position Exposure')
+      expect(text).toContain('Exchange Available Margin')
+      expect(text).toContain('Daily Loss Limit')
+      expect(text).toContain('Double-Entry Account Reconciliation')
+      expect(text).toContain('Circuit Breaker Evidence')
+      expect(text).toContain('ACCOUNT LEDGER UNVERIFIED')
+      expect(text).toContain('Unknown / Unknown')
       assertZeroMalay(html, 'ExecutiveSafetyPage null optional params')
     })
 
@@ -538,6 +540,24 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
       const kill = buildKillSwitchModel(null)
       const micro = buildMicrostructureModel(null)
       micro.maxSpectralRadius = 1.45
+      micro.snapshots = [
+        {
+          record_id: 1,
+          track_id: 'runtime',
+          symbol: 'BTCUSDT',
+          timestamp_utc: '2026-10-13T00:00:00Z',
+          jump_intensity: '0.5',
+          branching_ratio: '1.45',
+          spectral_radius: '1.45',
+          self_excitation_alpha: '0.1',
+          cross_excitation_json: '{}',
+          cascade_state: 'CRITICAL',
+          regime: 'SUPERCRITICAL',
+          pacing_interval_ms: 1000,
+          limit_offset_cushion_bps: '0',
+          full_branching_matrix_json: '[]',
+        },
+      ]
 
       const execStatus: ExecutionStatusResponse = {
         verified: true,
@@ -551,14 +571,25 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
         intra_day_loss_usdt: 3.25,
         solvency: {
           starting_equity_usdt: 100.0,
-          cash_usdt: 68.0,
+          cash_usdt: 96.75,
+          available_balance_usdt: 71.0,
           allocated_margin_usdt: 24.5,
           unrealized_pnl_usdt: -1.25,
           realized_pnl_usdt: -3.25,
-          total_equity_usdt: 91.25,
+          total_equity_usdt: 95.5,
           drift_usdt: 0.0,
           zero_balance_drift_verified: true,
-          cash_reserve_pct: 74.5, // below 75%
+          cash_reserve_pct: (71 / 95.5) * 100,
+        },
+        daily_risk: {
+          verified: true,
+          day_start_equity_usdt: 100,
+          limit_pct: 5,
+          limit_usdt: 5,
+          loss_usdt: 3.25,
+          remaining_usdt: 1.75,
+          breached: false,
+          equity_basis: 'ACCOUNT',
         },
         positions: {},
         recent_orders: [],
@@ -579,8 +610,10 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
 
       expect(text).toContain('Status: ELEVATED / CRITICAL (ρ = 1.450)')
       expect(text).toContain('Status: HIGH LATENCY (625.4 ms)')
-      expect(text).toContain('$3.25 / $3.00 USDT')
-      expect(text).toContain('Floor Warning')
+      expect(text).toContain('$3.25 USDT / $5.00 USDT')
+      expect(text).toContain('5% of $100.00 USDT UTC day-start equity.')
+      expect(text).not.toContain('$3.00 USDT')
+      expect(text).not.toContain('Floor Warning')
       assertZeroMalay(html, 'ExecutiveSafetyPage tripwires triggered')
     })
 
@@ -589,6 +622,7 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
       const risk = buildRiskModel(null)
       const kill = buildKillSwitchModel(null)
       kill.killSwitchState = 'ARMED'
+      kill.verified = true
 
       const execStatus: ExecutionStatusResponse = {
         verified: true,
@@ -603,6 +637,7 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
         solvency: {
           starting_equity_usdt: 100.0,
           cash_usdt: 0.0,
+          available_balance_usdt: 0.0,
           allocated_margin_usdt: 0.0,
           unrealized_pnl_usdt: 0.0,
           realized_pnl_usdt: 0.0,
@@ -627,9 +662,10 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
       )
       const text = cleanSsrText(html)
 
-      expect(text).toContain('Status: ARMED')
-      expect(text).toContain('0.0% Cash')
-      expect(text).toContain('Floor Warning')
+      expect(text).toContain('Reported state: ARMED')
+      expect(text).toContain('$0.00 USDT')
+      expect(text).toContain('Reported state: ARMED')
+      expect(text).not.toContain('Floor Warning')
       assertZeroMalay(html, 'ExecutiveSafetyPage armed kill switch')
     })
   })
@@ -648,10 +684,10 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
       const text = cleanSsrText(html)
 
       expect(text).toContain('Continuous Self-Learning Loop, Strategy Autopsy &amp; Auto-Evolution Daemon')
-      expect(text).toContain('ACTIVE 24/7 LOOP')
+      expect(text).toContain('RESEARCH ARTIFACT / SIMULATION')
       expect(text).toContain('BTC Macro Trend Gating (1-Hour Regime)')
-      expect(text).toContain('BEARISH')
-      expect(text).toContain('LONGS: BLOCKED')
+      expect(text).toContain('REGIME: UNKNOWN')
+      expect(text).toContain('LONGS: UNAVAILABLE')
       assertZeroMalay(html, 'EvolutionPage with undefined liveProgress')
     })
 
@@ -674,7 +710,7 @@ describe('Adversarial SSR Stress Tests — Milestone M3 Components', () => {
       const text = cleanSsrText(html)
 
       expect(text).toContain('BTC Macro Trend Gating (1-Hour Regime)')
-      expect(text).toContain('BEARISH')
+      expect(text).toContain('REGIME: UNKNOWN')
       assertZeroMalay(html, 'EvolutionPage with null macro_gating_state')
     })
   })

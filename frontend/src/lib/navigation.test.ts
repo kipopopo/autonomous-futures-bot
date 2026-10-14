@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { pageFromHash, isArchivePage } from './navigation'
+import { pageFromHash, isArchivePage, getPairSymbolFromHash } from './navigation'
 
 describe('pageFromHash', () => {
   it('routes the 5 primary executive pages', () => {
@@ -18,6 +18,17 @@ describe('pageFromHash', () => {
     expect(pageFromHash('#/evolution')).toBe('evolution')
     expect(pageFromHash('#/auto-evolution')).toBe('evolution')
     expect(pageFromHash('#/autopsy')).toBe('evolution')
+    expect(pageFromHash('#/pair/SOLUSDT')).toBe('pair')
+    expect(pageFromHash('#pair/ETHUSDT')).toBe('pair')
+    expect(pageFromHash('#/pair')).toBe('pair')
+  })
+
+  it('correctly extracts pair symbols from hash with getPairSymbolFromHash', () => {
+    expect(getPairSymbolFromHash('#/pair/SOLUSDT')).toBe('SOLUSDT')
+    expect(getPairSymbolFromHash('#pair/ethusdt')).toBe('ETHUSDT')
+    expect(getPairSymbolFromHash('#/pair/BTCUSDT')).toBe('BTCUSDT')
+    expect(getPairSymbolFromHash('#/overview')).toBeNull()
+    expect(getPairSymbolFromHash('')).toBeNull()
   })
 
   it('routes the historical research canary pages with full backward compatibility', () => {

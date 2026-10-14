@@ -197,7 +197,7 @@ const mock8Positions: PositionTelemetry[] = [
 
 describe('Milestone M3 Empirical Challenge Suite', () => {
   describe('Dimension 1: evolution-page.tsx Rendering Across Boundary Payloads', () => {
-    it('handles null live_progress safely with default fallback values', () => {
+    it('handles null live_progress safely with truthful unavailable indicators', () => {
       const fixture: CanaryAutoEvolutionData = {
         ...baseVerifiedFixture,
         live_progress: null as unknown as LiveEvolutionProgressData,
@@ -206,13 +206,13 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const html = renderToString(<EvolutionPage model={model} />)
 
       expect(html).toContain('Continuous Self-Learning Loop')
-      expect(html).toContain('ACTIVE 24/7 LOOP')
+      expect(html).toContain('RESEARCH ARTIFACT / SIMULATION')
       expect(html).toContain('data-testid="btc-macro-gating-banner"')
-      expect(html).toContain('REGIME: BEARISH')
+      expect(html).toContain('REGIME: UNKNOWN')
+      expect(html).toContain('LONGS: UNAVAILABLE')
       expect(html).toContain('data-testid="oos-qualification-gate-card"')
-      expect(html).toContain('0 / 5 required trades')
-      expect(html).toContain('80% COMPLETE')
-      expect(html).toContain('BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT, BNBUSDT, XRPUSDT, SUIUSDT, AVAXUSDT')
+      expect(html).toContain('Unavailable')
+      expect(html).toContain('Scan: Unavailable')
     })
 
     it('handles undefined live_progress safely', () => {
@@ -224,7 +224,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const html = renderToString(<EvolutionPage model={model} />)
 
       expect(html).toContain('Current Evolution Progress &amp; Status')
-      expect(html).toContain('0 / 5 required trades')
+      expect(html).toContain('Unavailable')
       expect(html).not.toContain('NaN')
     })
 
@@ -237,7 +237,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       const html = renderToString(<EvolutionPage model={model} />)
 
       expect(html).toContain('Current Evolution Progress &amp; Status')
-      expect(html).toContain('0 / 5 required trades')
+      expect(html).toContain('Unavailable')
       expect(html).not.toContain('undefined%')
       expect(html).not.toContain('NaN%')
     })
@@ -771,7 +771,7 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
         new Date(),
       )
 
-      expect(adapted.positions).toHaveLength(8)
+      expect(adapted.positions).toHaveLength(12)
       const dogePos = adapted.positions.find((p) => p.symbol === 'DOGEUSDT')
       const xrpPos = adapted.positions.find((p) => p.symbol === 'XRPUSDT')
 
