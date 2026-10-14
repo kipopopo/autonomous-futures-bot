@@ -83,7 +83,7 @@ class TestBinanceGatewayExtensions:
             side="BUY",
             order_type="LIMIT",
             quantity=Decimal("0.05"),
-            price=Decimal("110.00"),
+            price=Decimal("100.00"),
             client_order_id="my-custom-cid",
         )
         assert created["clientOrderId"] == "my-custom-cid"
@@ -99,7 +99,7 @@ class TestBinanceGatewayExtensions:
             side="BUY",
             order_type="LIMIT",
             quantity=Decimal("0.05"),
-            price=Decimal("110.00"),
+            price=Decimal("100.00"),
             client_order_id="open-cid-1",
         )
         open_orders = await gw.get_open_orders("SOLUSDT")
@@ -114,7 +114,7 @@ class TestBinanceGatewayExtensions:
             side="BUY",
             order_type="LIMIT",
             quantity=Decimal("0.05"),
-            price=Decimal("110.00"),
+            price=Decimal("100.00"),
             client_order_id="open-cid-2",
         )
         res = await gw.cancel_all_open_orders("SOLUSDT")
@@ -130,7 +130,7 @@ class TestBinanceGatewayExtensions:
             symbol="SOLUSDT",
             side="SELL",
             order_type="TAKE_PROFIT_MARKET",
-            quantity=Decimal("0.05"),
+            quantity=Decimal("0.01"),
             stop_price=Decimal("120.00"),
             reduce_only=True,
         )
@@ -143,7 +143,7 @@ class TestBinanceGatewayExtensions:
                 symbol="SOLUSDT",
                 side="SELL",
                 order_type="TAKE_PROFIT_MARKET",
-                quantity=Decimal("0.05"),
+                quantity=Decimal("0.01"),
                 stop_price=None,
             )
 
@@ -173,10 +173,10 @@ class TestExchangeFiltersAndSizing:
             mark_price=Decimal("110.42"),
             requested_notional=Decimal("5.00"),
         )
-        assert sizing.is_valid is True
-        assert sizing.quantized_qty == Decimal("0.05")
-        assert sizing.step_up_applied is True
-        assert sizing.actual_notional >= Decimal("5.00")
+        assert sizing.is_valid is False
+        assert sizing.step_up_applied is False
+        assert sizing.actual_notional < Decimal("5")
+        assert "strict cap" in sizing.rejection_reason
 
     def test_out_of_bounds_price_rejected(self) -> None:
         config = ExecutionDrillConfig(dry_run=True)
@@ -296,6 +296,7 @@ class TestNotificationsShim:
 
     def test_notifications_shim_import(self) -> None:
         import autonomous_futures.notifications.telegram as tg_mod
+
         assert hasattr(tg_mod, "TelegramNotifierClient")
         assert hasattr(tg_mod, "escape_markdown_v2")
 
@@ -327,6 +328,16 @@ class TestExecutionDrillEngineIntegration:
             storage_dir=tmp_path,
         )
         engine = ExecutionDrillEngine(config=config)
+        from unittest.mock import AsyncMock
+
+        engine.gateway.get_ticker_price = AsyncMock(return_value=Decimal("100"))
+        engine.gateway.get_order = AsyncMock(
+            return_value={
+                "status": "FILLED",
+                "executedQty": "0.05",
+                "avgPrice": "100",
+            }
+        )
         summary = await engine.execute_drill()
 
         # Check summary structure

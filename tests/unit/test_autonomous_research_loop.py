@@ -1530,3 +1530,142 @@ def test_cli_rejects_unbound_durable_feedback_seed(
     assert exit_code != 0
     assert not artifact_root.exists()
     assert "--feedback-file is unsupported" in capsys.readouterr().err
+
+
+def test_offline_self_learning_pivots_strategy_family_and_avoids_forbidden_collision() -> None:
+    """Verify cycle 2 offline learner/planner/creator pivot family and avoid ID collision."""
+    from autonomous_futures.research.creator_generator import CreatorGenerationRequest
+    from autonomous_futures.research.creator_proposals import canonical_creator_candidate_id
+    from scripts.run_autonomous_base import (
+        DeterministicOfflineCreator,
+        _offline_learner_transport,
+        _offline_planner_transport,
+    )
+
+    seed_entry = build_failure_memory_entry(
+        base_run_id="base-pivot-test-001",
+        source_type="seed_feedback",
+        source_id=f"seed-{HASH_C[:32]}",
+        sequence=0,
+        feedback=_feedback(candidate_id="cand-seed-001", qualification_hash=HASH_C),
+        cycle_id=None,
+        cycle_hash=None,
+        recorded_at=NOW,
+    )
+    learner = FailureLearner(_offline_learner_transport)
+    planner = ResearchPlanner(_offline_planner_transport)
+    creator = DeterministicOfflineCreator()
+
+    learn_c1 = learner.learn(
+        FailureLearningRequest(
+            research_run_id="run-learn-001",
+            base_run_id="base-pivot-test-001",
+            symbol="BTCUSDT",
+            bundle_hash=HASH_A,
+            dataset_registry_hash=HASH_B,
+            cycle_index=1,
+            failure_memory=(seed_entry,),
+            forbidden_candidate_ids=("cand-seed-001",),
+            input_evidence_refs=(seed_entry.memory_hash,),
+        )
+    )
+    assert learn_c1.artifact is not None
+    plan_c1 = planner.plan(
+        ResearchPlanRequest(
+            research_run_id="run-plan-001",
+            base_run_id="base-pivot-test-001",
+            cycle_id="cycle-001",
+            symbol="BTCUSDT",
+            bundle_hash=HASH_A,
+            dataset_registry_hash=HASH_B,
+            cycle_index=1,
+            learning=learn_c1.artifact,
+            failure_memory=(seed_entry,),
+            prior_thesis_hashes=(),
+            forbidden_candidate_ids=("cand-seed-001",),
+            input_evidence_refs=tuple(
+                sorted((learn_c1.artifact.learning_hash, seed_entry.memory_hash))
+            ),
+        )
+    )
+    assert plan_c1.plan is not None
+    assert plan_c1.plan.strategy_family == "volume_confirmed_momentum"
+
+    prop_c1 = creator(
+        CreatorGenerationRequest(
+            research_run_id="run-plan-001",
+            output_schema_id="creator-proposal-v1",
+            attempt=1,
+            research_plan=plan_c1.plan,
+            forbidden_candidate_ids=("cand-seed-001",),
+            input_evidence_refs=(plan_c1.plan.plan_hash,),
+        )
+    )
+    cid_c1 = canonical_creator_candidate_id(StrategySpec.model_validate(prop_c1["strategy"]))
+
+    learn_c2 = learner.learn(
+        FailureLearningRequest(
+            research_run_id="run-learn-002",
+            base_run_id="base-pivot-test-001",
+            symbol="BTCUSDT",
+            bundle_hash=HASH_A,
+            dataset_registry_hash=HASH_B,
+            cycle_index=2,
+            failure_memory=(seed_entry,),
+            forbidden_candidate_ids=tuple(sorted(("cand-seed-001", cid_c1))),
+            input_evidence_refs=(seed_entry.memory_hash,),
+        )
+    )
+    assert learn_c2.artifact is not None
+    assert "pivot_strategy_family_after_momentum_rejection" in learn_c2.artifact.learned_constraints
+
+    plan_c2 = planner.plan(
+        ResearchPlanRequest(
+            research_run_id="run-plan-002",
+            base_run_id="base-pivot-test-001",
+            cycle_id="cycle-002",
+            symbol="BTCUSDT",
+            bundle_hash=HASH_A,
+            dataset_registry_hash=HASH_B,
+            cycle_index=2,
+            learning=learn_c2.artifact,
+            failure_memory=(seed_entry,),
+            prior_thesis_hashes=(plan_c1.plan.thesis_hash,),
+            forbidden_candidate_ids=tuple(sorted(("cand-seed-001", cid_c1))),
+            input_evidence_refs=tuple(
+                sorted((learn_c2.artifact.learning_hash, seed_entry.memory_hash))
+            ),
+        )
+    )
+    assert plan_c2.plan is not None
+    assert plan_c2.plan.strategy_family == "range_mean_reversion"
+    assert plan_c2.plan.thesis_hash != plan_c1.plan.thesis_hash
+
+    prop_c2 = creator(
+        CreatorGenerationRequest(
+            research_run_id="run-plan-002",
+            output_schema_id="creator-proposal-v1",
+            attempt=1,
+            research_plan=plan_c2.plan,
+            forbidden_candidate_ids=tuple(sorted(("cand-seed-001", cid_c1))),
+            input_evidence_refs=(plan_c2.plan.plan_hash,),
+        )
+    )
+    cid_c2 = canonical_creator_candidate_id(StrategySpec.model_validate(prop_c2["strategy"]))
+    assert cid_c2 != cid_c1
+
+    # Also verify collision avoidance if cid_c2 is already in forbidden_candidate_ids
+    prop_c2_non_colliding = creator(
+        CreatorGenerationRequest(
+            research_run_id="run-plan-002",
+            output_schema_id="creator-proposal-v1",
+            attempt=1,
+            research_plan=plan_c2.plan,
+            forbidden_candidate_ids=tuple(sorted(("cand-seed-001", cid_c1, cid_c2))),
+            input_evidence_refs=(plan_c2.plan.plan_hash,),
+        )
+    )
+    cid_c2_alt = canonical_creator_candidate_id(
+        StrategySpec.model_validate(prop_c2_non_colliding["strategy"])
+    )
+    assert cid_c2_alt not in {"cand-seed-001", cid_c1, cid_c2}

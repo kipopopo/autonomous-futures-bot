@@ -16,6 +16,7 @@ Verifies:
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from pathlib import Path
 
@@ -271,7 +272,25 @@ class TestVpsDeploymentAndMerkleLineage:
         assert UPSTREAM_PHASE_309_MERKLE_ROOT == expected_parent_root
         assert UPSTREAM_PHASE_309_PARENT_ROOT == expected_parent_root
 
-    def test_verify_phase_310_artifacts_passes(self) -> None:
-        target_dir = Path("artifacts/research/phase310")
-        assert target_dir.is_dir()
-        assert verify_phase_310_artifacts(target_dir) is True
+    def test_verify_phase_310_artifacts_rejects_missing_bundle(self, tmp_path: Path) -> None:
+        assert verify_phase_310_artifacts(tmp_path / "missing-phase310") is False
+
+    def test_phase_310_exports_simulation_without_execution_authority(self, tmp_path: Path) -> None:
+        engine = build_default_self_driving_engine(storage_dir=tmp_path)
+        summary = engine.export_artifacts()
+
+        assert summary["execution_mode"] == "OFFLINE_SIMULATION"
+        assert summary["execution_authority"] is False
+        assert summary["verified"] is False
+        assert summary["artifact_integrity_verified"] is True
+        assert summary["status"] == "RESEARCH_SIMULATION_ONLY"
+        assert summary["total_exchange_confirmed_fills"] == 0
+
+        report = json.loads((tmp_path / "canary-production-report.json").read_text())
+        assert report["micro_capital_confinement"]["scope"] == (
+            "LEGACY_SIMULATION_ONLY_NOT_APPROVED_LIVE_POLICY"
+        )
+        execution = json.loads((tmp_path / "canary-production-execution.json").read_text())
+        assert execution["execution_authority"] is False
+        assert execution["total_exchange_confirmed_fills"] == 0
+        assert execution["total_internal_simulated_fills"] == 0

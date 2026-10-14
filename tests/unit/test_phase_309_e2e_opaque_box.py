@@ -154,7 +154,15 @@ def test_tier1_unencumbered_cash_reserve_floor_enforcement(tmp_path: Path) -> No
     signers = [SignerIdentity("s1", "p1", "CRO"), SignerIdentity("s2", "p2", "DEV")]
     gov = MultiSigGovernanceEngine(signers=signers, required_quorum=2)
     ledger = CentralizedSolvencyLedger(starting_equity=100.0)
-    ks = HardwareOSKillSwitchEngine(governance=gov, solvency_ledger=ledger)
+    ks = HardwareOSKillSwitchEngine(
+        governance=gov,
+        solvency_ledger=ledger,
+        open_orders=[{"order_id": f"fixture-{index}"} for index in range(3)],
+        open_positions=[
+            {"symbol": "BTCUSDT", "notional": 5.70},
+            {"symbol": "ETHUSDT", "notional": 5.50},
+        ],
+    )
     engine = SelfDrivingTradingEngine(
         config=cfg, solvency_ledger=ledger, kill_switch=ks, output_dir=tmp_path
     )
@@ -302,7 +310,15 @@ def test_tier1_three_tier_kill_switch_containment(tmp_path: Path) -> None:
     signers = [SignerIdentity("s1", "p1", "CRO"), SignerIdentity("s2", "p2", "DEV")]
     gov = MultiSigGovernanceEngine(signers=signers, required_quorum=2)
     ledger = CentralizedSolvencyLedger()
-    ks = HardwareOSKillSwitchEngine(governance=gov, solvency_ledger=ledger)
+    ks = HardwareOSKillSwitchEngine(
+        governance=gov,
+        solvency_ledger=ledger,
+        open_orders=[{"order_id": f"fixture-{index}"} for index in range(3)],
+        open_positions=[
+            {"symbol": "BTCUSDT", "notional": 5.70},
+            {"symbol": "ETHUSDT", "notional": 5.50},
+        ],
+    )
 
     # Level 1: Soft Pause
     e1 = ks.trigger_level_1_soft_pause("Test soft pause", "TEST_TRIGGER")
@@ -819,7 +835,15 @@ def test_tier3_cascading_kill_switch_escalation_lifecycle(tmp_path: Path) -> Non
     signers = [SignerIdentity("s1", "p1", "CRO")]
     gov = MultiSigGovernanceEngine(signers=signers, required_quorum=1)
     ledger = CentralizedSolvencyLedger()
-    ks = HardwareOSKillSwitchEngine(governance=gov, solvency_ledger=ledger)
+    ks = HardwareOSKillSwitchEngine(
+        governance=gov,
+        solvency_ledger=ledger,
+        open_orders=[{"order_id": f"fixture-{index}"} for index in range(3)],
+        open_positions=[
+            {"symbol": "BTCUSDT", "notional": 5.70},
+            {"symbol": "ETHUSDT", "notional": 5.50},
+        ],
+    )
 
     # 1. Level 1 Soft Pause
     ks.trigger_level_1_soft_pause("Hawkes runaway warning", "HAWKES_BREACH")

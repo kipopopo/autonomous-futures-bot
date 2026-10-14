@@ -1,0 +1,68 @@
+import subprocess
+
+import pytest
+
+from autonomous_futures.execution.single_writer_guard import LegacyWriterHandoffGuard
+
+READY = """LoadState=loaded
+UnitFileState=disabled
+ActiveState=inactive
+SubState=dead
+MainPID=0
+Restart=no
+"""
+
+
+def _guard(stdout: str = READY, returncode: int = 0) -> LegacyWriterHandoffGuard:
+    def runner(*args, **kwargs):
+        return subprocess.CompletedProcess(args[0], returncode, stdout, "")
+
+    return LegacyWriterHandoffGuard(
+        command_runner=runner,
+        systemctl_path="/usr/bin/systemctl",
+        platform_name="linux",
+    )
+
+
+def test_handoff_requires_disabled_nonrestarting_inactive_legacy_unit():
+    _guard().assert_legacy_inactive()
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        ("UnitFileState", "enabled"),
+        ("ActiveState", "active"),
+        ("SubState", "running"),
+        ("MainPID", "87549"),
+        ("Restart", "always"),
+    ],
+)
+def test_handoff_rejects_any_legacy_writer_or_restart_path(replacement):
+    key, value = replacement
+    status = "\n".join(
+        f"{line.split('=', 1)[0]}={value if line.startswith(key + '=') else line.split('=', 1)[1]}"
+        for line in READY.splitlines()
+    )
+
+    with pytest.raises(RuntimeError, match="must be disabled"):
+        _guard(status).assert_legacy_inactive()
+
+
+def test_handoff_fails_closed_when_systemd_status_is_unavailable():
+    with pytest.raises(RuntimeError, match="must be disabled"):
+        _guard(READY, returncode=1).assert_legacy_inactive()
+
+
+@pytest.mark.parametrize(
+    ("platform_name", "systemctl_path"),
+    [("win32", "/usr/bin/systemctl"), ("linux", None)],
+)
+def test_handoff_fails_closed_without_linux_systemd(platform_name, systemctl_path):
+    guard = LegacyWriterHandoffGuard(
+        platform_name=platform_name,
+        systemctl_path=systemctl_path,
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot verify"):
+        guard.assert_legacy_inactive()

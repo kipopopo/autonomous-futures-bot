@@ -170,7 +170,7 @@ class TestDailyDrawdownCircuitBreaker:
         assert engine.state == SelfDrivingState.CIRCUIT_FLATTENED
         assert engine.interlock_blocks_count >= 1
 
-    def test_autopsy_and_health_db_persistence(self, tmp_path: Path) -> None:
+    def test_unmeasured_trade_does_not_create_autopsy_or_health(self, tmp_path: Path) -> None:
         engine = build_default_self_driving_engine(
             starting_capital_usdt=Decimal("100.00"),
             storage_dir=tmp_path,
@@ -208,7 +208,7 @@ class TestDailyDrawdownCircuitBreaker:
         )
         engine._execute_fill(order_close, Decimal("174.00"), now_ms + 900000)
 
-        # Verify DB records
+        # No microstructure trace was supplied, so attribution and learning must be skipped.
         db_path = tmp_path / "canary-production-telemetry.sqlite3"
         assert db_path.is_file()
 
@@ -216,17 +216,36 @@ class TestDailyDrawdownCircuitBreaker:
         cur = conn.cursor()
         cur.execute("SELECT count(*) FROM trade_autopsies")
         count = cur.fetchone()[0]
-        assert count >= 1
+        assert count == 0
 
         cur.execute("SELECT symbol, net_pnl_usdt FROM trade_autopsies WHERE symbol='SOLUSDT'")
         row = cur.fetchone()
-        assert row is not None
-        assert row[0] == "SOLUSDT"
-        assert row[1] > 0.0
+        assert row is None
         conn.close()
+        assert engine.health_evaluations == {}
+        assert engine.has_pending_autopsies() is False
 
-        # Verify events jsonl
+        # The omission is explicit in telemetry rather than filled with invented values.
         events_path = tmp_path / "canary-production-events.jsonl"
         assert events_path.is_file()
         content = events_path.read_text(encoding="utf-8")
-        assert "TRADE_AUTOPSY" in content
+        assert "TRADE_AUTOPSY_SKIPPED_MISSING_EVIDENCE" in content
+
+    def test_missing_microstructure_measurements_block_entry(self, tmp_path: Path) -> None:
+        engine = build_default_self_driving_engine(
+            starting_capital_usdt=Decimal("100.00"),
+            storage_dir=tmp_path,
+        )
+
+        order = engine.process_microstructure_tick(
+            symbol="SOLUSDT",
+            price=Decimal("180.00"),
+            ensemble_signal="BUY",
+            ts_ms=1700000000000,
+        )
+
+        assert order is None
+        assert engine.orders == []
+        assert engine.interlock_blocks_count == 1
+        content = (tmp_path / "canary-production-events.jsonl").read_text(encoding="utf-8")
+        assert "MICROSTRUCTURE_EVIDENCE_MISSING_BLOCK" in content

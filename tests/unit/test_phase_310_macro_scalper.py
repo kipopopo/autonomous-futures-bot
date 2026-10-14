@@ -130,6 +130,22 @@ class TestMacroTrendFilter:
             )
         assert filter_gate.evaluate(candles) is False
 
+    def test_bear_regime_is_classified_for_directional_short_filter(self) -> None:
+        filter_gate = MacroTrendFilter(ema_fast=50, ema_slow=200)
+        candles = [
+            _make_candle(
+                i * 3600000,
+                Decimal("90000") - Decimal(str(i * 50)),
+                Decimal("90100") - Decimal(str(i * 50)),
+                Decimal("89900") - Decimal(str(i * 50)),
+                Decimal("90000") - Decimal(str(i * 50)),
+                "100",
+            )
+            for i in range(220)
+        ]
+
+        assert filter_gate.evaluate_regime(candles) == "BEARISH"
+
     def test_4h_candles_insufficient_warmup_fails_closed(self) -> None:
         filter_gate = MacroTrendFilter(ema_fast=50, ema_slow=200)
         candles_1h = [
@@ -231,6 +247,31 @@ class TestMacroLiquidityDipScalper:
             macro_trend_allowed=False,
         )
         assert signal is None
+
+    def test_scalper_emits_symmetric_short_with_protective_brackets_in_bear_regime(self) -> None:
+        scalper = MacroLiquidityDipScalper()
+        history = self._build_baseline_history(40, Decimal("180.00"))
+        rally_bar = _make_candle(
+            ts_ms=40 * 900000,
+            open_p="180.00",
+            high_p="196.00",
+            low_p="179.50",
+            close_p="195.00",
+            volume="4500.0",
+        )
+
+        signal = scalper.evaluate_15m_bar(
+            symbol="SOLUSDT",
+            bar=rally_bar,
+            history=history,
+            macro_trend_allowed="BEARISH",
+        )
+
+        assert signal is not None
+        assert signal.side == "SELL"
+        assert signal.stop_loss > signal.sweep_price
+        assert signal.take_profit < signal.sweep_price
+        assert signal.reward_to_risk_ratio == Decimal("1.6667")
 
     def test_scalper_ignores_normal_consolidation(self) -> None:
         scalper = MacroLiquidityDipScalper()

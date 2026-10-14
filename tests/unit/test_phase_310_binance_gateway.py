@@ -113,7 +113,7 @@ class TestBinanceGatewayRestEndpoints:
                 symbol="SOLUSDT",
                 side="BUY",
                 order_type="LIMIT",
-                quantity=Decimal("0.02"),
+                quantity=Decimal("0.03"),
                 price=Decimal("172.50"),
                 client_order_id=cid,
             )
@@ -140,7 +140,7 @@ class TestBinanceGatewayRestEndpoints:
                 symbol="ETHUSDT",
                 side="BUY",
                 order_type="MARKET",
-                quantity=Decimal("0.005"),
+                quantity=Decimal("0.01"),
                 client_order_id=cid,
             )
             assert order["symbol"] == "ETHUSDT"

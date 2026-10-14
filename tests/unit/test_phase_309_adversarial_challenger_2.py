@@ -225,7 +225,16 @@ def test_adv_kill_switch_three_tier_containment() -> None:
     signers = [SignerIdentity("s1", "p1", "CRO")]
     gov = MultiSigGovernanceEngine(signers=signers, required_quorum=1)
     ledger = CentralizedSolvencyLedger(starting_equity=100.0)
-    ks = HardwareOSKillSwitchEngine(governance=gov, solvency_ledger=ledger)
+    ks = HardwareOSKillSwitchEngine(
+        governance=gov,
+        solvency_ledger=ledger,
+        credential_store={"api_key": "fixture-key", "api_secret": "fixture-secret"},
+        open_orders=[{"order_id": f"fixture-{index}"} for index in range(3)],
+        open_positions=[
+            {"symbol": "BTCUSDT", "notional": 5.70},
+            {"symbol": "ETHUSDT", "notional": 5.50},
+        ],
+    )
 
     assert len(ks.open_orders) == 3
     assert len(ks.open_positions) == 2

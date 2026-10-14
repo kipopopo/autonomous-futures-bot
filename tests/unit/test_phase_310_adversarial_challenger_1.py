@@ -276,7 +276,7 @@ class TestNetworkFailureAndCorruptPayloadStress:
                     symbol="SOLUSDT",
                     side="BUY",
                     order_type="LIMIT",
-                    quantity=Decimal("0.02"),
+                    quantity=Decimal("0.04"),
                     price=Decimal("170.00"),
                 )
 
@@ -320,7 +320,7 @@ class TestNetworkFailureAndCorruptPayloadStress:
                     symbol="SOLUSDT",
                     side="BUY",
                     order_type="LIMIT",
-                    quantity=Decimal("0.02"),
+                    quantity=Decimal("0.04"),
                     price=Decimal("170.00"),
                 )
             assert exc_502.value.status_code == 502
@@ -374,7 +374,7 @@ class TestNetworkFailureAndCorruptPayloadStress:
                         symbol="SOLUSDT",
                         side="BUY",
                         order_type="LIMIT",
-                        quantity=Decimal("0.02"),
+                        quantity=Decimal("0.04"),
                         price=Decimal("170.00"),
                     )
                 assert exc.value.code == code
@@ -567,14 +567,14 @@ class TestPrecisionStepSizeBoundariesStress:
         async def _run() -> None:
             gw = BinanceFuturesGateway(offline_mode=True)
             # Quantity 0.0005 with step_size 0.001
-            res = await gw.create_order(
-                symbol="ETHUSDT",
-                side="BUY",
-                order_type="LIMIT",
-                quantity=Decimal("0.0005"),
-                price=Decimal("2800.00"),
-            )
-            assert res["origQty"] == "0.000"
+            with pytest.raises(ValueError, match="positive and finite"):
+                await gw.create_order(
+                    symbol="ETHUSDT",
+                    side="BUY",
+                    order_type="LIMIT",
+                    quantity=Decimal("0.0005"),
+                    price=Decimal("2800.00"),
+                )
 
         asyncio.run(_run())
 

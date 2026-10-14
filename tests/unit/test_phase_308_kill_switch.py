@@ -90,6 +90,12 @@ def test_kill_switch_three_tiers_and_memory_wipe(tmp_path: Path) -> None:
         governance=gov,
         solvency_ledger=ledger,
         token_file_path=token_file,
+        credential_store={"api_key": "fixture-key", "api_secret": "fixture-secret"},
+        open_orders=[{"order_id": f"fixture-{index}"} for index in range(3)],
+        open_positions=[
+            {"symbol": "BTCUSDT", "notional": 5.70},
+            {"symbol": "ETHUSDT", "notional": 5.50},
+        ],
     )
 
     assert engine.state == KillSwitchState.ARMED_NORMAL
@@ -122,6 +128,19 @@ def test_kill_switch_three_tiers_and_memory_wipe(tmp_path: Path) -> None:
     assert engine.is_memory_wiped
     assert len(engine.open_positions) == 0
     assert len(engine._secure_memory_store) == 0
+
+
+def test_kill_switch_starts_without_invented_credentials_or_inventory() -> None:
+    gov = MultiSigGovernanceEngine(
+        signers=[SignerIdentity("signer-1", "pub1", "ROLE_CRO")], required_quorum=1
+    )
+    engine = HardwareOSKillSwitchEngine(
+        governance=gov, solvency_ledger=CentralizedSolvencyLedger()
+    )
+
+    assert engine._secure_memory_store == {}
+    assert engine.open_orders == []
+    assert engine.open_positions == []
 
 
 def test_file_tripwire_activation(tmp_path: Path) -> None:

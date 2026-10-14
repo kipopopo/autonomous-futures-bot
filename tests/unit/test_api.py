@@ -225,12 +225,19 @@ def test_market_prices_endpoint(tmp_path: Path) -> None:
     payload = response.json()
     assert "timestamp_ms" in payload
     assert "prices" in payload
+    assert "last_prices" in payload
+    assert "mark_prices" in payload
+    assert "pair_tickers" in payload
+    assert len(payload["pair_tickers"]) == 12
+    assert all("last_price" in pt and "mark_price" in pt for pt in payload["pair_tickers"])
     assert "BTCUSDT" in payload["prices"]
     assert "ETHUSDT" in payload["prices"]
     assert "SOLUSDT" in payload["prices"]
     assert payload["prices"]["BTCUSDT"] > 0
     assert payload["prices"]["ETHUSDT"] > 0
     assert payload["prices"]["SOLUSDT"] > 0
+    assert payload["last_prices"]["BTCUSDT"] > 0
+    assert payload["mark_prices"]["BTCUSDT"] > 0
     assert "btc_macro" in payload
     assert "source" in payload
 
@@ -303,15 +310,11 @@ def test_market_klines_offline_fallback(tmp_path: Path, monkeypatch: pytest.Monk
     payload_p = r_parquet.json()
     assert payload_p["symbol"] == "SOLUSDT"
     assert len(payload_p["candles"]) == 25
-    assert payload_p["source"] in {"local_parquet_cache", "synthetic_fallback"}
+    assert payload_p["source"] in {"local_parquet_cache"}
 
-    # Tier 3: Synthetic fallback for symbol with no local parquet
-    r_synth = _request(app, "GET", "/api/v1/market/klines?symbol=XYZUSDT&interval=15m&limit=20")
-    assert r_synth.status_code == 200
-    payload_s = r_synth.json()
-    assert payload_s["symbol"] == "XYZUSDT"
-    assert len(payload_s["candles"]) == 20
-    assert payload_s["source"] == "synthetic_fallback"
+    # An outage must not generate market candles.
+    response = _request(app, "GET", "/api/v1/market/klines?symbol=XYZUSDT&interval=15m&limit=20")
+    assert response.status_code == 503
 
 
 def test_market_klines_validation_errors(tmp_path: Path) -> None:
@@ -328,66 +331,125 @@ def test_market_klines_validation_errors(tmp_path: Path) -> None:
 
 
 def test_execution_status_endpoint_returns_live_state(tmp_path: Path) -> None:
+    import time
+
+    from autonomous_futures.execution.account_evidence import atomic_json
+
+    snapshot = {
+        "source": "binance_authenticated_rest",
+        "timestamp_ms": int(time.time() * 1000),
+        "account": {
+            "multiAssetsMargin": "false",
+            "totalWalletBalance": "100",
+            "availableBalance": "96",
+            "totalInitialMargin": "4",
+            "totalMarginBalance": "100.04",
+            "totalUnrealizedProfit": "0.04",
+        },
+        "positions": [
+            {
+                "symbol": "SOLUSDT",
+                "positionAmt": "0.04",
+                "entryPrice": "99",
+                "markPrice": "100",
+                "unRealizedProfit": "0.04",
+            }
+        ],
+        "open_orders": [],
+    }
+    atomic_json(tmp_path / "exchange-account.json", snapshot)
     app = create_app(
         bundle_path=tmp_path / "missing-bundle.json",
         registry_path=tmp_path / "missing-registry.json",
+        research_dir=tmp_path,
     )
     response = _request(app, "GET", "/api/v1/execution/status")
     assert response.status_code == 200
     payload = response.json()
+    assert payload["verified"] is False
+    assert payload["status"] == "ACCOUNT_UNRECONCILED"
+    assert payload["positions"]["SOLUSDT"]["position_qty"] == 0.04
+    assert payload["aggregate_exposure_usdt"] == 4
+    assert payload["solvency"]["cash_usdt"] == 100
+    assert payload["solvency"]["available_balance_usdt"] == 96
+    assert payload["solvency"]["allocated_margin_usdt"] == 4
+    assert payload["solvency"]["zero_balance_drift_verified"] is False
+    assert payload["solvency"]["starting_equity_usdt"] is None
+    assert payload["solvency"]["drift_usdt"] is None
+    assert payload["daily_risk"]["verified"] is False
+    assert payload["daily_risk"]["loss_usdt"] is None
+    assert payload["intra_day_loss_usdt"] is None
 
+
+def test_execution_status_uses_wallet_identity_and_verified_dynamic_daily_risk(
+    tmp_path: Path,
+) -> None:
+    import time
+
+    from autonomous_futures.execution.account_evidence import atomic_json
+
+    timestamp_ms = int(time.time() * 1000)
+    snapshot = {
+        "source": "binance_authenticated_rest",
+        "timestamp_ms": timestamp_ms,
+        "account": {
+            "multiAssetsMargin": "false",
+            "totalWalletBalance": "98",
+            "availableBalance": "70",
+            "totalInitialMargin": "28",
+            "totalMarginBalance": "97",
+            "totalUnrealizedProfit": "-1",
+        },
+        "positions": [],
+        "open_orders": [],
+        "reconciliation": {
+            "starting_equity": "100",
+            "net_realized_pnl": "-2",
+            "wallet_drift": "0",
+            "equity_drift": "0",
+            "verified": True,
+        },
+        "daily_risk": {
+            "verified": True,
+            "observed_ms": timestamp_ms,
+            "equity_basis": "ACCOUNT",
+            "day_start_equity": "100",
+            "limit_pct": "5",
+            "limit_usdt": "5",
+            "loss_usdt": "3",
+            "remaining_usdt": "2",
+            "breached": False,
+        },
+        "daily_loss_usdt": "99",
+    }
+    atomic_json(tmp_path / "exchange-account.json", snapshot)
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+        research_dir=tmp_path,
+    )
+
+    response = _request(app, "GET", "/api/v1/execution/status")
+
+    assert response.status_code == 200
+    payload = response.json()
     assert payload["verified"] is True
-    assert payload["status"] == "MICRO_CAPITAL_ACTIVE"
-    assert payload["engine_state"] == "MICRO_CAPITAL_ACTIVE"
-    assert payload["aggregate_exposure_usdt"] == 0.0
-
-    # Solvency integrity
-    solvency = payload["solvency"]
-    assert solvency["starting_equity_usdt"] == 100.0
-    assert solvency["cash_usdt"] > 0
-    assert solvency["allocated_margin_usdt"] == 0.0
-    assert solvency["unrealized_pnl_usdt"] == 0.0
-    assert solvency["drift_usdt"] == 0.0
-    assert solvency["zero_balance_drift_verified"] is True
-    assert solvency["cash_reserve_pct"] == 100.0
-    assert solvency["unencumbered_cash_verified"] is True
-
-    # Flat positions across BTC, ETH, SOL
-    positions = payload["positions"]
-    for sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
-        assert sym in positions
-        pos = positions[sym]
-        assert pos["symbol"] == sym
-        assert pos["position_qty"] == 0.0
-        assert pos["allocated_exposure_usdt"] == 0.0
-        assert pos["allocated_margin_usdt"] == 0.0
-        assert pos["unrealized_pnl_usdt"] == 0.0
-        assert pos["status"] == "STANDBY / SCANNING"
-        assert pos["state"] == "STANDBY / SCANNING"
-
-    # Authentic order structure
-    orders = payload["recent_orders"]
-    assert len(orders) > 0
-    assert payload["total_orders"] == len(orders)
-
-    client_order_ids = [o["client_order_id"] for o in orders]
-    assert any(cid.startswith("canary-p311-") for cid in client_order_ids)
-    assert any(cid.startswith("canary-p310-") for cid in client_order_ids)
-
-    for o in orders:
-        assert isinstance(o["order_id"], str)
-        assert isinstance(o["client_order_id"], str)
-        assert o["symbol"] in {"SOLUSDT", "ETHUSDT", "BTCUSDT"}
-        assert o["side"] in {"BUY", "SELL"}
-        assert o["price"] >= 0.0
-        assert o["quantity"] >= 0.0
-        assert o["notional_usdt"] >= 0.0
-        assert o["status"] in {"FILLED", "CANCELED", "NEW"}
-        assert o["fee_usdt"] >= 0.0
-        assert o["timestamp_ms"] > 0
-
-    timestamps = [o["timestamp_ms"] for o in orders]
-    assert timestamps == sorted(timestamps, reverse=True)
+    assert payload["solvency"]["cash_usdt"] == 98
+    assert payload["solvency"]["available_balance_usdt"] == 70
+    assert payload["solvency"]["allocated_margin_usdt"] == 28
+    assert payload["solvency"]["total_equity_usdt"] == 97
+    assert payload["solvency"]["zero_balance_drift_verified"] is True
+    assert payload["daily_risk"] == {
+        "verified": True,
+        "day_start_equity_usdt": 100,
+        "limit_pct": 5,
+        "limit_usdt": 5,
+        "loss_usdt": 3,
+        "remaining_usdt": 2,
+        "breached": False,
+        "equity_basis": "ACCOUNT",
+    }
+    assert payload["intra_day_loss_usdt"] == 3
 
 
 def test_execution_status_fallback_graceful(
@@ -403,39 +465,5 @@ def test_execution_status_fallback_graceful(
         research_dir=empty_research,
     )
     response = _request(app, "GET", "/api/v1/execution/status")
-    assert response.status_code == 200
-    payload = response.json()
-
-    assert payload["verified"] is True
-    assert payload["status"] == "MICRO_CAPITAL_ACTIVE"
-    assert payload["engine_state"] == "MICRO_CAPITAL_ACTIVE"
-    assert payload["aggregate_exposure_usdt"] == 0.0
-
-    # Solvency fallback
-    solvency = payload["solvency"]
-    assert solvency["starting_equity_usdt"] == 100.0
-    assert solvency["cash_usdt"] == 100.0
-    assert solvency["allocated_margin_usdt"] == 0.0
-    assert solvency["unrealized_pnl_usdt"] == 0.0
-    assert solvency["total_equity_usdt"] == 100.0
-    assert solvency["drift_usdt"] == 0.0
-    assert solvency["zero_balance_drift_verified"] is True
-    assert solvency["cash_reserve_pct"] == 100.0
-    assert solvency["unencumbered_cash_verified"] is True
-
-    # Flat positions fallback
-    positions = payload["positions"]
-    for sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
-        assert sym in positions
-        assert positions[sym]["position_qty"] == 0.0
-        assert positions[sym]["allocated_exposure_usdt"] == 0.0
-        assert positions[sym]["status"] == "STANDBY / SCANNING"
-        assert positions[sym]["state"] == "STANDBY / SCANNING"
-
-    # Orders fallback
-    assert payload["recent_orders"] == []
-    assert payload["total_orders"] == 0
-
-
-
-
+    assert response.status_code == 503
+    assert "account evidence unavailable" in response.json()["detail"]
