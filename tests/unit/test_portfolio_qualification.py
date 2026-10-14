@@ -211,3 +211,78 @@ def test_shared_daily_loss_circuit_breaker_halts_portfolio_across_symbols() -> N
     assert result["metrics"]["trade_count"] == 3
     assert result["by_symbol"]["SOLUSDT"]["trade_count"] == 1
     assert D(result["by_symbol"]["SOLUSDT"]["net_pnl"]) > D("0")
+
+
+def test_run_portfolio_qualification_parses_extended_member_specs_and_frozen_manifest() -> None:
+    import json
+    from pathlib import Path
+
+    from autonomous_futures.research.runtime_qualification import content_hash
+    from scripts.run_portfolio_qualification import _members_from_selection, _parse_member_spec
+
+    repo = Path(__file__).resolve().parents[2]
+    m1 = _parse_member_spec("ethusdt")
+    assert m1.symbol == "ETHUSDT"
+    assert m1.stop_atr_multiplier == D("1.2")
+
+    m3 = _parse_member_spec("SOLUSDT:-4.0:3.0")
+    assert m3.symbol == "SOLUSDT"
+    assert m3.distance_threshold == D("-4.0")
+    assert m3.target_atr_multiplier == D("3.0")
+
+    m7 = _parse_member_spec("AVAXUSDT:-3.5:6.0:10.0:34.0:1.5:16")
+    assert m7.symbol == "AVAXUSDT"
+    assert m7.stop_atr_multiplier == D("10.0")
+    assert m7.rsi_threshold == D("34.0")
+    assert m7.vol_spike_multiplier == D("1.5")
+    assert m7.max_hold_bars == 16
+
+    m8 = _parse_member_spec("sol-2-hf:SOLUSDT:-1.8:8.0:10.0:34.0:2.2:32")
+    assert m8.member_id == "sol-2-hf"
+    assert m8.symbol == "SOLUSDT"
+    assert m8.distance_threshold == D("-1.8")
+    assert m8.target_atr_multiplier == D("8.0")
+    assert m8.stop_atr_multiplier == D("10.0")
+    assert m8.rsi_threshold == D("34.0")
+    assert m8.vol_spike_multiplier == D("2.2")
+    assert m8.max_hold_bars == 32
+
+    manifest_path = (
+        repo
+        / "research/qualification-development-2024-2026/selected-portfolio-medium-frequency-v1.json"
+    )
+    members = _members_from_selection(manifest_path)
+    assert len(members) == 6
+    assert {m.symbol for m in members} == {"AVAXUSDT", "ETHUSDT", "SOLUSDT"}
+
+    dev_report_path = (
+        repo
+        / "artifacts/qualification/portfolio-scalper-mf-development-20261014"
+        / "portfolio-cea9be6fc4913f7d.json"
+    )
+    dev_report = json.loads(dev_report_path.read_text(encoding="utf-8"))
+    dev_body = dict(dev_report)
+    dev_hash = dev_body.pop("report_hash")
+    assert dev_hash == content_hash(dev_body)
+    assert dev_report["decision"] == "DEVELOPMENT_ONLY"
+    assert dev_report["portfolio_decision_on_development_sample"] == "QUALIFIED"
+    assert dev_report["execution_authority"] is False
+    assert all(dev_report["gates"].values())
+    assert dev_report["metrics"]["trade_count"] == 495
+
+    holdout_report_path = (
+        repo
+        / "artifacts/qualification/portfolio-scalper-mf-holdout-2026-08-2026-09"
+        / "portfolio-72de22bde9a30101.json"
+    )
+    holdout_report = json.loads(holdout_report_path.read_text(encoding="utf-8"))
+    holdout_body = dict(holdout_report)
+    holdout_hash = holdout_body.pop("report_hash")
+    assert holdout_hash == content_hash(holdout_body)
+    assert holdout_report["decision"] == "QUALIFIED"
+    assert holdout_report["execution_authority"] is False
+    assert all(holdout_report["gates"].values())
+    assert holdout_report["metrics"]["trade_count"] == 35
+    assert D(holdout_report["metrics"]["net_pnl"]) > D("0")
+    assert D(holdout_report["metrics"]["stress_net_pnl"]) > D("0")
+    assert D(holdout_report["metrics"]["drawdown_pct"]) <= D("5.0")

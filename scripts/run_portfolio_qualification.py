@@ -26,39 +26,79 @@ D = Decimal
 
 def _parse_member_spec(raw: str) -> PortfolioMemberSpec:
     parts = [part.strip() for part in raw.split(":")]
-    if len(parts) not in (1, 3):
-        raise ValueError("Member spec must be SYMBOL or SYMBOL:DISTANCE_THRESHOLD:TARGET_ATR_MULT")
-    symbol = parts[0].upper()
     if len(parts) == 1:
+        symbol = parts[0].upper()
         return PortfolioMemberSpec(
             member_id=f"macro-scalper-{symbol.lower()}-baseline",
             symbol=symbol,
         )
-    dist = D(parts[1])
-    tp = D(parts[2])
-    return PortfolioMemberSpec(
-        member_id=f"macro-scalper-{symbol.lower()}-d{dist}-t{tp}",
-        symbol=symbol,
-        distance_threshold=dist,
-        target_atr_multiplier=tp,
+    if len(parts) == 3:
+        symbol = parts[0].upper()
+        dist = D(parts[1])
+        tp = D(parts[2])
+        return PortfolioMemberSpec(
+            member_id=f"macro-scalper-{symbol.lower()}-d{dist}-t{tp}",
+            symbol=symbol,
+            distance_threshold=dist,
+            target_atr_multiplier=tp,
+        )
+    if len(parts) == 7:
+        symbol = parts[0].upper()
+        dist, tp, sl, rsi, vol = D(parts[1]), D(parts[2]), D(parts[3]), D(parts[4]), D(parts[5])
+        hold = int(parts[6])
+        return PortfolioMemberSpec(
+            member_id=(
+                f"macro-scalper-{symbol.lower()}-d{dist}-t{tp}-sl{sl}-r{rsi}-v{vol}-h{hold}"
+            ),
+            symbol=symbol,
+            distance_threshold=dist,
+            target_atr_multiplier=tp,
+            stop_atr_multiplier=sl,
+            rsi_threshold=rsi,
+            vol_spike_multiplier=vol,
+            max_hold_bars=hold,
+        )
+    if len(parts) == 8:
+        member_id = parts[0]
+        symbol = parts[1].upper()
+        dist, tp, sl, rsi, vol = D(parts[2]), D(parts[3]), D(parts[4]), D(parts[5]), D(parts[6])
+        hold = int(parts[7])
+        return PortfolioMemberSpec(
+            member_id=member_id,
+            symbol=symbol,
+            distance_threshold=dist,
+            target_atr_multiplier=tp,
+            stop_atr_multiplier=sl,
+            rsi_threshold=rsi,
+            vol_spike_multiplier=vol,
+            max_hold_bars=hold,
+        )
+    raise ValueError(
+        "Member spec must be SYMBOL, SYMBOL:DIST:TP, "
+        "SYMBOL:DIST:TP:SL:RSI:VOL:HOLD, or MEMBER_ID:SYMBOL:DIST:TP:SL:RSI:VOL:HOLD"
     )
 
 
 def _members_from_selection(path: Path) -> list[PortfolioMemberSpec]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    selected = data.get("selected_candidates", [])
+    selected = data.get("selected_candidates") or data.get("members") or []
     if not isinstance(selected, list) or not selected:
         raise ValueError(f"Selection manifest contains no selected_candidates: {path}")
     members: list[PortfolioMemberSpec] = []
     for entry in selected:
-        params = entry["parameters"]
+        params = entry.get("parameters", entry)
+        member_id = str(entry.get("member_id") or entry["candidate_id"])
         members.append(
             PortfolioMemberSpec(
-                member_id=str(entry["candidate_id"]),
-                symbol=str(entry["symbol"]),
+                member_id=member_id,
+                symbol=str(entry["symbol"]).upper(),
                 family=str(entry.get("family", "MACRO_SCALPER")),
-                distance_threshold=D(str(params["distance_threshold"])),
-                target_atr_multiplier=D(str(params["target_atr_multiplier"])),
+                distance_threshold=D(str(params.get("distance_threshold", "-2.5"))),
+                target_atr_multiplier=D(str(params.get("target_atr_multiplier", "2.0"))),
+                stop_atr_multiplier=D(str(params.get("stop_atr_multiplier", "1.2"))),
+                rsi_threshold=D(str(params.get("rsi_threshold", "26.0"))),
+                vol_spike_multiplier=D(str(params.get("vol_spike_multiplier", "2.2"))),
+                max_hold_bars=int(params.get("max_hold_bars", 8)),
             )
         )
     return members
