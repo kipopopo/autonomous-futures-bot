@@ -21,6 +21,10 @@ from autonomous_futures.execution.daily_risk import DailyRiskTracker  # noqa: E4
 from autonomous_futures.execution.entry_admission import EntryAdmission  # noqa: E402
 from autonomous_futures.execution.exit_invalidation import CausalExitReader  # noqa: E402
 from autonomous_futures.execution.lifecycle_coordinator import LifecycleCoordinator  # noqa: E402
+from autonomous_futures.execution.portfolio_runtime import (  # noqa: E402
+    VerifiedRuntimePortfolio,
+    load_admitted_portfolios,
+)
 from autonomous_futures.execution.qualification_receipts import verify_runtime_report  # noqa: E402
 from autonomous_futures.execution.runtime_session import RuntimeSession  # noqa: E402
 from autonomous_futures.execution.single_writer_guard import (  # noqa: E402
@@ -56,6 +60,20 @@ def admitted_reports(repo: Path) -> dict[tuple[str, str], Path]:
     if not reports:
         raise ValueError("No genuinely qualified deployment reports; runtime cannot activate")
     return reports
+
+
+def admitted_portfolios(
+    repo: Path,
+    *,
+    require_execution_authority: bool = False,
+) -> tuple[VerifiedRuntimePortfolio, ...]:
+    portfolios = load_admitted_portfolios(
+        repo,
+        require_execution_authority=require_execution_authority,
+    )
+    if not portfolios:
+        raise ValueError("No genuinely qualified portfolio reports in admission manifest")
+    return portfolios
 
 
 def credentials() -> tuple[str, str]:

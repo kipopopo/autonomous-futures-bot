@@ -10,6 +10,10 @@ from pathlib import Path
 from autonomous_futures.execution.account_evidence import finite_decimal, read_account
 from autonomous_futures.execution.entry_risk import remaining_daily_budget
 from autonomous_futures.execution.ict_reclaim_entry import IctReclaimEntryStore
+from autonomous_futures.execution.portfolio_runtime import (
+    PortfolioCausalScanner,
+    VerifiedRuntimePortfolio,
+)
 from autonomous_futures.execution.qualification_domain import verify_execution_domain
 from autonomous_futures.execution.qualification_receipts import (
     HistoricalQualification,
@@ -40,8 +44,26 @@ class CausalScanner:
         *,
         repo: Path,
         account_path: Path,
-        reports: dict[tuple[str, str], Path],
+        reports: dict[tuple[str, str], Path] | None = None,
+        portfolio: VerifiedRuntimePortfolio | None = None,
     ) -> None:
+        self._portfolio_scanner: PortfolioCausalScanner | None = None
+        if portfolio is not None and not reports:
+            self._portfolio_scanner = PortfolioCausalScanner(
+                feed,
+                repo=repo,
+                account_path=account_path,
+                portfolio=portfolio,
+            )
+            self.feed, self.repo, self.account_path = feed, repo, account_path
+            self.reports: tuple[tuple[tuple[str, str], Path], ...] = ()
+            self.reader = self._portfolio_scanner.reader
+            self.cursor = 0
+            self.receipts: dict[Path, HistoricalQualification] = {}
+            self.reclaim_entries = IctReclaimEntryStore(
+                account_path.with_name("ict-reclaim-entry-state.json"), repo
+            )
+            return
         if not reports or any(
             family not in {"MACRO_SCALPER", "ICT_TWINS"} or symbol not in feed.monitor.symbols
             for family, symbol in reports
@@ -51,12 +73,14 @@ class CausalScanner:
         self.reports = tuple(reports.items())
         self.reader = ClosedHistoryReader(feed.gateway)
         self.cursor = 0
-        self.receipts: dict[Path, HistoricalQualification] = {}
+        self.receipts = {}
         self.reclaim_entries = IctReclaimEntryStore(
             account_path.with_name("ict-reclaim-entry-state.json"), repo
         )
 
     async def __call__(self) -> QualifiedIntention | None:
+        if self._portfolio_scanner is not None:
+            return await self._portfolio_scanner()
         (family, symbol), path = self.reports[self.cursor]
         self.cursor = (self.cursor + 1) % len(self.reports)
         receipt = self.receipts.get(path)

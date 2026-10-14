@@ -36,6 +36,7 @@ class PortfolioHistoricalQualification:
     selection_hash: str | None = None
     development_report_hash: str | None = None
     development_metrics: dict[str, Any] | None = None
+    execution_domain: dict[str, Any] | None = None
     execution_authority: bool = False
 
 
@@ -362,6 +363,40 @@ def verify_portfolio_report(
         raise ValueError(
             "Portfolio qualification report risk policy differs from the approved runtime policy"
         )
+    execution_domain: dict[str, Any] | None = report.get("execution_domain")
+    cap_scenario = report.get("capital_scenario")
+    if (
+        execution_domain is None
+        and isinstance(cap_scenario, dict)
+        and cap_scenario.get("schema") == "authenticated-testnet-equity-scenario-v1"
+        and cap_scenario.get("wallet_and_equity_reconciled") is True
+    ):
+        starting_eq = finite_decimal(policy["starting_equity"])
+        max_dd_pct = finite_decimal(policy["maximum_drawdown_pct"])
+        ending_eq = finite_decimal(metrics["ending_equity"])
+        dev_ending_eq = (
+            finite_decimal(development_metrics["ending_equity"])
+            if development_metrics and "ending_equity" in development_metrics
+            else ending_eq
+        )
+        min_eq = (starting_eq * (Decimal("100") - max_dd_pct) / Decimal("100")).quantize(
+            Decimal("0.00000001")
+        )
+        max_eq = (max(starting_eq, ending_eq, dev_ending_eq) * Decimal("1.10")).quantize(
+            Decimal("0.00000001")
+        )
+        execution_domain = {
+            "schema": "researched-execution-domain-v1",
+            "testnet": bool(cap_scenario.get("testnet", True)),
+            "equity_basis": "ACCOUNT",
+            "minimum_equity": str(min_eq),
+            "maximum_equity": str(max_eq),
+            "daily_loss_pct": str(policy["daily_loss_pct"]),
+            "trade_risk_pct": str(policy["trade_risk_pct"]),
+            "leverages": [1],
+            "maximum_concurrent_symbols": len(expected_symbols),
+            "symbols": list(expected_symbols),
+        }
     return PortfolioHistoricalQualification(
         portfolio_id=portfolio_id,
         family=family,
@@ -373,6 +408,7 @@ def verify_portfolio_report(
         selection_hash=selection_hash,
         development_report_hash=development_report_hash,
         development_metrics=development_metrics,
+        execution_domain=execution_domain,
         execution_authority=False,
     )
 

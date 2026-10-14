@@ -34,6 +34,8 @@ class QualifiedIntention:
     report_path: Path
     readiness_ms: int | None = None
     report_hash: str | None = None
+    portfolio_id: str | None = None
+    member_id: str | None = None
 
 
 class RuntimeSession:
@@ -286,6 +288,16 @@ class RuntimeSession:
             if self.user_stream is None or self.user_stream_gap:
                 raise ValueError("No reconciled authenticated user-data stream")
             self.user_stream.assert_entry_ready()
+            if intention.portfolio_id is not None:
+                return await self.admission.admit(
+                    intention.plan,
+                    intention.report_path,
+                    exchange_clock=self.feed.clock,
+                    readiness_ms=intention.readiness_ms,
+                    expected_report_hash=intention.report_hash,
+                    portfolio_id=intention.portfolio_id,
+                    member_id=intention.member_id,
+                )
             return await self.admission.admit(
                 intention.plan,
                 intention.report_path,

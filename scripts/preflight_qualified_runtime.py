@@ -21,6 +21,9 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
+from autonomous_futures.execution.portfolio_runtime import (  # noqa: E402
+    build_verified_runtime_portfolio,
+)
 from autonomous_futures.execution.qualification_receipts import (  # noqa: E402
     verify_runtime_portfolio_report,
     verify_runtime_report,
@@ -146,17 +149,26 @@ def evaluate_preflight(
             if not p_path.is_relative_to(repo.resolve()):
                 raise ValueError("Admitted portfolio report must be inside repository")
             p_receipt = verify_runtime_portfolio_report(p_path, repo=repo, portfolio_id=pid)
+            runtime_portfolio = build_verified_runtime_portfolio(p_receipt, report_path=p_path)
+            if not set(runtime_portfolio.symbols).issubset(ACTIVE_PAIRS):
+                raise ValueError("Admitted portfolio symbols are outside ACTIVE_PAIRS")
             verified_portfolios.append(
                 {
-                    "portfolio_id": p_receipt.portfolio_id,
-                    "family": p_receipt.family,
-                    "symbols": list(p_receipt.symbols),
-                    "member_count": len(p_receipt.members),
+                    "portfolio_id": runtime_portfolio.portfolio_id,
+                    "family": runtime_portfolio.family,
+                    "symbols": list(runtime_portfolio.symbols),
+                    "member_count": len(runtime_portfolio.members),
+                    "member_ids": [m.member_id for m in runtime_portfolio.members],
+                    "members_by_symbol_counts": {
+                        sym: len(members)
+                        for sym, members in runtime_portfolio.members_by_symbol.items()
+                    },
                     "path": p_rel_path,
-                    "report_hash": p_receipt.report_hash,
-                    "selection_hash": p_receipt.selection_hash or "",
-                    "development_report_hash": p_receipt.development_report_hash or "",
-                    "execution_authority": p_receipt.execution_authority,
+                    "report_hash": runtime_portfolio.report_hash,
+                    "selection_hash": runtime_portfolio.selection_hash,
+                    "development_report_hash": runtime_portfolio.development_report_hash,
+                    "execution_domain": runtime_portfolio.execution_domain,
+                    "execution_authority": runtime_portfolio.execution_authority,
                 }
             )
         if not verified_reports:

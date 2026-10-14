@@ -34,6 +34,13 @@ def test_preflight_verifies_current_repo_calibration_policy_and_empty_admission(
     assert verified_portfolios[0]["family"] == "MACRO_SCALPER"
     assert verified_portfolios[0]["symbols"] == ["AVAXUSDT", "ETHUSDT", "SOLUSDT"]
     assert verified_portfolios[0]["member_count"] == 6
+    assert verified_portfolios[0]["members_by_symbol_counts"] == {
+        "AVAXUSDT": 1,
+        "ETHUSDT": 3,
+        "SOLUSDT": 2,
+    }
+    assert verified_portfolios[0]["execution_domain"]["schema"] == "researched-execution-domain-v1"
+    assert verified_portfolios[0]["execution_domain"]["maximum_concurrent_symbols"] == 3
     assert (
         verified_portfolios[0]["report_hash"]
         == "72de22bde9a30101c791bcc981c89481c176b6a4fd63acfd4e2495e8e9122d89"
