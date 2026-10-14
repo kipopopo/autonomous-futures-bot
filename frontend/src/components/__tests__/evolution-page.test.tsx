@@ -368,4 +368,48 @@ describe('EvolutionPage component', () => {
     expect(html).toContain('>APTUSDT</button>')
     expect(html).toContain('>ADAUSDT</button>')
   })
+
+  it('renders verified shared-wallet holdout portfolio card when qualified_portfolios is provided', () => {
+    const fixtureWithPortfolio: CanaryAutoEvolutionData = {
+      ...verifiedFixture,
+      qualified_portfolios: [
+        {
+          portfolio_id: 'macro-scalper-uninspected-3sym-medium-frequency-v1',
+          family: 'MACRO_SCALPER',
+          symbols: ['AVAXUSDT', 'ETHUSDT', 'SOLUSDT'],
+          member_count: 6,
+          member_ids: [
+            'avax-1-hf-d-3.5-tp6.0-sl10.0',
+            'eth-1-deep-d-4.0-tp10.0-sl6.0',
+            'eth-2-med-d-3.5-tp10.0-sl8.0',
+            'eth-3-hf-d-3.0-tp12.0-sl12.0',
+            'sol-1-deep-d-4.0-tp3.0-sl3.0',
+            'sol-2-hf-d-1.8-tp8.0-sl10.0',
+          ],
+          members_by_symbol_counts: { AVAXUSDT: 1, ETHUSDT: 3, SOLUSDT: 2 },
+          decision: 'QUALIFIED',
+          report_hash: '72de22bde9a30101c791bcc981c89481c176b6a4fd63acfd4e2495e8e9122d89',
+          trades: 35,
+          profitable_windows: 3,
+          windows: 5,
+          profit_factor: '1.70',
+          net_pnl_usdt: '65.45714991',
+          stress_net_pnl_usdt: '30.22313933',
+          drawdown_pct: '0.72',
+          execution_authority: false,
+        },
+      ],
+    }
+    const model = buildAutoEvolutionModel(fixtureWithPortfolio)
+    const html = renderToString(<EvolutionPage model={model} />)
+    expect(html).toContain('evolution-qualified-portfolios-card')
+    expect(html).toContain('Verified Shared-Wallet Holdout Portfolio')
+    expect(html).toContain('macro-scalper-uninspected-3sym-medium-frequency-v1')
+    expect(html).toContain('AVAXUSDT, ETHUSDT, SOLUSDT')
+    expect(html).toContain('6 Members')
+    expect(html).toContain('+65.46 USDT')
+    expect(html).toContain('+30.22 USDT')
+    expect(html).toContain('sol-2-hf-d-1.8-tp8.0-sl10.0')
+    expect(html).toContain('SHADOW / PRE-CUTOVER')
+  })
 })

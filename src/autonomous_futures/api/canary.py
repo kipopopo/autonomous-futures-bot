@@ -6133,6 +6133,8 @@ class QualifiedPortfolioReceiptSummaryItem(DomainModel):
     family: str
     symbols: list[str] = Field(default_factory=list)
     member_count: int = 0
+    member_ids: list[str] = Field(default_factory=list)
+    members_by_symbol_counts: dict[str, int] = Field(default_factory=dict)
     decision: Literal["QUALIFIED"] = "QUALIFIED"
     report_hash: str
     selection_hash: str = ""
@@ -6629,12 +6631,26 @@ def _load_verified_qualified_portfolios(
                 if starting_eq > 0
                 else "0"
             )
+            by_symbol_counts: dict[str, int] = {}
+            for sym in receipt.symbols:
+                by_symbol_counts[sym] = sum(
+                    1 for m in receipt.members if str(m.get("symbol")) == sym
+                )
+            sorted_member_ids = [
+                str(m["member_id"])
+                for m in sorted(
+                    receipt.members,
+                    key=lambda item: (str(item.get("symbol", "")), str(item.get("member_id", ""))),
+                )
+            ]
             result.append(
                 QualifiedPortfolioReceiptSummaryItem(
                     portfolio_id=receipt.portfolio_id,
                     family=receipt.family,
                     symbols=list(receipt.symbols),
                     member_count=len(receipt.members),
+                    member_ids=sorted_member_ids,
+                    members_by_symbol_counts=by_symbol_counts,
                     decision="QUALIFIED",
                     report_hash=receipt.report_hash,
                     selection_hash=receipt.selection_hash or "",

@@ -746,6 +746,25 @@ export function buildExecutiveDashboardModel(
     },
   ]
 
+  const qualifiedPortfolios = (autoEvolution?.qualifiedPortfolios || []).map((qp) => ({
+    portfolioId: qp.portfolio_id,
+    family: qp.family,
+    symbols: qp.symbols || [],
+    memberCount: qp.member_count,
+    memberIds: qp.member_ids || [],
+    membersBySymbolCounts: qp.members_by_symbol_counts || {},
+    decision: qp.decision || 'QUALIFIED',
+    reportHash: qp.report_hash,
+    trades: qp.trades,
+    profitableWindows: qp.profitable_windows,
+    windows: qp.windows,
+    profitFactor: qp.profit_factor,
+    netPnlUsdt: qp.net_pnl_usdt,
+    stressNetPnlUsdt: qp.stress_net_pnl_usdt,
+    drawdownPct: qp.drawdown_pct,
+    executionAuthority: Boolean(qp.execution_authority),
+  }))
+
   const evolutionRadar: StrategyEvolutionRadarData = {
     activeStrategyFamily: '15m Macro-Confluence Liquidity Scalper',
     microstructureFilter: 'Hawkes Microstructure Filter',
@@ -786,6 +805,7 @@ export function buildExecutiveDashboardModel(
     ],
     totalAutopsies: perf?.total_autopsies_conducted ?? 18,
     promotedCandidatesCount: perf?.promoted_candidates_count ?? 3,
+    qualifiedPortfolios,
   }
 
   return {

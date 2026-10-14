@@ -101,6 +101,25 @@ export interface AutopsyAttributionGaugeItem {
   description: string
 }
 
+export interface QualifiedPortfolioSummaryItem {
+  portfolioId: string
+  family: string
+  symbols: string[]
+  memberCount: number
+  memberIds: string[]
+  membersBySymbolCounts: Record<string, number>
+  decision: string
+  reportHash: string
+  trades: number
+  profitableWindows: number
+  windows: number
+  profitFactor: string
+  netPnlUsdt: string
+  stressNetPnlUsdt: string
+  drawdownPct: string
+  executionAuthority: boolean
+}
+
 export interface StrategyEvolutionRadarData {
   activeStrategyFamily: string
   microstructureFilter: string
@@ -116,6 +135,7 @@ export interface StrategyEvolutionRadarData {
   attributionGauges: AutopsyAttributionGaugeItem[]
   totalAutopsies: number
   promotedCandidatesCount: number
+  qualifiedPortfolios?: QualifiedPortfolioSummaryItem[]
 }
 
 export interface ExecutiveDashboardModel {

@@ -277,10 +277,20 @@ def test_load_verified_canary_auto_evolution_success(tmp_path: Path) -> None:
     assert qp.family == "MACRO_SCALPER"
     assert qp.symbols == ["AVAXUSDT", "ETHUSDT", "SOLUSDT"]
     assert qp.member_count == 6
+    assert qp.member_ids == [
+        "avax-1-hf-d-3.5-tp6.0-sl10.0",
+        "eth-1-deep-d-4.0-tp10.0-sl6.0",
+        "eth-2-med-d-3.5-tp10.0-sl8.0",
+        "eth-3-hf-d-3.0-tp12.0-sl12.0",
+        "sol-1-deep-d-4.0-tp3.0-sl3.0",
+        "sol-2-hf-d-1.8-tp8.0-sl10.0",
+    ]
+    assert qp.members_by_symbol_counts == {"AVAXUSDT": 1, "ETHUSDT": 3, "SOLUSDT": 2}
     assert qp.decision == "QUALIFIED"
     assert qp.report_hash == "72de22bde9a30101c791bcc981c89481c176b6a4fd63acfd4e2495e8e9122d89"
     assert qp.trades == 35
     assert qp.profitable_windows == 3
+    assert qp.profit_factor == "2.00"
     assert qp.execution_authority is False
 
 

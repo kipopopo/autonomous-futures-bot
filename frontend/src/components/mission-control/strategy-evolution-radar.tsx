@@ -37,6 +37,7 @@ export function StrategyEvolutionRadar({
     attributionGauges,
     totalAutopsies,
     promotedCandidatesCount,
+    qualifiedPortfolios = [],
   } = evolutionRadar
 
   const passedGatesCount = gates.filter((g) => g.passed).length
@@ -380,6 +381,97 @@ export function StrategyEvolutionRadar({
           </div>
         </div>
       </div>
+
+      {qualifiedPortfolios.length > 0 && (
+        <div
+          className="mt-5 pt-4 border-t border-white/[0.08] space-y-3"
+          data-testid="verified-qualified-portfolios"
+        >
+          {qualifiedPortfolios.map((qp) => {
+            const netPnlNum = Number(qp.netPnlUsdt)
+            const stressPnlNum = Number(qp.stressNetPnlUsdt)
+            const formattedNetPnl = Number.isFinite(netPnlNum)
+              ? `${netPnlNum >= 0 ? '+' : ''}${netPnlNum.toFixed(2)} USDT`
+              : `${qp.netPnlUsdt} USDT`
+            const formattedStressPnl = Number.isFinite(stressPnlNum)
+              ? `${stressPnlNum >= 0 ? '+' : ''}${stressPnlNum.toFixed(2)} USDT`
+              : `${qp.stressNetPnlUsdt} USDT`
+
+            return (
+              <div
+                key={qp.portfolioId}
+                className="glass-card-subtle rounded-xl p-4 border border-emerald-500/25 bg-emerald-500/[0.03]"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+                      Verified Shared-Wallet Holdout Portfolio
+                    </span>
+                    <span className="badge badge-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      {qp.decision}
+                    </span>
+                    <span className="text-xs font-mono text-zinc-200 font-semibold">
+                      {qp.portfolioId}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-800/80 border border-white/10 text-zinc-300">
+                      {`SHA-256: ${qp.reportHash.slice(0, 16)}…`}
+                    </span>
+                    <span className="badge badge-xs font-mono bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                      {qp.executionAuthority ? 'EXECUTION AUTHORIZED' : 'SHADOW / PRE-CUTOVER'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 text-xs font-mono mb-3">
+                  <div className="p-2 rounded-lg bg-black/25 border border-white/5">
+                    <div className="text-[10px] text-zinc-400 uppercase">Universe</div>
+                    <div className="text-zinc-100 font-bold">{qp.symbols.join(', ')}</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-black/25 border border-white/5">
+                    <div className="text-[10px] text-zinc-400 uppercase">Members</div>
+                    <div className="text-purple-300 font-bold">{`${qp.memberCount} Variants`}</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-black/25 border border-white/5">
+                    <div className="text-[10px] text-zinc-400 uppercase">Holdout Trades</div>
+                    <div className="text-emerald-400 font-bold">{`${qp.trades} (≥ 30)`}</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-black/25 border border-white/5">
+                    <div className="text-[10px] text-zinc-400 uppercase">Holdout Net PnL</div>
+                    <div className="text-emerald-400 font-bold">{formattedNetPnl}</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-black/25 border border-white/5">
+                    <div className="text-[10px] text-zinc-400 uppercase">Stress Net PnL</div>
+                    <div className="text-cyan-300 font-bold">{formattedStressPnl}</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-black/25 border border-white/5">
+                    <div className="text-[10px] text-zinc-400 uppercase">Max DD / Windows</div>
+                    <div className="text-emerald-300 font-bold">
+                      {`${qp.drawdownPct}% · ${qp.profitableWindows}/${qp.windows} Win`}
+                    </div>
+                  </div>
+                </div>
+
+                {qp.memberIds.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono text-zinc-400">
+                    <span className="text-zinc-500">Priority Variants:</span>
+                    {qp.memberIds.map((memberId) => (
+                      <span
+                        key={memberId}
+                        className="px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-200"
+                      >
+                        {memberId}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

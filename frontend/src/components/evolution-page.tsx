@@ -827,6 +827,98 @@ export function EvolutionPage({ model }: { model: AutoEvolutionModel }) {
         </div>
       </div>
 
+      {/* Verified Multi-Symbol Holdout Portfolio Qualification Card */}
+      {(model.qualifiedPortfolios ?? []).length > 0 && (
+        <div
+          className="card border border-success/30 bg-base-100 shadow-md overflow-hidden"
+          data-testid="evolution-qualified-portfolios-card"
+        >
+          <div className="card-body p-5 space-y-4">
+            {(model.qualifiedPortfolios ?? []).map((qp) => {
+              const netPnlNum = Number(qp.net_pnl_usdt)
+              const stressPnlNum = Number(qp.stress_net_pnl_usdt)
+              const formattedNetPnl = Number.isFinite(netPnlNum)
+                ? `${netPnlNum >= 0 ? '+' : ''}${netPnlNum.toFixed(2)} USDT`
+                : `${qp.net_pnl_usdt} USDT`
+              const formattedStressPnl = Number.isFinite(stressPnlNum)
+                ? `${stressPnlNum >= 0 ? '+' : ''}${stressPnlNum.toFixed(2)} USDT`
+                : `${qp.stress_net_pnl_usdt} USDT`
+
+              return (
+                <div key={qp.portfolio_id} className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-base-200 pb-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <ShieldCheck className="h-4 w-4 text-success" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-success">
+                        Verified Shared-Wallet Holdout Portfolio
+                      </span>
+                      <span className="badge badge-success badge-sm font-mono font-bold text-success-content">
+                        {qp.decision}
+                      </span>
+                      <span className="font-mono text-xs font-semibold text-base-content">
+                        {qp.portfolio_id}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="badge badge-outline badge-xs font-mono">
+                        {`SHA-256: ${qp.report_hash.slice(0, 16)}…`}
+                      </span>
+                      <span className="badge badge-warning badge-xs font-mono">
+                        {qp.execution_authority ? 'EXECUTION AUTHORIZED' : 'SHADOW / PRE-CUTOVER'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs font-mono">
+                    <div className="rounded-lg border border-base-200 bg-base-200/40 p-2.5">
+                      <div className="text-[10px] text-base-content/60 uppercase">Universe</div>
+                      <div className="font-bold text-base-content mt-0.5">
+                        {qp.symbols.join(', ')}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-base-200 bg-base-200/40 p-2.5">
+                      <div className="text-[10px] text-base-content/60 uppercase">Variants</div>
+                      <div className="font-bold text-primary mt-0.5">
+                        {`${qp.member_count} Members`}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-base-200 bg-base-200/40 p-2.5">
+                      <div className="text-[10px] text-base-content/60 uppercase">Holdout Trades</div>
+                      <div className="font-bold text-success mt-0.5">{`${qp.trades} (≥ 30)`}</div>
+                    </div>
+                    <div className="rounded-lg border border-base-200 bg-base-200/40 p-2.5">
+                      <div className="text-[10px] text-base-content/60 uppercase">Holdout Net PnL</div>
+                      <div className="font-bold text-success mt-0.5">{formattedNetPnl}</div>
+                    </div>
+                    <div className="rounded-lg border border-base-200 bg-base-200/40 p-2.5">
+                      <div className="text-[10px] text-base-content/60 uppercase">Stress Net PnL</div>
+                      <div className="font-bold text-info mt-0.5">{formattedStressPnl}</div>
+                    </div>
+                    <div className="rounded-lg border border-base-200 bg-base-200/40 p-2.5">
+                      <div className="text-[10px] text-base-content/60 uppercase">Max DD / Windows</div>
+                      <div className="font-bold text-success mt-0.5">
+                        {`${qp.drawdown_pct}% · ${qp.profitable_windows}/${qp.windows} Win`}
+                      </div>
+                    </div>
+                  </div>
+
+                  {(qp.member_ids ?? []).length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
+                      <span className="text-base-content/60">Priority Variants:</span>
+                      {(qp.member_ids ?? []).map((memberId) => (
+                        <span key={memberId} className="badge badge-ghost badge-xs font-mono">
+                          {memberId}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* 4 Stat Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Card 1: Evolution Cycle & Generation */}

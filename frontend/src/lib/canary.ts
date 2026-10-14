@@ -3870,6 +3870,27 @@ export interface LiveEvolutionProgressData {
   recent_events?: EvolutionEventItemData[]
 }
 
+export interface QualifiedPortfolioReceiptSummaryData {
+  portfolio_id: string
+  family: string
+  symbols: string[]
+  member_count: number
+  member_ids?: string[]
+  members_by_symbol_counts?: Record<string, number>
+  decision: 'QUALIFIED' | string
+  report_hash: string
+  selection_hash?: string
+  development_report_hash?: string
+  trades: number
+  profitable_windows: number
+  windows: number
+  profit_factor: string
+  net_pnl_usdt: string
+  stress_net_pnl_usdt: string
+  drawdown_pct: string
+  execution_authority: boolean
+}
+
 export interface CanaryAutoEvolutionData {
   verified?: boolean
   phase?: string
@@ -3893,6 +3914,7 @@ export interface CanaryAutoEvolutionData {
   artifact_hashes?: Record<string, string>
   upstream_merkle_dag?: Record<string, string>
   live_progress?: LiveEvolutionProgressData
+  qualified_portfolios?: QualifiedPortfolioReceiptSummaryData[]
 }
 
 export interface AutoEvolutionModel {
@@ -3922,6 +3944,7 @@ export interface AutoEvolutionModel {
   phaseHash: string
   merkleRoot: string
   liveProgress?: LiveEvolutionProgressData
+  qualifiedPortfolios?: QualifiedPortfolioReceiptSummaryData[]
 }
 
 export function buildAutoEvolutionModel(
@@ -3993,6 +4016,7 @@ export function buildAutoEvolutionModel(
       upstreamHash: '',
       phaseHash: '',
       merkleRoot: '',
+      qualifiedPortfolios: [],
     }
   }
 
@@ -4031,6 +4055,7 @@ export function buildAutoEvolutionModel(
     phaseHash: data.phase_hash || '',
     merkleRoot: data.merkle_root || '',
     liveProgress: data.live_progress ?? undefined,
+    qualifiedPortfolios: data.qualified_portfolios ?? [],
   }
 }
 

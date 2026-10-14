@@ -397,13 +397,18 @@ def verify_portfolio_report(
             "maximum_concurrent_symbols": len(expected_symbols),
             "symbols": list(expected_symbols),
         }
+    enriched_metrics = dict(metrics)
+    if "profit_factor" not in enriched_metrics:
+        enriched_metrics["profit_factor"] = (
+            str((wins / losses).quantize(Decimal("0.01"))) if losses > 0 else "INF"
+        )
     return PortfolioHistoricalQualification(
         portfolio_id=portfolio_id,
         family=family,
         symbols=expected_symbols,
         report_hash=str(identity),
         members=tuple(members),
-        metrics=dict(metrics),
+        metrics=enriched_metrics,
         policy=dict(policy),
         selection_hash=selection_hash,
         development_report_hash=development_report_hash,
