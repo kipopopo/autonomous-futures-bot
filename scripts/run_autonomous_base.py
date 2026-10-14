@@ -36,6 +36,7 @@ from autonomous_futures.data.parquet import (  # noqa: E402
     DataQualityError,
     read_canonical_parquet,
 )
+from autonomous_futures.domain.contracts import StrategySpec  # noqa: E402
 from autonomous_futures.domain.errors import DomainViolation  # noqa: E402
 from autonomous_futures.paper.feedback_extractor import (  # noqa: E402
     PaperQualificationPolicy,
@@ -68,6 +69,9 @@ from autonomous_futures.research.creator_failure_feedback import (  # noqa: E402
 )
 from autonomous_futures.research.creator_generator import (  # noqa: E402
     CreatorGenerationRequest,
+)
+from autonomous_futures.research.creator_proposals import (  # noqa: E402
+    canonical_creator_candidate_id,
 )
 from autonomous_futures.research.learner_critic import (  # noqa: E402
     LearnerCriticRequest,
@@ -119,23 +123,99 @@ def _check_forbidden_credential_flags(argv: Sequence[str]) -> bool:
 
 def _offline_learner_transport(request: FailureLearningRequest) -> Mapping[str, Any]:
     """Deterministic offline learner transport."""
+    if request.cycle_index == 1:
+        return {
+            "failure_patterns": ["oos_profit_factor_below_threshold"],
+            "learned_constraints": ["preserve_all_qualification_gates"],
+            "recommended_novelty_dimensions": ["entry_logic", "feature_set"],
+        }
+    observed_reasons = sorted(
+        {code for entry in request.failure_memory for code in entry.failure_reason_codes}
+    )
     return {
-        "failure_patterns": ["oos_profit_factor_below_threshold"],
-        "learned_constraints": ["preserve_all_qualification_gates"],
-        "recommended_novelty_dimensions": ["entry_logic", "feature_set"],
+        "failure_patterns": observed_reasons or ["oos_profit_factor_below_threshold"],
+        "learned_constraints": [
+            "pivot_strategy_family_after_momentum_rejection",
+            "preserve_all_qualification_gates",
+            "require_regime_or_zscore_confirmation",
+        ],
+        "recommended_novelty_dimensions": [
+            "entry_logic",
+            "exit_logic",
+            "feature_set",
+            "regime_filter",
+            "risk_design",
+            "strategy_family",
+        ],
     }
 
 
 def _offline_planner_transport(request: ResearchPlanRequest) -> Mapping[str, Any]:
     """Deterministic offline planner transport."""
+    if request.cycle_index == 1:
+        return {
+            "hypothesis": (
+                "Use adaptive volatility entry confirmation with trend filter "
+                f"(cycle {request.cycle_index})."
+            ),
+            "expected_regime": "volatile_trend",
+            "strategy_family": "volume_confirmed_momentum",
+            "novelty_dimensions": ["entry_logic", "feature_set"],
+            "falsification_criteria": [
+                "reject if OOS profit factor remains below the pinned policy",
+                "reject if any walk-forward window has zero trades",
+            ],
+        }
+    if request.cycle_index == 2:
+        if request.symbol == "ETHUSDT":
+            return {
+                "hypothesis": (
+                    "Pivot from rejected short-horizon momentum to ADX-confirmed Donchian "
+                    f"regime breakout on {request.symbol} (cycle {request.cycle_index})."
+                ),
+                "expected_regime": "trending",
+                "strategy_family": "regime_gated_breakout",
+                "novelty_dimensions": [
+                    "entry_logic",
+                    "exit_logic",
+                    "feature_set",
+                    "regime_filter",
+                    "risk_design",
+                    "strategy_family",
+                ],
+                "falsification_criteria": [
+                    "reject if OOS profit factor remains below the pinned policy",
+                    "reject if maximum OOS drawdown exceeds policy cap",
+                ],
+            }
+        return {
+            "hypothesis": (
+                "Pivot from rejected short-horizon momentum to Bollinger Z-score and RSI "
+                f"range mean reversion on {request.symbol} (cycle {request.cycle_index})."
+            ),
+            "expected_regime": "mean_reverting",
+            "strategy_family": "range_mean_reversion",
+            "novelty_dimensions": [
+                "entry_logic",
+                "exit_logic",
+                "feature_set",
+                "regime_filter",
+                "risk_design",
+                "strategy_family",
+            ],
+            "falsification_criteria": [
+                "reject if OOS profit factor remains below the pinned policy",
+                "reject if maximum OOS drawdown exceeds policy cap",
+            ],
+        }
     return {
         "hypothesis": (
-            "Use adaptive volatility entry confirmation with trend filter "
-            f"(cycle {request.cycle_index})."
+            "Explore Bollinger-width volatility compression breakout on "
+            f"{request.symbol} (cycle {request.cycle_index})."
         ),
-        "expected_regime": "volatile_trend",
-        "strategy_family": "volume_confirmed_momentum",
-        "novelty_dimensions": ["entry_logic", "feature_set"],
+        "expected_regime": "compression_breakout",
+        "strategy_family": "volatility_compression_breakout",
+        "novelty_dimensions": ["entry_logic", "feature_set", "strategy_family"],
         "falsification_criteria": [
             "reject if OOS profit factor remains below the pinned policy",
             "reject if any walk-forward window has zero trades",
@@ -193,6 +273,12 @@ class DeterministicOfflineCreator:
             else f"Adjusting ATR multipliers to capture momentum on 5m {symbol} bars"
         )
         expected_regime = plan.expected_regime if plan is not None else "trending"
+        risk_payload: dict[str, Decimal] = {
+            "position_fraction": Decimal("0.10"),
+            "stop_atr_multiplier": Decimal("2.0"),
+            "take_profit_atr_multiplier": Decimal("3.0"),
+            "trailing_atr_multiplier": Decimal("1.0"),
+        }
 
         if strategy_family == "volatility_compression_breakout":
             features: list[dict[str, object]] = [
@@ -206,6 +292,45 @@ class DeterministicOfflineCreator:
             exit: dict[str, str] = {
                 "long": "donchian_breakout < 0.0",
                 "short": "donchian_breakout > 0.0",
+            }
+        elif strategy_family == "regime_gated_breakout":
+            features = [
+                {"name": "donchian_breakout", "lookback": 20, "shift": 1},
+                {"name": "adx", "lookback": 14, "shift": 1},
+            ]
+            entry = {
+                "long": "donchian_breakout > 0.0 and adx > 30.0",
+                "short": "donchian_breakout < 0.0 and adx > 30.0",
+            }
+            exit = {
+                "long": "donchian_breakout < 0.0",
+                "short": "donchian_breakout > 0.0",
+            }
+            risk_payload = {
+                "position_fraction": Decimal("0.10"),
+                "stop_atr_multiplier": Decimal("1.5"),
+                "take_profit_atr_multiplier": Decimal("3.0"),
+                "trailing_atr_multiplier": Decimal("1.0"),
+            }
+        elif strategy_family == "range_mean_reversion":
+            long_z = "-1.6" if symbol == "SOLUSDT" else "-1.8"
+            features = [
+                {"name": "bollinger_zscore", "lookback": 20, "shift": 1},
+                {"name": "rsi", "lookback": 14, "shift": 1},
+            ]
+            entry = {
+                "long": f"bollinger_zscore < {long_z} and rsi < 40.0",
+                "short": "bollinger_zscore > 3.5 and rsi > 85.0",
+            }
+            exit = {
+                "long": "bollinger_zscore > 1.2",
+                "short": "bollinger_zscore < 0.0",
+            }
+            risk_payload = {
+                "position_fraction": Decimal("0.10"),
+                "stop_atr_multiplier": Decimal("3.0"),
+                "take_profit_atr_multiplier": Decimal("6.0"),
+                "trailing_atr_multiplier": Decimal("2.5"),
             }
         else:
             features = [{"name": "returns", "lookback": 3, "shift": 1}]
@@ -225,13 +350,16 @@ class DeterministicOfflineCreator:
             "entry": entry,
             "exit": exit,
             "vetoes": [f"{features[0]['name']} > 0 and {features[0]['name']} < 0"],
-            "risk": {
-                "position_fraction": Decimal("0.10"),
-                "stop_atr_multiplier": Decimal("2.0"),
-                "take_profit_atr_multiplier": Decimal("3.0"),
-                "trailing_atr_multiplier": Decimal("1.0"),
-            },
+            "risk": risk_payload,
         }
+        forbidden = set(request.forbidden_candidate_ids)
+        while (
+            canonical_creator_candidate_id(StrategySpec.model_validate(strategy_payload))
+            in forbidden
+        ):
+            current_lookback = int(features[0]["lookback"])  # type: ignore[call-overload]
+            features[0]["lookback"] = current_lookback + 1
+
         return {
             "proposal_id": f"proposal-{symbol.lower()}-{cycle_ref}"[:64],
             "research_run_id": request.research_run_id,
@@ -713,8 +841,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Assemble offline deterministic runners
     parquet_path = args.parquet_path
     if parquet_path is None and not args.use_synthetic_windows:
+        bundle_parquet = (
+            args.dataset_root
+            / "klines"
+            / "5m"
+            / config.symbol
+            / "canonical"
+            / f"{config.symbol}-5m.parquet"
+        )
         default_parquet = Path(f"research/immutable-data/5m/canonical/{config.symbol}-5m.parquet")
-        if default_parquet.is_file():
+        if bundle_parquet.is_file():
+            parquet_path = bundle_parquet
+        elif default_parquet.is_file():
             parquet_path = default_parquet
 
     if not args.use_synthetic_windows and parquet_path is None:

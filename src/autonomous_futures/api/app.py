@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import time
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
@@ -129,6 +129,16 @@ from .query import (
     QueryDataIntegrityError,
     QueryError,
     query_component_rows,
+)
+from .strategy_router import (
+    CandidateGenomeItem,
+    IctSignalPairItem,
+    IctSignalsResponse,
+    PdArrayItem,
+    TradeAutopsyItem,
+    TwinsStateItem,
+    register_strategy_routes,
+    strategy_router,
 )
 from .telemetry_ws import (
     TelemetryBroadcastManager,
@@ -274,24 +284,36 @@ class ExecutionOrderItem(DomainModel):
 
 
 class ExecutionSolvency(DomainModel):
-    starting_equity_usdt: float = 100.0
+    starting_equity_usdt: float | None = None
     cash_usdt: float = 100.0
+    available_balance_usdt: float | None = None
     allocated_margin_usdt: float = 0.0
     unrealized_pnl_usdt: float = 0.0
-    realized_pnl_usdt: float = 0.0
+    realized_pnl_usdt: float | None = None
     total_equity_usdt: float = 100.0
-    drift_usdt: float = 0.0
-    zero_balance_drift_verified: bool = True
+    drift_usdt: float | None = None
+    zero_balance_drift_verified: bool = False
     cash_reserve_pct: float = 100.0
-    unencumbered_cash_verified: bool = True
-    starting_equity: float = 100.0
+    unencumbered_cash_verified: bool = False
+    starting_equity: float | None = None
     cash: float = 100.0
     allocated_margin: float = 0.0
     unrealized_pnl: float = 0.0
-    realized_pnl: float = 0.0
+    realized_pnl: float | None = None
     total_equity: float = 100.0
-    drift: float = 0.0
-    zero_balance_drift: bool = True
+    drift: float | None = None
+    zero_balance_drift: bool = False
+
+
+class ExecutionDailyRisk(DomainModel):
+    verified: bool = False
+    day_start_equity_usdt: float | None = None
+    limit_pct: float | None = None
+    limit_usdt: float | None = None
+    loss_usdt: float | None = None
+    remaining_usdt: float | None = None
+    breached: bool | None = None
+    equity_basis: str | None = None
 
 
 class ExecutionPositionItem(DomainModel):
@@ -302,6 +324,7 @@ class ExecutionPositionItem(DomainModel):
     status: str = "STANDBY / SCANNING"
     entry_price: float | None = None
     mark_price: float | None = None
+    last_price: float | None = None
     unrealized_pnl_usdt: float = 0.0
     allocated_margin_usdt: float = 0.0
     take_profit_price: float | None = None
@@ -309,8 +332,8 @@ class ExecutionPositionItem(DomainModel):
 
 
 class ExecutionStatusResponse(DomainModel):
-    verified: Literal[True] = True
-    status: str = "MICRO_CAPITAL_ACTIVE"
+    verified: bool = False
+    status: str = "ACCOUNT_OBSERVED"
     engine_state: str = "MICRO_CAPITAL_ACTIVE"
     timestamp_ms: int = Field(default_factory=lambda: int(time.time() * 1000))
     solvency: ExecutionSolvency
@@ -320,7 +343,8 @@ class ExecutionStatusResponse(DomainModel):
     recent_orders: list[ExecutionOrderItem] = Field(default_factory=list)
     total_orders: int = 0
     interlock_blocks_count: int = 0
-    intra_day_loss_usdt: float = 0.0
+    intra_day_loss_usdt: float | None = None
+    daily_risk: ExecutionDailyRisk = Field(default_factory=ExecutionDailyRisk)
 
 
 def _resolve_research_dir() -> Path:
@@ -348,7 +372,7 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
     try:
         return float(val)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 
@@ -357,7 +381,7 @@ def _safe_int(val: Any, default: int = 0) -> int:
         return default
     try:
         return int(val)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 
@@ -405,6 +429,7 @@ def compute_authentic_btc_macro(
     # 1. Attempt live 1h klines from Binance Futures public REST endpoint
     try:
         import urllib.request
+
         url = "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1h&limit=210"
         req = urllib.request.Request(
             url,
@@ -440,6 +465,7 @@ def compute_authentic_btc_macro(
             if ppath.is_file():
                 try:
                     import pandas as pd
+
                     df = pd.read_parquet(ppath, columns=["close"])
                     if len(df) >= 50:
                         closes = [float(x) for x in df["close"].tail(250).tolist()]
@@ -458,6 +484,7 @@ def compute_authentic_btc_macro(
             if cpath.is_file():
                 try:
                     import csv
+
                     c_rows: list[float] = []
                     with open(cpath, encoding="utf-8") as f:
                         reader = csv.DictReader(f)
@@ -471,20 +498,14 @@ def compute_authentic_btc_macro(
                 except Exception:
                     pass
 
-    # 4. Fallback: Deterministic synthetic wave generator anchored around base
-    if len(closes) < 50:
-        base = float(current_btc_price) if current_btc_price > 0 else 82600.0
-        synthetic_closes: list[float] = []
-        for i in range(210):
-            angle = (i % 36) * (2.0 * math.pi / 36.0)
-            var = (base * 0.005) * math.sin(angle)
-            synthetic_closes.append(base + var)
-        closes = synthetic_closes
-        source = "synthetic_history"
-
-    # Synchronize the latest candle close with the current live BTC price
-    if closes:
-        closes[-1] = float(current_btc_price)
+    if len(closes) < 200:
+        return {
+            "current_price": current_btc_price,
+            "ema50_1h": None,
+            "ema200_1h": None,
+            "regime": "UNKNOWN",
+            "source": "unavailable",
+        }
 
     # Compute authentic EMAs over the full series
     ema50_series = _compute_ema_series(closes, 50)
@@ -516,11 +537,29 @@ def compute_authentic_btc_macro(
     return macro_data
 
 
+TARGET_PERPETUAL_SYMBOLS: list[str] = [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "DOGEUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "SUIUSDT",
+    "AVAXUSDT",
+    "NEARUSDT",
+    "LINKUSDT",
+    "APTUSDT",
+    "ADAUSDT",
+]
+
+
 def get_live_market_data(
     research_dir: Path | None = None,
     force_refresh: bool = False,
 ) -> dict[str, Any]:
-    """Retrieves live market prices and authentic macro indicators with 5s caching."""
+    """Retrieves live market prices (last price, mark price, basis) and authentic macro
+    indicators with 5s caching.
+    """
     now_sec = time.time()
     if (
         not force_refresh
@@ -529,652 +568,285 @@ def get_live_market_data(
     ):
         return cast(dict[str, Any], _GLOBAL_LIVE_PRICES_CACHE["data"])
 
-    # 1. Primary: Binance Futures live ticker
+    target_syms = TARGET_PERPETUAL_SYMBOLS
+    target_syms_set = set(target_syms)
+
+    # 1. Primary: Binance Futures live ticker (Last Traded Price) + premiumIndex (Mark Price)
     try:
+        import urllib.parse
         import urllib.request
-        url = (
-            "https://fapi.binance.com/fapi/v1/ticker/price"
-            "?symbols=%5B%22BTCUSDT%22%2C%22ETHUSDT%22%2C%22SOLUSDT%22%2C%22DOGEUSDT%22%2C%22BNBUSDT%22%2C%22XRPUSDT%22%2C%22SUIUSDT%22%2C%22AVAXUSDT%22%5D"
-        )
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "AutonomousFuturesBot/1.0 (PublicRestClient; Unauth)"},
-        )
-        with urllib.request.urlopen(req, timeout=2.5) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
-            if isinstance(raw, list) and len(raw) > 0:
-                target_syms = {
-                    "BTCUSDT",
-                    "ETHUSDT",
-                    "SOLUSDT",
-                    "DOGEUSDT",
-                    "BNBUSDT",
-                    "XRPUSDT",
-                    "SUIUSDT",
-                    "AVAXUSDT",
-                }
-                candidate_prices = {
-                    item["symbol"]: float(item["price"])
-                    for item in raw
-                    if isinstance(item, dict) and item.get("symbol") in target_syms
-                }
-                prices = candidate_prices if candidate_prices else {
-                    item["symbol"]: float(item["price"])
-                    for item in raw
-                    if isinstance(item, dict) and "symbol" in item
-                }
-                btc = prices.get("BTCUSDT", 82600.0)
-                macro = compute_authentic_btc_macro(btc, research_dir)
-                res_data = {
-                    "timestamp_ms": int(now_sec * 1000),
-                    "prices": prices,
-                    "BTCUSDT": prices.get("BTCUSDT", 82600.0),
-                    "ETHUSDT": prices.get("ETHUSDT", 2500.0),
-                    "SOLUSDT": prices.get("SOLUSDT", 110.0),
-                    "DOGEUSDT": prices.get("DOGEUSDT", 0.086),
-                    "BNBUSDT": prices.get("BNBUSDT", 750.0),
-                    "XRPUSDT": prices.get("XRPUSDT", 1.40),
-                    "SUIUSDT": prices.get("SUIUSDT", 1.11),
-                    "AVAXUSDT": prices.get("AVAXUSDT", 10.5),
-                    "btc_macro": macro,
-                    "source": "binance_futures_live",
-                }
-                _GLOBAL_LIVE_PRICES_CACHE["ts"] = now_sec
-                _GLOBAL_LIVE_PRICES_CACHE["data"] = res_data
-                return res_data
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _fetch_last_prices() -> list[dict[str, Any]]:
+            syms_param = urllib.parse.quote(json.dumps(target_syms))
+            url = f"https://fapi.binance.com/fapi/v1/ticker/price?symbols={syms_param}"
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "AutonomousFuturesBot/1.0 (PublicRestClient; Unauth)"},
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                return cast(list[dict[str, Any]], json.loads(resp.read().decode("utf-8")))
+
+        def _fetch_mark_prices() -> list[dict[str, Any]]:
+            url = "https://fapi.binance.com/fapi/v1/premiumIndex"
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "AutonomousFuturesBot/1.0 (PublicRestClient; Unauth)"},
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                return cast(list[dict[str, Any]], json.loads(resp.read().decode("utf-8")))
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fut_last = executor.submit(_fetch_last_prices)
+            fut_mark = executor.submit(_fetch_mark_prices)
+            raw_last = fut_last.result()
+            raw_mark = fut_mark.result()
+
+        if isinstance(raw_last, list) and len(raw_last) > 0:
+            last_prices = {
+                item["symbol"]: float(item["price"])
+                for item in raw_last
+                if isinstance(item, dict) and item.get("symbol") in target_syms_set
+            }
+            mark_dict = {
+                item["symbol"]: item
+                for item in raw_mark
+                if isinstance(item, dict) and item.get("symbol") in target_syms_set
+            }
+            if not target_syms_set.issubset(last_prices) or not target_syms_set.issubset(mark_dict):
+                raise ValueError("Incomplete exchange price response")
+            mark_prices: dict[str, float] = {}
+            index_prices: dict[str, float] = {}
+            funding_rates: dict[str, float] = {}
+            pair_tickers: list[dict[str, Any]] = []
+
+            for sym in target_syms:
+                lp = last_prices.get(sym, 0.0)
+                p_data = mark_dict.get(sym, {})
+                mp = float(p_data["markPrice"])
+                ip = float(p_data["indexPrice"])
+                fr = float(p_data["lastFundingRate"])
+                if lp <= 0.0 and mp > 0.0:
+                    lp = mp
+                if mp <= 0.0 and lp > 0.0:
+                    mp = lp
+                last_prices[sym] = lp
+                mark_prices[sym] = mp
+                index_prices[sym] = ip
+                funding_rates[sym] = fr
+                basis = round(lp - mp, 4)
+                basis_pct = round(((lp - mp) / mp) * 100.0, 4) if mp > 0 else 0.0
+                pair_tickers.append(
+                    {
+                        "symbol": sym,
+                        "last_price": lp,
+                        "mark_price": mp,
+                        "index_price": ip,
+                        "funding_rate": fr,
+                        "basis": basis,
+                        "basis_pct": basis_pct,
+                    }
+                )
+
+            btc = last_prices["BTCUSDT"]
+            macro = compute_authentic_btc_macro(btc, research_dir)
+            res_data = {
+                "timestamp_ms": int(now_sec * 1000),
+                "prices": last_prices,
+                "last_prices": last_prices,
+                "mark_prices": mark_prices,
+                "index_prices": index_prices,
+                "funding_rates": funding_rates,
+                "pair_tickers": pair_tickers,
+                "BTCUSDT": last_prices["BTCUSDT"],
+                "ETHUSDT": last_prices["ETHUSDT"],
+                "SOLUSDT": last_prices["SOLUSDT"],
+                "DOGEUSDT": last_prices["DOGEUSDT"],
+                "BNBUSDT": last_prices["BNBUSDT"],
+                "XRPUSDT": last_prices["XRPUSDT"],
+                "SUIUSDT": last_prices["SUIUSDT"],
+                "AVAXUSDT": last_prices["AVAXUSDT"],
+                "NEARUSDT": last_prices["NEARUSDT"],
+                "LINKUSDT": last_prices["LINKUSDT"],
+                "APTUSDT": last_prices["APTUSDT"],
+                "ADAUSDT": last_prices["ADAUSDT"],
+                "btc_macro": macro,
+                "source": "binance_futures_live",
+            }
+            _GLOBAL_LIVE_PRICES_CACHE["ts"] = now_sec
+            _GLOBAL_LIVE_PRICES_CACHE["data"] = res_data
+            return res_data
     except Exception:
         pass
 
-    # 2. Local fallback files
-    base_dir = research_dir if research_dir is not None else _resolve_research_dir()
-    candidates_dirs = [
-        base_dir / "phase310",
-        Path("artifacts/research/phase310"),
-        Path(__file__).resolve().parents[3] / "artifacts" / "research" / "phase310",
-    ]
-    for pdir in candidates_dirs:
-        live_p = pdir / "live-prices.json"
-        if live_p.is_file():
-            try:
-                data = json.loads(live_p.read_text(encoding="utf-8"))
-                if (
-                    isinstance(data, dict)
-                    and "prices" in data
-                    and isinstance(data["prices"], dict)
-                ):
-                    prices = {k: float(v) for k, v in data["prices"].items()}
-                    btc = prices.get("BTCUSDT", 82600.0)
-                    macro = compute_authentic_btc_macro(btc, research_dir)
-                    res_data = {
-                        "timestamp_ms": data.get("timestamp_ms", int(now_sec * 1000)),
-                        "prices": prices,
-                        "BTCUSDT": prices.get("BTCUSDT", 82600.0),
-                        "ETHUSDT": prices.get("ETHUSDT", 2500.0),
-                        "SOLUSDT": prices.get("SOLUSDT", 110.0),
-                        "DOGEUSDT": prices.get("DOGEUSDT", 0.086),
-                        "BNBUSDT": prices.get("BNBUSDT", 750.0),
-                        "XRPUSDT": prices.get("XRPUSDT", 1.40),
-                        "SUIUSDT": prices.get("SUIUSDT", 1.11),
-                        "AVAXUSDT": prices.get("AVAXUSDT", 10.5),
-                        "btc_macro": macro,
-                        "source": "daemon_live_prices",
-                    }
-                    _GLOBAL_LIVE_PRICES_CACHE["ts"] = now_sec
-                    _GLOBAL_LIVE_PRICES_CACHE["data"] = res_data
-                    return res_data
-            except Exception:
-                pass
-
-        rep_p = pdir / "canary-production-report.json"
-        if rep_p.is_file():
-            try:
-                data = json.loads(rep_p.read_text(encoding="utf-8"))
-                if (
-                    isinstance(data, dict)
-                    and "candidates" in data
-                    and isinstance(data["candidates"], dict)
-                ):
-                    prices = {
-                        sym: float(c.get("current_price", 0.0))
-                        for sym, c in data["candidates"].items()
-                        if isinstance(c, dict)
-                    }
-                    if prices.get("BTCUSDT", 0.0) > 90000.0:
-                        prices["BTCUSDT"] = 82600.0
-                    btc = prices.get("BTCUSDT", 82600.0)
-                    macro = compute_authentic_btc_macro(btc, research_dir)
-                    res_data = {
-                        "timestamp_ms": data.get("timestamp_ms", int(now_sec * 1000)),
-                        "prices": prices,
-                        "BTCUSDT": prices.get("BTCUSDT", 82600.0),
-                        "ETHUSDT": prices.get("ETHUSDT", 2500.0),
-                        "SOLUSDT": prices.get("SOLUSDT", 110.0),
-                        "DOGEUSDT": prices.get("DOGEUSDT", 0.086),
-                        "BNBUSDT": prices.get("BNBUSDT", 750.0),
-                        "XRPUSDT": prices.get("XRPUSDT", 1.40),
-                        "SUIUSDT": prices.get("SUIUSDT", 1.11),
-                        "AVAXUSDT": prices.get("AVAXUSDT", 10.5),
-                        "btc_macro": macro,
-                        "source": "phase310_report",
-                    }
-                    _GLOBAL_LIVE_PRICES_CACHE["ts"] = now_sec
-                    _GLOBAL_LIVE_PRICES_CACHE["data"] = res_data
-                    return res_data
-            except Exception:
-                pass
-
-    # 3. Baseline anchor fallback
-    default_prices = {
-        "BTCUSDT": 82600.0,
-        "ETHUSDT": 2500.0,
-        "SOLUSDT": 110.0,
-        "DOGEUSDT": 0.086,
-        "BNBUSDT": 750.0,
-        "XRPUSDT": 1.40,
-        "SUIUSDT": 1.11,
-        "AVAXUSDT": 10.5,
-    }
-    macro = compute_authentic_btc_macro(82600.0, research_dir)
-    fallback_data = {
-        "timestamp_ms": int(now_sec * 1000),
-        "prices": default_prices,
-        "BTCUSDT": 82600.0,
-        "ETHUSDT": 2500.0,
-        "SOLUSDT": 110.0,
-        "DOGEUSDT": 0.086,
-        "BNBUSDT": 750.0,
-        "XRPUSDT": 1.40,
-        "SUIUSDT": 1.11,
-        "AVAXUSDT": 10.5,
-        "btc_macro": macro,
-        "source": "fallback_anchor",
-    }
-    _GLOBAL_LIVE_PRICES_CACHE["ts"] = now_sec
-    _GLOBAL_LIVE_PRICES_CACHE["data"] = fallback_data
-    return fallback_data
+    raise HTTPException(status_code=503, detail="Live market prices unavailable")
 
 
-def _baseline_execution_status(
-    timestamp_ms: int | None = None,
-) -> ExecutionStatusResponse:
-    now_ms = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
-    fallback_solvency = ExecutionSolvency()
-    market_data = get_live_market_data()
-    live_prices = market_data.get("prices", {}) if isinstance(market_data, dict) else {}
-    fallback_prices = {
-        "BTCUSDT": 82600.0,
-        "ETHUSDT": 2500.0,
-        "SOLUSDT": 110.0,
-        "DOGEUSDT": 0.086,
-        "BNBUSDT": 750.0,
-        "XRPUSDT": 1.40,
-        "SUIUSDT": 1.11,
-        "AVAXUSDT": 10.5,
-    }
-    fallback_positions = {
-        sym: ExecutionPositionItem(
-            symbol=sym,
-            mark_price=float(live_prices.get(sym, fallback_prices.get(sym, 100.0))),
-        )
-        for sym in (
-            "BTCUSDT",
-            "ETHUSDT",
-            "SOLUSDT",
-            "DOGEUSDT",
-            "BNBUSDT",
-            "XRPUSDT",
-            "SUIUSDT",
-            "AVAXUSDT",
-        )
-    }
-    return ExecutionStatusResponse(
-        verified=True,
-        status="MICRO_CAPITAL_ACTIVE",
-        engine_state="MICRO_CAPITAL_ACTIVE",
-        timestamp_ms=now_ms,
-        solvency=fallback_solvency,
-        positions=fallback_positions,
-        candidate_allocations=list(fallback_positions.values()),
-        aggregate_exposure_usdt=0.0,
-        recent_orders=[],
-        total_orders=0,
-        interlock_blocks_count=0,
-        intra_day_loss_usdt=0.0,
-    )
+def _baseline_execution_status(timestamp_ms: int | None = None) -> ExecutionStatusResponse:
+    raise HTTPException(status_code=503, detail="Fresh exchange account evidence unavailable")
 
 
 def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusResponse:
+    """Account observations never imply reconciled execution or a verified ledger."""
+    from autonomous_futures.execution.account_evidence import (
+        SNAPSHOT_NAME,
+        finite_decimal,
+        read_account,
+    )
+
+    base = research_dir or _resolve_research_dir()
+    path = base / SNAPSHOT_NAME
+    if not path.is_file():
+        path = base / "phase310" / SNAPSHOT_NAME
     try:
-        base_dir = research_dir if research_dir is not None else _resolve_research_dir()
-        now_ms = int(time.time() * 1000)
-
-        p310_report_path = base_dir / "phase310" / "canary-production-report.json"
-        p310_exec_path = base_dir / "phase310" / "canary-production-execution.json"
-        p311_report_path = base_dir / "phase311" / "canary-drill-report.json"
-        p311_orders_path = base_dir / "phase311" / "canary-orders.jsonl"
-
-        p310_report: dict[str, Any] = {}
-        if p310_report_path.is_file():
-            try:
-                with open(p310_report_path, encoding="utf-8") as f:
-                    loaded_p310 = json.load(f)
-                    if isinstance(loaded_p310, dict):
-                        p310_report = loaded_p310
-            except Exception:
-                p310_report = {}
-        if not isinstance(p310_report, dict):
-            p310_report = {}
-
-        p311_report: dict[str, Any] = {}
-        if p311_report_path.is_file():
-            try:
-                with open(p311_report_path, encoding="utf-8") as f:
-                    loaded_p311 = json.load(f)
-                    if isinstance(loaded_p311, dict):
-                        p311_report = loaded_p311
-            except Exception:
-                p311_report = {}
-        if not isinstance(p311_report, dict):
-            p311_report = {}
-
-        has_files = bool(
-            p310_report or p311_report or p310_exec_path.is_file() or p311_orders_path.is_file()
-        )
-
-        if not has_files:
-            return _baseline_execution_status(now_ms)
-
-        p310_ts = _safe_int(p310_report.get("timestamp_ms"), 0)
-        p311_ts = _safe_int(p311_report.get("timestamp_ms"), 0)
-
-        chosen_solvency_dict: dict[str, Any] = {}
-        p310_solv = p310_report.get("solvency")
-        p311_solv = p311_report.get("solvency")
-        if p310_ts >= p311_ts and isinstance(p310_solv, dict):
-            chosen_solvency_dict = p310_solv
-        elif isinstance(p311_solv, dict):
-            chosen_solvency_dict = p311_solv
-        elif isinstance(p310_solv, dict):
-            chosen_solvency_dict = p310_solv
-
-        if not isinstance(chosen_solvency_dict, dict):
-            chosen_solvency_dict = {}
-
-        starting_equity = _safe_float(chosen_solvency_dict.get("starting_equity"), 100.0)
-        cash = _safe_float(chosen_solvency_dict.get("cash"), 100.0)
-        realized_pnl = _safe_float(chosen_solvency_dict.get("realized_pnl"), 0.0)
-
-        # Enforce exact double-entry balance invariant
-        # Cash + Allocated Margin + Unrealized PnL = Starting Equity + Realized PnL
-        total_equity = cash + 0.0 + 0.0
-        target_equity = starting_equity + realized_pnl
-        calculated_drift = abs(total_equity - target_equity)
-        zero_drift_verified = calculated_drift < 1e-15
-        final_drift = 0.0 if zero_drift_verified else calculated_drift
-
-        solvency = ExecutionSolvency(
-            starting_equity_usdt=starting_equity,
-            cash_usdt=cash,
-            allocated_margin_usdt=0.0,
-            unrealized_pnl_usdt=0.0,
-            realized_pnl_usdt=realized_pnl,
-            total_equity_usdt=cash,
-            drift_usdt=final_drift,
-            zero_balance_drift_verified=zero_drift_verified,
-            cash_reserve_pct=100.0,
-            unencumbered_cash_verified=True,
-            starting_equity=starting_equity,
-            cash=cash,
-            allocated_margin=0.0,
-            unrealized_pnl=0.0,
-            realized_pnl=realized_pnl,
-            total_equity=cash,
-            drift=final_drift,
-            zero_balance_drift=zero_drift_verified,
-        )
-
-        # Synchronize candidate mark prices with live market prices from ticker / cache
-        market_telemetry = get_live_market_data(base_dir)
-        live_prices_map: dict[str, float] = (
-            market_telemetry.get("prices", {})
-            if isinstance(market_telemetry, dict)
-            else {}
-        )
-
-        positions: dict[str, ExecutionPositionItem] = {}
-        raw_candidates = p310_report.get("candidates")
-        p310_candidates: dict[str, Any] = raw_candidates if isinstance(raw_candidates, dict) else {}
-        if not isinstance(p310_candidates, dict):
-            p310_candidates = {}
-
-        for sym in (
-            "BTCUSDT",
-            "ETHUSDT",
-            "SOLUSDT",
-            "DOGEUSDT",
-            "BNBUSDT",
-            "XRPUSDT",
-            "SUIUSDT",
-            "AVAXUSDT",
-        ):
-            mark_p: float | None = None
-
-            # In isolated/fixture mode (custom research_dir in test), prioritize report files
-            if research_dir is not None and research_dir != _resolve_research_dir():
-                raw_cand = p310_candidates.get(sym)
-                cand = raw_cand if isinstance(raw_cand, dict) else {}
-                if cand.get("current_price") is not None:
-                    try:
-                        cand_price = float(cand["current_price"])
-                        if sym == "BTCUSDT" and cand_price > 90000.0:
-                            cand_price = 82600.0
-                        mark_p = cand_price
-                    except (ValueError, TypeError):
-                        mark_p = None
-                if (
-                    sym == "SOLUSDT"
-                    and mark_p is None
-                    and p311_report.get("mark_price") is not None
-                ):
-                    try:
-                        mark_p = float(p311_report["mark_price"])
-                    except (ValueError, TypeError):
-                        pass
-
-            # 1. Primary for live mode: live price from ticker / price cache
-            if mark_p is None and sym in live_prices_map and live_prices_map[sym] is not None:
-                try:
-                    mark_p = float(live_prices_map[sym])
-                except (ValueError, TypeError):
-                    mark_p = None
-
-            # 2. Secondary fallback: report files (with stale placeholder sanitization)
-            if mark_p is None:
-                raw_cand = p310_candidates.get(sym)
-                cand = raw_cand if isinstance(raw_cand, dict) else {}
-                if cand.get("current_price") is not None:
-                    try:
-                        cand_price = float(cand["current_price"])
-                        # If BTC was recorded as 95k backtest placeholder, clamp to realistic level
-                        if sym == "BTCUSDT" and cand_price > 90000.0:
-                            cand_price = 82600.0
-                        mark_p = cand_price
-                    except (ValueError, TypeError):
-                        mark_p = None
-
-            if sym == "SOLUSDT" and mark_p is None and p311_report.get("mark_price") is not None:
-                try:
-                    mark_p = float(p311_report["mark_price"])
-                except (ValueError, TypeError):
-                    pass
-
-            if mark_p is None:
-                fallback_prices = {
-                    "BTCUSDT": 82600.0,
-                    "ETHUSDT": 2500.0,
-                    "SOLUSDT": 110.0,
-                    "DOGEUSDT": 0.086,
-                    "BNBUSDT": 750.0,
-                    "XRPUSDT": 1.40,
-                    "SUIUSDT": 1.11,
-                    "AVAXUSDT": 10.5,
-                }
-                mark_p = fallback_prices.get(sym, 100.0)
-
-            positions[sym] = ExecutionPositionItem(
-                symbol=sym,
-                position_qty=0.0,
-                allocated_exposure_usdt=0.0,
-                state="STANDBY / SCANNING",
-                status="STANDBY / SCANNING",
-                mark_price=mark_p,
-                unrealized_pnl_usdt=0.0,
-                allocated_margin_usdt=0.0,
+        data = read_account(path)
+        account = data["account"]
+        wallet = finite_decimal(account["totalWalletBalance"])
+        margin = finite_decimal(account["totalInitialMargin"])
+        equity = finite_decimal(account["totalMarginBalance"])
+        available = finite_decimal(account["availableBalance"])
+        upnl = finite_decimal(account["totalUnrealizedProfit"])
+        reserve = available / equity * 100 if equity > 0 else Decimal("0")
+        # Include every observed exchange symbol, not just dashboard candidates.
+        positions = {}
+        aggregate = Decimal("0")
+        for item in data["positions"]:
+            symbol = str(item["symbol"])
+            qty = finite_decimal(item["positionAmt"])
+            mark = finite_decimal(item["markPrice"])
+            exposure = abs(qty * mark)
+            aggregate += exposure
+            key = (
+                symbol
+                if item.get("positionSide", "BOTH") == "BOTH"
+                else (symbol + ":" + str(item["positionSide"]))
             )
-
-        orders_map: dict[str, ExecutionOrderItem] = {}
-
-        if p310_exec_path.is_file():
-            try:
-                with open(p310_exec_path, encoding="utf-8") as f:
-                    loaded_exec = json.load(f)
-                p310_exec: dict[str, Any] = loaded_exec if isinstance(loaded_exec, dict) else {}
-                if not isinstance(p310_exec, dict):
-                    p310_exec = {}
-                raw_orders = p310_exec.get("orders")
-                if isinstance(raw_orders, list):
-                    for o in raw_orders:
-                        if not isinstance(o, dict):
-                            continue
-                        cid = str(o.get("client_order_id") or o.get("order_id") or "")
-                        if not cid:
-                            continue
-                        price = _safe_float(o.get("price"), 0.0)
-                        qty = _safe_float(o.get("quantity"), 0.0)
-                        notional = _safe_float(o.get("notional_usdt"), price * qty)
-                        orders_map[cid] = ExecutionOrderItem(
-                            order_id=str(o.get("order_id", "")),
-                            client_order_id=cid,
-                            symbol=str(o.get("symbol", "SOLUSDT")),
-                            side=str(o.get("side", "BUY")),
-                            order_type=str(o.get("order_type", "LIMIT")),
-                            price=price,
-                            quantity=qty,
-                            notional_usdt=round(notional, 4),
-                            status=str(o.get("status", "FILLED")),
-                            fill_price=(
-                                _safe_float(o.get("fill_price"), price)
-                                if o.get("fill_price") is not None
-                                else price
-                            ),
-                            fee_usdt=_safe_float(o.get("fee_usdt"), 0.0),
-                            realized_pnl_usdt=_safe_float(o.get("realized_pnl_usdt"), 0.0),
-                            timestamp_ms=_safe_int(o.get("timestamp_ms"), 0),
-                            is_maker=bool(o.get("is_maker", True)),
-                        )
-            except Exception:
-                pass
-
-        raw_r_orders = p311_report.get("orders")
-        r_orders: dict[str, Any] = raw_r_orders if isinstance(raw_r_orders, dict) else {}
-        if not isinstance(r_orders, dict):
-            r_orders = {}
-
-        if r_orders:
-            raw_brackets = p311_report.get("brackets")
-            brackets: dict[str, Any] = raw_brackets if isinstance(raw_brackets, dict) else {}
-
-            raw_entry = r_orders.get("entry_order")
-            if isinstance(raw_entry, dict):
-                eo = raw_entry
-                cid = str(eo.get("clientOrderId", ""))
-                if cid:
-                    price = _safe_float(eo.get("price") or p311_report.get("mark_price"), 185.0)
-                    qty = _safe_float(eo.get("origQty"), 0.03)
-                    notional = round(price * qty, 4)
-                    orders_map[cid] = ExecutionOrderItem(
-                        order_id=str(eo.get("orderId", "")),
-                        client_order_id=cid,
-                        symbol=str(eo.get("symbol", "SOLUSDT")),
-                        side=str(eo.get("side", "BUY")),
-                        order_type=str(eo.get("type", "LIMIT")),
-                        price=price,
-                        quantity=qty,
-                        notional_usdt=notional,
-                        status="FILLED",
-                        fill_price=price,
-                        fee_usdt=round(notional * 0.0002, 6),
-                        realized_pnl_usdt=0.0,
-                        timestamp_ms=_safe_int(
-                            eo.get("updateTime") or p311_report.get("timestamp_ms"), 0
-                        ),
-                        is_maker=True,
-                    )
-
-            raw_tp = r_orders.get("tp_order")
-            if isinstance(raw_tp, dict):
-                tpo = raw_tp
-                cid = str(tpo.get("clientOrderId", ""))
-                if cid:
-                    price = _safe_float(
-                        tpo.get("price") or brackets.get("take_profit_price"), 189.0
-                    )
-                    qty = _safe_float(tpo.get("origQty"), 0.03)
-                    notional = round(price * qty, 4)
-                    orders_map[cid] = ExecutionOrderItem(
-                        order_id=str(tpo.get("orderId", "")),
-                        client_order_id=cid,
-                        symbol=str(tpo.get("symbol", "SOLUSDT")),
-                        side=str(tpo.get("side", "SELL")),
-                        order_type=str(tpo.get("type", "LIMIT")),
-                        price=price,
-                        quantity=qty,
-                        notional_usdt=notional,
-                        status="CANCELED",
-                        fill_price=None,
-                        fee_usdt=0.0,
-                        realized_pnl_usdt=0.0,
-                        timestamp_ms=_safe_int(
-                            tpo.get("updateTime") or p311_report.get("timestamp_ms"), 0
-                        ),
-                        is_maker=True,
-                    )
-
-            raw_sl = r_orders.get("sl_order")
-            if isinstance(raw_sl, dict):
-                slo = raw_sl
-                cid = str(slo.get("clientOrderId", ""))
-                if cid:
-                    price = _safe_float(
-                        slo.get("stopPrice") or brackets.get("stop_loss_price"), 182.6
-                    )
-                    qty = _safe_float(slo.get("origQty"), 0.03)
-                    notional = round(price * qty, 4)
-                    orders_map[cid] = ExecutionOrderItem(
-                        order_id=str(slo.get("orderId", "")),
-                        client_order_id=cid,
-                        symbol=str(slo.get("symbol", "SOLUSDT")),
-                        side=str(slo.get("side", "SELL")),
-                        order_type=str(slo.get("type", "STOP_MARKET")),
-                        price=price,
-                        quantity=qty,
-                        notional_usdt=notional,
-                        status="CANCELED",
-                        fill_price=None,
-                        fee_usdt=0.0,
-                        realized_pnl_usdt=0.0,
-                        timestamp_ms=_safe_int(
-                            slo.get("updateTime") or p311_report.get("timestamp_ms"), 0
-                        ),
-                        is_maker=False,
-                    )
-
-        if p311_orders_path.is_file():
-            try:
-                with open(p311_orders_path, encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            item = json.loads(line)
-                            if not isinstance(item, dict):
-                                continue
-                            ev = item.get("event_type")
-                            if ev == "ORDER_SUBMITTED":
-                                cid = str(item.get("client_order_id", ""))
-                                if cid and cid not in orders_map:
-                                    price = _safe_float(item.get("price"), 185.0)
-                                    qty = _safe_float(
-                                        item.get("quantity") or item.get("origQty"), 0.03
-                                    )
-                                    notional = _safe_float(item.get("notional_usdt"), 5.55)
-                                    orders_map[cid] = ExecutionOrderItem(
-                                        order_id=str(item.get("order_id", "")),
-                                        client_order_id=cid,
-                                        symbol=str(item.get("symbol", "SOLUSDT")),
-                                        side=str(item.get("side", "BUY")),
-                                        order_type=str(item.get("order_type", "LIMIT")),
-                                        price=price,
-                                        quantity=qty,
-                                        notional_usdt=notional,
-                                        status=str(item.get("status", "FILLED")),
-                                        fill_price=_safe_float(item.get("fill_price"), 185.0),
-                                        fee_usdt=_safe_float(item.get("fee_usdt"), 0.00111),
-                                        realized_pnl_usdt=_safe_float(
-                                            item.get("realized_pnl_usdt"), 0.0
-                                        ),
-                                        timestamp_ms=_safe_int(item.get("timestamp_ms"), 0),
-                                        is_maker=bool(item.get("is_maker", True)),
-                                    )
-                            elif ev == "POSITION_FLATTENED":
-                                raw_res = item.get("result")
-                                res: dict[str, Any] = raw_res if isinstance(raw_res, dict) else {}
-                                cid = str(
-                                    res.get("clientOrderId") or item.get("client_order_id") or ""
-                                )
-                                if cid and cid not in orders_map:
-                                    qty = _safe_float(res.get("origQty") or item.get("amt"), 0.05)
-                                    p = _safe_float(res.get("price"), 0.0)
-                                    orders_map[cid] = ExecutionOrderItem(
-                                        order_id=str(res.get("orderId", "")),
-                                        client_order_id=cid,
-                                        symbol=str(
-                                            item.get("symbol") or res.get("symbol") or "SOLUSDT"
-                                        ),
-                                        side=str(res.get("side", "SELL")),
-                                        order_type=str(res.get("type", "MARKET")),
-                                        price=p,
-                                        quantity=qty,
-                                        notional_usdt=round(p * qty, 4),
-                                        status=str(res.get("status", "FILLED")),
-                                        fill_price=p,
-                                        fee_usdt=_safe_float(res.get("fee_usdt"), 0.0),
-                                        realized_pnl_usdt=_safe_float(
-                                            res.get("realized_pnl_usdt"), 0.0
-                                        ),
-                                        timestamp_ms=_safe_int(item.get("timestamp_ms"), 0),
-                                        is_maker=False,
-                                    )
-                        except Exception:
-                            continue
-            except Exception:
-                pass
-
-        # Strictly enforce 100% authentic order IDs (canary-p310-, canary-p311-)
-        # and zero ord-p309- records
-        filtered_orders = [
-            o
-            for o in orders_map.values()
-            if not o.client_order_id.startswith("ord-p309-")
-            and not o.order_id.startswith("ord-p309-")
-            and (
-                o.client_order_id.startswith("canary-p310-")
-                or o.client_order_id.startswith("canary-p311-")
+            positions[key] = ExecutionPositionItem(
+                symbol=symbol,
+                position_qty=float(qty),
+                allocated_exposure_usdt=float(exposure),
+                entry_price=float(finite_decimal(item["entryPrice"])) if qty else None,
+                mark_price=float(mark),
+                unrealized_pnl_usdt=float(finite_decimal(item["unRealizedProfit"])),
+                state="OPEN" if qty else "FLAT",
+                status="OPEN" if qty else "FLAT",
             )
-        ]
-        sorted_orders = sorted(filtered_orders, key=lambda o: o.timestamp_ms, reverse=True)
-        report_ts = max(p310_ts, p311_ts, now_ms)
-        interlocks = _safe_int(p310_report.get("interlock_blocks_count"), 0)
-        loss_usdt = _safe_float(p310_report.get("intra_day_loss_usdt"), 0.0)
-        engine_state = str(p310_report.get("engine_state") or "MICRO_CAPITAL_ACTIVE")
-
+        orders = []
+        for item in data["open_orders"]:
+            qty = finite_decimal(item["origQty"])
+            price = finite_decimal(item["price"])
+            executed = finite_decimal(item.get("executedQty", "0"))
+            avg = finite_decimal(item.get("avgPrice", "0"))
+            orders.append(
+                ExecutionOrderItem(
+                    order_id=str(item["orderId"]),
+                    client_order_id=str(item["clientOrderId"]),
+                    symbol=str(item["symbol"]),
+                    side=str(item["side"]),
+                    order_type=str(item["type"]),
+                    price=float(price),
+                    quantity=float(qty),
+                    notional_usdt=float(price * qty),
+                    status=str(item["status"]),
+                    fill_price=float(avg) if executed > 0 and avg > 0 else None,
+                    timestamp_ms=int(item.get("time", data["timestamp_ms"])),
+                    is_maker=item.get("timeInForce") == "GTX",
+                )
+            )
+        reconciliation = data.get("reconciliation", {})
+        daily_risk_data = data.get("daily_risk", {})
+        if not isinstance(daily_risk_data, dict):
+            daily_risk_data = {}
+        daily_risk_verified = (
+            daily_risk_data.get("verified") is True
+            and daily_risk_data.get("observed_ms") == data["timestamp_ms"]
+            and daily_risk_data.get("equity_basis") == "ACCOUNT"
+        )
+        daily_risk = ExecutionDailyRisk(
+            verified=daily_risk_verified,
+            day_start_equity_usdt=(
+                float(finite_decimal(daily_risk_data["day_start_equity"]))
+                if daily_risk_verified
+                else None
+            ),
+            limit_pct=(
+                float(finite_decimal(daily_risk_data["limit_pct"]))
+                if daily_risk_verified
+                else None
+            ),
+            limit_usdt=(
+                float(finite_decimal(daily_risk_data["limit_usdt"]))
+                if daily_risk_verified
+                else None
+            ),
+            loss_usdt=(
+                float(finite_decimal(daily_risk_data["loss_usdt"]))
+                if daily_risk_verified
+                else None
+            ),
+            remaining_usdt=(
+                float(finite_decimal(daily_risk_data["remaining_usdt"]))
+                if daily_risk_verified
+                else None
+            ),
+            breached=(daily_risk_data.get("breached") if daily_risk_verified else None),
+            equity_basis=(daily_risk_data.get("equity_basis") if daily_risk_verified else None),
+        )
+        verified = reconciliation.get("verified") is True
+        drift = (
+            max(
+                abs(finite_decimal(reconciliation["wallet_drift"])),
+                abs(finite_decimal(reconciliation["equity_drift"])),
+            )
+            if reconciliation
+            else None
+        )
         return ExecutionStatusResponse(
-            verified=True,
-            status="MICRO_CAPITAL_ACTIVE",
-            engine_state=engine_state,
-            timestamp_ms=report_ts,
-            solvency=solvency,
+            verified=verified,
+            status="ACCOUNT_RECONCILED" if verified else "ACCOUNT_UNRECONCILED",
+            engine_state="UNKNOWN",
+            timestamp_ms=data["timestamp_ms"],
+            solvency=ExecutionSolvency(
+                cash_usdt=float(wallet),
+                cash=float(wallet),
+                available_balance_usdt=float(available),
+                allocated_margin_usdt=float(margin),
+                allocated_margin=float(margin),
+                unrealized_pnl_usdt=float(upnl),
+                unrealized_pnl=float(upnl),
+                total_equity_usdt=float(equity),
+                total_equity=float(equity),
+                cash_reserve_pct=float(reserve),
+                unencumbered_cash_verified=True,
+                starting_equity_usdt=float(finite_decimal(reconciliation["starting_equity"]))
+                if reconciliation
+                else None,
+                starting_equity=float(finite_decimal(reconciliation["starting_equity"]))
+                if reconciliation
+                else None,
+                realized_pnl_usdt=float(finite_decimal(reconciliation["net_realized_pnl"]))
+                if reconciliation
+                else None,
+                realized_pnl=float(finite_decimal(reconciliation["net_realized_pnl"]))
+                if reconciliation
+                else None,
+                drift_usdt=float(drift) if drift is not None else None,
+                drift=float(drift) if drift is not None else None,
+                zero_balance_drift_verified=verified,
+                zero_balance_drift=verified,
+            ),
             positions=positions,
             candidate_allocations=list(positions.values()),
-            aggregate_exposure_usdt=0.0,
-            recent_orders=sorted_orders,
-            total_orders=len(sorted_orders),
-            interlock_blocks_count=interlocks,
-            intra_day_loss_usdt=loss_usdt,
+            aggregate_exposure_usdt=float(aggregate),
+            recent_orders=orders,
+            total_orders=len(orders),
+            intra_day_loss_usdt=daily_risk.loss_usdt,
+            daily_risk=daily_risk,
         )
-    except Exception:
-        return _baseline_execution_status()
+    except (OSError, ValueError, KeyError, TypeError, ArithmeticError) as exc:
+        raise HTTPException(
+            status_code=503, detail="Fresh exchange account evidence unavailable"
+        ) from exc
 
 
 def _configured_path(environment_name: str, default: str) -> Path:
@@ -1210,6 +882,7 @@ def create_app(
     research_dir: Path | None = None,
     telemetry_broadcaster: TelemetryBroadcastManager | None = None,
     frontend_dist_path: Path | None = None,
+    trader: Any | None = None,
 ) -> FastAPI:
     if (
         creator_epoch_journal is None
@@ -2273,68 +1946,14 @@ def create_app(
         except Exception:
             pass
 
-        # 3. Fallback: Deterministic synthetic generator
-        base_prices = {
-            "BTCUSDT": 82600.0,
-            "ETHUSDT": 2500.0,
-            "SOLUSDT": 110.0,
-            "DOGEUSDT": 0.086,
-            "BNBUSDT": 750.0,
-            "XRPUSDT": 1.40,
-            "SUIUSDT": 1.11,
-            "AVAXUSDT": 10.5,
-        }
-        base = base_prices.get(norm_sym, 100.0)
-        interval_seconds = {
-            "1m": 60,
-            "3m": 180,
-            "5m": 300,
-            "15m": 900,
-            "1h": 3600,
-            "4h": 14400,
-            "1d": 86400,
-        }
-        step_s = interval_seconds.get(interval, 900)
-        start_s = int(now_sec // step_s) * step_s - (limit - 1) * step_s
-        s_candles = []
-        for i in range(limit):
-            ts = start_s + i * step_s
-            angle = (i % 36) * (2 * math.pi / 36)
-            var = (base * 0.005) * math.sin(angle)
-            c_price = base + var
-            o_price = c_price - (base * 0.001) * math.cos(angle)
-            h_price = max(o_price, c_price) + (base * 0.002)
-            l_price = min(o_price, c_price) - (base * 0.002)
-            vol = 1000.0 + 200.0 * math.sin(angle)
-            s_candles.append(
-                CandlestickPoint(
-                    timestamp=ts,
-                    open=round(o_price, 4),
-                    high=round(h_price, 4),
-                    low=round(l_price, 4),
-                    close=round(c_price, 4),
-                    volume=round(vol, 2),
-                )
-            )
+        raise HTTPException(status_code=503, detail="Market candles unavailable")
 
-        res = MarketKlinesResponse(
-            symbol=norm_sym,
-            interval=interval,
-            source="synthetic_fallback",
-            timestamp_ms=int(now_sec * 1000),
-            count=len(s_candles),
-            candles=tuple(s_candles),
-        )
-        live_klines_cache[cache_key] = (now_sec, res)
-        return res
-
-    # Phase 313: Live Position Telemetry Synchronization and Strategy Evolution
     @app.get("/api/v1/execution/status", response_model=ExecutionStatusResponse)
     def execution_status() -> ExecutionStatusResponse:
-        try:
-            return load_execution_status(configured_research_dir)
-        except Exception:
-            return load_execution_status(Path("nonexistent_fallback_dir"))
+        return load_execution_status(configured_research_dir)
+
+    # Milestone 5: ICT Strategy Signals Endpoint & Confluence Radar
+    register_strategy_routes(app, trader=trader, research_dir=configured_research_dir)
 
     # Phase 293: Real-Time Telemetry Streaming & WebSocket Push
     register_telemetry_websocket(app, broadcaster=telemetry_broadcaster)
@@ -2405,4 +2024,12 @@ __all__ = [
     "create_app",
     "load_execution_status",
     "register_telemetry_websocket",
+    "strategy_router",
+    "register_strategy_routes",
+    "IctSignalsResponse",
+    "IctSignalPairItem",
+    "TwinsStateItem",
+    "PdArrayItem",
+    "CandidateGenomeItem",
+    "TradeAutopsyItem",
 ]

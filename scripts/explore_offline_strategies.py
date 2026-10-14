@@ -594,6 +594,7 @@ def evaluate_candidate_offline(
             config=config,
             funding_events=w.copy_funding_events(),
             funding_artifact_hash=w.spec.funding_artifact_hash,
+            funding_slice=w.funding_slice,
         )
 
     aggregation = evaluate_cached_oos_walk_forward(candidate, windows, simulator=_sim)

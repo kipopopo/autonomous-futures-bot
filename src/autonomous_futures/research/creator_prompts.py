@@ -131,6 +131,14 @@ def build_phase_252_proposal_messages(
     )
 
 
+RUNTIME_RISK_POLICY_GUIDELINES: str = (
+    "Runtime Capital and Risk Policy (ACCOUNT Basis): Size each trade at 0.5% (0.005) of "
+    "authentic exchange account equity per trade, bounded by a 5% (0.05) daily loss limit "
+    "computed from UTC day-start account equity. Do not apply legacy micro-capital caps "
+    "(no $5 fixed margin cap, no $25 aggregate notional cap, and no 75% cash reserve floor)."
+)
+
+
 def build_creator_revision_messages(
     request: CreatorGenerationRequest,
     *,
@@ -138,6 +146,7 @@ def build_creator_revision_messages(
     symbol: str,
     feedback: CreatorQualificationFailureFeedback,
     critique_evidence: LearnerCritiqueEvidence | None = None,
+    autopsy_feedback: Mapping[str, object] | None = None,
 ) -> tuple[Mapping[str, str], Mapping[str, str]]:
     if feedback.bundle_hash != bundle_hash:
         raise ValueError("failure feedback bundle does not match prompt bundle")
@@ -196,11 +205,23 @@ def build_creator_revision_messages(
             f" Persisted critic evidence={critique_payload}. "
             "Treat critic revision_actions as advisory guidance; preserve all qualification gates."
         )
+    if autopsy_feedback is not None:
+        autopsy_payload = json.dumps(
+            dict(autopsy_feedback),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        revision_user += (
+            f" Authenticated post-trade autopsy feedback={autopsy_payload}. "
+            f"{RUNTIME_RISK_POLICY_GUIDELINES}"
+        )
     return system, {"role": "user", "content": revision_user}
 
 
 __all__ = [
     "CAPITAL_AND_LEVERAGE_GUIDELINES",
+    "RUNTIME_RISK_POLICY_GUIDELINES",
     "build_creator_proposal_messages",
     "build_creator_revision_messages",
     "build_phase_252_proposal_messages",

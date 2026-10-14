@@ -1,16 +1,20 @@
-"""Master Execution and Verification Runner for Phase 310: Real Autonomous Trading.
+"""Phase 310 research artifact runner and integrity verifier.
 
 Binds to upstream Phase 309 parent root:
 5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844
 
-Generates and cryptographically verifies the 5 Phase 310 research artifacts:
+This historical artifact bundle is not strategy qualification and does not attest exchange
+fills. The synthetic batch runner has been retired.
+
+Verifies this historical Phase 310 research artifact bundle when requested:
 1. canary-production-telemetry.sqlite3
 2. canary-production-events.jsonl
 3. canary-production-report.json
 4. canary-production-execution.json
 5. production-summary.json
 
-Supports standard execution mode and `--verify-only` verification mode.
+Normal mode starts the legacy continuous service loop. Verification mode checks artifact
+integrity only and does not grant execution authority.
 """
 
 from __future__ import annotations
@@ -35,12 +39,8 @@ if str(_REPO_ROOT) not in sys.path:
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
-from autonomous_futures.execution.binance_gateway import BinanceFuturesGateway  # noqa: E402
-from autonomous_futures.execution.self_driving import (  # noqa: E402
-    UPSTREAM_PHASE_309_MERKLE_ROOT,
-    build_default_self_driving_engine,
-)
-from autonomous_futures.strategy.macro_liquidity_scalper import Candle  # noqa: E402
+from autonomous_futures.execution.self_driving import UPSTREAM_PHASE_309_MERKLE_ROOT  # noqa: E402
+from autonomous_futures.feed.kline_sequencer import ACTIVE_PAIRS  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,7 +52,7 @@ UPSTREAM_PHASE_309_PARENT_ROOT = "5e3435be2f701021263dbace99d64b2180e03630f10b53
 
 
 def verify_phase_310_artifacts(target_dir: Path) -> bool:
-    """Verifies SHA-256 hashes, upstream hash chain, and zero-drift balance invariant."""
+    """Verifies artifact integrity and ledger arithmetic, not execution authenticity."""
     summary_file = target_dir / "production-summary.json"
     report_file = target_dir / "canary-production-report.json"
     sqlite_file = target_dir / "canary-production-telemetry.sqlite3"
@@ -130,7 +130,8 @@ def verify_phase_310_artifacts(target_dir: Path) -> bool:
         )
         return False
 
-    # 5. Verify SQLite telemetry tables have genuine trade data (> 0 rows)
+    # 5. Verify SQLite telemetry tables contain persisted activity (> 0 rows).
+    # Non-empty internal simulation records do not prove exchange execution.
     conn = sqlite3.connect(sqlite_file)
     cur = conn.cursor()
     for table in ("orders", "trade_autopsies", "candidate_health", "solvency_snapshots"):
@@ -143,154 +144,13 @@ def verify_phase_310_artifacts(target_dir: Path) -> bool:
     conn.close()
 
     logger.info("Phase 310 cryptographic Merkle DAG chain verified successfully!")
-    print("PHASE 310 MERKLE DAG INTEGRITY: VERIFIED")
-    print("PHASE 310 REAL AUTONOMOUS TRADING: VERIFIED")
+    print("PHASE 310 ARTIFACT INTEGRITY: VERIFIED")
+    print("PHASE 310 EXECUTION AUTHENTICITY: NOT VERIFIED")
     return True
 
 
-def run_phase_310_execution(target_dir: Path) -> dict[str, Any]:
-    """Executes Phase 310 autonomous trading session and generates research artifacts."""
-    logger.info("Initializing Phase 310 Autonomous Trading Engine in %s...", target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    # Clean prior artifacts to ensure pristine canonical generation
-    for fname in (
-        "canary-production-telemetry.sqlite3",
-        "canary-production-events.jsonl",
-        "canary-production-report.json",
-        "canary-production-execution.json",
-        "production-summary.json",
-    ):
-        fpath = target_dir / fname
-        if fpath.exists():
-            fpath.unlink()
-
-    gateway = BinanceFuturesGateway(offline_mode=True)
-    engine = build_default_self_driving_engine(
-        starting_capital_usdt=Decimal("100.00"),
-        gateway=gateway,
-        storage_dir=target_dir,
-    )
-
-    now_ms = 1790250000000
-
-    # Generate synthetic historical candles to seed BTC macro trend and indicators
-    # 250 bars of BTC to establish EMA 50 > EMA 200 bull alignment
-    btc_candles_1h: list[Candle] = []
-    base_btc = Decimal("90000.00")
-    for i in range(250):
-        p = base_btc + Decimal(str(i * 30))  # steady uptrend
-        btc_candles_1h.append(
-            Candle(
-                timestamp_ms=now_ms - (250 - i) * 3600000,
-                open=p,
-                high=p + Decimal("200"),
-                low=p - Decimal("100"),
-                close=p + Decimal("50"),
-                volume=Decimal("150.0"),
-            )
-        )
-
-    # Synthetic 15m history for SOLUSDT (50 bars normal consolidation)
-    sol_history: list[Candle] = []
-    base_sol = Decimal("185.00")
-    for i in range(50):
-        p = base_sol + Decimal(str((i % 5) * 0.2))
-        sol_history.append(
-            Candle(
-                timestamp_ms=now_ms - (50 - i) * 900000,
-                open=p,
-                high=p + Decimal("1.50"),
-                low=p - Decimal("1.00"),
-                close=p,
-                volume=Decimal("1000.0"),
-            )
-        )
-
-    # 1. Trigger a Macro Liquidity Dip Sweep Bar on SOLUSDT
-    # Sharp capitulation: price drops > 2.5x ATR below 20 EMA, volume > 2.2x SMA, RSI < 26
-    dip_sol_bar = Candle(
-        timestamp_ms=now_ms,
-        open=Decimal("185.00"),
-        high=Decimal("185.20"),
-        low=Decimal("170.00"),
-        close=Decimal("171.00"),  # severe dip
-        volume=Decimal("4500.0"),  # > 4.5x normal volume
-    )
-
-    logger.info("Evaluating 15m Liquidity Dip Scalper on SOLUSDT...")
-    order1 = engine.evaluate_and_dispatch_scalper(
-        symbol="SOLUSDT",
-        bar=dip_sol_bar,
-        history=sol_history,
-        btc_1h_candles=btc_candles_1h,
-        now_ms=now_ms,
-    )
-    if order1 is None:
-        raise RuntimeError("Expected SOLUSDT dip entry order to be dispatched, but got None")
-    logger.info(
-        "Dispatched Scalper Order on SOLUSDT: %s %s @ %s (notional=%s USDT, SL=%s, TP=%s)",
-        order1.side.value,
-        order1.quantity,
-        order1.price,
-        order1.notional_usdt,
-        order1.stop_loss,
-        order1.take_profit,
-    )
-
-    # 2. Simulate subsequent bar realizing Take Profit on SOLUSDT
-    tp_sol_bar = Candle(
-        timestamp_ms=now_ms + 900000,
-        open=Decimal("171.00"),
-        high=Decimal("195.00"),  # Spikes past TP
-        low=Decimal("170.50"),
-        close=Decimal("192.00"),
-        volume=Decimal("2000.0"),
-    )
-    order_exit = engine.evaluate_and_dispatch_scalper(
-        symbol="SOLUSDT",
-        bar=tp_sol_bar,
-        history=[*sol_history, dip_sol_bar],
-        btc_1h_candles=btc_candles_1h,
-        now_ms=now_ms + 900000,
-    )
-    if order_exit is None:
-        raise RuntimeError("Expected SOLUSDT take profit exit order to be dispatched, but got None")
-    logger.info(
-        "Realized Exit Order on SOLUSDT: %s %s @ %s (realized PnL=%s USDT)",
-        order_exit.side.value,
-        order_exit.quantity,
-        order_exit.price,
-        order_exit.realized_pnl_usdt,
-    )
-
-    # 3. Microstructure tick executions on ETHUSDT and BTCUSDT to verify micro-capital bounds
-    engine.process_microstructure_tick(
-        symbol="ETHUSDT",
-        price=Decimal("2750.00"),
-        hawkes_spectral_radius=0.18,
-        heartbeat_age_ms=45.0,
-        ensemble_signal="LONG",
-        ts_ms=now_ms + 1800000,
-    )
-    engine.process_microstructure_tick(
-        symbol="BTCUSDT",
-        price=Decimal("95000.00"),
-        hawkes_spectral_radius=0.22,
-        heartbeat_age_ms=50.0,
-        ensemble_signal="LONG",
-        ts_ms=now_ms + 2700000,
-    )
-
-    # Export all 5 research artifacts and compute Merkle DAG
-    summary = engine.export_artifacts(target_dir)
-    assert summary["total_orders"] >= 2, f"Expected >= 2 orders, got {summary['total_orders']}"
-    assert summary["total_trades"] >= 1, f"Expected >= 1 trade, got {summary['total_trades']}"
-    logger.info("Phase 310 execution session completed successfully.")
-    return summary
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Phase 310 Real Autonomous Trading Runner")
+    parser = argparse.ArgumentParser(description="Phase 310 Research Artifact Runner")
     parser.add_argument(
         "--output-dir",
         "--storage-dir",
@@ -302,7 +162,7 @@ def main() -> None:
     parser.add_argument(
         "--verify-only",
         action="store_true",
-        help="Only verify existing Phase 310 artifacts without running new execution",
+        help="Verify artifact integrity only; this does not attest live exchange execution",
     )
     parser.add_argument(
         "--starting-capital",
@@ -313,13 +173,8 @@ def main() -> None:
     parser.add_argument(
         "--symbols",
         type=str,
-        default="SOLUSDT,ETHUSDT,BTCUSDT",
+        default=",".join(ACTIVE_PAIRS),
         help="Comma-separated trading symbols",
-    )
-    parser.add_argument(
-        "--test-run",
-        action="store_true",
-        help="Run offline batch simulation and export verification artifacts, then exit",
     )
     parser.add_argument(
         "--poll-interval",
@@ -334,20 +189,6 @@ def main() -> None:
         if not verify_phase_310_artifacts(args.output_dir):
             sys.exit(1)
         sys.exit(0)
-
-    if args.test_run:
-        logger.info("Executing Phase 310 offline batch simulation...")
-        run_phase_310_execution(args.output_dir)
-        if not verify_phase_310_artifacts(args.output_dir):
-            sys.exit(1)
-        sys.exit(0)
-
-    # Ensure baseline artifacts exist before starting continuous loop
-    if not (args.output_dir / "production-summary.json").is_file():
-        logger.info("Initializing baseline Phase 310 research artifacts...")
-        run_phase_310_execution(args.output_dir)
-        if not verify_phase_310_artifacts(args.output_dir):
-            sys.exit(1)
 
     # Start 24/7 continuous trading daemon
     from autonomous_futures.execution.continuous_trader import ContinuousSelfDrivingTrader
