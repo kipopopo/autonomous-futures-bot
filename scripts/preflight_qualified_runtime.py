@@ -21,7 +21,10 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from autonomous_futures.execution.qualification_receipts import verify_runtime_report  # noqa: E402
+from autonomous_futures.execution.qualification_receipts import (  # noqa: E402
+    verify_runtime_portfolio_report,
+    verify_runtime_report,
+)
 from autonomous_futures.execution.single_writer_guard import (  # noqa: E402
     LegacyWriterHandoffGuard,
 )
@@ -128,12 +131,42 @@ def evaluate_preflight(
                     "report_hash": receipt.report_hash,
                 }
             )
+        approved_portfolios = manifest.get("approved_portfolio_reports", [])
+        if not isinstance(approved_portfolios, list):
+            raise ValueError("approved_portfolio_reports must be a list")
+        verified_portfolios: list[dict[str, Any]] = []
+        seen_portfolio_ids: set[str] = set()
+        for p_item in approved_portfolios:
+            pid = str(p_item["portfolio_id"])
+            if pid in seen_portfolio_ids:
+                raise ValueError("Duplicate admitted portfolio qualification report")
+            seen_portfolio_ids.add(pid)
+            p_rel_path = str(p_item.get("holdout_report_path") or p_item["path"])
+            p_path = (repo / p_rel_path).resolve()
+            if not p_path.is_relative_to(repo.resolve()):
+                raise ValueError("Admitted portfolio report must be inside repository")
+            p_receipt = verify_runtime_portfolio_report(p_path, repo=repo, portfolio_id=pid)
+            verified_portfolios.append(
+                {
+                    "portfolio_id": p_receipt.portfolio_id,
+                    "family": p_receipt.family,
+                    "symbols": list(p_receipt.symbols),
+                    "member_count": len(p_receipt.members),
+                    "path": p_rel_path,
+                    "report_hash": p_receipt.report_hash,
+                    "selection_hash": p_receipt.selection_hash or "",
+                    "development_report_hash": p_receipt.development_report_hash or "",
+                    "execution_authority": p_receipt.execution_authority,
+                }
+            )
         if not verified_reports:
             blocking_reasons.append("no_admitted_qualification_reports")
         checks["qualification_admission"] = {
             "passed": len(verified_reports) > 0,
             "approved_count": len(verified_reports),
             "verified_reports": verified_reports,
+            "approved_portfolio_count": len(verified_portfolios),
+            "verified_portfolio_reports": verified_portfolios,
         }
     except Exception as exc:
         blocking_reasons.append("qualification_admission_invalid")

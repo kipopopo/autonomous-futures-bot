@@ -6,6 +6,8 @@ import pytest
 
 from autonomous_futures.execution.qualification_receipts import (
     verify_historical_report,
+    verify_portfolio_report,
+    verify_runtime_portfolio_report,
     verify_runtime_report,
     verify_source_index,
 )
@@ -194,3 +196,50 @@ def test_ict_report_must_bind_strategy_index_and_daily_risk_implementation(tmp_p
                 family="ICT_TWINS",
                 symbol="SOLUSDT",
             )
+
+
+def test_admitted_medium_frequency_portfolio_receipt_verifies_end_to_end():
+    repo = Path(__file__).resolve().parents[2]
+    report_path = (
+        repo
+        / "artifacts/qualification/portfolio-scalper-mf-holdout-2026-08-2026-09"
+        / "portfolio-72de22bde9a30101.json"
+    )
+    receipt = verify_runtime_portfolio_report(
+        report_path,
+        repo=repo,
+        portfolio_id="macro-scalper-uninspected-3sym-medium-frequency-v1",
+    )
+    assert receipt.portfolio_id == "macro-scalper-uninspected-3sym-medium-frequency-v1"
+    assert receipt.family == "MACRO_SCALPER"
+    assert receipt.symbols == ("AVAXUSDT", "ETHUSDT", "SOLUSDT")
+    assert len(receipt.members) == 6
+    assert receipt.execution_authority is False
+    assert receipt.report_hash == "72de22bde9a30101c791bcc981c89481c176b6a4fd63acfd4e2495e8e9122d89"
+    assert (
+        receipt.selection_hash == "3371b17dbc1622b25684457468caf503efd510c7c2c5cb99875ed758b0aa12d3"
+    )
+    assert (
+        receipt.development_report_hash
+        == "cea9be6fc4913f7d6c167c55c14e11595ea1c7d9b0c00c44947ae6b8e6025451"
+    )
+
+
+def test_tampered_portfolio_receipt_is_rejected(tmp_path):
+    repo = Path(__file__).resolve().parents[2]
+    report_path = (
+        repo
+        / "artifacts/qualification/portfolio-scalper-mf-holdout-2026-08-2026-09"
+        / "portfolio-72de22bde9a30101.json"
+    )
+    data = json.loads(report_path.read_text(encoding="utf-8"))
+    data["execution_authority"] = True
+    tampered = tmp_path / "tampered-portfolio.json"
+    tampered.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        verify_portfolio_report(
+            tampered,
+            repo=repo,
+            family="MACRO_SCALPER",
+            symbols=("AVAXUSDT", "ETHUSDT", "SOLUSDT"),
+        )

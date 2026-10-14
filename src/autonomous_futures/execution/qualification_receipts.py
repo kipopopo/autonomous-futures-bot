@@ -24,6 +24,21 @@ class HistoricalQualification:
     execution_domain: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class PortfolioHistoricalQualification:
+    portfolio_id: str
+    family: str
+    symbols: tuple[str, ...]
+    report_hash: str
+    members: tuple[dict[str, Any], ...]
+    metrics: dict[str, Any]
+    policy: dict[str, Any]
+    selection_hash: str | None = None
+    development_report_hash: str | None = None
+    development_metrics: dict[str, Any] | None = None
+    execution_authority: bool = False
+
+
 def verify_source_index(sources: dict[str, Any], files: list[dict[str, str]], repo: Path) -> None:
     """Every claimed source digest must resolve to verified bytes, including manifests."""
     required: set[str] = set()
@@ -214,3 +229,222 @@ def verify_runtime_report(
     return verify_historical_report(
         path, repo=repo, family=family, symbol=symbol, approved_sha256=sha
     )
+
+
+def verify_portfolio_report(
+    path: Path,
+    *,
+    repo: Path,
+    family: str,
+    symbols: tuple[str, ...],
+    portfolio_id: str = "SHARED_WALLET_PORTFOLIO",
+    approved_sha256: str | None = None,
+    selection_hash: str | None = None,
+    development_report_hash: str | None = None,
+    development_metrics: dict[str, Any] | None = None,
+) -> PortfolioHistoricalQualification:
+    """Verify a multi-symbol shared-wallet portfolio qualification receipt."""
+    raw = path.read_bytes()
+    if approved_sha256 is not None and hashlib.sha256(raw).hexdigest() != approved_sha256:
+        raise ValueError("Portfolio report bytes differ from the reviewed deployment admission")
+    report = json.loads(raw)
+    identity = report.pop("report_hash", None)
+    if identity is None or content_hash(report) != identity:
+        raise ValueError("Portfolio qualification report hash mismatch")
+    if report.get("scope") != "SHARED_WALLET_PORTFOLIO" or report.get("family") != family:
+        raise ValueError("Portfolio qualification does not bind this strategy family and scope")
+    if family != "MACRO_SCALPER" or not report.get("implementation"):
+        raise ValueError("Portfolio qualification requires pinned MACRO_SCALPER implementation")
+    expected_symbols = tuple(sorted(symbols))
+    by_sym = tuple(sorted(report.get("by_symbol", {}).keys()))
+    members = report.get("members", [])
+    member_symbols = tuple(sorted({str(m["symbol"]) for m in members}))
+    if not expected_symbols or by_sym != expected_symbols or member_symbols != expected_symbols:
+        raise ValueError("Portfolio qualification symbols do not match expected universe")
+    if (
+        report.get("decision") != "QUALIFIED"
+        or report.get("execution_authority") is not False
+        or not report.get("gates")
+        or not all(value is True for value in report["gates"].values())
+    ):
+        raise ValueError("Portfolio qualification gates or safety flags are not satisfied")
+    expected_impl = {
+        "src/autonomous_futures/execution/trade_plan.py",
+        "src/autonomous_futures/execution/daily_risk.py",
+        "src/autonomous_futures/strategy/macro_liquidity_scalper.py",
+        "src/autonomous_futures/research/runtime_qualification.py",
+        "src/autonomous_futures/research/portfolio_qualification.py",
+    }
+    if not expected_impl.issubset(report["implementation"]):
+        raise ValueError("Portfolio implementation binding is incomplete")
+    for relative, sha in report["implementation"].items():
+        source = (repo / relative).resolve()
+        if (
+            not source.is_relative_to(repo.resolve())
+            or hashlib.sha256(source.read_bytes()).hexdigest() != sha
+        ):
+            raise ValueError("Portfolio qualification belongs to another implementation revision")
+
+    sources = report.get("sources", {})
+    source_files = report.get("source_files", [])
+    if not sources or not source_files:
+        raise ValueError("Portfolio qualification dataset provenance is missing")
+    claimed_digests: set[str] = set()
+
+    def collect_digests(item: Any) -> None:
+        if isinstance(item, str) and len(item) == 64 and all(c in "0123456789abcdef" for c in item):
+            claimed_digests.add(item)
+        elif isinstance(item, dict):
+            for value in item.values():
+                collect_digests(value)
+        elif isinstance(item, list):
+            for value in item:
+                collect_digests(value)
+
+    collect_digests(sources)
+    indexed_digests: set[str] = set()
+    seen_paths: set[Path] = set()
+    for record in source_files:
+        rel = str(record["path"])
+        rec_path = (repo / rel).resolve()
+        if not rec_path.is_relative_to(repo.resolve()) or rec_path in seen_paths:
+            raise ValueError("Portfolio source index has duplicate or outside-repository paths")
+        seen_paths.add(rec_path)
+        rec_sha = str(record["sha256"])
+        if rel.startswith("artifacts/qualification/") or rec_path.is_file():
+            if not rec_path.is_file():
+                raise ValueError(f"Required portfolio runtime input file missing: {rel}")
+            if hashlib.sha256(rec_path.read_bytes()).hexdigest() != rec_sha:
+                raise ValueError("Portfolio indexed source bytes changed")
+        indexed_digests.add(rec_sha)
+    if not claimed_digests.issubset(indexed_digests):
+        raise ValueError("Portfolio source-file index omits claimed source hashes")
+
+    policy = report["policy"]
+    windows = report["windows"]
+    metrics = report["metrics"]
+    if len(windows) != int(policy["windows"]):
+        raise ValueError("Portfolio qualification windows are incomplete")
+    for previous, current in zip(windows, windows[1:], strict=False):
+        if int(previous["end_ms"]) != int(current["start_ms"]):
+            raise ValueError("Portfolio qualification windows overlap or have gaps")
+    trades = [trade for window in windows for trade in window["trades"]]
+    zero = Decimal("0")
+    wins = sum((max(finite_decimal(trade["net_pnl"]), zero) for trade in trades), zero)
+    losses = sum((max(-finite_decimal(trade["net_pnl"]), zero) for trade in trades), zero)
+    stress = sum((finite_decimal(trade["stress_net_pnl"]) for trade in trades), zero)
+    positive_windows = sum(
+        sum((finite_decimal(trade["net_pnl"]) for trade in window["trades"]), zero) > 0
+        for window in windows
+    )
+    drawdown = finite_decimal(metrics["drawdown_usdt"])
+    wallet_drift = abs(finite_decimal(metrics["max_wallet_drift"]))
+    equity_drift = abs(finite_decimal(metrics["max_equity_drift"]))
+    passing = (
+        len(trades) >= int(policy["minimum_trades"])
+        and wins > losses
+        and stress > 0
+        and (losses == 0 or wins / losses >= finite_decimal(policy["minimum_profit_factor"]))
+        and drawdown / finite_decimal(policy["starting_equity"]) * 100
+        <= finite_decimal(policy["maximum_drawdown_pct"])
+        and positive_windows >= int(policy["minimum_profitable_windows"])
+        and wallet_drift == zero
+        and equity_drift == zero
+    )
+    if not passing:
+        raise ValueError("Genuine portfolio qualification gates are not satisfied")
+    if (
+        "trade_risk_pct" not in policy
+        or "daily_loss_pct" not in policy
+        or finite_decimal(policy["trade_risk_pct"]) != DEFAULT_CAPITAL_POLICY.trade_risk_pct
+        or finite_decimal(policy["daily_loss_pct"]) != DEFAULT_CAPITAL_POLICY.daily_loss_pct
+    ):
+        raise ValueError(
+            "Portfolio qualification report risk policy differs from the approved runtime policy"
+        )
+    return PortfolioHistoricalQualification(
+        portfolio_id=portfolio_id,
+        family=family,
+        symbols=expected_symbols,
+        report_hash=str(identity),
+        members=tuple(members),
+        metrics=dict(metrics),
+        policy=dict(policy),
+        selection_hash=selection_hash,
+        development_report_hash=development_report_hash,
+        development_metrics=development_metrics,
+        execution_authority=False,
+    )
+
+
+def verify_runtime_portfolio_report(
+    path: Path, *, repo: Path, portfolio_id: str
+) -> PortfolioHistoricalQualification:
+    """Verify a portfolio qualification receipt against deploy/qualification-admission.json."""
+    manifest_path = repo / "deploy" / "qualification-admission.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schema") != "runtime-qualification-admission-v1":
+        raise ValueError("Unsupported reviewed qualification admission manifest")
+    entries = manifest.get("approved_portfolio_reports", [])
+    if not isinstance(entries, list):
+        raise ValueError("approved_portfolio_reports must be a list")
+    ids = [str(item["portfolio_id"]) for item in entries]
+    if len(set(ids)) != len(ids):
+        raise ValueError("Duplicate reviewed portfolio qualification identity")
+    approved = next((item for item in entries if item.get("portfolio_id") == portfolio_id), None)
+    if approved is None:
+        raise ValueError("No reviewed deployment admission for this portfolio")
+    if approved.get("execution_authority") is not False:
+        raise ValueError("Portfolio admission manifest cannot grant direct execution authority")
+
+    sel_path = (repo / str(approved["selection_manifest_path"])).resolve()
+    if not sel_path.is_relative_to(repo.resolve()) or not sel_path.is_file():
+        raise ValueError("Portfolio selection manifest missing or outside repository")
+    sel_bytes = sel_path.read_bytes()
+    if hashlib.sha256(sel_bytes).hexdigest() != str(approved["selection_manifest_sha256"]):
+        raise ValueError("Portfolio selection manifest SHA-256 mismatch")
+    sel_data = json.loads(sel_bytes)
+    sel_body = dict(sel_data)
+    sel_hash = sel_body.pop("selection_hash", None)
+    if (
+        sel_hash is None
+        or content_hash(sel_body) != sel_hash
+        or sel_hash != str(approved["selection_hash"])
+    ):
+        raise ValueError("Portfolio selection manifest content hash mismatch")
+
+    dev_path = (repo / str(approved["development_report_path"])).resolve()
+    if not dev_path.is_relative_to(repo.resolve()) or not dev_path.is_file():
+        raise ValueError("Portfolio development report missing or outside repository")
+    dev_bytes = dev_path.read_bytes()
+    if hashlib.sha256(dev_bytes).hexdigest() != str(approved["development_report_sha256"]):
+        raise ValueError("Portfolio development report SHA-256 mismatch")
+    dev_data = json.loads(dev_bytes)
+    dev_body = dict(dev_data)
+    dev_hash = dev_body.pop("report_hash", None)
+    if (
+        dev_hash is None
+        or content_hash(dev_body) != dev_hash
+        or dev_hash != str(approved["development_report_hash"])
+        or dev_data.get("portfolio_decision_on_development_sample") != "QUALIFIED"
+        or not all(value is True for value in dev_data.get("gates", {}).values())
+    ):
+        raise ValueError("Portfolio development qualification receipt is invalid")
+
+    holdout_sha = str(approved["holdout_report_sha256"])
+    if len(holdout_sha) != 64 or any(c not in "0123456789abcdef" for c in holdout_sha):
+        raise ValueError("Invalid reviewed portfolio holdout digest")
+    receipt = verify_portfolio_report(
+        path,
+        repo=repo,
+        family=str(approved["family"]),
+        symbols=tuple(str(s) for s in approved["symbols"]),
+        portfolio_id=portfolio_id,
+        approved_sha256=holdout_sha,
+        selection_hash=str(sel_hash),
+        development_report_hash=str(dev_hash),
+        development_metrics=dict(dev_data.get("metrics", {})),
+    )
+    if receipt.report_hash != str(approved["holdout_report_hash"]):
+        raise ValueError("Portfolio holdout report hash disagrees with admission manifest")
+    return receipt

@@ -6128,6 +6128,25 @@ class LiveEvolutionProgressItem(DomainModel):
     recent_events: list[LiveEvolutionEventItem] = Field(default_factory=list)
 
 
+class QualifiedPortfolioReceiptSummaryItem(DomainModel):
+    portfolio_id: str
+    family: str
+    symbols: list[str] = Field(default_factory=list)
+    member_count: int = 0
+    decision: Literal["QUALIFIED"] = "QUALIFIED"
+    report_hash: str
+    selection_hash: str = ""
+    development_report_hash: str = ""
+    trades: int = 0
+    profitable_windows: int = 0
+    windows: int = 5
+    profit_factor: str = "0"
+    net_pnl_usdt: str = "0"
+    stress_net_pnl_usdt: str = "0"
+    drawdown_pct: str = "0"
+    execution_authority: Literal[False] = False
+
+
 class CanaryAutoEvolutionResponse(DomainModel):
     verified: bool = False
     phase: str = "UNKNOWN"
@@ -6151,6 +6170,7 @@ class CanaryAutoEvolutionResponse(DomainModel):
     artifact_hashes: dict[str, str] = Field(default_factory=dict)
     upstream_merkle_dag: dict[str, str] = Field(default_factory=dict)
     live_progress: LiveEvolutionProgressItem | None = None
+    qualified_portfolios: list[QualifiedPortfolioReceiptSummaryItem] = Field(default_factory=list)
 
 
 def _fetch_closed_trades_count(target_dir: Path | None = None) -> int:
@@ -6550,6 +6570,7 @@ def load_verified_canary_auto_evolution(
 
     # Historical research evidence is not live daemon telemetry.
     live_progress = None
+    qualified_portfolios = _load_verified_qualified_portfolios()
 
     return CanaryAutoEvolutionResponse(
         verified=True,
@@ -6574,7 +6595,65 @@ def load_verified_canary_auto_evolution(
         artifact_hashes=dict(summary_data.get("artifact_hashes", {})),
         upstream_merkle_dag=dict(summary_data.get("upstream_merkle_dag", {})),
         live_progress=live_progress,
+        qualified_portfolios=qualified_portfolios,
     )
+
+
+def _load_verified_qualified_portfolios(
+    repo_dir: Path | None = None,
+) -> list[QualifiedPortfolioReceiptSummaryItem]:
+    """Load and cryptographically verify approved portfolio qualification receipts."""
+    from ..execution.qualification_receipts import verify_runtime_portfolio_report
+
+    repo = repo_dir if repo_dir is not None else Path(__file__).resolve().parents[3]
+    manifest_path = repo / "deploy" / "qualification-admission.json"
+    if not manifest_path.is_file():
+        return []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entries = manifest.get("approved_portfolio_reports", [])
+        if not isinstance(entries, list):
+            return []
+        result: list[QualifiedPortfolioReceiptSummaryItem] = []
+        for entry in entries:
+            pid = str(entry["portfolio_id"])
+            rel_path = str(entry.get("holdout_report_path") or entry["path"])
+            p_path = (repo / rel_path).resolve()
+            receipt = verify_runtime_portfolio_report(p_path, repo=repo, portfolio_id=pid)
+            metrics = receipt.metrics
+            policy = receipt.policy
+            starting_eq = Decimal(str(policy.get("starting_equity", "100")))
+            dd_usdt = Decimal(str(metrics.get("drawdown_usdt", "0")))
+            dd_pct = (
+                str((dd_usdt / starting_eq * Decimal("100")).quantize(Decimal("0.01")))
+                if starting_eq > 0
+                else "0"
+            )
+            result.append(
+                QualifiedPortfolioReceiptSummaryItem(
+                    portfolio_id=receipt.portfolio_id,
+                    family=receipt.family,
+                    symbols=list(receipt.symbols),
+                    member_count=len(receipt.members),
+                    decision="QUALIFIED",
+                    report_hash=receipt.report_hash,
+                    selection_hash=receipt.selection_hash or "",
+                    development_report_hash=receipt.development_report_hash or "",
+                    trades=int(metrics.get("trade_count", metrics.get("trades", 0))),
+                    profitable_windows=int(metrics.get("profitable_windows", 0)),
+                    windows=int(policy.get("windows", 5)),
+                    profit_factor=str(metrics.get("profit_factor", "0")),
+                    net_pnl_usdt=str(metrics.get("net_pnl", metrics.get("net_pnl_usdt", "0"))),
+                    stress_net_pnl_usdt=str(
+                        metrics.get("stress_net_pnl", metrics.get("stress_net_pnl_usdt", "0"))
+                    ),
+                    drawdown_pct=dd_pct,
+                    execution_authority=False,
+                )
+            )
+        return result
+    except Exception:
+        return []
 
 
 # =====================================================================
@@ -7596,6 +7675,7 @@ __all__ = [
     "CanaryProductionLaunchResponse",
     "CandidateAllocationItem",
     "MicroCapitalConfinementItem",
+    "QualifiedPortfolioReceiptSummaryItem",
     "SelfDrivingOrderItem",
     "load_verified_canary_production_launch",
 ]

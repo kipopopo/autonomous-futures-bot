@@ -271,6 +271,17 @@ def test_load_verified_canary_auto_evolution_success(tmp_path: Path) -> None:
     assert res.upstream_hash == UPSTREAM_PHASE305_ROOT
     assert len(res.autopsies_trace) == 1
     assert res.solvency.zero_balance_drift_verified is True
+    assert len(res.qualified_portfolios) == 1
+    qp = res.qualified_portfolios[0]
+    assert qp.portfolio_id == "macro-scalper-uninspected-3sym-medium-frequency-v1"
+    assert qp.family == "MACRO_SCALPER"
+    assert qp.symbols == ["AVAXUSDT", "ETHUSDT", "SOLUSDT"]
+    assert qp.member_count == 6
+    assert qp.decision == "QUALIFIED"
+    assert qp.report_hash == "72de22bde9a30101c791bcc981c89481c176b6a4fd63acfd4e2495e8e9122d89"
+    assert qp.trades == 35
+    assert qp.profitable_windows == 3
+    assert qp.execution_authority is False
 
 
 def test_load_verified_canary_auto_evolution_missing_evidence(tmp_path: Path) -> None:

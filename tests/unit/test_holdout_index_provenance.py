@@ -36,6 +36,43 @@ def test_aug_sep_holdout_index_records_consumed_link_and_xrp_validations() -> No
         assert val["policy_binding"]["starting_equity"] == "4224.09882354"
         assert val["policy_binding"]["trade_risk_pct"] == "0.5"
         assert val["policy_binding"]["daily_loss_pct"] == "5"
-    assert len(index["consumption"]["uninspected_target_symbols"]) == 8
-    assert "XRPUSDT" not in index["consumption"]["uninspected_target_symbols"]
-    assert "SUIUSDT" not in index["consumption"]["uninspected_target_symbols"]
+
+    portfolio_consumed = index["consumption"]["consumed_portfolio_validation"]
+    assert len(portfolio_consumed) == 1
+    p_entry = portfolio_consumed[0]
+    assert p_entry["portfolio_id"] == "macro-scalper-uninspected-3sym-medium-frequency-v1"
+    assert p_entry["family"] == "MACRO_SCALPER"
+    assert p_entry["scope"] == "SHARED_WALLET_PORTFOLIO"
+    assert p_entry["symbols"] == ["AVAXUSDT", "ETHUSDT", "SOLUSDT"]
+    assert p_entry["member_count"] == 6
+    assert p_entry["decision"] == "QUALIFIED"
+    assert p_entry["execution_authority"] is False
+    assert p_entry["shared_context_consumed"] == [{"symbol": "BTCUSDT", "timeframe": "1h"}]
+
+    sel_bytes = (repo / p_entry["selection_manifest_path"]).read_bytes()
+    sel = json.loads(sel_bytes)
+    assert p_entry["selection_manifest_sha256"] == hashlib.sha256(sel_bytes).hexdigest()
+    assert p_entry["selection_hash"] == sel["selection_hash"]
+
+    dev_bytes = (repo / p_entry["development_report_path"]).read_bytes()
+    dev_rep = json.loads(dev_bytes)
+    assert p_entry["development_report_sha256"] == hashlib.sha256(dev_bytes).hexdigest()
+    assert p_entry["development_report_hash"] == dev_rep["report_hash"]
+
+    holdout_bytes = (repo / p_entry["report_path"]).read_bytes()
+    holdout_rep = json.loads(holdout_bytes)
+    assert p_entry["report_sha256"] == hashlib.sha256(holdout_bytes).hexdigest()
+    assert p_entry["report_hash"] == holdout_rep["report_hash"]
+    assert holdout_rep["decision"] == "QUALIFIED"
+    assert holdout_rep["execution_authority"] is False
+    assert all(holdout_rep["gates"].values())
+
+    assert index["consumption"]["uninspected_target_symbols"] == [
+        "DOGEUSDT",
+        "BNBUSDT",
+        "NEARUSDT",
+        "APTUSDT",
+        "ADAUSDT",
+    ]
+    for consumed_sym in ("LINKUSDT", "XRPUSDT", "SUIUSDT", "ETHUSDT", "SOLUSDT", "AVAXUSDT"):
+        assert consumed_sym not in index["consumption"]["uninspected_target_symbols"]

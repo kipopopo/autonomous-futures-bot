@@ -24,6 +24,21 @@ def test_preflight_verifies_current_repo_calibration_policy_and_empty_admission(
     assert report["checks"]["hawkes_calibration"]["symbols_count"] == 12
     assert report["checks"]["qualification_admission"]["passed"] is False
     assert report["checks"]["qualification_admission"]["approved_count"] == 0
+    assert report["checks"]["qualification_admission"]["approved_portfolio_count"] == 1
+    verified_portfolios = report["checks"]["qualification_admission"]["verified_portfolio_reports"]
+    assert len(verified_portfolios) == 1
+    assert (
+        verified_portfolios[0]["portfolio_id"]
+        == "macro-scalper-uninspected-3sym-medium-frequency-v1"
+    )
+    assert verified_portfolios[0]["family"] == "MACRO_SCALPER"
+    assert verified_portfolios[0]["symbols"] == ["AVAXUSDT", "ETHUSDT", "SOLUSDT"]
+    assert verified_portfolios[0]["member_count"] == 6
+    assert (
+        verified_portfolios[0]["report_hash"]
+        == "72de22bde9a30101c791bcc981c89481c176b6a4fd63acfd4e2495e8e9122d89"
+    )
+    assert verified_portfolios[0]["execution_authority"] is False
 
 
 def test_preflight_reports_legacy_writer_guard_and_storage_autopsy_ledger(
