@@ -29,8 +29,6 @@ from pathlib import Path
 from typing import Any
 
 from autonomous_futures.execution.binance_gateway import (
-    DEFAULT_SPECS,
-    BinanceAPIError,
     BinanceFuturesGateway,
     generate_drill_client_order_id,
     quantize_step_size,
@@ -49,9 +47,7 @@ from autonomous_futures.strategy.macro_liquidity_scalper import (
 logger = logging.getLogger("autonomous_futures.feed.execution_drill")
 
 # Upstream Phase 310 Parent Merkle Root
-UPSTREAM_PHASE_310_PARENT_ROOT = (
-    "0004387045399718c6229d1a18fec40399d4baba01b0eecd0ab51c782268dd84"
-)
+UPSTREAM_PHASE_310_PARENT_ROOT = "0004387045399718c6229d1a18fec40399d4baba01b0eecd0ab51c782268dd84"
 
 # Sub-satoshi Double-Entry Tolerance (|Delta| < 10^-15 USDT)
 DOUBLE_ENTRY_TOLERANCE = Decimal("1e-15")
@@ -321,9 +317,7 @@ class ExecutionDrillEngine:
 
         cur.execute("CREATE VIEW IF NOT EXISTS trades AS SELECT * FROM orders;")
         cur.execute("CREATE VIEW IF NOT EXISTS autopsies AS SELECT * FROM trade_autopsies;")
-        cur.execute(
-            "CREATE VIEW IF NOT EXISTS reconciliation AS SELECT * FROM solvency_snapshots;"
-        )
+        cur.execute("CREATE VIEW IF NOT EXISTS reconciliation AS SELECT * FROM solvency_snapshots;")
         cur.execute("CREATE VIEW IF NOT EXISTS telemetry AS SELECT * FROM candidate_health;")
 
         conn.commit()
@@ -437,7 +431,7 @@ class ExecutionDrillEngine:
         Enforces child cap <= 5.00 USDT, with single step size step-up allowed
         if ROUND_DOWN falls below MIN_NOTIONAL (5.00 USDT).
         """
-        spec = DEFAULT_SPECS.get(symbol.upper(), {})
+        spec = self.gateway.symbol_specs.get(symbol.upper(), {})
         step_size = spec.get("step_size", Decimal("0.01"))
         tick_size = spec.get("tick_size", Decimal("0.01"))
         min_qty = spec.get("min_qty", Decimal("0.01"))
@@ -481,7 +475,7 @@ class ExecutionDrillEngine:
         if actual_notional < min_notional:
             step_up_qty = quantized_qty + step_size
             step_up_notional = step_up_qty * quantized_price
-            max_allowed = capped_notional + (step_size * quantized_price)
+            max_allowed = capped_notional
             if step_up_notional >= min_notional and step_up_notional <= max_allowed:
                 quantized_qty = step_up_qty
                 actual_notional = step_up_notional
@@ -494,7 +488,7 @@ class ExecutionDrillEngine:
                     is_valid=False,
                     rejection_reason=(
                         f"Actual notional {actual_notional:.4f} USDT < minNotional "
-                        f"{min_notional:.2f} USDT and step-up exceeds cap tolerance."
+                        f"{min_notional:.2f} USDT and step-up exceeds strict cap."
                     ),
                 )
 
@@ -550,7 +544,7 @@ class ExecutionDrillEngine:
         ts_ms: int,
     ) -> ProtectiveBrackets:
         """Calculates Take-Profit (+2.0x ATR) and Stop-Loss (-1.2x ATR) brackets."""
-        spec = DEFAULT_SPECS.get(symbol.upper(), {})
+        spec = self.gateway.symbol_specs.get(symbol.upper(), {})
         tick_size = spec.get("tick_size", Decimal("0.01"))
 
         tp_distance = self.config.tp_atr_multiplier * atr
@@ -641,6 +635,49 @@ class ExecutionDrillEngine:
             f"• *Time*: {escape_markdown_v2(ts_str)}"
         )
 
+    async def _submit_exit_children(
+        self,
+        *,
+        parent_cid: str,
+        cid: str,
+        side: str,
+        quantity: Decimal,
+        price: Decimal,
+        stop: bool,
+    ) -> list[tuple[str, str, dict[str, Any]]]:
+        result = []
+        for index, qty in enumerate(
+            self.gateway.split_exit_quantity(self.config.symbol, quantity, price)
+        ):
+            child_cid = cid if index == 0 else f"{cid[:30]}-s{index:02d}"
+            response = await self.gateway.create_order(
+                symbol=self.config.symbol,
+                side=side,
+                order_type="STOP_MARKET" if stop else "LIMIT",
+                quantity=qty,
+                price=None if stop else price,
+                stop_price=price if stop else None,
+                client_order_id=child_cid,
+                reduce_only=True,
+            )
+            exchange_id = str(response["orderId"])
+            self._record_bracket_db(
+                {
+                    "bracket_id": exchange_id,
+                    "parent_client_order_id": parent_cid,
+                    "symbol": self.config.symbol,
+                    "bracket_type": "STOP_LOSS" if stop else "TAKE_PROFIT",
+                    "side": side,
+                    "price": 0.0 if stop else float(price),
+                    "stop_price": float(price) if stop else 0.0,
+                    "quantity": float(qty),
+                    "status": response["status"],
+                    "client_order_id": child_cid,
+                    "timestamp_ms": int(time.time() * 1000),
+                }
+            )
+            result.append((exchange_id, child_cid, response))
+        return result
 
     async def execute_drill(self) -> dict[str, Any]:
         """Executes full Phase 311 execution drill cycle."""
@@ -667,6 +704,8 @@ class ExecutionDrillEngine:
 
         if roundtrip_ms > MAX_PERMISSIBLE_LATENCY_MS and not self.config.dry_run:
             logger.warning("Gateway roundtrip latency %s ms is elevated", roundtrip_ms)
+
+        await self.gateway.refresh_exchange_filters()
 
         # 2. Query mark price
         mark_price = await self.gateway.get_ticker_price(self.config.symbol)
@@ -700,6 +739,14 @@ class ExecutionDrillEngine:
             ts_ms=now_ms,
         )
 
+        # Reject unprotectable lot sizes before placing the entry.
+        self.gateway.split_exit_quantity(
+            self.config.symbol, sizing.quantized_qty, brackets.take_profit_price
+        )
+        self.gateway.split_exit_quantity(
+            self.config.symbol, sizing.quantized_qty, brackets.stop_loss_price
+        )
+
         # 6. Generate entry client order ID
         entry_cid = generate_drill_client_order_id(
             symbol=self.config.symbol,
@@ -728,34 +775,54 @@ class ExecutionDrillEngine:
         )
 
         entry_order_id = str(entry_resp.get("orderId", entry_cid))
-        maker_fee = sizing.actual_notional * MAKER_FEE_RATE
-
-        # Record entry order in ledger, DB, and JSONL
-        self.ledger.record_fill(
-            margin_released=sizing.actual_notional,
-            realized_pnl_delta=Decimal("0.00"),
-            fee_cost=maker_fee,
+        # Submission is not a fill. Reserve capital until exchange execution is known.
+        maker_fee = Decimal("0")
+        observed = await self.gateway.get_order(
+            symbol=self.config.symbol, client_order_id=entry_cid
         )
+        if observed.get("status") != "FILLED":
+            await self.gateway.cancel_order(symbol=self.config.symbol, client_order_id=entry_cid)
+            observed = await self.gateway.get_order(
+                symbol=self.config.symbol, client_order_id=entry_cid
+            )
+        executed_qty = Decimal(str(observed.get("executedQty", "0")))
+        if executed_qty <= 0:
+            self._append_event(
+                "ENTRY_NOT_FILLED", {"client_order_id": entry_cid, "status": observed.get("status")}
+            )
+            raise RuntimeError("Entry was not filled; protective brackets were not submitted")
+        sizing = dataclasses.replace(
+            sizing,
+            quantized_qty=executed_qty,
+            actual_notional=executed_qty * sizing.quantized_price,
+        )
+        entry_resp = observed
+        # Actual commission must be reconciled from exchange income, never estimated as a fill.
 
-        self._record_order_db({
-            "order_id": entry_order_id,
-            "client_order_id": entry_cid,
-            "symbol": self.config.symbol,
-            "side": self.config.side,
-            "order_type": "LIMIT",
-            "price": float(sizing.quantized_price),
-            "quantity": float(sizing.quantized_qty),
-            "notional_usdt": float(sizing.actual_notional),
-            "status": entry_resp.get("status", "NEW"),
-            "fee_usdt": float(maker_fee),
-            "realized_pnl_usdt": float(-maker_fee),
-            "timestamp_ms": now_ms,
-        })
-        self._append_event("ORDER_SUBMITTED", {
-            "order_id": entry_order_id,
-            "client_order_id": entry_cid,
-            "status": entry_resp.get("status", "NEW"),
-        })
+        self._record_order_db(
+            {
+                "order_id": entry_order_id,
+                "client_order_id": entry_cid,
+                "symbol": self.config.symbol,
+                "side": self.config.side,
+                "order_type": "LIMIT",
+                "price": float(sizing.quantized_price),
+                "quantity": float(sizing.quantized_qty),
+                "notional_usdt": float(sizing.actual_notional),
+                "status": entry_resp.get("status", "NEW"),
+                "fee_usdt": float(maker_fee),
+                "realized_pnl_usdt": float(-maker_fee),
+                "timestamp_ms": now_ms,
+            }
+        )
+        self._append_event(
+            "ORDER_SUBMITTED",
+            {
+                "order_id": entry_order_id,
+                "client_order_id": entry_cid,
+                "status": entry_resp.get("status", "NEW"),
+            },
+        )
 
         # 8. Dispatch Take-Profit Bracket (+2.0x ATR, reduceOnly=True)
         bracket_side = "SELL" if self.config.side.upper() == "BUY" else "BUY"
@@ -766,48 +833,14 @@ class ExecutionDrillEngine:
             brackets.take_profit_price,
         )
 
-        try:
-            tp_resp = await self.gateway.create_order(
-                symbol=self.config.symbol,
-                side=bracket_side,
-                order_type="LIMIT",
-                quantity=sizing.quantized_qty,
-                price=brackets.take_profit_price,
-                client_order_id=brackets.tp_client_order_id,
-                time_in_force="GTC",
-                reduce_only=True,
-            )
-        except BinanceAPIError as tp_err:
-            if tp_err.code == -2022:
-                logger.info(
-                    "ReduceOnly rejected (resting order not yet filled); submitting TP limit"
-                )
-                tp_resp = await self.gateway.create_order(
-                    symbol=self.config.symbol,
-                    side=bracket_side,
-                    order_type="LIMIT",
-                    quantity=sizing.quantized_qty,
-                    price=brackets.take_profit_price,
-                    client_order_id=brackets.tp_client_order_id,
-                    time_in_force="GTC",
-                    reduce_only=False,
-                )
-            else:
-                raise
-        tp_bracket_id = str(tp_resp.get("orderId", brackets.tp_client_order_id))
-        self._record_bracket_db({
-            "bracket_id": tp_bracket_id,
-            "parent_client_order_id": entry_cid,
-            "symbol": self.config.symbol,
-            "bracket_type": "TAKE_PROFIT",
-            "side": bracket_side,
-            "price": float(brackets.take_profit_price),
-            "stop_price": 0.0,
-            "quantity": float(sizing.quantized_qty),
-            "status": tp_resp.get("status", "NEW"),
-            "client_order_id": brackets.tp_client_order_id,
-            "timestamp_ms": int(time.time() * 1000),
-        })
+        tp_children = await self._submit_exit_children(
+            parent_cid=entry_cid,
+            cid=brackets.tp_client_order_id,
+            side=bracket_side,
+            quantity=sizing.quantized_qty,
+            price=brackets.take_profit_price,
+            stop=False,
+        )
 
         # 9. Dispatch Stop-Loss Bracket (-1.2x ATR, STOP_MARKET)
         logger.info(
@@ -817,46 +850,14 @@ class ExecutionDrillEngine:
             brackets.stop_loss_price,
         )
 
-        try:
-            sl_resp = await self.gateway.create_order(
-                symbol=self.config.symbol,
-                side=bracket_side,
-                order_type="STOP_MARKET",
-                quantity=sizing.quantized_qty,
-                stop_price=brackets.stop_loss_price,
-                client_order_id=brackets.sl_client_order_id,
-                reduce_only=True,
-            )
-        except BinanceAPIError as sl_err:
-            if sl_err.code == -2022:
-                logger.info(
-                    "ReduceOnly rejected (resting order not yet filled); submitting SL stop"
-                )
-                sl_resp = await self.gateway.create_order(
-                    symbol=self.config.symbol,
-                    side=bracket_side,
-                    order_type="STOP_MARKET",
-                    quantity=sizing.quantized_qty,
-                    stop_price=brackets.stop_loss_price,
-                    client_order_id=brackets.sl_client_order_id,
-                    reduce_only=False,
-                )
-            else:
-                raise
-        sl_bracket_id = str(sl_resp.get("orderId", brackets.sl_client_order_id))
-        self._record_bracket_db({
-            "bracket_id": sl_bracket_id,
-            "parent_client_order_id": entry_cid,
-            "symbol": self.config.symbol,
-            "bracket_type": "STOP_LOSS",
-            "side": bracket_side,
-            "price": 0.0,
-            "stop_price": float(brackets.stop_loss_price),
-            "quantity": float(sizing.quantized_qty),
-            "status": sl_resp.get("status", "NEW"),
-            "client_order_id": brackets.sl_client_order_id,
-            "timestamp_ms": int(time.time() * 1000),
-        })
+        sl_children = await self._submit_exit_children(
+            parent_cid=entry_cid,
+            cid=brackets.sl_client_order_id,
+            side=bracket_side,
+            quantity=sizing.quantized_qty,
+            price=brackets.stop_loss_price,
+            stop=True,
+        )
 
         # Dispatch Telegram notification for entry & brackets
         try:
@@ -877,7 +878,7 @@ class ExecutionDrillEngine:
         if self.config.cleanup or self.config.auto_close:
             cleanup_report = await self.cleanup_drill_orders(
                 symbol=self.config.symbol,
-                bracket_cids=[brackets.tp_client_order_id, brackets.sl_client_order_id, entry_cid],
+                bracket_cids=[cid for _, cid, _ in tp_children + sl_children] + [entry_cid],
                 quantity=sizing.quantized_qty,
                 side=bracket_side,
             )
@@ -910,8 +911,10 @@ class ExecutionDrillEngine:
             },
             "orders": {
                 "entry_order": entry_resp,
-                "tp_order": tp_resp,
-                "sl_order": sl_resp,
+                "tp_order": tp_children[0][2],
+                "tp_orders": [response for _, _, response in tp_children],
+                "sl_order": sl_children[0][2],
+                "sl_orders": [response for _, _, response in sl_children],
             },
             "cleanup": cleanup_report,
             "solvency": snap,
@@ -970,11 +973,14 @@ class ExecutionDrillEngine:
                         client_order_id=flat_cid,
                         reduce_only=True,
                     )
-                    self._append_event("POSITION_FLATTENED", {
-                        "symbol": symbol,
-                        "amt": float(amt),
-                        "result": flatten_res,
-                    })
+                    self._append_event(
+                        "POSITION_FLATTENED",
+                        {
+                            "symbol": symbol,
+                            "amt": float(amt),
+                            "result": flatten_res,
+                        },
+                    )
                     break
         except Exception as exc:
             logger.debug("Flatten position check notice: %s", exc)
@@ -1085,9 +1091,7 @@ def verify_phase_311_artifacts(target_dir: Path | str) -> bool:
     rep_hash = artifact_hashes.get("report_json")
     drift_str = str(solvency.get("drift", "0.0"))
 
-    combined_payload = (
-        f"phase_311:{upstream_hash}:{sq_hash}:{ev_hash}:{rep_hash}:{drift_str}"
-    )
+    combined_payload = f"phase_311:{upstream_hash}:{sq_hash}:{ev_hash}:{rep_hash}:{drift_str}"
     expected_phase_hash = hashlib.sha256(combined_payload.encode()).hexdigest()
     expected_merkle_root = hashlib.sha256(
         f"{upstream_hash}:{expected_phase_hash}".encode()

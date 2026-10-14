@@ -40,14 +40,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import ROUND_DOWN, Decimal
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 UPSTREAM_PHASE305_ROOT_HASH = "0cbf6a93a5332789d5053f72e7e494b03b48ccd0ff7c62118bb339d5d905aa7c"
 DEFAULT_PHASE306_OUTPUT_DIR = Path("artifacts/research/phase306")
@@ -1383,3 +1384,753 @@ def verify_phase_306_merkle_dag(
     solvency = summary.get("solvency", {})
     drift = float(solvency.get("drift_usdt", 1.0))
     return drift < 1e-15
+
+
+# =============================================================================
+# Phase 317 Milestone 4: ICT MMXM Genome Representation & Autopsy Engine
+# =============================================================================
+
+MIN_OTE_LOWER = Decimal("0.48")
+MAX_OTE_LOWER = Decimal("0.68")
+MIN_OTE_UPPER = Decimal("0.70")
+MAX_OTE_UPPER = Decimal("0.85")
+
+MIN_STDV_TP1 = Decimal("1.5")
+MAX_STDV_TP1 = Decimal("2.5")
+MIN_STDV_TP2 = Decimal("3.0")
+MAX_STDV_TP2 = Decimal("5.0")
+
+MIN_SWING_LOOKBACK = 20
+MAX_SWING_LOOKBACK = 150
+
+MIN_FVG_THRESHOLD_PCT = Decimal("0.0005")  # 5 bps
+MAX_FVG_THRESHOLD_PCT = Decimal("0.0050")  # 50 bps
+
+MIN_OTE_SPREAD = Decimal("0.05")
+MIN_STDV_SPREAD = Decimal("0.50")
+
+
+class GenomeInvariantError(ValueError):
+    """Raised when an ICT parameter genome violates boundaries or relational invariants."""
+
+
+@dataclass(frozen=True, slots=True)
+class IctGenome:
+    """Immutable genetic parameter representation for ICT MMXM trading strategies."""
+
+    candidate_id: str
+    symbol: str
+    generation: int = 1
+    ote_lower: Decimal = Decimal("0.62")
+    ote_upper: Decimal = Decimal("0.79")
+    stdv_tp1: Decimal = Decimal("2.0")
+    stdv_tp2: Decimal = Decimal("4.0")
+    swing_lookback: int = 50
+    fvg_threshold_pct: Decimal = Decimal("0.0015")
+    parent_genome_id: str | None = None
+    parent_candidate_id: str | None = None
+    mutation_rationale: str = "Initial baseline parameter set"
+    created_at_utc: str = ""
+    health_tier: CandidateHealthTier = CandidateHealthTier.PROBATIONARY
+    is_active: bool = True
+    qualification_hash: str | None = None
+    lookback_htf: int = 100
+
+    def __post_init__(self) -> None:
+        # Normalize float/int to Decimal if passed
+        object.__setattr__(
+            self,
+            "ote_lower",
+            self.ote_lower
+            if isinstance(self.ote_lower, Decimal)
+            else Decimal(str(round(float(self.ote_lower), 4))),
+        )
+        object.__setattr__(
+            self,
+            "ote_upper",
+            self.ote_upper
+            if isinstance(self.ote_upper, Decimal)
+            else Decimal(str(round(float(self.ote_upper), 4))),
+        )
+        object.__setattr__(
+            self,
+            "stdv_tp1",
+            self.stdv_tp1
+            if isinstance(self.stdv_tp1, Decimal)
+            else Decimal(str(round(float(self.stdv_tp1), 2))),
+        )
+        object.__setattr__(
+            self,
+            "stdv_tp2",
+            self.stdv_tp2
+            if isinstance(self.stdv_tp2, Decimal)
+            else Decimal(str(round(float(self.stdv_tp2), 2))),
+        )
+        object.__setattr__(
+            self,
+            "fvg_threshold_pct",
+            self.fvg_threshold_pct
+            if isinstance(self.fvg_threshold_pct, Decimal)
+            else Decimal(str(round(float(self.fvg_threshold_pct), 6))),
+        )
+        if self.parent_candidate_id and not self.parent_genome_id:
+            object.__setattr__(self, "parent_genome_id", self.parent_candidate_id)
+        if self.parent_genome_id and not self.parent_candidate_id:
+            object.__setattr__(self, "parent_candidate_id", self.parent_genome_id)
+        self.validate_invariants()
+
+    def validate_invariants(self) -> None:
+        """Validates all strict parameter boundaries and relational invariants."""
+        # 1. Bounded OTE lower: [0.55, 0.68]
+        if not (MIN_OTE_LOWER <= self.ote_lower <= MAX_OTE_LOWER):
+            raise GenomeInvariantError(
+                f"ote_lower {self.ote_lower} outside [{MIN_OTE_LOWER}, {MAX_OTE_LOWER}]"
+            )
+
+        # 2. Bounded OTE upper: [0.70, 0.85]
+        if not (MIN_OTE_UPPER <= self.ote_upper <= MAX_OTE_UPPER):
+            raise GenomeInvariantError(
+                f"ote_upper {self.ote_upper} outside [{MIN_OTE_UPPER}, {MAX_OTE_UPPER}]"
+            )
+
+        # 3. Relational Invariant: ote_lower < ote_upper with min spread >= 0.05
+        if self.ote_lower >= self.ote_upper:
+            raise GenomeInvariantError(
+                f"Invariant violation: ote_lower ({self.ote_lower}) >= ote_upper ({self.ote_upper})"
+            )
+        if (self.ote_upper - self.ote_lower) < MIN_OTE_SPREAD:
+            spread_ote = self.ote_upper - self.ote_lower
+            raise GenomeInvariantError(
+                f"Invariant violation: OTE spread ({spread_ote}) < {MIN_OTE_SPREAD}"
+            )
+
+        # 4. Bounded STDV TP1: [1.5, 2.5]
+        if not (MIN_STDV_TP1 <= self.stdv_tp1 <= MAX_STDV_TP1):
+            raise GenomeInvariantError(
+                f"stdv_tp1 {self.stdv_tp1} outside [{MIN_STDV_TP1}, {MAX_STDV_TP1}]"
+            )
+
+        # 5. Bounded STDV TP2: [3.0, 5.0]
+        if not (MIN_STDV_TP2 <= self.stdv_tp2 <= MAX_STDV_TP2):
+            raise GenomeInvariantError(
+                f"stdv_tp2 {self.stdv_tp2} outside [{MIN_STDV_TP2}, {MAX_STDV_TP2}]"
+            )
+
+        # 6. Relational Invariant: stdv_tp1 < stdv_tp2 with min spread >= 0.50
+        if self.stdv_tp1 >= self.stdv_tp2:
+            raise GenomeInvariantError(
+                f"Invariant violation: stdv_tp1 ({self.stdv_tp1}) >= stdv_tp2 ({self.stdv_tp2})"
+            )
+        if (self.stdv_tp2 - self.stdv_tp1) < MIN_STDV_SPREAD:
+            spread_stdv = self.stdv_tp2 - self.stdv_tp1
+            raise GenomeInvariantError(
+                f"Invariant violation: STDV spread ({spread_stdv}) < {MIN_STDV_SPREAD}"
+            )
+
+        # 7. Bounded swing lookback: [20, 150]
+        if not (MIN_SWING_LOOKBACK <= self.swing_lookback <= MAX_SWING_LOOKBACK):
+            raise GenomeInvariantError(
+                f"swing_lookback {self.swing_lookback} outside "
+                f"[{MIN_SWING_LOOKBACK}, {MAX_SWING_LOOKBACK}]"
+            )
+
+        # 8. Bounded FVG threshold pct: [0.0005, 0.0050]
+        if not (MIN_FVG_THRESHOLD_PCT <= self.fvg_threshold_pct <= MAX_FVG_THRESHOLD_PCT):
+            raise GenomeInvariantError(
+                f"fvg_threshold_pct {self.fvg_threshold_pct} outside "
+                f"[{MIN_FVG_THRESHOLD_PCT}, {MAX_FVG_THRESHOLD_PCT}]"
+            )
+
+    @property
+    def genome_id(self) -> str:
+        return f"gene-{self.candidate_id}-g{self.generation}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "genome_id": self.genome_id,
+            "candidate_id": self.candidate_id,
+            "symbol": self.symbol,
+            "generation": self.generation,
+            "parent_candidate_id": self.parent_candidate_id,
+            "parent_genome_id": self.parent_genome_id,
+            "ote_lower": float(self.ote_lower),
+            "ote_upper": float(self.ote_upper),
+            "stdv_tp1": float(self.stdv_tp1),
+            "stdv_tp2": float(self.stdv_tp2),
+            "swing_lookback": self.swing_lookback,
+            "lookback_htf": self.lookback_htf,
+            "fvg_threshold_pct": float(self.fvg_threshold_pct),
+            "health_tier": str(self.health_tier),
+            "is_active": self.is_active,
+            "qualification_hash": self.qualification_hash,
+            "mutation_rationale": self.mutation_rationale,
+            "created_at_utc": self.created_at_utc,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> IctGenome:
+        return cls(
+            candidate_id=data["candidate_id"],
+            symbol=data["symbol"],
+            generation=int(data.get("generation", 1)),
+            parent_candidate_id=data.get("parent_candidate_id"),
+            parent_genome_id=data.get("parent_genome_id"),
+            ote_lower=Decimal(str(data["ote_lower"])),
+            ote_upper=Decimal(str(data["ote_upper"])),
+            stdv_tp1=Decimal(str(data["stdv_tp1"])),
+            stdv_tp2=Decimal(str(data["stdv_tp2"])),
+            swing_lookback=int(data.get("swing_lookback", data.get("lookback_htf", 50))),
+            lookback_htf=int(data.get("lookback_htf", data.get("swing_lookback", 100))),
+            fvg_threshold_pct=Decimal(str(data.get("fvg_threshold_pct", "0.0015"))),
+            health_tier=CandidateHealthTier(
+                data.get("health_tier", CandidateHealthTier.PROBATIONARY)
+            ),
+            is_active=bool(data.get("is_active", True)),
+            qualification_hash=data.get("qualification_hash"),
+            mutation_rationale=data.get("mutation_rationale", ""),
+            created_at_utc=data.get("created_at_utc", ""),
+        )
+
+    def content_hash(self) -> str:
+        payload = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+# Alias for backwards/suite compatibility
+IctCandidateGenome = IctGenome
+
+DEFAULT_ICT_GENOMES: dict[str, IctGenome] = {
+    sym: IctGenome(
+        candidate_id=f"cand-{sym.lower()}-ict-001",
+        symbol=sym,
+        generation=1,
+        ote_lower=Decimal("0.50"),
+        ote_upper=Decimal("0.79"),
+        stdv_tp1=Decimal("2.0"),
+        stdv_tp2=Decimal("4.0"),
+        swing_lookback=50,
+        lookback_htf=100,
+        fvg_threshold_pct=Decimal("0.0015"),
+        health_tier=CandidateHealthTier.HEALTHY,
+        is_active=True,
+    )
+    for sym in (
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT",
+        "DOGEUSDT",
+        "BNBUSDT",
+        "XRPUSDT",
+        "SUIUSDT",
+        "AVAXUSDT",
+        "NEARUSDT",
+        "LINKUSDT",
+        "APTUSDT",
+        "ADAUSDT",
+    )
+}
+
+
+def compute_autopsy_score(
+    realized_edge_bps: float,
+    timing_error_bps: float,
+    adverse_selection_bps: float,
+) -> float:
+    """Computes normalized autopsy score S in [0.0, 1.0]."""
+    edge_norm = max(0.0, min(1.0, (realized_edge_bps + 50.0) / 100.0))
+    timing_norm = max(0.0, min(1.0, 1.0 - (timing_error_bps / 20.0)))
+    adverse_norm = max(0.0, min(1.0, 1.0 - (adverse_selection_bps / 30.0)))
+    score = 0.50 * edge_norm + 0.25 * timing_norm + 0.25 * adverse_norm
+    return round(score, 4)
+
+
+def mutate_genome(
+    genome: IctGenome,
+    mutation_rate: float = 0.30,
+    perturbation_scale: float = 0.10,
+    autopsy_score: float | None = None,
+    primary_cause: str | None = None,
+    random_seed: int | None = None,
+    delta_ote_lower: float | None = None,
+    delta_ote_upper: float | None = None,
+    delta_stdv_tp1: float | None = None,
+    delta_stdv_tp2: float | None = None,
+    delta_lookback: int | None = None,
+    delta_swing_lookback: int | None = None,
+    created_at_utc: str | None = None,
+) -> IctGenome:
+    """Mutate genome with parameter clamping, invariant preservation, and adaptive scaling."""
+    rng = random.Random(random_seed)
+    s = 0.50 if autopsy_score is None else max(0.0, min(1.0, float(autopsy_score)))
+    adaptive_factor = 0.40 + (1.0 - s) * 1.60
+    effective_scale = perturbation_scale * adaptive_factor
+
+    range_ote_lower = float(MAX_OTE_LOWER - MIN_OTE_LOWER)
+    range_ote_upper = float(MAX_OTE_UPPER - MIN_OTE_UPPER)
+    range_stdv_tp1 = float(MAX_STDV_TP1 - MIN_STDV_TP1)
+    range_stdv_tp2 = float(MAX_STDV_TP2 - MIN_STDV_TP2)
+    range_lookback = float(MAX_SWING_LOOKBACK - MIN_SWING_LOOKBACK)
+    range_fvg = float(MAX_FVG_THRESHOLD_PCT - MIN_FVG_THRESHOLD_PCT)
+
+    new_ote_lower = float(genome.ote_lower)
+    new_ote_upper = float(genome.ote_upper)
+    new_stdv_tp1 = float(genome.stdv_tp1)
+    new_stdv_tp2 = float(genome.stdv_tp2)
+    new_lookback = genome.swing_lookback
+    new_lookback_htf = genome.lookback_htf
+    new_fvg = float(genome.fvg_threshold_pct)
+
+    mutated_genes: list[str] = []
+
+    # Gene 1: ote_lower
+    if delta_ote_lower is not None:
+        new_ote_lower += delta_ote_lower
+        mutated_genes.append("ote_lower")
+    elif rng.random() < mutation_rate:
+        d = rng.gauss(0.0, 1.0) * effective_scale * range_ote_lower
+        if primary_cause == "SPREAD_CROSS":
+            d += 0.01
+        new_ote_lower += d
+        mutated_genes.append("ote_lower")
+
+    # Gene 2: ote_upper
+    if delta_ote_upper is not None:
+        new_ote_upper += delta_ote_upper
+        mutated_genes.append("ote_upper")
+    elif rng.random() < mutation_rate:
+        d = rng.gauss(0.0, 1.0) * effective_scale * range_ote_upper
+        new_ote_upper += d
+        mutated_genes.append("ote_upper")
+
+    # Gene 3: stdv_tp1
+    if delta_stdv_tp1 is not None:
+        new_stdv_tp1 += delta_stdv_tp1
+        mutated_genes.append("stdv_tp1")
+    elif rng.random() < mutation_rate:
+        d = rng.gauss(0.0, 1.0) * effective_scale * range_stdv_tp1
+        new_stdv_tp1 += d
+        mutated_genes.append("stdv_tp1")
+
+    # Gene 4: stdv_tp2
+    if delta_stdv_tp2 is not None:
+        new_stdv_tp2 += delta_stdv_tp2
+        mutated_genes.append("stdv_tp2")
+    elif rng.random() < mutation_rate:
+        d = rng.gauss(0.0, 1.0) * effective_scale * range_stdv_tp2
+        new_stdv_tp2 += d
+        mutated_genes.append("stdv_tp2")
+
+    # Gene 5: swing_lookback
+    d_lb = delta_swing_lookback if delta_swing_lookback is not None else delta_lookback
+    if d_lb is not None:
+        new_lookback += d_lb
+        new_lookback_htf += d_lb
+        mutated_genes.append("swing_lookback")
+    elif rng.random() < mutation_rate:
+        d = rng.gauss(0.0, 1.0) * effective_scale * range_lookback
+        new_lookback = int(round(new_lookback + d))
+        new_lookback_htf = int(round(new_lookback_htf + d))
+        mutated_genes.append("swing_lookback")
+
+    # Gene 6: fvg_threshold_pct
+    if rng.random() < mutation_rate and delta_ote_lower is None:
+        d = rng.gauss(0.0, 1.0) * effective_scale * range_fvg
+        new_fvg += d
+        mutated_genes.append("fvg_threshold_pct")
+
+    # Guarantee at least one mutation if none happened by chance
+    if not mutated_genes:
+        step = 0.01 if rng.random() < 0.5 else -0.01
+        new_ote_lower += step
+        mutated_genes.append("ote_lower (forced)")
+
+    # Parameter bounds clamping
+    clamped_ol = max(float(MIN_OTE_LOWER), min(float(MAX_OTE_LOWER), new_ote_lower))
+    clamped_ou = max(float(MIN_OTE_UPPER), min(float(MAX_OTE_UPPER), new_ote_upper))
+    clamped_t1 = max(float(MIN_STDV_TP1), min(float(MAX_STDV_TP1), new_stdv_tp1))
+    clamped_t2 = max(float(MIN_STDV_TP2), min(float(MAX_STDV_TP2), new_stdv_tp2))
+    clamped_lb = max(int(MIN_SWING_LOOKBACK), min(int(MAX_SWING_LOOKBACK), new_lookback))
+    clamped_lb_htf = max(50, min(200, new_lookback_htf))
+    clamped_fvg = max(float(MIN_FVG_THRESHOLD_PCT), min(float(MAX_FVG_THRESHOLD_PCT), new_fvg))
+
+    # Invariant preservation: ote_lower < ote_upper with MIN_OTE_SPREAD
+    if clamped_ol >= clamped_ou - float(MIN_OTE_SPREAD):
+        clamped_ol = clamped_ou - float(MIN_OTE_SPREAD)
+
+    # Invariant preservation: stdv_tp1 < stdv_tp2 with MIN_STDV_SPREAD
+    if clamped_t1 >= clamped_t2 - float(MIN_STDV_SPREAD):
+        clamped_t2 = clamped_t1 + float(MIN_STDV_SPREAD)
+
+    new_gen = genome.generation + 1
+    new_cid = f"cand-{genome.symbol.lower()}-ict-{new_gen:03d}"
+    genes_str = ", ".join(mutated_genes)
+    rationale = f"Adaptive mutation ({genes_str}) with S={s:.2f}, scale={effective_scale:.3f}"
+
+    if created_at_utc is not None:
+        created_ts = created_at_utc
+    elif random_seed is not None:
+        created_ts = datetime.fromtimestamp(1700000000 + (random_seed % 86400), tz=UTC).isoformat()
+    else:
+        created_ts = datetime.now(UTC).isoformat()
+
+    return IctGenome(
+        candidate_id=new_cid,
+        symbol=genome.symbol,
+        generation=new_gen,
+        parent_candidate_id=genome.candidate_id,
+        parent_genome_id=genome.genome_id,
+        ote_lower=Decimal(str(round(clamped_ol, 4))),
+        ote_upper=Decimal(str(round(clamped_ou, 4))),
+        stdv_tp1=Decimal(str(round(clamped_t1, 2))),
+        stdv_tp2=Decimal(str(round(clamped_t2, 2))),
+        swing_lookback=clamped_lb,
+        lookback_htf=clamped_lb_htf,
+        fvg_threshold_pct=Decimal(str(round(clamped_fvg, 6))),
+        health_tier=CandidateHealthTier.PROBATIONARY,
+        is_active=True,
+        mutation_rationale=rationale,
+        created_at_utc=created_ts,
+    )
+
+
+class IctGenomeMutationEngine:
+    """Mutation engine interface supporting both Suite 3 and autonomous execution."""
+
+    MIN_OTE_LOWER = float(MIN_OTE_LOWER)
+    MAX_OTE_LOWER = float(MAX_OTE_LOWER)
+    MIN_OTE_UPPER = float(MIN_OTE_UPPER)
+    MAX_OTE_UPPER = float(MAX_OTE_UPPER)
+    MIN_OTE_SPREAD = float(MIN_OTE_SPREAD)
+
+    MIN_STDV_TP1 = float(MIN_STDV_TP1)
+    MAX_STDV_TP1 = float(MAX_STDV_TP1)
+    MIN_STDV_TP2 = float(MIN_STDV_TP2)
+    MAX_STDV_TP2 = float(MAX_STDV_TP2)
+    MIN_STDV_SPREAD = float(MIN_STDV_SPREAD)
+
+    MIN_LOOKBACK_HTF = 50
+    MAX_LOOKBACK_HTF = 200
+
+    def __init__(self, seed: int | None = None) -> None:
+        self.seed = seed
+
+    def mutate_genome(
+        self,
+        parent: IctGenome,
+        delta_ote_lower: float | None = None,
+        delta_ote_upper: float | None = None,
+        delta_stdv_tp1: float | None = None,
+        delta_stdv_tp2: float | None = None,
+        delta_lookback: int | None = None,
+        delta_swing_lookback: int | None = None,
+        autopsy_score: float | None = None,
+        primary_cause: str | None = None,
+        created_at_utc: str | None = None,
+    ) -> IctGenome:
+        return mutate_genome(
+            genome=parent,
+            random_seed=self.seed,
+            delta_ote_lower=delta_ote_lower,
+            delta_ote_upper=delta_ote_upper,
+            delta_stdv_tp1=delta_stdv_tp1,
+            delta_stdv_tp2=delta_stdv_tp2,
+            delta_lookback=delta_lookback,
+            delta_swing_lookback=delta_swing_lookback,
+            autopsy_score=autopsy_score,
+            primary_cause=primary_cause,
+            created_at_utc=created_at_utc,
+        )
+
+
+@dataclass(frozen=True)
+class IctAutopsyMetrics:
+    """Microstructural and structural metrics calculated during ICT trade autopsy decomposition."""
+
+    trade_id: str
+    candidate_id: str
+    symbol: str
+    side: str
+    entry_price: float
+    exit_price: float
+    fill_qty: float
+    optimal_price: float
+    fvg_boundary_price: float
+    entry_timing_error_bps: float
+    fvg_slippage_bps: float
+    mae_bps: float
+    mfe_bps: float
+    bracket_efficiency: float
+    realized_edge_bps: float
+    gross_pnl_usdt: float
+    fee_cost_usdt: float
+    net_pnl_usdt: float
+    cause: AutopsyAttributionCause
+    timestamp_ms: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "trade_id": self.trade_id,
+            "candidate_id": self.candidate_id,
+            "symbol": self.symbol,
+            "side": self.side,
+            "entry_price": round(self.entry_price, 4),
+            "exit_price": round(self.exit_price, 4),
+            "fill_qty": round(self.fill_qty, 4),
+            "optimal_price": round(self.optimal_price, 4),
+            "fvg_boundary_price": round(self.fvg_boundary_price, 4),
+            "entry_timing_error_bps": round(self.entry_timing_error_bps, 2),
+            "fvg_slippage_bps": round(self.fvg_slippage_bps, 2),
+            "mae_bps": round(self.mae_bps, 2),
+            "mfe_bps": round(self.mfe_bps, 2),
+            "bracket_efficiency": round(self.bracket_efficiency, 4),
+            "realized_edge_bps": round(self.realized_edge_bps, 2),
+            "gross_pnl_usdt": round(self.gross_pnl_usdt, 4),
+            "fee_cost_usdt": round(self.fee_cost_usdt, 4),
+            "net_pnl_usdt": round(self.net_pnl_usdt, 4),
+            "cause": str(self.cause),
+            "timestamp_ms": self.timestamp_ms,
+        }
+
+
+class IctAutopsyCalculator:
+    """Pure mathematical calculator for ICT trade autopsies."""
+
+    def __init__(self, maker_fee_rate: float = 0.0002, taker_fee_rate: float = 0.0004) -> None:
+        self.maker_fee_rate = maker_fee_rate
+        self.taker_fee_rate = taker_fee_rate
+
+    def compute_metrics(
+        self,
+        trade_id: str,
+        candidate_id: str,
+        symbol: str,
+        side: Literal["BUY", "SELL"] | str,
+        entry_price: float,
+        exit_price: float,
+        fill_qty: float,
+        optimal_price: float,
+        fvg_boundary_price: float,
+        lowest_price_during_trade: float,
+        highest_price_during_trade: float,
+        timestamp_ms: int,
+    ) -> IctAutopsyMetrics:
+        notional = entry_price * fill_qty
+        is_long = side.upper() == "BUY"
+
+        if is_long:
+            gross_pnl = (exit_price - entry_price) * fill_qty
+        else:
+            gross_pnl = (entry_price - exit_price) * fill_qty
+
+        # Fee calculations: Maker entry (0.02%) + Taker exit (0.04%)
+        fee_cost = (notional * self.maker_fee_rate) + (exit_price * fill_qty * self.taker_fee_rate)
+        net_pnl = gross_pnl - fee_cost
+
+        # 1. Entry timing error bps
+        if optimal_price > 0.0:
+            entry_timing_error_bps = (abs(entry_price - optimal_price) / optimal_price) * 10000.0
+        else:
+            entry_timing_error_bps = 0.0
+
+        # 2. FVG slippage bps
+        if is_long:
+            fvg_slippage_bps = (
+                max(0.0, ((entry_price - fvg_boundary_price) / fvg_boundary_price) * 10000.0)
+                if fvg_boundary_price > 0
+                else 0.0
+            )
+        else:
+            fvg_slippage_bps = (
+                max(0.0, ((fvg_boundary_price - entry_price) / fvg_boundary_price) * 10000.0)
+                if fvg_boundary_price > 0
+                else 0.0
+            )
+
+        # 3. MAE (Maximum Adverse Excursion) bps
+        if entry_price > 0:
+            if is_long:
+                mae_diff = entry_price - lowest_price_during_trade
+            else:
+                mae_diff = highest_price_during_trade - entry_price
+            mae_bps = max(0.0, (mae_diff / entry_price) * 10000.0)
+        else:
+            mae_bps = 0.0
+
+        # 4. MFE (Maximum Favorable Excursion) bps
+        if entry_price > 0:
+            if is_long:
+                mfe_diff = highest_price_during_trade - entry_price
+            else:
+                mfe_diff = entry_price - lowest_price_during_trade
+            mfe_bps = max(0.0, (mfe_diff / entry_price) * 10000.0)
+        else:
+            mfe_bps = 0.0
+
+        # 5. Bracket Efficiency
+        if is_long:
+            favorable_move = highest_price_during_trade - entry_price
+            realized_move = exit_price - entry_price
+        else:
+            favorable_move = entry_price - lowest_price_during_trade
+            realized_move = entry_price - exit_price
+
+        if favorable_move > 1e-6 and realized_move > 0.0:
+            bracket_efficiency = min(1.0, max(0.0, realized_move / favorable_move))
+        else:
+            bracket_efficiency = 0.0
+
+        # 6. Realized edge bps
+        realized_edge_bps = (net_pnl / notional * 10000.0) if notional > 0.0 else 0.0
+
+        # Attribution cause classification
+        if net_pnl >= 0.0:
+            cause = AutopsyAttributionCause.ORGANIC_ALPHA
+        elif fvg_slippage_bps > 10.0:
+            cause = AutopsyAttributionCause.SPREAD_CROSS
+        elif entry_timing_error_bps > 15.0:
+            cause = AutopsyAttributionCause.TIMING_DELAY
+        else:
+            cause = AutopsyAttributionCause.REGIME_MISMATCH
+
+        return IctAutopsyMetrics(
+            trade_id=trade_id,
+            candidate_id=candidate_id,
+            symbol=symbol,
+            side=side.upper(),
+            entry_price=entry_price,
+            exit_price=exit_price,
+            fill_qty=fill_qty,
+            optimal_price=optimal_price,
+            fvg_boundary_price=fvg_boundary_price,
+            entry_timing_error_bps=entry_timing_error_bps,
+            fvg_slippage_bps=fvg_slippage_bps,
+            mae_bps=mae_bps,
+            mfe_bps=mfe_bps,
+            bracket_efficiency=bracket_efficiency,
+            realized_edge_bps=realized_edge_bps,
+            gross_pnl_usdt=gross_pnl,
+            fee_cost_usdt=fee_cost,
+            net_pnl_usdt=net_pnl,
+            cause=cause,
+            timestamp_ms=timestamp_ms,
+        )
+
+
+class CandidateLifecycleState(StrEnum):
+    """Lifecycle progression states for autonomous strategy candidates."""
+
+    CANDIDATE = "CANDIDATE"          # Fresh genome generated / mutated; awaiting staging
+    INCUBATING = "INCUBATING"        # Walk-forward data accumulation (N < 5) in shadow mode
+    QUALIFIED = "QUALIFIED"          # Passed all 5 OOS qualification gates; eligible for registry
+    ACTIVE = "ACTIVE"                # Admitted to live/paper trading registry with active sizing
+    DEGRADED = "DEGRADED"            # Performance warning (8% < DD <= 15%, loss streak, Sharpe < 1)
+    DISQUALIFIED = "DISQUALIFIED"    # Hard failure (DD > 15%, gate failure, loss ceiling breach)
+
+
+@dataclass
+class CandidateStateContext:
+    candidate_id: str
+    symbol: str
+    genome: IctGenome
+    state: CandidateLifecycleState = CandidateLifecycleState.CANDIDATE
+    running_drawdown_pct: float = 0.0
+    consecutive_losses: int = 0
+    rolling_sharpe: float = 0.0
+    trades_history: list[dict[str, Any]] = field(default_factory=list)
+    scorecard: Any = None
+    admitted_at_utc: str | None = None
+
+
+class CandidateLifecycleManager:
+    """Manages candidate lifecycle transitions, risk gating, and mutation feedback loops."""
+
+    def __init__(self, gate_evaluator: Any = None) -> None:
+        self.evaluator = gate_evaluator
+        self.registry: dict[str, CandidateStateContext] = {}
+
+    def register_new_candidate(self, genome: IctGenome) -> CandidateStateContext:
+        ctx = CandidateStateContext(
+            candidate_id=genome.candidate_id,
+            symbol=genome.symbol,
+            genome=genome,
+            state=CandidateLifecycleState.CANDIDATE,
+        )
+        self.registry[genome.candidate_id] = ctx
+        return ctx
+
+    def transition_to_incubating(self, candidate_id: str) -> None:
+        ctx = self.registry[candidate_id]
+        if ctx.state != CandidateLifecycleState.CANDIDATE:
+            raise ValueError(f"Cannot transition to INCUBATING from {ctx.state}")
+        ctx.state = CandidateLifecycleState.INCUBATING
+
+    def on_trade_completed(
+        self,
+        candidate_id: str,
+        trade: dict[str, Any],
+    ) -> tuple[CandidateLifecycleState, IctGenome | None]:
+        ctx = self.registry[candidate_id]
+        ctx.trades_history.append(trade)
+
+        net_pnl = float(trade.get("net_pnl_usdt", trade.get("pnl", 0.0)))
+        if net_pnl <= 0.0:
+            ctx.consecutive_losses += 1
+        else:
+            ctx.consecutive_losses = 0
+
+        # Update running drawdown
+        curr = 100.0
+        peak = 100.0
+        max_dd = 0.0
+        for t in ctx.trades_history:
+            curr += float(t.get("net_pnl_usdt", t.get("pnl", 0.0)))
+            if curr > peak:
+                peak = curr
+            elif peak > 0.0:
+                dd = ((peak - curr) / peak) * 100.0
+                if dd > max_dd:
+                    max_dd = dd
+        ctx.running_drawdown_pct = max_dd
+
+        spawned_child: IctGenome | None = None
+
+        if ctx.state == CandidateLifecycleState.INCUBATING:
+            if self.evaluator is not None:
+                scorecard = self.evaluator.evaluate_candidate(
+                    candidate_id=ctx.candidate_id,
+                    symbol=ctx.symbol,
+                    trades=ctx.trades_history,
+                )
+                ctx.scorecard = scorecard
+                is_passed = getattr(scorecard, "all_stages_passed", False) or getattr(
+                    scorecard, "qualified", False
+                )
+                if ctx.running_drawdown_pct > 15.0:
+                    ctx.state = CandidateLifecycleState.DISQUALIFIED
+                elif is_passed:
+                    ctx.state = CandidateLifecycleState.QUALIFIED
+
+        elif ctx.state == CandidateLifecycleState.ACTIVE:
+            if ctx.running_drawdown_pct > 15.0 or ctx.consecutive_losses >= 5:
+                ctx.state = CandidateLifecycleState.DISQUALIFIED
+            elif ctx.running_drawdown_pct > 8.0 or ctx.consecutive_losses >= 3:
+                ctx.state = CandidateLifecycleState.DEGRADED
+                score = compute_autopsy_score(
+                    realized_edge_bps=float(trade.get("realized_edge_bps", -10.0)),
+                    timing_error_bps=float(trade.get("entry_timing_error_bps", 15.0)),
+                    adverse_selection_bps=float(trade.get("adverse_selection_bps", 20.0)),
+                )
+                spawned_child = mutate_genome(
+                    genome=ctx.genome,
+                    autopsy_score=score,
+                    primary_cause=trade.get("cause"),
+                )
+                self.register_new_candidate(spawned_child)
+
+        elif ctx.state == CandidateLifecycleState.DEGRADED:
+            if ctx.running_drawdown_pct > 15.0 or ctx.consecutive_losses >= 5:
+                ctx.state = CandidateLifecycleState.DISQUALIFIED
+            elif ctx.running_drawdown_pct <= 5.0 and ctx.consecutive_losses == 0:
+                ctx.state = CandidateLifecycleState.ACTIVE
+
+        return ctx.state, spawned_child

@@ -19,20 +19,36 @@ import logging
 import time
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from autonomous_futures.execution.binance_gateway import (
+    DEFAULT_SPECS,
     BinanceFuturesGateway,
 )
+from autonomous_futures.execution.live_orders import LiveOrderBook
 from autonomous_futures.execution.self_driving import (
     SelfDrivingTradingEngine,
     build_default_self_driving_engine,
+)
+from autonomous_futures.feed.kline_sequencer import (
+    ACTIVE_PAIRS,
+    MultiTimeframeCandleSequencer,
 )
 from autonomous_futures.notify.telegram import (
     TelegramNotifierClient,
     escape_markdown_v2,
     resolve_telegram_credentials,
 )
-from autonomous_futures.strategy.macro_liquidity_scalper import Candle, compute_ema
+from autonomous_futures.strategy.ict_mmxm import (
+    Candle as IctCandle,
+)
+from autonomous_futures.strategy.ict_mmxm import (
+    IctMmxmEngine,
+)
+from autonomous_futures.strategy.macro_liquidity_scalper import (
+    Candle,
+    compute_ema,
+)
 
 logger = logging.getLogger("autonomous_futures.execution.continuous_trader")
 
@@ -51,15 +67,7 @@ class ContinuousSelfDrivingTrader:
     ) -> None:
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.symbols = symbols or [
-            "SOLUSDT",
-            "ETHUSDT",
-            "DOGEUSDT",
-            "BNBUSDT",
-            "XRPUSDT",
-            "SUIUSDT",
-            "AVAXUSDT",
-        ]
+        self.symbols = list(symbols) if symbols is not None else list(ACTIVE_PAIRS)
         self.starting_capital_usdt = starting_capital_usdt
         self.poll_interval_seconds = poll_interval_seconds
         self.running = False
@@ -67,6 +75,7 @@ class ContinuousSelfDrivingTrader:
 
         # Gateway resolution
         self.gateway = gateway or BinanceFuturesGateway()
+        self.live_orders = LiveOrderBook(self.gateway, self.storage_dir)
 
         # Initialize internal SelfDrivingTradingEngine
         self.engine: SelfDrivingTradingEngine = build_default_self_driving_engine(
@@ -90,6 +99,40 @@ class ContinuousSelfDrivingTrader:
         self.btc_1h_history: list[Candle] = []
         self.last_candle_fetch_ts: float = 0.0
 
+        # Multi-timeframe candle sequencer (4h, 1h, 15m, 5m, 1m across expanded pairs)
+        sequencer_symbols = list(dict.fromkeys(["BTCUSDT"] + self.symbols))
+        self.sequencer = MultiTimeframeCandleSequencer(
+            gateway=self.gateway,
+            symbols=sequencer_symbols,
+        )
+
+        # ICT MMXM pattern recognition engine with 50% Equilibrium OTE tuning
+        self.ict_engine = IctMmxmEngine(
+            lookback_htf=100,
+            default_tick_size=Decimal("0.01"),
+            ote_lower=Decimal("0.62"),
+        )
+        self.last_export_ts: float = time.time()
+
+    def get_multi_tf_candles(
+        self, symbol: str
+    ) -> tuple[list[IctCandle], list[IctCandle], list[IctCandle], list[IctCandle], list[IctCandle]]:
+        """Returns (4h, 1h, 15m, 5m, 1m) candles for the given symbol."""
+        return self.sequencer.get_multi_tf_candles(symbol)
+
+    def get_macro_candles(self, timeframe: str) -> list[Candle]:
+        return [
+            Candle(
+                timestamp_ms=c.timestamp_ms,
+                open=c.open,
+                high=c.high,
+                low=c.low,
+                close=c.close,
+                volume=c.volume,
+            )
+            for c in self.sequencer.get_candles("BTCUSDT", timeframe)
+        ]
+
     async def send_telegram_alert(self, text: str) -> None:
         """Sends an urgent markdown message to the configured Telegram channel."""
         if not self.telegram_client:
@@ -110,22 +153,16 @@ class ContinuousSelfDrivingTrader:
         offset = await self.gateway.sync_clock_drift()
         logger.info("Server time: %s, Clock drift offset: %d ms", server_time, offset)
 
+        await self.gateway.refresh_exchange_filters()
         acc = await self.gateway.get_account_balance()
-        wallet_str = acc.get("totalWalletBalance", "100.00")
-        avail_str = acc.get("availableBalance", "100.00")
+        wallet_str = acc["totalWalletBalance"]
+        avail_str = acc["availableBalance"]
         wallet_balance = Decimal(str(wallet_str))
         logger.info(
             "Binance Account Verified: Wallet Balance = %s USDT, Available = %s USDT",
             wallet_str,
             avail_str,
         )
-
-        # Start WebSocket user data stream
-        try:
-            listen_key = await self.gateway.start_user_data_stream()
-            logger.info("User data stream active with listenKey: %s...", listen_key[:10])
-        except Exception as ws_err:
-            logger.warning("User data stream startup note: %s", ws_err)
 
         return wallet_balance
 
@@ -174,9 +211,122 @@ class ContinuousSelfDrivingTrader:
         """Executes one scan and risk evaluation cycle."""
         now_ms = int(time.time() * 1000)
 
-        # Refresh candles if > 60s since last fetch
-        if time.time() - self.last_candle_fetch_ts > 60.0 or not self.btc_1h_history:
-            await self.update_market_candles()
+        # Non-blocking hierarchical TTL refresh across 40 streams (< 15ms when cached)
+        try:
+            await self.sequencer.refresh_due_candles(now_ts=time.time())
+            seq_btc_1h = self.sequencer.get_candles("BTCUSDT", "1h")
+            if seq_btc_1h:
+                self.btc_1h_history = [
+                    Candle(
+                        timestamp_ms=c.timestamp_ms,
+                        open=c.open,
+                        high=c.high,
+                        low=c.low,
+                        close=c.close,
+                        volume=c.volume,
+                    )
+                    for c in seq_btc_1h
+                ]
+            for sym in self.symbols:
+                seq_15m = self.sequencer.get_candles(sym, "15m")
+                if seq_15m:
+                    self.candle_history[sym] = [
+                        Candle(
+                            timestamp_ms=c.timestamp_ms,
+                            open=c.open,
+                            high=c.high,
+                            low=c.low,
+                            close=c.close,
+                            volume=c.volume,
+                        )
+                        for c in seq_15m
+                    ]
+        except Exception as seq_err:
+            logger.debug("Sequencer cycle refresh note: %s", seq_err)
+
+        # Publish real account observations before any strategy evaluation.
+        from autonomous_futures.execution.account_evidence import SNAPSHOT_NAME, observe_account
+
+        if getattr(self.gateway, "offline_mode", True) is False:
+            try:
+                await self.live_orders.reconcile()
+                await observe_account(self.gateway, self.storage_dir / SNAPSHOT_NAME)
+            except Exception as exc:
+                logger.error("Account observation failed; trading blocked: %s", exc)
+                return
+            # Live execution must not call the engine's simulation matching methods.
+            # Signal evaluation can proceed, but authority is unavailable until
+            # exchange reconciliation and measured microstructure evidence are wired.
+            logger.info("Exchange observed; live dispatch blocked pending execution qualification")
+            return
+        try:
+            positions = await self.gateway.get_position_risk()
+            pos_by_sym = {p["symbol"]: p for p in positions}
+        except Exception as exc:
+            logger.error("Position state unknown; skipping cycle: %s", exc)
+            return
+
+        # 1.1 Drain pending ICT autopsies into SQLite tables and events log (< 15ms latency)
+        if getattr(self.engine, "has_pending_autopsies", lambda: False)():
+            try:
+                db_target = self.storage_dir / "canary-production-telemetry.sqlite3"
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.engine.drain_pending_autopsies, db_target),
+                        timeout=0.005,
+                    )
+                except TimeoutError:
+                    logger.warning("Autopsy drain disk I/O exceeded 5.0ms budget; continuing cycle")
+            except Exception as drain_err:
+                logger.warning("Autopsy drain non-fatal error: %s", drain_err)
+
+        # 2. Multi-pair ICT MMXM Twins Reversal evaluation across all candidate pairs
+        for sym in self.sequencer.symbols:
+            c4h, c1h, c15m, c5m, c1m = self.sequencer.get_multi_tf_candles(sym)
+            if not self.sequencer.is_trade_ready(sym) or len(c5m) < 5 or len(c1m) < 5:
+                continue
+
+            spec = DEFAULT_SPECS.get(sym, {})
+            tick_size = spec.get("tick_size", Decimal("0.01"))
+            setup_state = self.ict_engine.evaluate_twins_setup(
+                symbol=sym,
+                candles_4h=c4h,
+                candles_1h=c1h,
+                candles_15m=c15m,
+                candles_5m=c5m,
+                candles_1m=c1m,
+                tick_size=tick_size,
+            )
+
+            if setup_state.step_6_ready:
+                exch_pos = pos_by_sym.get(sym)
+                pos_amt = (
+                    Decimal(str(exch_pos.get("positionAmt", "0"))) if exch_pos else Decimal("0")
+                )
+                cand_state = self.engine.candidates.get(sym)
+                local_qty = cand_state.position_qty if cand_state else Decimal("0")
+
+                if abs(pos_amt) == Decimal("0") and abs(local_qty) == Decimal("0"):
+                    ict_order = self.engine.dispatch_ict_intention(setup_state, now_ms=now_ms)
+                    if ict_order is not None:
+                        logger.info(
+                            "DISPATCHED ICT ORDER: %s %s %s @ %s",
+                            ict_order.symbol,
+                            ict_order.side.value,
+                            ict_order.quantity,
+                            ict_order.price,
+                        )
+                        alert_msg = (
+                            f"🚀 *New ICT Twins Reversal Executed "
+                            f"\\({escape_markdown_v2(sym)}\\)*\n"
+                            f"Side: `{ict_order.side.value}` \\(MAKER LIMIT\\)\n"
+                            f"Price: `{ict_order.price}` USDT\n"
+                            f"Notional: `{ict_order.notional_usdt}` USDT\n"
+                            f"Stop Loss: `{ict_order.stop_loss}` USDT\n"
+                            f"Take Profit: `{ict_order.take_profit}` USDT\n"
+                            f"Tag: `{escape_markdown_v2(ict_order.client_order_id)}`"
+                        )
+                        await self.send_telegram_alert(alert_msg)
 
         if not self.btc_1h_history:
             logger.debug("Waiting for BTC 1h history to populate...")
@@ -194,18 +344,10 @@ class ContinuousSelfDrivingTrader:
             self.engine.latest_btc_ema50 = float(e50[-1])
             self.engine.latest_btc_ema200 = float(e200[-1])
 
-        # 1. Sync live position risk from exchange
-        try:
-            positions = await self.gateway.get_position_risk()
-            pos_by_sym = {p["symbol"]: p for p in positions}
-        except Exception as pos_err:
-            logger.warning("Failed to fetch live positions: %s", pos_err)
-            pos_by_sym = {}
-
-        # 2. Evaluate Scalper on each candidate symbol
+        # 3. Evaluate Scalper on each candidate symbol
         for sym in self.symbols:
             candles = self.candle_history.get(sym, [])
-            if len(candles) < 25:
+            if not self.sequencer.is_trade_ready(sym) or len(candles) < 25:
                 continue
 
             latest_closed_bar = candles[-1]
@@ -257,6 +399,7 @@ class ContinuousSelfDrivingTrader:
                             bar=latest_closed_bar,
                             history=history,
                             btc_1h_candles=self.btc_1h_history,
+                            btc_4h_candles=self.get_macro_candles("4h"),
                             now_ms=now_ms,
                         )
                         if exit_order:
@@ -274,6 +417,7 @@ class ContinuousSelfDrivingTrader:
                 bar=latest_closed_bar,
                 history=history,
                 btc_1h_candles=self.btc_1h_history,
+                btc_4h_candles=self.get_macro_candles("4h"),
                 now_ms=now_ms,
             )
             if order is not None:
@@ -295,34 +439,36 @@ class ContinuousSelfDrivingTrader:
                     f"Take Profit: `{order.take_profit}` USDT"
                 )
 
-        # 3. Export live-prices.json for fast read-only API access
-        try:
-            prices_payload = {
-                "timestamp_ms": now_ms,
-                "prices": {
-                    sym: float(c.current_price) for sym, c in self.engine.candidates.items()
-                },
-                "btc_macro": {
-                    "current_price": float(self.engine.candidates["BTCUSDT"].current_price)
-                    if "BTCUSDT" in self.engine.candidates
-                    else 82600.0,
-                    "ema50_1h": getattr(self.engine, "latest_btc_ema50", 82800.0),
-                    "ema200_1h": getattr(self.engine, "latest_btc_ema200", 81500.0),
-                    "regime": "BULLISH ALIGNED"
-                    if getattr(self.engine, "latest_btc_ema50", 82800.0)
-                    >= getattr(self.engine, "latest_btc_ema200", 81500.0)
-                    else "BEARISH / SIDEWAYS",
-                },
-                "source": "continuous_trader",
-            }
-            (self.storage_dir / "live-prices.json").write_text(
-                json.dumps(prices_payload, indent=2), encoding="utf-8"
-            )
-        except Exception as lp_err:
-            logger.debug("Could not write live-prices.json: %s", lp_err)
+        # 3. Export live-prices.json and Merkle DAG artifacts periodically (every 10s)
+        now_wall = time.time()
+        if now_wall - self.last_export_ts >= 10.0:
+            try:
+                prices_payload = {
+                    "timestamp_ms": now_ms,
+                    "prices": {
+                        sym: float(c.current_price) for sym, c in self.engine.candidates.items()
+                    },
+                    "btc_macro": {
+                        "current_price": float(self.engine.candidates["BTCUSDT"].current_price)
+                        if "BTCUSDT" in self.engine.candidates
+                        else 0.0,
+                        "ema50_1h": getattr(self.engine, "latest_btc_ema50", 0.0),
+                        "ema200_1h": getattr(self.engine, "latest_btc_ema200", 0.0),
+                        "regime": "BULLISH ALIGNED"
+                        if getattr(self.engine, "latest_btc_ema50", 0.0)
+                        > getattr(self.engine, "latest_btc_ema200", 0.0)
+                        else "BEARISH / SIDEWAYS",
+                    },
+                    "source": "continuous_trader",
+                }
+                (self.storage_dir / "live-prices.json").write_text(
+                    json.dumps(prices_payload, indent=2), encoding="utf-8"
+                )
+            except Exception as lp_err:
+                logger.debug("Could not write live-prices.json: %s", lp_err)
 
-        # 4. Export telemetry & update Merkle DAG artifacts periodically
-        self.engine.export_artifacts(self.storage_dir)
+            self.engine.export_artifacts(self.storage_dir)
+            self.last_export_ts = now_wall
 
     async def start(self) -> None:
         """Starts the continuous trading loop."""
@@ -341,7 +487,9 @@ class ContinuousSelfDrivingTrader:
                 f"Strategy: `15m Macro Liquidity Scalper`"
             )
         except Exception as init_err:
-            logger.error("Initial exchange sync failed: %s", init_err)
+            logger.error("Initial exchange sync failed; startup blocked: %s", init_err)
+            self.running = False
+            return
 
         cycle_count = 0
         while self.running and not self._shutdown_event.is_set():
@@ -360,6 +508,8 @@ class ContinuousSelfDrivingTrader:
             except TimeoutError:
                 pass
 
+        if hasattr(self.engine, "close_telemetry_db"):
+            self.engine.close_telemetry_db()
         logger.info("Continuous Self-Driving Trader Daemon shutdown complete.")
 
     def stop(self) -> None:
@@ -367,3 +517,13 @@ class ContinuousSelfDrivingTrader:
         logger.info("Stop requested for Continuous Trader Daemon.")
         self.running = False
         self._shutdown_event.set()
+        if hasattr(self.engine, "close_telemetry_db"):
+            self.engine.close_telemetry_db()
+
+    async def __aenter__(self) -> ContinuousSelfDrivingTrader:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.stop()
+        if hasattr(self.engine, "close_telemetry_db"):
+            self.engine.close_telemetry_db()

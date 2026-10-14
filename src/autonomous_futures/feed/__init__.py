@@ -52,6 +52,22 @@ from autonomous_futures.feed.heartbeat_daemon import (
     SqliteCanaryHeartbeatTelemetryStore,
     run_canary_heartbeat_daemon,
 )
+from autonomous_futures.feed.kline_parser import (
+    KlineParsingError,
+    parse_raw_kline,
+)
+from autonomous_futures.feed.kline_sequencer import (
+    ACTIVE_PAIRS,
+    ACTIVE_TIMEFRAMES,
+    BINANCE_PUBLIC_REST_BASE,
+    TTL_SECONDS,
+    MultiTimeframeCandleSequencer,
+)
+from autonomous_futures.feed.kline_synchronizer import (
+    INTERVAL_MILLISECONDS,
+    ChronologicalCandleSynchronizer,
+    SynchronizedCandleSequence,
+)
 from autonomous_futures.feed.micro_execution_drill import (
     CanaryMicroExecutionDrillConfig,
     CanaryMicroExecutionDrillRunner,
@@ -161,6 +177,16 @@ __all__ = [
     "HeartbeatDaemonError",
     "HeartbeatSample",
     "IncidentTrackId",
+    "ACTIVE_PAIRS",
+    "ACTIVE_TIMEFRAMES",
+    "BINANCE_PUBLIC_REST_BASE",
+    "ChronologicalCandleSynchronizer",
+    "INTERVAL_MILLISECONDS",
+    "KlineParsingError",
+    "MultiTimeframeCandleSequencer",
+    "SynchronizedCandleSequence",
+    "TTL_SECONDS",
+    "parse_raw_kline",
     "JsonlAlertSink",
     "JsonlIncidentSink",
     "JsonlOrderSink",

@@ -1511,3 +1511,291 @@ def build_phase_298_qualification_artifact(
             manifest_path=self.manifest_path,
         )
         return reloader.check_and_reload()
+
+
+# =====================================================================
+# Phase 317 Milestone 4: 5-Stage Walk-Forward OOS Qualification Gate
+# =====================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class StressTestMetrics:
+    """Results from Monte Carlo randomized slippage and fee variance stress test."""
+
+    simulations_count: int
+    survival_count: int
+    survival_rate_pct: float
+    max_perturbed_drawdown_pct: float
+    passed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class QualificationGateScorecard:
+    """Comprehensive evaluation record across all 5 OOS qualification gates."""
+
+    candidate_id: str
+    symbol: str
+    cumulative_return_pct: float
+    max_drawdown_pct: float
+    profit_factor: float
+    completed_trades: int
+    stress_survival_rate_pct: float
+    stage_1_return_passed: bool
+    stage_2_drawdown_passed: bool
+    stage_3_profit_factor_passed: bool
+    stage_4_sample_size_passed: bool
+    stage_5_stress_test_passed: bool
+    all_stages_passed: bool
+    status_label: str
+    evaluated_at_utc: str
+
+
+class Phase317OosGateEvaluator:
+    """Evaluates strategy candidates against the institutional 5-stage qualification gate."""
+
+    MIN_RETURN_PCT = 0.0
+    MAX_DRAWDOWN_PCT = 15.0
+    MIN_PROFIT_FACTOR = 1.05
+    MIN_TRADES = 5
+    MAX_STRESS_LOSS_USDT = 7.00
+    MAX_BALANCE_DRIFT = 1e-15
+    MIN_STRESS_SURVIVAL_RATE_PCT = 95.0
+
+    def __init__(
+        self,
+        min_return_pct: float = 0.0,
+        max_drawdown_pct: float = 15.0,
+        min_profit_factor: float = 1.05,
+        min_trades: int = 5,
+        min_stress_survival_rate_pct: float = 95.0,
+        stress_simulations: int = 200,
+        slippage_bound_pct: float = 0.0005,
+        fee_variance_pct: float = 0.10,
+    ) -> None:
+        self.min_return_pct = min_return_pct
+        self.max_drawdown_pct = max_drawdown_pct
+        self.min_profit_factor = min_profit_factor
+        self.min_trades = min_trades
+        self.min_stress_survival_rate_pct = min_stress_survival_rate_pct
+        self.stress_simulations = stress_simulations
+        self.slippage_bound_pct = slippage_bound_pct
+        self.fee_variance_pct = fee_variance_pct
+
+    def compute_cumulative_return(self, starting_equity: float, final_equity: float) -> float:
+        """Stage 1: Cumulative Return %."""
+        if starting_equity <= 0.0:
+            return 0.0
+        return ((final_equity - starting_equity) / starting_equity) * 100.0
+
+    def compute_max_drawdown(self, equity_curve: Sequence[float]) -> float:
+        """Stage 2: Peak-to-Trough Maximum Drawdown %."""
+        if not equity_curve:
+            return 0.0
+        peak = equity_curve[0]
+        max_dd = 0.0
+        for eq in equity_curve:
+            if eq > peak:
+                peak = eq
+            elif peak > 0.0:
+                dd = ((peak - eq) / peak) * 100.0
+                if dd > max_dd:
+                    max_dd = dd
+        return round(max_dd, 4)
+
+    def compute_profit_factor(self, trades: Sequence[dict[str, Any]]) -> float:
+        """Stage 3: Profit Factor with ZeroDivision invariant handling."""
+        gross_profit = 0.0
+        gross_loss = 0.0
+
+        for t in trades:
+            pnl = float(t.get("net_pnl_usdt", t.get("pnl", 0.0)))
+            if pnl > 0.0:
+                gross_profit += pnl
+            elif pnl < 0.0:
+                gross_loss += abs(pnl)
+
+        # Invariant: If Gross Loss == 0 and Gross Profit > 0, return float('inf')
+        if gross_loss == 0.0:
+            if gross_profit > 0.0:
+                return float("inf")
+            return 0.0
+
+        return gross_profit / gross_loss
+
+    def run_stress_test(
+        self,
+        trades: Sequence[dict[str, Any]],
+        starting_equity: float = 100.0,
+        random_seed: int = 42,
+    ) -> StressTestMetrics:
+        """Stage 5: Monte Carlo randomized slippage (+/- 0.05%) and fee variance (+/- 10%)."""
+        if not trades:
+            return StressTestMetrics(
+                simulations_count=0,
+                survival_count=0,
+                survival_rate_pct=0.0,
+                max_perturbed_drawdown_pct=0.0,
+                passed=False,
+            )
+
+        rng = random.Random(random_seed)
+        survived_runs = 0
+        worst_perturbed_dd = 0.0
+
+        for _ in range(self.stress_simulations):
+            eq = starting_equity
+            peak = starting_equity
+            run_max_dd = 0.0
+            run_survived = True
+
+            for t in trades:
+                fill_qty = float(t.get("fill_qty", 0.01))
+                entry_p = float(t.get("entry_price", 100.0))
+                exit_p = float(t.get("exit_price", 100.0))
+                side = str(t.get("side", "BUY")).upper()
+                base_fee = float(t.get("fee_cost_usdt", 0.002))
+
+                # Randomized slippage in [-0.0005, +0.0005]
+                slip_entry = rng.uniform(-self.slippage_bound_pct, self.slippage_bound_pct)
+                slip_exit = rng.uniform(-self.slippage_bound_pct, self.slippage_bound_pct)
+                fee_var = rng.uniform(-self.fee_variance_pct, self.fee_variance_pct)
+
+                if side == "BUY":
+                    p_entry_pert = entry_p * (1.0 + slip_entry)
+                    p_exit_pert = exit_p * (1.0 - slip_exit)
+                    gross_pert = (p_exit_pert - p_entry_pert) * fill_qty
+                else:
+                    p_entry_pert = entry_p * (1.0 - slip_entry)
+                    p_exit_pert = exit_p * (1.0 + slip_exit)
+                    gross_pert = (p_entry_pert - p_exit_pert) * fill_qty
+
+                fee_pert = max(0.0, base_fee * (1.0 + fee_var))
+                net_pert = gross_pert - fee_pert
+
+                eq += net_pert
+                if eq > peak:
+                    peak = eq
+                elif peak > 0.0:
+                    dd = ((peak - eq) / peak) * 100.0
+                    if dd > run_max_dd:
+                        run_max_dd = dd
+
+                if eq <= 0.0 or run_max_dd > self.max_drawdown_pct:
+                    run_survived = False
+                    break
+
+            if run_max_dd > worst_perturbed_dd:
+                worst_perturbed_dd = run_max_dd
+
+            if run_survived and eq > 0.0 and run_max_dd <= self.max_drawdown_pct:
+                survived_runs += 1
+
+        survival_rate_pct = (survived_runs / self.stress_simulations) * 100.0
+        passed = survival_rate_pct >= self.min_stress_survival_rate_pct
+
+        return StressTestMetrics(
+            simulations_count=self.stress_simulations,
+            survival_count=survived_runs,
+            survival_rate_pct=round(survival_rate_pct, 2),
+            max_perturbed_drawdown_pct=round(worst_perturbed_dd, 2),
+            passed=passed,
+        )
+
+    def evaluate_candidate(
+        self,
+        candidate_id: str,
+        symbol: str,
+        trades: Sequence[dict[str, Any]],
+        starting_equity: float = 100.0,
+    ) -> QualificationGateScorecard:
+        """Executes full 5-stage qualification gate check on candidate trade history."""
+        n_trades = len(trades)
+
+        eq_curve = [starting_equity]
+        running_eq = starting_equity
+        for t in trades:
+            running_eq += float(t.get("net_pnl_usdt", t.get("pnl", 0.0)))
+            eq_curve.append(running_eq)
+
+        cum_return = self.compute_cumulative_return(starting_equity, running_eq)
+        max_dd = self.compute_max_drawdown(eq_curve)
+        pf = self.compute_profit_factor(trades)
+        stress_res = self.run_stress_test(trades, starting_equity=starting_equity)
+
+        g1_pass = cum_return >= self.min_return_pct
+        g2_pass = max_dd <= self.max_drawdown_pct
+        g3_pass = pf >= self.min_profit_factor or math.isinf(pf)
+        g4_pass = n_trades >= self.min_trades
+        g5_pass = stress_res.passed
+
+        all_passed = g1_pass and g2_pass and g3_pass and g4_pass and g5_pass
+
+        if not g4_pass:
+            status_label = f"WAITING_FOR_SAMPLES ({n_trades}/{self.min_trades})"
+        elif all_passed:
+            status_label = "QUALIFIED"
+        else:
+            status_label = "REJECTED"
+
+        return QualificationGateScorecard(
+            candidate_id=candidate_id,
+            symbol=symbol,
+            cumulative_return_pct=round(cum_return, 2),
+            max_drawdown_pct=round(max_dd, 2),
+            profit_factor=round(pf, 4) if not math.isinf(pf) else float("inf"),
+            completed_trades=n_trades,
+            stress_survival_rate_pct=stress_res.survival_rate_pct,
+            stage_1_return_passed=g1_pass,
+            stage_2_drawdown_passed=g2_pass,
+            stage_3_profit_factor_passed=g3_pass,
+            stage_4_sample_size_passed=g4_pass,
+            stage_5_stress_test_passed=g5_pass,
+            all_stages_passed=all_passed,
+            status_label=status_label,
+            evaluated_at_utc=datetime.now(UTC).isoformat(),
+        )
+
+    def evaluate(
+        self,
+        avg_return_pct: float,
+        worst_drawdown_pct: float,
+        profit_factor: float,
+        trade_count: int,
+        stress_loss_usdt: float = 0.0,
+        stress_drift_usdt: float = 0.0,
+        stress_survival_rate_pct: float | None = None,
+    ) -> dict[str, Any]:
+        """Direct 5-stage evaluator method matching Suite 4."""
+        g1 = avg_return_pct >= self.min_return_pct
+        g2 = worst_drawdown_pct <= self.max_drawdown_pct
+        g3 = profit_factor >= self.min_profit_factor or math.isinf(profit_factor)
+        g4 = trade_count >= self.min_trades
+        if stress_survival_rate_pct is not None:
+            g5 = stress_survival_rate_pct >= self.min_stress_survival_rate_pct
+        else:
+            g5 = (stress_loss_usdt <= self.MAX_STRESS_LOSS_USDT) and (
+                stress_drift_usdt < self.MAX_BALANCE_DRIFT
+            )
+
+        all_passed = g1 and g2 and g3 and g4 and g5
+        if not g4:
+            status = "WAITING_FOR_SAMPLES"
+        elif all_passed:
+            status = "QUALIFIED"
+        else:
+            status = "REJECTED"
+
+        return {
+            "qualified": all_passed,
+            "gates_passed": {
+                "stage_1_return": g1,
+                "stage_2_drawdown": g2,
+                "stage_3_profit_factor": g3,
+                "stage_4_trade_count": g4,
+                "stage_5_stress_resilience": g5,
+            },
+            "status": status,
+        }
+
+
+FiveStageQualificationGateEvaluator = Phase317OosGateEvaluator

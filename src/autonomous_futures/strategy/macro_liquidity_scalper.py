@@ -1,10 +1,9 @@
 """High-Expectancy Macro Liquidity Sweep Scalper Engine (Phase 310 R2).
 
-Deploys the verified 15m Macro-Confluence Liquidity Dip Scalper across SOLUSDT and ETHUSDT:
-- Macro Trend Filter: Gated on Bitcoin 1h/4h regime alignment
-  (Longs allowed only when BTC EMA 50 > EMA 200).
-- 15m Entry Trigger: Detect volume-backed liquidity capitulation dips:
-  Price > 2.5x ATR below 20 EMA, Volume > 2.2x 20 SMA, RSI 14 < 26.
+Deploys the 15m Macro-Confluence Liquidity Scalper across the active universe:
+- Macro Trend Filter: Bitcoin 1h/4h EMA regime alignment.
+- Bull regime: volume-backed capitulation dip below the 20 EMA with RSI below 26.
+- Bear regime: the symmetric capitulation rally above the 20 EMA with RSI above 74.
 - Trade Structuring: Maker Limit Orders at sweep price (0.02% maker fee).
 - Protective Brackets: Stop Loss at 1.2x ATR below entry,
   Dynamic Take Profit at 2.0x ATR above entry (1.66:1 R:R).
@@ -16,9 +15,12 @@ from __future__ import annotations
 import dataclasses
 import logging
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 logger = logging.getLogger("autonomous_futures.strategy.macro_liquidity_scalper")
+
+DEFAULT_VOLUME_SPIKE_MULTIPLIER = Decimal("2.2")
+DEFAULT_RSI_THRESHOLD = Decimal("26.0")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -52,7 +54,7 @@ class ScalperSignal:
 
     symbol: str
     timestamp_ms: int
-    side: str  # "BUY"
+    side: Literal["BUY", "SELL"]
     order_type: str  # "LIMIT"
     sweep_price: Decimal
     stop_loss: Decimal
@@ -143,11 +145,7 @@ def compute_rsi(prices: list[Decimal], period: int = 14) -> list[Decimal]:
 
 
 class MacroTrendFilter:
-    """Macro trend regime gate based on Bitcoin 1h and 4h EMA alignment.
-
-    Long entries are allowed only when Bitcoin is in a verified macro bull regime:
-    BTC EMA 50 > EMA 200 (and close > EMA 200).
-    """
+    """Classify BTC's aligned 1h/4h EMA regime from closed candles."""
 
     def __init__(self, ema_fast: int = 50, ema_slow: int = 200) -> None:
         self.ema_fast = ema_fast
@@ -158,10 +156,17 @@ class MacroTrendFilter:
         btc_1h_candles: list[Candle],
         btc_4h_candles: list[Candle] | None = None,
     ) -> bool:
-        """Returns True iff BTC 1h (and 4h if provided) EMA 50 > EMA 200."""
+        """Backward-compatible bullish-only gate."""
+        return self.evaluate_regime(btc_1h_candles, btc_4h_candles) == "BULLISH"
+
+    def evaluate_regime(
+        self,
+        btc_1h_candles: list[Candle],
+        btc_4h_candles: list[Candle] | None = None,
+    ) -> Literal["BULLISH", "BEARISH"] | None:
+        """Return an aligned directional regime, or None when evidence is mixed/incomplete."""
         if len(btc_1h_candles) < self.ema_slow:
-            # Insufficient history to determine macro trend
-            return False
+            return None
 
         closes_1h = [c.close for c in btc_1h_candles]
         ema50_1h = compute_ema(closes_1h, self.ema_fast)
@@ -171,33 +176,39 @@ class MacroTrendFilter:
         latest_ema50 = ema50_1h[-1]
         latest_ema200 = ema200_1h[-1]
 
-        # BTC 1h regime condition: EMA 50 > EMA 200 and close > EMA 200
-        is_bull_1h = latest_ema50 > latest_ema200 and latest_close > latest_ema200
-
-        if not is_bull_1h:
-            return False
+        if latest_ema50 > latest_ema200 and latest_close > latest_ema200:
+            regime: Literal["BULLISH", "BEARISH"] = "BULLISH"
+        elif latest_ema50 < latest_ema200 and latest_close < latest_ema200:
+            regime = "BEARISH"
+        else:
+            return None
 
         if btc_4h_candles is not None:
             if len(btc_4h_candles) < self.ema_slow:
-                # Fail closed: insufficient warmup history to verify 4h macro trend
-                return False
+                return None
             closes_4h = [c.close for c in btc_4h_candles]
             ema50_4h = compute_ema(closes_4h, self.ema_fast)
             ema200_4h = compute_ema(closes_4h, self.ema_slow)
-            is_bull_4h = ema50_4h[-1] > ema200_4h[-1]
-            if not is_bull_4h:
-                return False
+            regime_4h = (
+                "BULLISH"
+                if ema50_4h[-1] > ema200_4h[-1]
+                else "BEARISH"
+                if ema50_4h[-1] < ema200_4h[-1]
+                else None
+            )
+            if regime_4h != regime:
+                return None
 
-        return True
+        return regime
 
 
 class MacroLiquidityDipScalper:
-    """15m Macro-Confluence Liquidity Dip Scalper.
+    """15m Macro-Confluence Liquidity Scalper.
 
-    Identifies volume-backed liquidity capitulation sweeps on SOLUSDT and ETHUSDT:
-    - Distance in ATR: (Close - 20 EMA) / 14 ATR < -2.5 (price > 2.5x ATR below 20 EMA)
-    - Volume Spike: Volume > 2.2x 20 SMA Volume
-    - RSI 14: RSI < 26.0
+    Identifies volume-backed capitulation extremes aligned with the BTC regime:
+    - Bull: distance below -2.5 ATR and RSI below 26, then BUY.
+    - Bear: distance above +2.5 ATR and RSI above 74, then SELL.
+    - Both sides require a >2.2x volume spike and symmetric ATR brackets.
     - Order Execution: Maker Limit Order at sweep price
     - Brackets: Stop Loss 1.2x ATR below, Take Profit 2.0x ATR above (1.66:1 R:R)
     - Momentum Decay Stop: 8 bars (120 minutes)
@@ -211,6 +222,10 @@ class MacroLiquidityDipScalper:
         "XRPUSDT",
         "SUIUSDT",
         "AVAXUSDT",
+        "NEARUSDT",
+        "LINKUSDT",
+        "APTUSDT",
+        "ADAUSDT",
     )
 
     def __init__(
@@ -218,8 +233,8 @@ class MacroLiquidityDipScalper:
         ema_span: int = 20,
         atr_period: int = 14,
         dist_atr_threshold: Decimal = Decimal("-2.5"),
-        vol_spike_multiplier: Decimal = Decimal("2.2"),
-        rsi_threshold: Decimal = Decimal("26.0"),
+        vol_spike_multiplier: Decimal = DEFAULT_VOLUME_SPIKE_MULTIPLIER,
+        rsi_threshold: Decimal = DEFAULT_RSI_THRESHOLD,
         sl_atr_mult: Decimal = Decimal("1.2"),
         tp_atr_mult: Decimal = Decimal("2.0"),
         max_hold_bars: int = 8,
@@ -238,12 +253,19 @@ class MacroLiquidityDipScalper:
         symbol: str,
         bar: Candle,
         history: list[Candle],
-        macro_trend_allowed: bool,
+        macro_trend_allowed: bool | str | None,
     ) -> ScalperSignal | None:
         """Evaluates a 15m candle close and returns a ScalperSignal if dip criteria are met."""
         if symbol.upper() not in self.ALLOWED_SYMBOLS:
             return None
-        if not macro_trend_allowed:
+        if macro_trend_allowed is True:
+            regime = "BULLISH"
+        elif isinstance(macro_trend_allowed, str) and macro_trend_allowed.upper() in {
+            "BULLISH",
+            "BEARISH",
+        }:
+            regime = macro_trend_allowed.upper()
+        else:
             return None
 
         # Build full sequence including current bar
@@ -280,20 +302,28 @@ class MacroLiquidityDipScalper:
         rsi_vals = compute_rsi(closes, 14)
         latest_rsi = rsi_vals[-1]
 
-        # Trigger condition check
-        # Price > 2.5x ATR below 20 EMA: dist_atr < -2.5
-        # Volume > 2.2x 20 SMA: is_vol_spike is True
-        # RSI 14 < 26.0: latest_rsi < 26.0
-        if dist_atr < self.dist_atr_threshold and is_vol_spike and latest_rsi < self.rsi_threshold:
+        threshold = abs(self.dist_atr_threshold)
+        if regime == "BULLISH":
+            side: Literal["BUY", "SELL"] = "BUY"
+            triggered = dist_atr < -threshold and is_vol_spike and latest_rsi < self.rsi_threshold
+        else:
+            side = "SELL"
+            triggered = (
+                dist_atr > threshold
+                and is_vol_spike
+                and latest_rsi > Decimal("100") - self.rsi_threshold
+            )
+        if triggered:
             sweep_price = bar.close
-            stop_loss = sweep_price - (self.sl_atr_mult * latest_atr)
-            take_profit = sweep_price + (self.tp_atr_mult * latest_atr)
+            direction = Decimal("1") if side == "BUY" else Decimal("-1")
+            stop_loss = sweep_price - direction * (self.sl_atr_mult * latest_atr)
+            take_profit = sweep_price + direction * (self.tp_atr_mult * latest_atr)
             reward_risk = (self.tp_atr_mult / self.sl_atr_mult).quantize(Decimal("0.0001"))
 
             signal = ScalperSignal(
                 symbol=symbol.upper(),
                 timestamp_ms=bar.timestamp_ms,
-                side="BUY",
+                side=side,
                 order_type="LIMIT",
                 sweep_price=sweep_price,
                 stop_loss=stop_loss,

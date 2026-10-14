@@ -243,7 +243,7 @@ class CentralizedSolvencyLedger:
 
     __test__ = False
 
-    def __init__(self, starting_equity: float = 100.0) -> None:
+    def __init__(self, starting_equity: Decimal | float = 100.0) -> None:
         self.starting_equity = Decimal(str(starting_equity))
         self.cash = Decimal(str(starting_equity))
         self.allocated_margin = Decimal("0.0")
@@ -322,26 +322,20 @@ class HardwareOSKillSwitchEngine:
         governance: MultiSigGovernanceEngine,
         solvency_ledger: CentralizedSolvencyLedger,
         token_file_path: str = "/tmp/afbot_emergency_kill.lock",
+        *,
+        credential_store: dict[str, str] | None = None,
+        open_orders: list[dict[str, Any]] | None = None,
+        open_positions: list[dict[str, Any]] | None = None,
     ) -> None:
         self.governance = governance
         self.ledger = solvency_ledger
         self.token_file_path = token_file_path
         self.state: KillSwitchState = KillSwitchState.ARMED_NORMAL
         self.events: list[KillSwitchEventRecord] = []
-        self._secure_memory_store: dict[str, str] = {
-            "api_key": "live-testnet-api-key-9f959cca583f",
-            "api_secret": "live-testnet-secret-818fd82458a8fb19420d",
-        }
+        self._secure_memory_store = dict(credential_store or {})
         self.is_memory_wiped: bool = False
-        self.open_orders: list[dict[str, Any]] = [
-            {"order_id": "ord-btc-open-01", "symbol": "BTCUSDT", "qty": 0.00006, "price": 95000.0},
-            {"order_id": "ord-eth-open-02", "symbol": "ETHUSDT", "qty": 0.002, "price": 2750.0},
-            {"order_id": "ord-sol-open-03", "symbol": "SOLUSDT", "qty": 0.03, "price": 185.0},
-        ]
-        self.open_positions: list[dict[str, Any]] = [
-            {"symbol": "BTCUSDT", "size": 0.00006, "entry_price": 95000.0, "notional": 5.70},
-            {"symbol": "ETHUSDT", "size": 0.002, "entry_price": 2750.0, "notional": 5.50},
-        ]
+        self.open_orders = [dict(order) for order in (open_orders or [])]
+        self.open_positions = [dict(position) for position in (open_positions or [])]
 
     def trigger_level_1_soft_pause(self, reason: str, trigger_source: str) -> KillSwitchEventRecord:
         """Triggers Level 1 Soft Pause (e.g. Hawkes runaway, high latency, spread cross)."""
@@ -511,6 +505,35 @@ class Phase308KillSwitchSimulator:
             governance=self.governance,
             solvency_ledger=self.solvency_ledger,
             token_file_path=self.token_file_path,
+            open_orders=[
+                {
+                    "order_id": "sim-btc-open",
+                    "symbol": "BTCUSDT",
+                    "qty": 0.00006,
+                    "price": 95000.0,
+                },
+                {
+                    "order_id": "sim-eth-open",
+                    "symbol": "ETHUSDT",
+                    "qty": 0.002,
+                    "price": 2750.0,
+                },
+                {"order_id": "sim-sol-open", "symbol": "SOLUSDT", "qty": 0.03, "price": 185.0},
+            ],
+            open_positions=[
+                {
+                    "symbol": "BTCUSDT",
+                    "size": 0.00006,
+                    "entry_price": 95000.0,
+                    "notional": 5.70,
+                },
+                {
+                    "symbol": "ETHUSDT",
+                    "size": 0.002,
+                    "entry_price": 2750.0,
+                    "notional": 5.50,
+                },
+            ],
         )
 
     def run_simulation(self) -> dict[str, Any]:

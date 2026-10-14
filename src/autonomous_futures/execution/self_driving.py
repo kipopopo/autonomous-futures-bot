@@ -18,26 +18,32 @@ import enum
 import hashlib
 import json
 import logging
+import math
 import shutil
 import sqlite3
+import threading
 import time
+from collections import deque
 from collections.abc import Sequence
 from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 from typing import Any
 
 from autonomous_futures.execution.binance_gateway import (
-    DEFAULT_SPECS,
     BinanceFuturesGateway,
     generate_client_order_id,
+    generate_p317_ict_client_order_id,
     quantize_step_size,
     quantize_tick_size,
 )
 from autonomous_futures.feed.auto_evolution import (
+    DEFAULT_ICT_GENOMES,
     AutopsyAttributionCause,
     CandidateHealthEvaluation,
     CandidateHealthTier,
     ContinuousSelfLearningDaemon,
+    IctAutopsyCalculator,
+    IctAutopsyMetrics,
     StrategyAutopsyEngine,
     TradeAutopsyRecord,
 )
@@ -49,6 +55,7 @@ from autonomous_futures.safety.kill_switch import (
     SignerIdentity,
     SolvencyLedgerSnapshot,
 )
+from autonomous_futures.strategy.ict_mmxm import TwinsSetupState
 from autonomous_futures.strategy.macro_liquidity_scalper import (
     Candle,
     MacroLiquidityDipScalper,
@@ -57,6 +64,15 @@ from autonomous_futures.strategy.macro_liquidity_scalper import (
 )
 
 logger = logging.getLogger("autonomous_futures.execution.self_driving")
+
+
+def _finite_evidence_value(value: float | None) -> bool:
+    """Return whether an optional telemetry value is finite without inventing a fallback."""
+    try:
+        return value is not None and math.isfinite(value)
+    except TypeError:
+        return False
+
 
 UPSTREAM_PHASE_309_MERKLE_ROOT = "5e3435be2f701021263dbace99d64b2180e03630f10b5356c4aabe96f846c844"
 
@@ -99,6 +115,21 @@ class MicroCapitalConfig:
     max_hawkes_spectral_radius: float = 1.0
     max_heartbeat_latency_ms: float = 500.0
 
+    def __post_init__(self) -> None:
+        values = (
+            self.max_micro_order_notional_usdt,
+            self.max_aggregate_exposure_usdt,
+            self.min_cash_reserve_pct,
+            self.intra_day_loss_ceiling_usdt,
+        )
+        if not all(v.is_finite() for v in values) or not (
+            Decimal("0") < self.max_micro_order_notional_usdt <= Decimal("5")
+            and Decimal("0") < self.max_aggregate_exposure_usdt <= Decimal("25")
+            and Decimal("75") <= self.min_cash_reserve_pct <= Decimal("100")
+            and Decimal("0") < self.intra_day_loss_ceiling_usdt <= Decimal("3")
+        ):
+            raise ValueError("Configuration cannot relax the micro-capital limits")
+
 
 @dataclasses.dataclass
 class CandidateState:
@@ -116,8 +147,24 @@ class CandidateState:
     health_tier: CandidateHealthTier = CandidateHealthTier.PROBATIONARY
     entry_time_ms: int = 0
     entry_bar_index: int = 0
-    stop_loss: Decimal = Decimal("0.0")
-    take_profit: Decimal = Decimal("0.0")
+    _stop_loss: Decimal | None = dataclasses.field(default=None, repr=False)
+    _take_profit: Decimal | None = dataclasses.field(default=None, repr=False)
+
+    @property
+    def stop_loss(self) -> Decimal:
+        return self._stop_loss if self._stop_loss is not None else Decimal("0.0")
+
+    @stop_loss.setter
+    def stop_loss(self, val: Decimal | None) -> None:
+        self._stop_loss = val
+
+    @property
+    def take_profit(self) -> Decimal:
+        return self._take_profit if self._take_profit is not None else Decimal("0.0")
+
+    @take_profit.setter
+    def take_profit(self, val: Decimal | None) -> None:
+        self._take_profit = val
 
 
 @dataclasses.dataclass
@@ -141,6 +188,85 @@ class SelfDrivingOrder:
     stop_loss: Decimal | None = None
     take_profit: Decimal | None = None
     max_hold_bars: int = 8
+
+
+class Phase317SolvencyLedger(CentralizedSolvencyLedger):
+    """Enforces mathematical double-entry zero-drift balance invariant under mark-to-market."""
+
+    def __init__(self, starting_equity: Decimal | float = Decimal("100.00")) -> None:
+        super().__init__(starting_equity=starting_equity)
+        self.min_cash_reserve_floor_pct = Decimal("75")
+        self._margins: dict[str, Decimal] = {}
+        self._quantities: dict[str, Decimal] = {}
+
+    def record_fill(
+        self,
+        symbol: str,
+        side: str,
+        qty: Decimal | float,
+        price: Decimal | float,
+        fee: Decimal | float = Decimal("0"),
+        realized_pnl: Decimal | float = Decimal("0"),
+    ) -> bool:
+        """Conserve wallet while reserving/releasing position capital exactly."""
+        quantity, fill_price = Decimal(str(qty)), Decimal(str(price))
+        fee_dec, pnl = Decimal(str(fee)), Decimal(str(realized_pnl))
+        previous = self._quantities.get(symbol, Decimal("0"))
+        change = quantity if side == "BUY" else -quantity
+        current = previous + change
+        old_margin = self._margins.get(symbol, Decimal("0"))
+        if previous == 0 or previous * change >= 0:
+            new_margin = old_margin + quantity * fill_price
+        else:
+            close_qty = min(abs(previous), quantity)
+            released = old_margin * close_qty / abs(previous)
+            new_margin = (
+                old_margin - released + max(Decimal("0"), quantity - close_qty) * fill_price
+            )
+        self.cash += old_margin - new_margin + pnl - fee_dec
+        self.allocated_margin += new_margin - old_margin
+        self.realized_pnl += pnl - fee_dec
+        self.total_fees += fee_dec
+        self._margins[symbol] = new_margin
+        self._quantities[symbol] = current
+        return True
+
+    def get_snapshot(self) -> SolvencyLedgerSnapshot:
+        """Returns verified double-entry snapshot with mark-to-market zero-drift reconciliation."""
+        total_equity = self.cash + self.allocated_margin + self.unrealized_pnl
+        expected_equity = self.starting_equity + self.realized_pnl + self.unrealized_pnl
+        drift = total_equity - expected_equity
+        zero_drift = abs(drift) < Decimal("1e-15")
+
+        cash_pct = (
+            (self.cash / total_equity) * Decimal("100.0") if total_equity > 0 else Decimal("0")
+        )
+        unencumbered_cash_ok = cash_pct >= self.min_cash_reserve_floor_pct
+
+        return SolvencyLedgerSnapshot(
+            starting_equity=float(self.starting_equity),
+            cash=float(self.cash),
+            allocated_margin=float(self.allocated_margin),
+            unrealized_pnl=float(self.unrealized_pnl),
+            realized_pnl=float(self.realized_pnl),
+            total_equity=float(total_equity),
+            drift=float(drift),
+            zero_balance_drift=zero_drift,
+            cash_reserve_pct=float(cash_pct),
+            unencumbered_cash_verified=unencumbered_cash_ok,
+        )
+
+    def flatten_position(self, symbol: str, notional: float, fee: float = 0.001) -> None:
+        """Simulates position flattening during emergency shutdown with margin return."""
+        fee_dec = Decimal(str(fee))
+        notional_dec = Decimal(str(notional))
+        self.cash -= fee_dec
+        self.total_fees += fee_dec
+        self.realized_pnl -= fee_dec
+        if self.allocated_margin > Decimal("0.0"):
+            released = min(self.allocated_margin, notional_dec)
+            self.allocated_margin -= released
+            self.cash += released
 
 
 class SelfDrivingTradingEngine:
@@ -173,7 +299,7 @@ class SelfDrivingTradingEngine:
             self.multisig = MultiSigGovernanceEngine(signers=default_signers, required_quorum=2)
 
         # Centralized Solvency Ledger
-        self.ledger = CentralizedSolvencyLedger(starting_equity=float(starting_capital_usdt))
+        self.ledger = Phase317SolvencyLedger(starting_equity=starting_capital_usdt)
 
         # Hardware/OS Kill Switch
         if kill_switch is not None:
@@ -192,14 +318,18 @@ class SelfDrivingTradingEngine:
 
         # Market tracking state (Phase 315: 8-pair universe)
         self.candidates: dict[str, CandidateState] = {
-            "BTCUSDT": CandidateState(symbol="BTCUSDT", current_price=Decimal("82600.00")),
-            "ETHUSDT": CandidateState(symbol="ETHUSDT", current_price=Decimal("2500.00")),
-            "SOLUSDT": CandidateState(symbol="SOLUSDT", current_price=Decimal("110.00")),
-            "DOGEUSDT": CandidateState(symbol="DOGEUSDT", current_price=Decimal("0.08600")),
-            "BNBUSDT": CandidateState(symbol="BNBUSDT", current_price=Decimal("750.00")),
-            "XRPUSDT": CandidateState(symbol="XRPUSDT", current_price=Decimal("1.4000")),
-            "SUIUSDT": CandidateState(symbol="SUIUSDT", current_price=Decimal("1.1100")),
-            "AVAXUSDT": CandidateState(symbol="AVAXUSDT", current_price=Decimal("10.500")),
+            "BTCUSDT": CandidateState(symbol="BTCUSDT", current_price=Decimal("0")),
+            "ETHUSDT": CandidateState(symbol="ETHUSDT", current_price=Decimal("0")),
+            "SOLUSDT": CandidateState(symbol="SOLUSDT", current_price=Decimal("0")),
+            "DOGEUSDT": CandidateState(symbol="DOGEUSDT", current_price=Decimal("0")),
+            "BNBUSDT": CandidateState(symbol="BNBUSDT", current_price=Decimal("0")),
+            "XRPUSDT": CandidateState(symbol="XRPUSDT", current_price=Decimal("0")),
+            "SUIUSDT": CandidateState(symbol="SUIUSDT", current_price=Decimal("0")),
+            "AVAXUSDT": CandidateState(symbol="AVAXUSDT", current_price=Decimal("0")),
+            "NEARUSDT": CandidateState(symbol="NEARUSDT", current_price=Decimal("0")),
+            "LINKUSDT": CandidateState(symbol="LINKUSDT", current_price=Decimal("0")),
+            "APTUSDT": CandidateState(symbol="APTUSDT", current_price=Decimal("0")),
+            "ADAUSDT": CandidateState(symbol="ADAUSDT", current_price=Decimal("0")),
         }
 
         # Execution records & telemetry
@@ -209,10 +339,21 @@ class SelfDrivingTradingEngine:
         self.health_evaluations: dict[str, CandidateHealthEvaluation] = {}
         self.interlock_blocks_count: int = 0
         self.intra_day_loss_usdt: Decimal = Decimal("0.0")
-        self.latest_btc_ema50: float = 82800.0
-        self.latest_btc_ema200: float = 81500.0
+        self.latest_btc_ema50: float = 0.0
+        self.latest_btc_ema200: float = 0.0
+
+        # Phase 317 M4: ICT Autopsy decoupled queue and telemetry
+        self._pending_autopsies: deque[dict[str, Any] | IctAutopsyMetrics] = deque()
+        self.ict_autopsy_calculator = IctAutopsyCalculator()
+        self.ict_autopsies: dict[str, list[IctAutopsyMetrics]] = {
+            sym: [] for sym in self.candidates
+        }
 
         # Database initialization
+        self._telemetry_conn: sqlite3.Connection | None = None
+        self._telemetry_db_path: Path | None = None
+        self._db_lock = threading.RLock()
+        self._autopsy_lock = threading.Lock()
         self.db_path = self.storage_dir / "canary-production-telemetry.sqlite3"
         self.events_path = self.storage_dir / "canary-production-events.jsonl"
         self._init_sqlite_db()
@@ -228,7 +369,7 @@ class SelfDrivingTradingEngine:
 
     def _init_sqlite_db(self) -> None:
         """Initializes SQLite telemetry tables and compatibility views."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_telemetry_db_conn(self.db_path)
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS trade_autopsies (
@@ -250,6 +391,44 @@ class SelfDrivingTradingEngine:
                 hold_duration_ms INTEGER NOT NULL,
                 cause TEXT NOT NULL,
                 timestamp_ms INTEGER NOT NULL
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ict_trade_autopsies (
+                trade_id TEXT PRIMARY KEY,
+                candidate_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                exit_price REAL NOT NULL,
+                fill_qty REAL NOT NULL,
+                entry_timing_error_bps REAL NOT NULL,
+                fvg_slippage_bps REAL NOT NULL,
+                mae_bps REAL NOT NULL,
+                mfe_bps REAL NOT NULL,
+                bracket_efficiency REAL NOT NULL,
+                realized_edge_bps REAL NOT NULL,
+                gross_pnl_usdt REAL NOT NULL,
+                fee_cost_usdt REAL NOT NULL,
+                net_pnl_usdt REAL NOT NULL,
+                cause TEXT NOT NULL,
+                timestamp_ms INTEGER NOT NULL
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ict_candidate_registry (
+                candidate_id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                generation INTEGER NOT NULL,
+                parent_candidate_id TEXT,
+                ote_lower REAL NOT NULL,
+                ote_upper REAL NOT NULL,
+                stdv_tp1 REAL NOT NULL,
+                stdv_tp2 REAL NOT NULL,
+                lookback_htf INTEGER NOT NULL,
+                health_tier TEXT NOT NULL,
+                is_active INTEGER NOT NULL,
+                updated_at_ms INTEGER NOT NULL
             );
         """)
         cur.execute("""
@@ -301,7 +480,57 @@ class SelfDrivingTradingEngine:
         cur.execute("CREATE VIEW IF NOT EXISTS reconciliation AS SELECT * FROM solvency_snapshots;")
         cur.execute("CREATE VIEW IF NOT EXISTS telemetry AS SELECT * FROM candidate_health;")
         conn.commit()
-        conn.close()
+
+    def _get_telemetry_db_conn(self, db_path: Path | None = None) -> sqlite3.Connection:
+        """Retrieves or creates a cached persistent SQLite connection in WAL mode.
+
+        Eliminates the ~16-19ms overhead of connecting/closing per transaction on Windows NTFS.
+        """
+        target = Path(db_path or self.db_path).resolve()
+        with self._db_lock:
+            if self._telemetry_conn is not None and self._telemetry_db_path == target:
+                return self._telemetry_conn
+
+            if self._telemetry_conn is not None:
+                try:
+                    self._telemetry_conn.commit()
+                except Exception:
+                    pass
+                try:
+                    self._telemetry_conn.close()
+                except Exception:
+                    pass
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(target, check_same_thread=False, timeout=30.0)
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            conn.execute("PRAGMA busy_timeout = 5000;")
+            self._telemetry_conn = conn
+            self._telemetry_db_path = target
+            return self._telemetry_conn
+
+    def close_telemetry_db(self) -> None:
+        """Closes cached SQLite telemetry database connection if open."""
+        with self._db_lock:
+            if self._telemetry_conn is not None:
+                try:
+                    self._telemetry_conn.commit()
+                except Exception:
+                    pass
+                try:
+                    self._telemetry_conn.close()
+                except Exception:
+                    pass
+                self._telemetry_conn = None
+                self._telemetry_db_path = None
+
+    def close(self) -> None:
+        """Closes all engine resources and active database handles."""
+        self.close_telemetry_db()
+
+    def __del__(self) -> None:
+        self.close_telemetry_db()
 
     def _append_event(self, event_type: str, payload: dict[str, Any]) -> None:
         """Appends a structured event line to JSONL audit file and in-memory log."""
@@ -377,22 +606,10 @@ class SelfDrivingTradingEngine:
         if price <= Decimal("0"):
             return Decimal("0.0"), Decimal("0.0"), Decimal("0.0")
 
-        spec = DEFAULT_SPECS.get(symbol.upper(), {})
+        spec = self.gateway.symbol_specs.get(symbol.upper(), {})
         step_size = spec.get("step_size", Decimal("0.001"))
         tick_size = spec.get("tick_size", Decimal("0.01"))
         min_notional = spec.get("min_notional", Decimal("5.00"))
-
-        # Micro-capital testnet execution mode:
-        # On Binance testnet and micro-capital validation, enforce min_notional = 5.00 USDT
-        # and adapt BTC step_size to 0.00001 when target_notional < price * step_size
-        # to permit sub-$5 child order slicing.
-        if getattr(self.gateway, "testnet", True):
-            min_notional = Decimal("5.00")
-            if (
-                symbol.upper() == "BTCUSDT"
-                and self.config.max_micro_order_notional_usdt < (price * step_size)
-            ):
-                step_size = Decimal("0.00001")
 
         quantized_price = self._round_tick_size(price, tick_size)
         if quantized_price <= Decimal("0"):
@@ -404,31 +621,10 @@ class SelfDrivingTradingEngine:
         quantized_qty = self._round_step_size(raw_qty, step_size)
         actual_notional = quantized_qty * quantized_price
 
-        # Binance MIN_NOTIONAL precision step-up compliance:
-        # If rounding down causes actual_notional < min_notional (5.00 USDT),
-        # step up by 1 step_size if notional remains within 1 step size of micro-cap
-        # (e.g. 0.03 SOL at 171.00 = 5.13 USDT, 59 DOGE at 0.086 = 5.07 USDT),
-        # ensuring non-deadlocking order sizing across all candidate symbols.
-        if actual_notional < min_notional:
-            if symbol.upper() in (
-                "SOLUSDT",
-                "ETHUSDT",
-                "DOGEUSDT",
-                "BNBUSDT",
-                "XRPUSDT",
-                "SUIUSDT",
-                "AVAXUSDT",
-            ):
-                step_up_qty = quantized_qty + step_size
-                step_up_notional = step_up_qty * quantized_price
-                max_allowed = target_notional + (step_size * quantized_price)
-                if step_up_notional >= min_notional and step_up_notional <= max_allowed:
-                    quantized_qty = step_up_qty
-                    actual_notional = step_up_notional
-                else:
-                    return quantized_price, Decimal("0.0"), Decimal("0.0")
-            else:
-                return quantized_price, Decimal("0.0"), Decimal("0.0")
+        if quantized_qty < spec.get("min_qty", step_size) or not (
+            min_notional <= actual_notional <= self.config.max_micro_order_notional_usdt
+        ):
+            return quantized_price, Decimal("0"), Decimal("0")
 
         return quantized_price, quantized_qty, actual_notional
 
@@ -448,16 +644,8 @@ class SelfDrivingTradingEngine:
         **kwargs: Any,
     ) -> SelfDrivingOrder | None:
         """Ingests live market tick, runs risk interlocks, and dispatches micro order."""
-        hsr = (
-            hawkes_spectral_radius
-            if hawkes_spectral_radius is not None
-            else (hawkes_rho if hawkes_rho is not None else 0.0)
-        )
-        h_age = (
-            heartbeat_age_ms
-            if heartbeat_age_ms is not None
-            else (heartbeat_latency_ms if heartbeat_latency_ms is not None else 0.0)
-        )
+        hsr = hawkes_spectral_radius if hawkes_spectral_radius is not None else hawkes_rho
+        h_age = heartbeat_age_ms if heartbeat_age_ms is not None else heartbeat_latency_ms
         now_timestamp = (
             ts_ms
             if ts_ms is not None
@@ -465,7 +653,7 @@ class SelfDrivingTradingEngine:
         )
 
         # Handle negative, zero, or sub-tick price fail-closed
-        spec = DEFAULT_SPECS.get(symbol.upper(), {})
+        spec = self.gateway.symbol_specs.get(symbol.upper(), {})
         tick_size = spec.get("tick_size", Decimal("0.01"))
         if price <= Decimal("0") or price < (tick_size * Decimal("0.5")):
             logger.warning("Order rejected: Invalid or sub-tick price %s for %s", price, symbol)
@@ -499,32 +687,7 @@ class SelfDrivingTradingEngine:
         total_upnl = sum((c.unrealized_pnl_usdt for c in self.candidates.values()), Decimal("0.0"))
         self.ledger.unrealized_pnl = total_upnl
 
-        # 1. Heartbeat latency interlock (<= 500 ms)
-        if h_age > self.config.max_heartbeat_latency_ms:
-            logger.warning("Interlock tripped: Heartbeat age %.1f ms > 500 ms", h_age)
-            self.interlock_blocks_count += 1
-            self._append_event(
-                "HEARTBEAT_STALE_BLOCK", {"symbol": symbol, "latency_ms": str(h_age)}
-            )
-            return None
-
-        # 2. Hawkes risk interlock (rho < 1.0)
-        if hsr >= self.config.max_hawkes_spectral_radius:
-            logger.warning(
-                "Interlock tripped: Hawkes spectral radius %.3f >= 1.0",
-                hsr,
-            )
-            self.state = SelfDrivingState.HAWKES_THROTTLED
-            self.interlock_blocks_count += 1
-            self._append_event(
-                "HAWKES_RUNAWAY_THROTTLE",
-                {"symbol": symbol, "hawkes": str(hsr)},
-            )
-            return None
-        if self.state == SelfDrivingState.HAWKES_THROTTLED:
-            self.state = SelfDrivingState.MICRO_CAPITAL_ACTIVE
-
-        # 3. Intra-day loss ceiling interlock (<= 3.00 USDT)
+        # Daily risk remains active even when market-quality evidence is unavailable.
         if self.intra_day_loss_usdt >= self.config.intra_day_loss_ceiling_usdt:
             logger.error(
                 "Interlock tripped: Intra-day loss %s USDT >= ceiling 3.00 USDT",
@@ -534,6 +697,62 @@ class SelfDrivingTradingEngine:
             self._flatten_all_positions(now_timestamp, reason="Intra-day loss ceiling breached")
             self.interlock_blocks_count += 1
             return None
+
+        # Missing or malformed measurements must never become synthetic clean readings.
+        try:
+            measured_hsr = float(hsr) if hsr is not None else None
+            measured_h_age = float(h_age) if h_age is not None else None
+            evidence_valid = (
+                measured_hsr is not None
+                and measured_h_age is not None
+                and math.isfinite(measured_hsr)
+                and math.isfinite(measured_h_age)
+                and measured_hsr >= 0.0
+                and measured_h_age >= 0.0
+            )
+        except TypeError, ValueError, OverflowError:
+            measured_hsr = None
+            measured_h_age = None
+            evidence_valid = False
+        if not evidence_valid:
+            logger.warning("Order blocked: measured Hawkes and heartbeat evidence is required")
+            self.interlock_blocks_count += 1
+            self._append_event(
+                "MICROSTRUCTURE_EVIDENCE_MISSING_BLOCK",
+                {
+                    "symbol": symbol,
+                    "hawkes_present": hsr is not None,
+                    "heartbeat_present": h_age is not None,
+                },
+            )
+            return None
+
+        assert measured_hsr is not None and measured_h_age is not None
+
+        # 1. Heartbeat latency interlock (<= 500 ms)
+        if measured_h_age > self.config.max_heartbeat_latency_ms:
+            logger.warning("Interlock tripped: Heartbeat age %.1f ms > 500 ms", measured_h_age)
+            self.interlock_blocks_count += 1
+            self._append_event(
+                "HEARTBEAT_STALE_BLOCK", {"symbol": symbol, "latency_ms": str(measured_h_age)}
+            )
+            return None
+
+        # 2. Hawkes risk interlock (rho < 1.0)
+        if measured_hsr >= self.config.max_hawkes_spectral_radius:
+            logger.warning(
+                "Interlock tripped: Hawkes spectral radius %.3f >= 1.0",
+                measured_hsr,
+            )
+            self.state = SelfDrivingState.HAWKES_THROTTLED
+            self.interlock_blocks_count += 1
+            self._append_event(
+                "HAWKES_RUNAWAY_THROTTLE",
+                {"symbol": symbol, "hawkes": str(measured_hsr)},
+            )
+            return None
+        if self.state == SelfDrivingState.HAWKES_THROTTLED:
+            self.state = SelfDrivingState.MICRO_CAPITAL_ACTIVE
 
         # If signal is neutral or confidence insufficient, no action needed
         if ensemble_signal not in ("LONG", "SHORT", "BUY", "SELL") or signal_confidence < 0.60:
@@ -545,10 +764,8 @@ class SelfDrivingTradingEngine:
         quantized_price, quantized_qty, actual_notional = self._calculate_child_order_qty(
             symbol, price
         )
-        spec = DEFAULT_SPECS.get(symbol.upper(), {})
+        spec = self.gateway.symbol_specs.get(symbol.upper(), {})
         min_notional = spec.get("min_notional", Decimal("5.00"))
-        if getattr(self.gateway, "testnet", True):
-            min_notional = Decimal("5.00")
 
         if quantized_qty <= Decimal("0") or actual_notional < min_notional:
             logger.warning(
@@ -630,6 +847,10 @@ class SelfDrivingTradingEngine:
         now_ms: int,
     ) -> None:
         """Executes fill and reconciles centralized double-entry solvency ledger."""
+        if not self.gateway.offline_mode:
+            raise RuntimeError(
+                "Live orders require exchange-confirmed execution; simulated fills disabled"
+            )
         cand = self.candidates[order.symbol]
         fee_rate = Decimal("0.0002") if order.is_maker else Decimal("0.0004")
         fee_cost = (order.notional_usdt * fee_rate).quantize(
@@ -683,9 +904,19 @@ class SelfDrivingTradingEngine:
             # Opening new position
             cand.entry_price = fill_price
             cand.entry_time_ms = now_ms
+            cand.current_price = fill_price
 
         cand.position_qty = new_qty
-        cand.allocated_exposure_usdt = abs(new_qty) * fill_price
+        if new_qty == Decimal("0.0"):
+            cand.unrealized_pnl_usdt = Decimal("0.0")
+            cand.allocated_exposure_usdt = Decimal("0.0")
+            cand.entry_price = Decimal("0.0")
+            cand.entry_time_ms = 0
+            cand.entry_bar_index = 0
+            cand.stop_loss = None
+            cand.take_profit = None
+        else:
+            cand.allocated_exposure_usdt = abs(new_qty) * fill_price
         cand.total_fees_usdt += fee_cost
         cand.trades_count += 1
 
@@ -697,10 +928,10 @@ class SelfDrivingTradingEngine:
         self.ledger.record_fill(
             symbol=order.symbol,
             side=order.side.value,
-            qty=float(order.quantity),
-            price=float(fill_price),
-            fee=float(fee_cost),
-            realized_pnl=float(realized_pnl),
+            qty=order.quantity,
+            price=fill_price,
+            fee=fee_cost,
+            realized_pnl=realized_pnl,
         )
 
         total_upnl = sum((c.unrealized_pnl_usdt for c in self.candidates.values()), Decimal("0.0"))
@@ -727,8 +958,44 @@ class SelfDrivingTradingEngine:
         fill_qty: Decimal,
         now_ms: int,
         cause: AutopsyAttributionCause,
+        *,
+        optimal_price: float | None = None,
+        hawkes_intensity: float | None = None,
+        adverse_delta_pct: float | None = None,
+        fvg_boundary_price: float | None = None,
+        lowest_price_during_trade: float | None = None,
+        highest_price_during_trade: float | None = None,
     ) -> None:
-        """Invokes StrategyAutopsyEngine and updates ContinuousSelfLearningDaemon."""
+        """Record autopsy only when its market-quality inputs were actually observed."""
+        generic_inputs = (optimal_price, hawkes_intensity, adverse_delta_pct)
+        if not all(_finite_evidence_value(value) for value in generic_inputs):
+            self._append_event(
+                "TRADE_AUTOPSY_SKIPPED_MISSING_EVIDENCE",
+                {
+                    "symbol": cand.symbol,
+                    "trade_id": f"trd-{cand.symbol.lower()[:3]}-{now_ms}",
+                    "missing": [
+                        name
+                        for name, value in (
+                            ("optimal_price", optimal_price),
+                            ("hawkes_intensity", hawkes_intensity),
+                            ("adverse_delta_pct", adverse_delta_pct),
+                        )
+                        if value is None
+                    ],
+                },
+            )
+            return
+        assert optimal_price is not None
+        assert hawkes_intensity is not None
+        assert adverse_delta_pct is not None
+        if optimal_price <= 0.0 or hawkes_intensity < 0.0 or adverse_delta_pct < 0.0:
+            self._append_event(
+                "TRADE_AUTOPSY_SKIPPED_INVALID_EVIDENCE",
+                {"symbol": cand.symbol, "timestamp_ms": now_ms},
+            )
+            return
+
         trade_id = f"trd-{cand.symbol.lower()[:3]}-{now_ms}"
         hold_duration_ms = max(0, now_ms - cand.entry_time_ms)
         hold_duration_bars = max(1, hold_duration_ms // (15 * 60 * 1000))
@@ -741,9 +1008,9 @@ class SelfDrivingTradingEngine:
             entry_price=float(cand.entry_price),
             exit_price=float(exit_price),
             fill_qty=float(fill_qty),
-            optimal_price=float(cand.entry_price),
-            hawkes_intensity=0.25,
-            adverse_delta_pct=0.0005,
+            optimal_price=optimal_price,
+            hawkes_intensity=hawkes_intensity,
+            adverse_delta_pct=adverse_delta_pct,
             timestamp_ms=now_ms,
         )
 
@@ -773,6 +1040,259 @@ class SelfDrivingTradingEngine:
             },
         )
 
+        ict_inputs = (
+            optimal_price,
+            fvg_boundary_price,
+            lowest_price_during_trade,
+            highest_price_during_trade,
+        )
+        if not all(_finite_evidence_value(value) for value in ict_inputs):
+            self._append_event(
+                "ICT_AUTOPSY_SKIPPED_MISSING_EVIDENCE",
+                {"symbol": cand.symbol, "trade_id": trade_id},
+            )
+            return
+        assert fvg_boundary_price is not None
+        assert lowest_price_during_trade is not None
+        assert highest_price_during_trade is not None
+        if (
+            fvg_boundary_price <= 0.0
+            or lowest_price_during_trade <= 0.0
+            or highest_price_during_trade <= 0.0
+            or lowest_price_during_trade > highest_price_during_trade
+        ):
+            self._append_event(
+                "ICT_AUTOPSY_SKIPPED_INVALID_EVIDENCE",
+                {"symbol": cand.symbol, "trade_id": trade_id},
+            )
+            return
+        # Queue only complete evidence; the drain path no longer synthesizes omitted prices.
+        with self._autopsy_lock:
+            self._pending_autopsies.append(
+                {
+                    "trade_id": trade_id,
+                    "candidate_id": f"cand-{cand.symbol.lower()}-ict-001",
+                    "symbol": cand.symbol,
+                    "side": "BUY" if cand.position_qty >= 0 else "SELL",
+                    "entry_price": float(cand.entry_price),
+                    "exit_price": float(exit_price),
+                    "fill_qty": float(fill_qty),
+                    "optimal_price": optimal_price,
+                    "fvg_boundary_price": fvg_boundary_price,
+                    "lowest_price_during_trade": lowest_price_during_trade,
+                    "highest_price_during_trade": highest_price_during_trade,
+                    "timestamp_ms": now_ms,
+                }
+            )
+
+    def has_pending_autopsies(self) -> bool:
+        """Returns True if pending ICT autopsy records are queued for draining."""
+        with self._autopsy_lock:
+            return len(self._pending_autopsies) > 0
+
+    def enqueue_ict_autopsy(self, autopsy_data: dict[str, Any] | IctAutopsyMetrics) -> None:
+        """Enqueues an ICT autopsy record in non-blocking fashion (< 0.05ms)."""
+        with self._autopsy_lock:
+            self._pending_autopsies.append(autopsy_data)
+
+    def drain_pending_autopsies(self, db_path: Path | None = None) -> list[IctAutopsyMetrics]:
+        """Asynchronously drains pending autopsies into SQLite tables ict_trade_autopsies
+
+        and ict_candidate_registry and appends JSONL event logs.
+        """
+        with self._autopsy_lock:
+            if not self._pending_autopsies:
+                return []
+            raw_items = list(self._pending_autopsies)
+            self._pending_autopsies.clear()
+
+        target_db = db_path or self.db_path
+        drained_metrics: list[IctAutopsyMetrics] = []
+        rows_to_insert = []
+        events_to_append = []
+
+        for item in raw_items:
+            if isinstance(item, IctAutopsyMetrics):
+                metrics = item
+            else:
+                required_evidence = (
+                    "trade_id",
+                    "symbol",
+                    "side",
+                    "entry_price",
+                    "exit_price",
+                    "fill_qty",
+                    "optimal_price",
+                    "fvg_boundary_price",
+                    "lowest_price_during_trade",
+                    "highest_price_during_trade",
+                    "timestamp_ms",
+                )
+                missing_evidence = [
+                    name for name in required_evidence if name not in item or item[name] is None
+                ]
+                if missing_evidence:
+                    self._append_event(
+                        "ICT_AUTOPSY_REJECTED_INCOMPLETE_EVIDENCE",
+                        {
+                            "trade_id": item.get("trade_id"),
+                            "symbol": item.get("symbol"),
+                            "missing": missing_evidence,
+                        },
+                    )
+                    continue
+                try:
+                    numeric_evidence = {
+                        name: float(item[name])
+                        for name in (
+                            "entry_price",
+                            "exit_price",
+                            "fill_qty",
+                            "optimal_price",
+                            "fvg_boundary_price",
+                            "lowest_price_during_trade",
+                            "highest_price_during_trade",
+                        )
+                    }
+                    timestamp_ms = int(item["timestamp_ms"])
+                    evidence_valid = (
+                        all(
+                            math.isfinite(value) and value > 0.0
+                            for value in numeric_evidence.values()
+                        )
+                        and timestamp_ms > 0
+                    )
+                except TypeError, ValueError, OverflowError:
+                    evidence_valid = False
+                    numeric_evidence = {}
+                    timestamp_ms = 0
+                if (
+                    not evidence_valid
+                    or not isinstance(item["side"], str)
+                    or item["side"].upper() not in {"BUY", "SELL"}
+                    or numeric_evidence["lowest_price_during_trade"]
+                    > numeric_evidence["highest_price_during_trade"]
+                ):
+                    self._append_event(
+                        "ICT_AUTOPSY_REJECTED_INVALID_EVIDENCE",
+                        {"trade_id": item["trade_id"], "symbol": item["symbol"]},
+                    )
+                    continue
+                metrics = self.ict_autopsy_calculator.compute_metrics(
+                    trade_id=item["trade_id"],
+                    candidate_id=item.get("candidate_id", f"cand-{item['symbol'].lower()}-ict-001"),
+                    symbol=item["symbol"],
+                    side=item["side"],
+                    entry_price=numeric_evidence["entry_price"],
+                    exit_price=numeric_evidence["exit_price"],
+                    fill_qty=numeric_evidence["fill_qty"],
+                    optimal_price=numeric_evidence["optimal_price"],
+                    fvg_boundary_price=numeric_evidence["fvg_boundary_price"],
+                    lowest_price_during_trade=numeric_evidence["lowest_price_during_trade"],
+                    highest_price_during_trade=numeric_evidence["highest_price_during_trade"],
+                    timestamp_ms=timestamp_ms,
+                )
+            drained_metrics.append(metrics)
+            self.ict_autopsies.setdefault(metrics.symbol, []).append(metrics)
+
+            rows_to_insert.append(
+                (
+                    metrics.trade_id,
+                    metrics.candidate_id,
+                    metrics.symbol,
+                    metrics.side,
+                    metrics.entry_price,
+                    metrics.exit_price,
+                    metrics.fill_qty,
+                    metrics.entry_timing_error_bps,
+                    metrics.fvg_slippage_bps,
+                    metrics.mae_bps,
+                    metrics.mfe_bps,
+                    metrics.bracket_efficiency,
+                    metrics.realized_edge_bps,
+                    metrics.gross_pnl_usdt,
+                    metrics.fee_cost_usdt,
+                    metrics.net_pnl_usdt,
+                    str(metrics.cause),
+                    metrics.timestamp_ms,
+                )
+            )
+
+            events_to_append.append(
+                {
+                    "timestamp_ms": metrics.timestamp_ms,
+                    "event_type": "ICT_TRADE_AUTOPSY",
+                    "trade_id": metrics.trade_id,
+                    "symbol": metrics.symbol,
+                    "bracket_efficiency": metrics.bracket_efficiency,
+                    "net_pnl": metrics.net_pnl_usdt,
+                    "cause": str(metrics.cause),
+                }
+            )
+
+        # Persist to SQLite
+        try:
+            with self._db_lock:
+                conn = self._get_telemetry_db_conn(target_db)
+                cur = conn.cursor()
+                cur.executemany(
+                    """
+                    INSERT OR REPLACE INTO ict_trade_autopsies (
+                        trade_id, candidate_id, symbol, side, entry_price, exit_price,
+                        fill_qty, entry_timing_error_bps, fvg_slippage_bps, mae_bps, mfe_bps,
+                        bracket_efficiency, realized_edge_bps, gross_pnl_usdt, fee_cost_usdt,
+                        net_pnl_usdt, cause, timestamp_ms
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    rows_to_insert,
+                )
+                # Update ict_candidate_registry
+                for m in drained_metrics:
+                    genome = DEFAULT_ICT_GENOMES.get(m.symbol)
+                    ote_lower = float(genome.ote_lower) if genome else 0.62
+                    ote_upper = float(genome.ote_upper) if genome else 0.79
+                    stdv_tp1 = float(genome.stdv_tp1) if genome else 2.0
+                    stdv_tp2 = float(genome.stdv_tp2) if genome else 4.0
+                    lookback_htf = genome.lookback_htf if genome else 100
+                    cur.execute(
+                        """
+                        INSERT OR REPLACE INTO ict_candidate_registry (
+                            candidate_id, symbol, generation, parent_candidate_id,
+                            ote_lower, ote_upper, stdv_tp1, stdv_tp2, lookback_htf,
+                            health_tier, is_active, updated_at_ms
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            m.candidate_id,
+                            m.symbol,
+                            1,
+                            None,
+                            ote_lower,
+                            ote_upper,
+                            stdv_tp1,
+                            stdv_tp2,
+                            lookback_htf,
+                            "HEALTHY" if m.net_pnl_usdt >= 0 else "DEGRADED",
+                            1,
+                            m.timestamp_ms,
+                        ),
+                    )
+                conn.commit()
+        except Exception as db_err:
+            logger.warning("Error inserting ict_trade_autopsies (non-fatal): %s", db_err)
+            with self._autopsy_lock:
+                self._pending_autopsies.extendleft(reversed(raw_items))
+
+        # Append to JSONL events log
+        try:
+            with open(self.events_path, "a", encoding="utf-8") as f:
+                for ev in events_to_append:
+                    f.write(json.dumps(ev) + "\n")
+        except Exception as ev_err:
+            logger.debug("Error writing JSONL event: %s", ev_err)
+
+        return drained_metrics
+
     def evaluate_and_dispatch_scalper(
         self,
         symbol: str,
@@ -791,16 +1311,32 @@ class SelfDrivingTradingEngine:
         cand = self.candidates[symbol.upper()]
 
         # 1. Manage active position (SL, TP, Time Decay Stop)
-        if cand.position_qty > Decimal("0"):
+        if cand.position_qty != Decimal("0"):
             hold_bars = max(1, (ts - cand.entry_time_ms) // (15 * 60 * 1000))
+            is_long = cand.position_qty > Decimal("0")
+
             # Stop loss hit
-            if bar.low <= cand.stop_loss and cand.stop_loss > Decimal("0"):
+            sl_hit = (
+                (bar.low <= cand.stop_loss if is_long else bar.high >= cand.stop_loss)
+                if cand.stop_loss is not None and cand.stop_loss > Decimal("0")
+                else False
+            )
+            if sl_hit:
+                assert cand.stop_loss is not None
                 logger.info("Stop Loss triggered on %s at %s", symbol, cand.stop_loss)
                 return self._exit_position(cand, cand.stop_loss, ts, reason="STOP_LOSS")
+
             # Take profit hit
-            if bar.high >= cand.take_profit and cand.take_profit > Decimal("0"):
+            tp_hit = (
+                (bar.high >= cand.take_profit if is_long else bar.low <= cand.take_profit)
+                if cand.take_profit is not None and cand.take_profit > Decimal("0")
+                else False
+            )
+            if tp_hit:
+                assert cand.take_profit is not None
                 logger.info("Take Profit triggered on %s at %s", symbol, cand.take_profit)
                 return self._exit_position(cand, cand.take_profit, ts, reason="TAKE_PROFIT")
+
             # Time decay momentum stop (8 bars = 120 mins)
             if hold_bars >= 8:
                 logger.info("Time decay stop triggered on %s at %s", symbol, bar.close)
@@ -808,7 +1344,7 @@ class SelfDrivingTradingEngine:
 
         # 2. Evaluate new dip entry if flat
         if cand.position_qty == Decimal("0"):
-            macro_bull = self.trend_filter.evaluate(
+            macro_regime = self.trend_filter.evaluate_regime(
                 list(btc_1h_candles),
                 list(btc_4h_candles) if btc_4h_candles else None,
             )
@@ -816,7 +1352,7 @@ class SelfDrivingTradingEngine:
                 symbol=symbol,
                 bar=bar,
                 history=list(history),
-                macro_trend_allowed=macro_bull,
+                macro_trend_allowed=macro_regime,
             )
             if signal:
                 cand.stop_loss = signal.stop_loss
@@ -824,9 +1360,7 @@ class SelfDrivingTradingEngine:
                 order = self.process_microstructure_tick(
                     symbol=symbol,
                     price=signal.sweep_price,
-                    hawkes_spectral_radius=0.15,
-                    heartbeat_age_ms=50.0,
-                    ensemble_signal="BUY",
+                    ensemble_signal=signal.side,
                     ts_ms=ts,
                 )
                 if order:
@@ -837,28 +1371,180 @@ class SelfDrivingTradingEngine:
 
         return None
 
+    def dispatch_ict_intention(
+        self,
+        setup: TwinsSetupState,
+        now_ms: int | None = None,
+    ) -> SelfDrivingOrder | None:
+        """Dispatches a validated ICT Twins Reversal setup through micro-capital risk interlocks."""
+        if not setup.step_6_ready or setup.side is None:
+            return None
+
+        # Precondition: Engine must not be circuit-flattened or manually halted
+        if self.state in (SelfDrivingState.CIRCUIT_FLATTENED, SelfDrivingState.KILL_SWITCH_HALTED):
+            return None
+
+        symbol = setup.symbol.upper()
+        cand = self.candidates.get(symbol)
+        if cand is None:
+            return None
+
+        # Precondition: Candidate must be flat
+        if cand.position_qty != Decimal("0"):
+            return None
+
+        now_timestamp = now_ms if now_ms is not None else int(time.time() * 1000)
+
+        # Reference entry price from setup
+        entry_price = setup.m1_cisd_price or setup.ote_705 or cand.current_price
+        if entry_price <= Decimal("0"):
+            return None
+
+        # Intra-day loss ceiling interlock (<= 3.00 USDT)
+        if self.intra_day_loss_usdt >= self.config.intra_day_loss_ceiling_usdt:
+            logger.error(
+                "Interlock tripped: Intra-day loss %s USDT >= ceiling 3.00 USDT",
+                self.intra_day_loss_usdt,
+            )
+            self.state = SelfDrivingState.CIRCUIT_FLATTENED
+            self._flatten_all_positions(now_timestamp, reason="Intra-day loss ceiling breached")
+            self.interlock_blocks_count += 1
+            return None
+
+        # Sizing with MIN_NOTIONAL and step_size rounding
+        quantized_price, quantized_qty, actual_notional = self._calculate_child_order_qty(
+            symbol, entry_price
+        )
+        spec = self.gateway.symbol_specs.get(symbol, {})
+        min_notional = spec.get("min_notional", Decimal("5.00"))
+        if quantized_qty <= Decimal("0") or actual_notional < min_notional:
+            logger.warning(
+                "ICT Order rejected: Rounded notional %s < min notional %s USDT",
+                actual_notional,
+                min_notional,
+            )
+            self.interlock_blocks_count += 1
+            return None
+
+        # A strict cap has no lot-size tolerance.
+        max_allowed_child = self.config.max_micro_order_notional_usdt
+        if actual_notional > max_allowed_child:
+            logger.warning(
+                "ICT Order rejected: Notional %s > max allowed %s USDT",
+                actual_notional,
+                max_allowed_child,
+            )
+            self.interlock_blocks_count += 1
+            return None
+
+        # Aggregate portfolio exposure check (<= 25.00 USDT)
+        current_aggregate_exposure = sum(
+            c.allocated_exposure_usdt for c in self.candidates.values()
+        )
+        if current_aggregate_exposure + actual_notional > self.config.max_aggregate_exposure_usdt:
+            logger.warning(
+                "Interlock tripped: Exposure %s + slice > max %s USDT",
+                current_aggregate_exposure,
+                self.config.max_aggregate_exposure_usdt,
+            )
+            self.interlock_blocks_count += 1
+            self._append_event(
+                "AGGREGATE_EXPOSURE_CAP_BLOCK",
+                {"symbol": symbol, "exposure": str(current_aggregate_exposure + actual_notional)},
+            )
+            return None
+
+        # Cash reserve floor check (>= 75.0%)
+        projected_cash = self.ledger.cash - actual_notional
+        total_equity = self.ledger.starting_equity + self.ledger.realized_pnl
+        cash_reserve_pct = (
+            (projected_cash / total_equity) * Decimal("100")
+            if total_equity > Decimal("0")
+            else Decimal("0")
+        )
+        if cash_reserve_pct < self.config.min_cash_reserve_pct:
+            logger.warning(
+                "Interlock tripped: Cash reserve %.2f%% < floor 75.0%%",
+                float(cash_reserve_pct),
+            )
+            self.interlock_blocks_count += 1
+            self._append_event(
+                "CASH_RESERVE_FLOOR_BLOCK",
+                {"symbol": symbol, "cash_reserve_pct": str(cash_reserve_pct)},
+            )
+            return None
+
+        # Store protective brackets on candidate state
+        cand.stop_loss = setup.stop_loss if setup.stop_loss is not None else Decimal("0.0")
+        cand.take_profit = (
+            setup.take_profit_partial
+            if setup.take_profit_partial is not None
+            else (setup.take_profit_final or Decimal("0.0"))
+        )
+
+        cid = generate_p317_ict_client_order_id(symbol, now_timestamp, role="ict")
+        order_id = f"ord-p317-{symbol.lower()[:3]}-{len(self.orders) + 1:04d}"
+        order = SelfDrivingOrder(
+            order_id=order_id,
+            symbol=symbol,
+            side=OrderSide.BUY if setup.side == "BUY" else OrderSide.SELL,
+            order_type="LIMIT",
+            price=quantized_price,
+            quantity=quantized_qty,
+            notional_usdt=actual_notional,
+            status=OrderStatus.PENDING,
+            timestamp_ms=now_timestamp,
+            client_order_id=cid,
+            is_maker=True,
+            stop_loss=setup.stop_loss,
+            take_profit=cand.take_profit,
+            max_hold_bars=12,
+        )
+
+        self._execute_fill(order, quantized_price, now_timestamp)
+        self.orders.append(order)
+        self._record_order_in_db(order)
+        return order
+
     def _exit_position(
         self,
         cand: CandidateState,
-        exit_price: Decimal,
+        exit_price: Decimal | None,
         ts_ms: int,
         reason: str,
     ) -> SelfDrivingOrder:
         """Exits active candidate position."""
-        spec = DEFAULT_SPECS.get(cand.symbol, {})
-        step_size = spec.get("step_size", Decimal("0.001"))
+        spec = self.gateway.symbol_specs.get(cand.symbol, {})
         tick_size = spec.get("tick_size", Decimal("0.01"))
 
-        quantized_price = self._round_tick_size(exit_price, tick_size)
-        quantized_qty = self._round_step_size(cand.position_qty, step_size)
+        effective_price = exit_price if exit_price is not None else cand.current_price
+        quantized_price = self._round_tick_size(effective_price, tick_size)
+        quantized_qty = abs(cand.position_qty)
+        if quantized_qty * quantized_price > self.config.max_micro_order_notional_usdt:
+            quantized_qty = self._round_step_size(
+                self.config.max_micro_order_notional_usdt / quantized_price,
+                spec["step_size"],
+            )
+        if quantized_qty <= 0:
+            raise ValueError("Exit lot is incompatible with the strict child cap")
         notional = quantized_qty * quantized_price
 
-        cid = generate_client_order_id(cand.symbol, ts_ms)
-        order_id = f"ord-p310-{cand.symbol.lower()[:3]}-{len(self.orders) + 1:04d}"
+        reason_upper = reason.upper()
+        if reason_upper in ("TAKE_PROFIT", "TP"):
+            role = "tp"
+        elif reason_upper in ("STOP_LOSS", "SL"):
+            role = "sl"
+        else:
+            role = "cl"
+
+        cid = generate_p317_ict_client_order_id(cand.symbol, ts_ms=ts_ms, role=role)
+        order_id = f"ord-p317-{cand.symbol.lower()[:3]}-{len(self.orders) + 1:04d}"
+        exit_side = OrderSide.BUY if cand.position_qty < Decimal("0") else OrderSide.SELL
+
         order = SelfDrivingOrder(
             order_id=order_id,
             symbol=cand.symbol,
-            side=OrderSide.SELL,
+            side=exit_side,
             order_type="LIMIT",
             price=quantized_price,
             quantity=quantized_qty,
@@ -866,13 +1552,13 @@ class SelfDrivingTradingEngine:
             status=OrderStatus.PENDING,
             timestamp_ms=ts_ms,
             client_order_id=cid,
-            is_maker=reason != "STOP_LOSS",  # SL is aggressive, TP is passive
+            is_maker=role != "sl" and reason_upper not in ("STOP_LOSS", "EMERGENCY", "FLATTEN"),
+            stop_loss=None,
+            take_profit=None,
         )
         self._execute_fill(order, quantized_price, ts_ms)
         self.orders.append(order)
         self._record_order_in_db(order)
-        cand.stop_loss = Decimal("0.0")
-        cand.take_profit = Decimal("0.0")
         return order
 
     def _flatten_all_positions(
@@ -889,23 +1575,14 @@ class SelfDrivingTradingEngine:
         else:
             ts = now_ms
 
+        if not self.gateway.offline_mode:
+            raise RuntimeError("Live flatten requires confirmed reduce-only exchange execution")
         logger.warning("Flattening all positions: %s", reason)
-        for sym, cand in self.candidates.items():
-            if cand.position_qty != Decimal("0.0"):
-                notional = abs(cand.position_qty) * cand.current_price
-                fee = (notional * Decimal("0.0004")).quantize(Decimal("0.000001"))
-                cand.position_qty = Decimal("0.0")
-                cand.allocated_exposure_usdt = Decimal("0.0")
-                cand.unrealized_pnl_usdt = Decimal("0.0")
-                self.ledger.flatten_position(sym, float(notional), float(fee))
-                self._record_event(
-                    "EMERGENCY_FLATTEN",
-                    f"Flattened {sym} position due to: {reason}",
-                    symbol=sym,
-                    fee_usdt=float(fee),
-                )
-        self.ledger.unrealized_pnl = Decimal("0.0")
-        self._record_solvency_snapshot(ts)
+        for cand in self.candidates.values():
+            while cand.position_qty != 0:
+                if cand.current_price <= 0:
+                    raise ValueError("Cannot flatten without a valid current price")
+                self._exit_position(cand, cand.current_price, ts, reason="FLATTEN")
         self._append_event("ALL_POSITIONS_FLATTENED", {"reason": reason})
 
     # =========================================================================
@@ -914,32 +1591,32 @@ class SelfDrivingTradingEngine:
 
     def _record_order_in_db(self, order: SelfDrivingOrder) -> None:
         """Persists order record to SQLite."""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO orders (
-                order_id, client_order_id, symbol, side, order_type, price,
-                quantity, notional_usdt, status, fee_usdt, realized_pnl_usdt, timestamp_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                order.order_id,
-                order.client_order_id,
-                order.symbol,
-                order.side.value,
-                order.order_type,
-                float(order.price),
-                float(order.quantity),
-                float(order.notional_usdt),
-                order.status.value,
-                float(order.fee_usdt),
-                float(order.realized_pnl_usdt),
-                order.timestamp_ms,
-            ),
-        )
-        conn.commit()
-        conn.close()
+        with self._db_lock:
+            conn = self._get_telemetry_db_conn(self.db_path)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO orders (
+                    order_id, client_order_id, symbol, side, order_type, price,
+                    quantity, notional_usdt, status, fee_usdt, realized_pnl_usdt, timestamp_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    order.order_id,
+                    order.client_order_id,
+                    order.symbol,
+                    order.side.value,
+                    order.order_type,
+                    float(order.price),
+                    float(order.quantity),
+                    float(order.notional_usdt),
+                    order.status.value,
+                    float(order.fee_usdt),
+                    float(order.realized_pnl_usdt),
+                    order.timestamp_ms,
+                ),
+            )
+            conn.commit()
 
     def _record_autopsy_in_db(
         self,
@@ -948,95 +1625,95 @@ class SelfDrivingTradingEngine:
         hold_ms: int,
     ) -> None:
         """Persists trade autopsy record to SQLite."""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO trade_autopsies (
-                trade_id, candidate_id, symbol, side, entry_price, exit_price,
-                fill_qty, entry_timing_error_bps, hawkes_slip_drag_bps, adverse_selection_bps,
-                realized_edge_bps, gross_pnl_usdt, fee_cost_usdt, net_pnl_usdt,
-                hold_duration_bars, hold_duration_ms, cause, timestamp_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                autopsy.trade_id,
-                autopsy.candidate_id,
-                autopsy.symbol,
-                autopsy.side,
-                autopsy.entry_price,
-                autopsy.exit_price,
-                autopsy.fill_qty,
-                autopsy.entry_timing_error_bps,
-                autopsy.hawkes_slip_drag_bps,
-                autopsy.adverse_selection_bps,
-                autopsy.realized_edge_bps,
-                autopsy.gross_pnl_usdt,
-                autopsy.fee_cost_usdt,
-                autopsy.net_pnl_usdt,
-                hold_bars,
-                hold_ms,
-                autopsy.cause.value,
-                autopsy.timestamp_ms,
-            ),
-        )
-        conn.commit()
-        conn.close()
+        with self._db_lock:
+            conn = self._get_telemetry_db_conn(self.db_path)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO trade_autopsies (
+                    trade_id, candidate_id, symbol, side, entry_price, exit_price,
+                    fill_qty, entry_timing_error_bps, hawkes_slip_drag_bps, adverse_selection_bps,
+                    realized_edge_bps, gross_pnl_usdt, fee_cost_usdt, net_pnl_usdt,
+                    hold_duration_bars, hold_duration_ms, cause, timestamp_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    autopsy.trade_id,
+                    autopsy.candidate_id,
+                    autopsy.symbol,
+                    autopsy.side,
+                    autopsy.entry_price,
+                    autopsy.exit_price,
+                    autopsy.fill_qty,
+                    autopsy.entry_timing_error_bps,
+                    autopsy.hawkes_slip_drag_bps,
+                    autopsy.adverse_selection_bps,
+                    autopsy.realized_edge_bps,
+                    autopsy.gross_pnl_usdt,
+                    autopsy.fee_cost_usdt,
+                    autopsy.net_pnl_usdt,
+                    hold_bars,
+                    hold_ms,
+                    autopsy.cause.value,
+                    autopsy.timestamp_ms,
+                ),
+            )
+            conn.commit()
 
     def _record_health_in_db(self, eval_result: CandidateHealthEvaluation, now_ms: int) -> None:
         """Persists candidate health evaluation to SQLite."""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO candidate_health (
-                candidate_id, symbol, tier, rolling_sharpe, win_rate_pct,
-                max_drawdown_pct, hawkes_resilience_score, total_trades,
-                consecutive_losses, needs_mutation, updated_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                eval_result.candidate_id,
-                eval_result.symbol,
-                eval_result.tier.value,
-                eval_result.rolling_sharpe,
-                eval_result.win_rate_pct,
-                eval_result.max_drawdown_pct,
-                eval_result.hawkes_resilience_score,
-                eval_result.total_trades,
-                eval_result.consecutive_losses,
-                1 if eval_result.needs_mutation else 0,
-                now_ms,
-            ),
-        )
-        conn.commit()
-        conn.close()
+        with self._db_lock:
+            conn = self._get_telemetry_db_conn(self.db_path)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO candidate_health (
+                    candidate_id, symbol, tier, rolling_sharpe, win_rate_pct,
+                    max_drawdown_pct, hawkes_resilience_score, total_trades,
+                    consecutive_losses, needs_mutation, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    eval_result.candidate_id,
+                    eval_result.symbol,
+                    eval_result.tier.value,
+                    eval_result.rolling_sharpe,
+                    eval_result.win_rate_pct,
+                    eval_result.max_drawdown_pct,
+                    eval_result.hawkes_resilience_score,
+                    eval_result.total_trades,
+                    eval_result.consecutive_losses,
+                    1 if eval_result.needs_mutation else 0,
+                    now_ms,
+                ),
+            )
+            conn.commit()
 
     def _record_solvency_snapshot(self, now_ms: int) -> None:
         """Persists double-entry solvency snapshot to SQLite."""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
-        snap = self.ledger.get_snapshot()
-        cur.execute(
-            """
-            INSERT INTO solvency_snapshots (
-                timestamp_ms, cash, allocated_margin, unrealized_pnl,
-                realized_pnl, starting_equity, total_equity, drift
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                now_ms,
-                float(snap.cash),
-                float(snap.allocated_margin),
-                float(snap.unrealized_pnl),
-                float(snap.realized_pnl),
-                float(snap.starting_equity),
-                float(snap.total_equity),
-                float(snap.drift),
-            ),
-        )
-        conn.commit()
-        conn.close()
+        with self._db_lock:
+            conn = self._get_telemetry_db_conn(self.db_path)
+            cur = conn.cursor()
+            snap = self.ledger.get_snapshot()
+            cur.execute(
+                """
+                INSERT INTO solvency_snapshots (
+                    timestamp_ms, cash, allocated_margin, unrealized_pnl,
+                    realized_pnl, starting_equity, total_equity, drift
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    now_ms,
+                    float(snap.cash),
+                    float(snap.allocated_margin),
+                    float(snap.unrealized_pnl),
+                    float(snap.realized_pnl),
+                    float(snap.starting_equity),
+                    float(snap.total_equity),
+                    float(snap.drift),
+                ),
+            )
+            conn.commit()
 
     # =========================================================================
     # Artifact Export & Merkle DAG Lineage
@@ -1074,14 +1751,22 @@ class SelfDrivingTradingEngine:
         now_ms = int(time.time() * 1000)
         snap = self.ledger.get_snapshot()
         solvency_dict = dataclasses.asdict(snap)
+        execution_mode = (
+            "OFFLINE_SIMULATION" if self.gateway.offline_mode else "LIVE_SUBMISSION_UNIMPLEMENTED"
+        )
+        execution_authority = False
 
         # 3. canary-production-report.json
         report_data = {
             "phase": "phase_310",
             "timestamp_ms": now_ms,
+            "execution_mode": execution_mode,
+            "execution_authority": execution_authority,
+            "artifact_integrity_only": True,
             "engine_state": self.state.value,
             "solvency": solvency_dict,
             "micro_capital_confinement": {
+                "scope": "LEGACY_SIMULATION_ONLY_NOT_APPROVED_LIVE_POLICY",
                 "max_micro_order_notional_usdt": float(self.config.max_micro_order_notional_usdt),
                 "max_aggregate_exposure_usdt": float(self.config.max_aggregate_exposure_usdt),
                 "min_cash_reserve_pct": float(self.config.min_cash_reserve_pct),
@@ -1103,14 +1788,14 @@ class SelfDrivingTradingEngine:
                 "current_price": (
                     float(self.candidates["BTCUSDT"].current_price)
                     if "BTCUSDT" in self.candidates
-                    else 82600.0
+                    else 0.0
                 ),
-                "ema50_1h": getattr(self, "latest_btc_ema50", 82800.0),
-                "ema200_1h": getattr(self, "latest_btc_ema200", 81500.0),
+                "ema50_1h": getattr(self, "latest_btc_ema50", 0.0),
+                "ema200_1h": getattr(self, "latest_btc_ema200", 0.0),
                 "regime": (
                     "BULLISH ALIGNED"
-                    if getattr(self, "latest_btc_ema50", 82800.0)
-                    >= getattr(self, "latest_btc_ema200", 81500.0)
+                    if getattr(self, "latest_btc_ema50", 0.0)
+                    > getattr(self, "latest_btc_ema200", 0.0)
                     else "BEARISH / SIDEWAYS"
                 ),
             },
@@ -1124,6 +1809,8 @@ class SelfDrivingTradingEngine:
         execution_data = {
             "phase": "phase_310",
             "timestamp_ms": now_ms,
+            "execution_mode": execution_mode,
+            "execution_authority": execution_authority,
             "orders": [
                 {
                     "order_id": o.order_id,
@@ -1139,10 +1826,13 @@ class SelfDrivingTradingEngine:
                     "realized_pnl_usdt": float(o.realized_pnl_usdt),
                     "is_maker": o.is_maker,
                     "timestamp_ms": o.timestamp_ms,
+                    "execution_source": "INTERNAL_SIMULATION",
+                    "exchange_confirmed": False,
                 }
                 for o in self.orders
             ],
-            "total_executed": len(self.orders),
+            "total_internal_simulated_fills": len(self.orders),
+            "total_exchange_confirmed_fills": 0,
         }
         exec_path.write_text(json.dumps(execution_data, indent=2), encoding="utf-8")
 
@@ -1165,8 +1855,12 @@ class SelfDrivingTradingEngine:
         # 5. production-summary.json
         summary_data = {
             "phase": "phase_310",
-            "verified": True,
-            "status": "PRODUCTION_LAUNCH_VERIFIED",
+            "verified": False,
+            "artifact_integrity_verified": True,
+            "status": "RESEARCH_SIMULATION_ONLY",
+            "execution_mode": execution_mode,
+            "execution_authority": execution_authority,
+            "total_exchange_confirmed_fills": 0,
             "timestamp_ms": now_ms,
             "engine_state": self.state.value,
             "total_orders": len(self.orders),
