@@ -573,13 +573,11 @@ def get_live_market_data(
 
     # 1. Primary: Binance Futures live ticker (Last Traded Price) + premiumIndex (Mark Price)
     try:
-        import urllib.parse
         import urllib.request
         from concurrent.futures import ThreadPoolExecutor
 
         def _fetch_last_prices() -> list[dict[str, Any]]:
-            syms_param = urllib.parse.quote(json.dumps(target_syms))
-            url = f"https://fapi.binance.com/fapi/v1/ticker/price?symbols={syms_param}"
+            url = "https://fapi.binance.com/fapi/v1/ticker/price"
             req = urllib.request.Request(
                 url,
                 headers={"User-Agent": "AutonomousFuturesBot/1.0 (PublicRestClient; Unauth)"},
@@ -770,9 +768,7 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
                 else None
             ),
             limit_pct=(
-                float(finite_decimal(daily_risk_data["limit_pct"]))
-                if daily_risk_verified
-                else None
+                float(finite_decimal(daily_risk_data["limit_pct"])) if daily_risk_verified else None
             ),
             limit_usdt=(
                 float(finite_decimal(daily_risk_data["limit_usdt"]))
@@ -780,9 +776,7 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
                 else None
             ),
             loss_usdt=(
-                float(finite_decimal(daily_risk_data["loss_usdt"]))
-                if daily_risk_verified
-                else None
+                float(finite_decimal(daily_risk_data["loss_usdt"])) if daily_risk_verified else None
             ),
             remaining_usdt=(
                 float(finite_decimal(daily_risk_data["remaining_usdt"]))

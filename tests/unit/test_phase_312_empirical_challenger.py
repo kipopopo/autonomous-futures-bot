@@ -255,18 +255,14 @@ class TestAdversarialBoundaryConditions:
         assert_candle_integrity(data["candles"], expected_count=1000)
 
     @pytest.mark.parametrize("invalid_limit", [0, -1, -500, 1001, 5000, 999999])
-    def test_limit_out_of_bounds_rejected(
-        self, api_client: TestClient, invalid_limit: int
-    ) -> None:
+    def test_limit_out_of_bounds_rejected(self, api_client: TestClient, invalid_limit: int) -> None:
         """Out of bounds limit must fail closed with HTTP 422."""
         res = api_client.get(
             f"/api/v1/market/klines?symbol=SOLUSDT&interval=15m&limit={invalid_limit}"
         )
         assert res.status_code == 422
 
-    @pytest.mark.parametrize(
-        "valid_interval", ["1m", "3m", "5m", "15m", "1h", "4h", "1d"]
-    )
+    @pytest.mark.parametrize("valid_interval", ["1m", "3m", "5m", "15m", "1h", "4h", "1d"])
     def test_valid_intervals_accepted(
         self,
         api_client: TestClient,
@@ -288,16 +284,12 @@ class TestAdversarialBoundaryConditions:
         assert data["interval"] == valid_interval
         assert_candle_integrity(data["candles"], expected_count=10)
 
-    @pytest.mark.parametrize(
-        "invalid_interval", ["2m", "10m", "2h", "8h", "1w", "1M", "99m", ""]
-    )
+    @pytest.mark.parametrize("invalid_interval", ["2m", "10m", "2h", "8h", "1w", "1M", "99m", ""])
     def test_invalid_intervals_rejected(
         self, api_client: TestClient, invalid_interval: str
     ) -> None:
         """Unsupported intervals must return HTTP 422."""
-        res = api_client.get(
-            f"/api/v1/market/klines?symbol=BTCUSDT&interval={invalid_interval}"
-        )
+        res = api_client.get(f"/api/v1/market/klines?symbol=BTCUSDT&interval={invalid_interval}")
         assert res.status_code == 422
 
     def test_symbol_normalization_and_trimming(self, api_client: TestClient) -> None:

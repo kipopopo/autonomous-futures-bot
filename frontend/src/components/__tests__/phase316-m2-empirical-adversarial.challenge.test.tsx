@@ -659,8 +659,8 @@ describe('Empirical Adversarial Challenge Suite: Milestone M2 Localization', () 
       expect(html).toContain('/ $25.00 Max Cap')
       expect(html).toContain('Cash Reserve:')
       expect(html).toContain('(Floor ≥ 75%)')
-      expect(html).toContain('Order Cap:')
-      expect(html).toContain('≤ $5.00 USDT / child')
+      expect(html).toContain('Risk Policy:')
+      expect(html).toContain('0.5% Risk / 5% Daily Loss')
 
       // Card 4
       expect(html).toContain('System Health &amp; Solvency')

@@ -83,10 +83,7 @@ def generate_flatline(n: int, price: float = 100.0) -> list[Candle]:
     """Generates perfectly flat series (zero range, zero volatility)."""
     base_ts = 1700000000000
     p_str = f"{price:.4f}"
-    return [
-        _make_c(base_ts + i * 3600000, p_str, p_str, p_str, p_str, "100.0")
-        for i in range(n)
-    ]
+    return [_make_c(base_ts + i * 3600000, p_str, p_str, p_str, p_str, "100.0") for i in range(n)]
 
 
 def generate_sharp_v_reversal(n: int, depth: float = 50.0, base: float = 100.0) -> list[Candle]:

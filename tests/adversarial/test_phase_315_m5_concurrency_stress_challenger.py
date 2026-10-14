@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Milestone M5 Empirical Challenger: Concurrency Stress, Dynamic State Machine, and Daemon Continuity.
 
 Adversarial Stress Verification for Phase 315 Live Deployment on https://futures.semua.dev:
@@ -32,7 +33,6 @@ import asyncio
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
@@ -65,9 +65,12 @@ def run_ssh(cmd: str) -> subprocess.CompletedProcess[str]:
     """Execute SSH command on Kainode VPS."""
     full_cmd = [
         "ssh",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=10",
-        "-i", str(SSH_KEY_PATH),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-i",
+        str(SSH_KEY_PATH),
         VPS_HOST,
         cmd,
     ]
@@ -91,10 +94,13 @@ async def _run_canary_evolution_concurrent(concurrency: int = 50) -> None:
 
     assert len(responses) == concurrency
     failures = [
-        r for r in responses
+        r
+        for r in responses
         if isinstance(r, Exception) or (isinstance(r, httpx.Response) and r.status_code != 200)
     ]
-    assert len(failures) == 0, f"Encountered {len(failures)} failures out of {concurrency} requests: {failures[:3]}"
+    assert len(failures) == 0, (
+        f"Encountered {len(failures)} failures out of {concurrency} requests: {failures[:3]}"
+    )
 
     # Validate schema and invariants across every single concurrent response
     for i, resp in enumerate(responses):
@@ -136,7 +142,9 @@ async def _run_canary_evolution_concurrent(concurrency: int = 50) -> None:
         assert isinstance(macro.get("longs_filtered"), bool)
         assert len(macro.get("explanation", "")) > 15
         assert len(macro.get("explanation_ms", "")) > 15
-        assert "capital" in macro.get("explanation_ms", "").lower() or "Active BTC Macro Trend Filter" in macro.get("explanation_ms", "")
+        assert "capital" in macro.get(
+            "explanation_ms", ""
+        ).lower() or "Active BTC Macro Trend Filter" in macro.get("explanation_ms", "")
 
         # Scanned symbols must include all 8 pairs
         scanned = lp.get("scanned_symbols", [])
@@ -206,7 +214,8 @@ async def _run_execution_status_concurrent(concurrency: int = 50) -> None:
 
     assert len(responses) == concurrency
     failures = [
-        r for r in responses
+        r
+        for r in responses
         if isinstance(r, Exception) or (isinstance(r, httpx.Response) and r.status_code != 200)
     ]
     assert len(failures) == 0, f"Encountered {len(failures)} failures: {failures[:3]}"
@@ -219,7 +228,9 @@ async def _run_execution_status_concurrent(concurrency: int = 50) -> None:
 
         # Mathematical Solvency Invariants
         solvency = data.get("solvency", {})
-        assert solvency.get("zero_balance_drift_verified") is True, f"Req {i}: zero drift unverified"
+        assert solvency.get("zero_balance_drift_verified") is True, (
+            f"Req {i}: zero drift unverified"
+        )
         drift = float(solvency.get("drift_usdt", 999.0))
         assert abs(drift) < 1e-15, f"Req {i}: drift |{drift}| >= 1e-15 USDT violation!"
         assert float(solvency.get("cash_reserve_pct", 0.0)) == 100.0
@@ -230,9 +241,15 @@ async def _run_execution_status_concurrent(concurrency: int = 50) -> None:
 
         # Exact double-entry conservation:
         # Cash + Allocated Margin + Unrealized PnL == Starting Equity + Realized PnL
-        lhs = solvency["cash_usdt"] + solvency["allocated_margin_usdt"] + solvency["unrealized_pnl_usdt"]
+        lhs = (
+            solvency["cash_usdt"]
+            + solvency["allocated_margin_usdt"]
+            + solvency["unrealized_pnl_usdt"]
+        )
         rhs = solvency["starting_equity_usdt"] + solvency["realized_pnl_usdt"]
-        assert abs(lhs - rhs) < 1e-15, f"Req {i}: Double-entry balance equality violated: {lhs} != {rhs}"
+        assert abs(lhs - rhs) < 1e-15, (
+            f"Req {i}: Double-entry balance equality violated: {lhs} != {rhs}"
+        )
 
         # 8-Pair Universe in Positions
         positions = data.get("positions", {})
@@ -240,7 +257,9 @@ async def _run_execution_status_concurrent(concurrency: int = 50) -> None:
             assert sym in positions, f"Req {i}: missing {sym} in positions: {positions}"
             pos = positions[sym]
             assert pos.get("position_qty") == 0.0, f"Req {i}: {sym} position_qty != 0.0: {pos}"
-            assert pos.get("allocated_exposure_usdt") == 0.0, f"Req {i}: {sym} allocated_exposure_usdt != 0.0"
+            assert pos.get("allocated_exposure_usdt") == 0.0, (
+                f"Req {i}: {sym} allocated_exposure_usdt != 0.0"
+            )
             assert "STANDBY" in str(pos.get("state", ""))
 
     assert elapsed < 10.0, f"Total execution time was {elapsed:.2f}s (> 10s)"
@@ -323,7 +342,9 @@ class TestVPSTraderDaemonContinuityAdversarial:
             "| grep -iE 'traceback|unhandled exception|fatal error' | head -n 10"
         )
         assert proc.returncode == 0
-        assert proc.stdout.strip() == "", f"Found unexpected fatal tracebacks in logs: {proc.stdout}"
+        assert proc.stdout.strip() == "", (
+            f"Found unexpected fatal tracebacks in logs: {proc.stdout}"
+        )
 
     def test_web_service_is_active_and_serving(self) -> None:
         """Verify autonomous-futures-web.service is running cleanly."""
@@ -349,12 +370,12 @@ def test_production_frontend_serves_phase315_assets() -> None:
     assert resp.status_code == 200
     html = resp.text
     assert '<div id="root"></div>' in html
-    assert (
-        "index-DOERVwn7.js" in html or "index-BRnwio6R.js" in html
-    ), f"Latest JS chunk not referenced: {html[:500]}"
-    assert (
-        "index-i0I7q7Kx.css" in html or "index-YhmaWQb1.css" in html
-    ), f"Latest CSS chunk not referenced: {html[:500]}"
+    assert "index-DOERVwn7.js" in html or "index-BRnwio6R.js" in html, (
+        f"Latest JS chunk not referenced: {html[:500]}"
+    )
+    assert "index-i0I7q7Kx.css" in html or "index-YhmaWQb1.css" in html, (
+        f"Latest CSS chunk not referenced: {html[:500]}"
+    )
 
     # Verify script chunk is reachable and substantial
     js_bundle = "index-DOERVwn7.js" if "index-DOERVwn7.js" in html else "index-BRnwio6R.js"

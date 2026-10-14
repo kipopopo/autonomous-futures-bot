@@ -56,9 +56,7 @@ def read_current_generation(path: Path) -> tuple[list[Arrival], int, int]:
         event = data.get("e")
         symbol = str(data.get("s", ""))
         gap = (
-            event == "aggTrade"
-            and symbol in trade_ids
-            and int(data["a"]) != trade_ids[symbol] + 1
+            event == "aggTrade" and symbol in trade_ids and int(data["a"]) != trade_ids[symbol] + 1
         ) or (
             event == "depthUpdate"
             and symbol in depth_ids
@@ -126,11 +124,7 @@ def main() -> None:
         raise SystemExit("Beta values must be positive, finite, and unique")
     traces = [profile(path, args.beta) for path in args.trace]
     valid_beta_sets = [
-        {
-            float(fit["beta"])
-            for fit in trace["fits"]
-            if fit["accepted_for_diagnostic"] is True
-        }
+        {float(fit["beta"]) for fit in trace["fits"] if fit["accepted_for_diagnostic"] is True}
         for trace in traces
     ]
     common_valid = set.intersection(*valid_beta_sets) if valid_beta_sets else set()
@@ -142,8 +136,7 @@ def main() -> None:
         "symbols": list(ACTIVE_PAIRS),
         "beta_candidates_per_second": args.beta,
         "selection_rule": (
-            "smallest candidate beta with no baseline-boundary symbols "
-            "in every supplied trace"
+            "smallest candidate beta with no baseline-boundary symbols in every supplied trace"
         ),
         "selected_beta_per_second": min(common_valid) if common_valid else None,
         "implementation_sha256": {

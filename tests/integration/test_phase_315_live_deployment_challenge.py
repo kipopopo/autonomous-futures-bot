@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Phase 315 Milestone 5: Kainode Linux VPS Hot-Sync & Zero-Disruption Daemon Continuity Challenge.
 
 Empirically challenges and verifies:
@@ -22,11 +23,9 @@ Empirically challenges and verifies:
 
 from __future__ import annotations
 
-import re
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
@@ -60,9 +59,12 @@ def run_ssh_cmd(command: str) -> subprocess.CompletedProcess[str]:
     """Execute SSH command on Kainode VPS."""
     full_cmd = [
         "ssh",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=10",
-        "-i", str(SSH_KEY_PATH),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-i",
+        str(SSH_KEY_PATH),
         VPS_HOST,
         command,
     ]
@@ -115,7 +117,9 @@ class TestKainodeVPSContinuityPhase315:
 
     def test_trader_daemon_journalctl_clean_logs(self) -> None:
         """Verify journalctl logs contain 0 fatal errors, crashes, or unhandled tracebacks."""
-        proc_err = run_ssh_cmd("journalctl --user -u autonomous-futures-trader.service -p err --no-pager")
+        proc_err = run_ssh_cmd(
+            "journalctl --user -u autonomous-futures-trader.service -p err --no-pager"
+        )
         assert proc_err.returncode == 0
         assert "-- No entries --" in proc_err.stdout or proc_err.stdout.strip() == ""
 
@@ -160,12 +164,12 @@ class TestLivePublicEndpointsPhase315:
         html = resp.text
         assert '<div id="root"></div>' in html
         assert 'data-theme="dark"' in html
-        assert (
-            "index-DOERVwn7.js" in html or "index-BRnwio6R.js" in html
-        ), f"Expected latest script bundle in HTML: {html}"
-        assert (
-            "index-i0I7q7Kx.css" in html or "index-YhmaWQb1.css" in html
-        ), f"Expected latest css bundle in HTML: {html}"
+        assert "index-DOERVwn7.js" in html or "index-BRnwio6R.js" in html, (
+            f"Expected latest script bundle in HTML: {html}"
+        )
+        assert "index-i0I7q7Kx.css" in html or "index-YhmaWQb1.css" in html, (
+            f"Expected latest css bundle in HTML: {html}"
+        )
 
     def test_live_static_assets_retrieval(self, client: httpx.Client) -> None:
         """Verify static js and css assets are accessible and valid."""

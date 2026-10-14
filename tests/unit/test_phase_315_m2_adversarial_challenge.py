@@ -285,9 +285,7 @@ class TestDiscoveredDefectReproductionProbes:
 
         # Non-representable price: 5.00 / 95000 = 0.0000526 -> 0.00005 * 95000 = 4.75 (< $5.00).
         # BTC is NOT in scalper pool, so step-up must NOT apply: fail-closed 0.0 quantity.
-        _qp95, qq95, notional95 = engine._calculate_child_order_qty(
-            "BTCUSDT", Decimal("95000.00")
-        )
+        _qp95, qq95, notional95 = engine._calculate_child_order_qty("BTCUSDT", Decimal("95000.00"))
         assert qq95 == Decimal("0.0"), f"Expected fail-closed 0.0 qty for BTC at $95k, got {qq95}"
         assert notional95 == Decimal("0.0"), (
             f"Expected fail-closed 0.0 notional for BTC at $95k, got {notional95}"

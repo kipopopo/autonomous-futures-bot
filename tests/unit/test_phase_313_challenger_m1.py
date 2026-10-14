@@ -140,15 +140,11 @@ class TestCorruptFilesResilience:
         (p310 / "canary-production-report.json").write_text(
             "{ 'invalid': truncated json ...", encoding="utf-8"
         )
-        (p310 / "canary-production-execution.json").write_text(
-            "[[[not even json", encoding="utf-8"
-        )
+        (p310 / "canary-production-execution.json").write_text("[[[not even json", encoding="utf-8")
         (p311 / "canary-drill-report.json").write_text(
             "!!!BINARY_CORRUPTION\x00\xff\xfe", encoding="latin-1"
         )
-        (p311 / "canary-orders.jsonl").write_text(
-            "bad line 1\n{broken json\n\n", encoding="utf-8"
-        )
+        (p311 / "canary-orders.jsonl").write_text("bad line 1\n{broken json\n\n", encoding="utf-8")
 
         res = load_execution_status(base_dir)
         assert isinstance(res, ExecutionStatusResponse)
@@ -158,29 +154,31 @@ class TestCorruptFilesResilience:
         _assert_baseline_solvency(res.solvency)
         _assert_flat_positions(res.positions)
 
-    def test_jsonl_corrupt_line_does_not_abort_subsequent_valid_lines(
-        self, tmp_path: Path
-    ) -> None:
+    def test_jsonl_corrupt_line_does_not_abort_subsequent_valid_lines(self, tmp_path: Path) -> None:
         base_dir = tmp_path / "mixed_jsonl"
         p311 = base_dir / "phase311"
         p311.mkdir(parents=True, exist_ok=True)
 
         lines = [
-            json.dumps({
-                "event_type": "ORDER_SUBMITTED",
-                "client_order_id": "canary-p311-drill-sol-1",
-                "order_id": "1001",
-                "timestamp_ms": 1791550000000,
-            }),
+            json.dumps(
+                {
+                    "event_type": "ORDER_SUBMITTED",
+                    "client_order_id": "canary-p311-drill-sol-1",
+                    "order_id": "1001",
+                    "timestamp_ms": 1791550000000,
+                }
+            ),
             "GARBAGE MALFORMED LINE NOT JSON",
             "",
             "   ",
-            json.dumps({
-                "event_type": "ORDER_SUBMITTED",
-                "client_order_id": "canary-p311-drill-sol-2",
-                "order_id": "1002",
-                "timestamp_ms": 1791551000000,
-            }),
+            json.dumps(
+                {
+                    "event_type": "ORDER_SUBMITTED",
+                    "client_order_id": "canary-p311-drill-sol-2",
+                    "order_id": "1002",
+                    "timestamp_ms": 1791551000000,
+                }
+            ),
         ]
         (p311 / "canary-orders.jsonl").write_text("\n".join(lines), encoding="utf-8")
 
@@ -203,15 +201,9 @@ class TestCorruptFilesResilience:
         (p310 / "canary-production-report.json").write_text(
             json.dumps(["item1", "item2"]), encoding="utf-8"
         )
-        (p311 / "canary-drill-report.json").write_text(
-            json.dumps(12345), encoding="utf-8"
-        )
-        (p310 / "canary-production-execution.json").write_text(
-            json.dumps(None), encoding="utf-8"
-        )
-        (p311 / "canary-orders.jsonl").write_text(
-            "123\n\"string\"\nnull\n[]\n", encoding="utf-8"
-        )
+        (p311 / "canary-drill-report.json").write_text(json.dumps(12345), encoding="utf-8")
+        (p310 / "canary-production-execution.json").write_text(json.dumps(None), encoding="utf-8")
+        (p311 / "canary-orders.jsonl").write_text('123\n"string"\nnull\n[]\n', encoding="utf-8")
 
         res = load_execution_status(base_dir)
         assert isinstance(res, ExecutionStatusResponse)
@@ -228,22 +220,26 @@ class TestCorruptFilesResilience:
 
         # Semantically corrupted fields inside valid json dicts
         (p310 / "canary-production-report.json").write_text(
-            json.dumps({
-                "timestamp_ms": 1791550000000,
-                "solvency": None,
-                "candidates": None,
-                "interlock_blocks_count": None,
-                "intra_day_loss_usdt": None,
-            }),
+            json.dumps(
+                {
+                    "timestamp_ms": 1791550000000,
+                    "solvency": None,
+                    "candidates": None,
+                    "interlock_blocks_count": None,
+                    "intra_day_loss_usdt": None,
+                }
+            ),
             encoding="utf-8",
         )
         (p311 / "canary-drill-report.json").write_text(
-            json.dumps({
-                "timestamp_ms": 1791551000000,
-                "solvency": "invalid_solvency_string",
-                "orders": 12345,
-                "mark_price": "not_a_float",
-            }),
+            json.dumps(
+                {
+                    "timestamp_ms": 1791551000000,
+                    "solvency": "invalid_solvency_string",
+                    "orders": 12345,
+                    "mark_price": "not_a_float",
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -262,19 +258,21 @@ class TestPartialFilesIngress:
         p310 = base_dir / "phase310"
         p310.mkdir(parents=True, exist_ok=True)
         (p310 / "canary-production-report.json").write_text(
-            json.dumps({
-                "timestamp_ms": 1790250000000,
-                "solvency": {
-                    "starting_equity": 100.0,
-                    "cash": 102.5,
-                    "realized_pnl": 2.5,
-                },
-                "candidates": {
-                    "BTCUSDT": {"current_price": 68000.0},
-                    "ETHUSDT": {"current_price": 2750.0},
-                    "SOLUSDT": {"current_price": 185.0},
-                },
-            }),
+            json.dumps(
+                {
+                    "timestamp_ms": 1790250000000,
+                    "solvency": {
+                        "starting_equity": 100.0,
+                        "cash": 102.5,
+                        "realized_pnl": 2.5,
+                    },
+                    "candidates": {
+                        "BTCUSDT": {"current_price": 68000.0},
+                        "ETHUSDT": {"current_price": 2750.0},
+                        "SOLUSDT": {"current_price": 185.0},
+                    },
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -291,19 +289,21 @@ class TestPartialFilesIngress:
         p310 = base_dir / "phase310"
         p310.mkdir(parents=True, exist_ok=True)
         (p310 / "canary-production-execution.json").write_text(
-            json.dumps({
-                "orders": [
-                    {
-                        "order_id": "p310-ord-1",
-                        "client_order_id": "canary-p310-sol-1",
-                        "symbol": "SOLUSDT",
-                        "side": "BUY",
-                        "price": 175.0,
-                        "quantity": 0.03,
-                        "timestamp_ms": 1790250000000,
-                    }
-                ]
-            }),
+            json.dumps(
+                {
+                    "orders": [
+                        {
+                            "order_id": "p310-ord-1",
+                            "client_order_id": "canary-p310-sol-1",
+                            "symbol": "SOLUSDT",
+                            "side": "BUY",
+                            "price": 175.0,
+                            "quantity": 0.03,
+                            "timestamp_ms": 1790250000000,
+                        }
+                    ]
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -319,26 +319,28 @@ class TestPartialFilesIngress:
         p311 = base_dir / "phase311"
         p311.mkdir(parents=True, exist_ok=True)
         (p311 / "canary-drill-report.json").write_text(
-            json.dumps({
-                "timestamp_ms": 1791550000000,
-                "mark_price": 186.2,
-                "solvency": {
-                    "starting_equity": 100.0,
-                    "cash": 100.2,
-                    "realized_pnl": 0.2,
-                },
-                "orders": {
-                    "entry_order": {
-                        "orderId": 5001,
-                        "clientOrderId": "canary-p311-drill-sol-entry",
-                        "symbol": "SOLUSDT",
-                        "side": "BUY",
-                        "type": "LIMIT",
-                        "price": "185.0",
-                        "origQty": "0.03",
-                    }
-                },
-            }),
+            json.dumps(
+                {
+                    "timestamp_ms": 1791550000000,
+                    "mark_price": 186.2,
+                    "solvency": {
+                        "starting_equity": 100.0,
+                        "cash": 100.2,
+                        "realized_pnl": 0.2,
+                    },
+                    "orders": {
+                        "entry_order": {
+                            "orderId": 5001,
+                            "clientOrderId": "canary-p311-drill-sol-entry",
+                            "symbol": "SOLUSDT",
+                            "side": "BUY",
+                            "type": "LIMIT",
+                            "price": "185.0",
+                            "origQty": "0.03",
+                        }
+                    },
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -355,12 +357,14 @@ class TestPartialFilesIngress:
         p311 = base_dir / "phase311"
         p311.mkdir(parents=True, exist_ok=True)
         (p311 / "canary-orders.jsonl").write_text(
-            json.dumps({
-                "event_type": "ORDER_SUBMITTED",
-                "client_order_id": "canary-p311-drill-sol-jsonl",
-                "order_id": "9001",
-                "timestamp_ms": 1791552000000,
-            })
+            json.dumps(
+                {
+                    "event_type": "ORDER_SUBMITTED",
+                    "client_order_id": "canary-p311-drill-sol-jsonl",
+                    "order_id": "9001",
+                    "timestamp_ms": 1791552000000,
+                }
+            )
             + "\n",
             encoding="utf-8",
         )
@@ -394,9 +398,7 @@ class TestEndpointHTTP500Resilience:
             "partial_p311",
         ],
     )
-    def test_endpoint_never_crashes_with_500(
-        self, tmp_path: Path, dir_setup: str
-    ) -> None:
+    def test_endpoint_never_crashes_with_500(self, tmp_path: Path, dir_setup: str) -> None:
         target_dir = tmp_path / f"test_{dir_setup}"
 
         if dir_setup == "empty":
@@ -466,11 +468,13 @@ class TestEndpointHTTP500Resilience:
         elif dir_setup == "partial_p311":
             (target_dir / "phase311").mkdir(parents=True, exist_ok=True)
             (target_dir / "phase311" / "canary-orders.jsonl").write_text(
-                json.dumps({
-                    "event_type": "ORDER_SUBMITTED",
-                    "client_order_id": "c1",
-                    "timestamp_ms": 100,
-                })
+                json.dumps(
+                    {
+                        "event_type": "ORDER_SUBMITTED",
+                        "client_order_id": "c1",
+                        "timestamp_ms": 100,
+                    }
+                )
                 + "\n",
                 encoding="utf-8",
             )

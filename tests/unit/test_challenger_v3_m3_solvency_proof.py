@@ -293,9 +293,7 @@ class TestMicroCapitalGovernanceBoundariesEmpirical:
             )
 
         # 2. Phase 311 Orders in SQLite
-        con = sqlite3.connect(
-            str(RESEARCH_DIR / "phase311" / "canary-lifecycle-telemetry.sqlite3")
-        )
+        con = sqlite3.connect(str(RESEARCH_DIR / "phase311" / "canary-lifecycle-telemetry.sqlite3"))
         rows = con.execute(
             "SELECT order_id, symbol, price, quantity, notional_usdt FROM orders"
         ).fetchall()
@@ -402,6 +400,7 @@ class TestAdversarialStressAndFailClosedInterlocks:
         ledger = DrillSolvencyLedger(starting_equity=Decimal("100.00"))
 
         import random
+
         rng = random.Random(1337)
 
         for step in range(1000):
@@ -469,8 +468,7 @@ class TestAdversarialStressAndFailClosedInterlocks:
         # Order is blocked due to MIN_NOTIONAL_INCOMPATIBLE_BLOCK (4.75 USDT < 5.00 USDT)
         assert order is None
         assert any(
-            ev.get("event_type") == "MIN_NOTIONAL_INCOMPATIBLE_BLOCK"
-            for ev in engine.events_log
+            ev.get("event_type") == "MIN_NOTIONAL_INCOMPATIBLE_BLOCK" for ev in engine.events_log
         )
 
     def test_aggregate_exposure_and_cash_reserve_interlock_simulation(self) -> None:

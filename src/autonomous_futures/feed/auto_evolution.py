@@ -2019,12 +2019,12 @@ class IctAutopsyCalculator:
 class CandidateLifecycleState(StrEnum):
     """Lifecycle progression states for autonomous strategy candidates."""
 
-    CANDIDATE = "CANDIDATE"          # Fresh genome generated / mutated; awaiting staging
-    INCUBATING = "INCUBATING"        # Walk-forward data accumulation (N < 5) in shadow mode
-    QUALIFIED = "QUALIFIED"          # Passed all 5 OOS qualification gates; eligible for registry
-    ACTIVE = "ACTIVE"                # Admitted to live/paper trading registry with active sizing
-    DEGRADED = "DEGRADED"            # Performance warning (8% < DD <= 15%, loss streak, Sharpe < 1)
-    DISQUALIFIED = "DISQUALIFIED"    # Hard failure (DD > 15%, gate failure, loss ceiling breach)
+    CANDIDATE = "CANDIDATE"  # Fresh genome generated / mutated; awaiting staging
+    INCUBATING = "INCUBATING"  # Walk-forward data accumulation (N < 5) in shadow mode
+    QUALIFIED = "QUALIFIED"  # Passed all 5 OOS qualification gates; eligible for registry
+    ACTIVE = "ACTIVE"  # Admitted to live/paper trading registry with active sizing
+    DEGRADED = "DEGRADED"  # Performance warning (8% < DD <= 15%, loss streak, Sharpe < 1)
+    DISQUALIFIED = "DISQUALIFIED"  # Hard failure (DD > 15%, gate failure, loss ceiling breach)
 
 
 @dataclass

@@ -140,16 +140,8 @@ class TestEmpiricalSolvencyDriftInvariant:
                 if cand.position_qty == Decimal("0"):
                     entry_p = cand.current_price
                     side: Literal["BUY", "SELL"] = "BUY" if rng.random() > 0.5 else "SELL"
-                    sl = (
-                        entry_p * Decimal("0.98")
-                        if side == "BUY"
-                        else entry_p * Decimal("1.02")
-                    )
-                    tp = (
-                        entry_p * Decimal("1.03")
-                        if side == "BUY"
-                        else entry_p * Decimal("0.97")
-                    )
+                    sl = entry_p * Decimal("0.98") if side == "BUY" else entry_p * Decimal("1.02")
+                    tp = entry_p * Decimal("1.03") if side == "BUY" else entry_p * Decimal("0.97")
                     setup = TwinsSetupState(
                         symbol=sym,
                         step_6_ready=True,
@@ -336,9 +328,7 @@ class TestEmpiricalContinuousTraderLatency50Cycles:
     """Empirically measures 50 cycles of run_single_cycle() across 8 pairs and 5 horizons."""
 
     @pytest.mark.anyio
-    async def test_continuous_trader_50_cycles_latency_distribution(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_continuous_trader_50_cycles_latency_distribution(self, tmp_path: Path) -> None:
         """Measures 50 consecutive cycles of run_single_cycle() with full multi-timeframe feeds:
 
         - 8 active pairs: BTC, ETH, SOL, DOGE, BNB, XRP, SUI, AVAX.
@@ -416,9 +406,7 @@ class TestEmpiricalContinuousTraderLatency50Cycles:
         )
 
     @pytest.mark.anyio
-    async def test_continuous_trader_latency_with_deep_candle_buffers(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_continuous_trader_latency_with_deep_candle_buffers(self, tmp_path: Path) -> None:
         """Verifies cycle latency remains < 15ms even when ring buffers are at capacity."""
         mock_gateway = AsyncMock(spec=BinanceFuturesGateway)
         mock_gateway.get_position_risk.return_value = []

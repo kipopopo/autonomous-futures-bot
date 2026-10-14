@@ -92,9 +92,7 @@ def make_autopsy_payload(
 class TestConcurrentAutopsyQueueSafety:
     """Stress-tests thread safety, lock disjointness, and race-free queue operations."""
 
-    def test_concurrent_enqueue_and_drain_stress_zero_deadlocks(
-        self, tmp_path: Path
-    ) -> None:
+    def test_concurrent_enqueue_and_drain_stress_zero_deadlocks(self, tmp_path: Path) -> None:
         """Runs 10 concurrent threads (5 enqueuers, 5 drainers) executing 500 autopsies.
 
         Verifies:
@@ -263,9 +261,7 @@ class TestConcurrentAutopsyQueueSafety:
 class TestErrorResilienceAndFifoRecovery:
     """Stress-tests fail-safe recovery when SQLite persistence operations fail."""
 
-    def test_synthetic_sqlite_failure_restores_exact_fifo_order(
-        self, tmp_path: Path
-    ) -> None:
+    def test_synthetic_sqlite_failure_restores_exact_fifo_order(self, tmp_path: Path) -> None:
         """Injects synthetic SQLite OperationalError during drain and verifies:
 
         1. Non-fatal handling: no unhandled exceptions crash the caller.
@@ -435,9 +431,7 @@ class TestErrorResilienceAndFifoRecovery:
 
         engine.close_telemetry_db()
 
-    def test_read_only_filesystem_operational_error_recovery(
-        self, tmp_path: Path
-    ) -> None:
+    def test_read_only_filesystem_operational_error_recovery(self, tmp_path: Path) -> None:
         """Simulates read-only database error and verifies graceful catch,
 
         FIFO restoration, and subsequent write upon permission restoration.
@@ -490,9 +484,7 @@ class TestErrorResilienceAndFifoRecovery:
 class TestSolvencyLedgerAndRecordCountConsistency:
     """Verifies 1:1 record count consistency and strict mathematical zero balance drift."""
 
-    def test_solvency_ledger_zero_drift_invariant_across_lifecycles(
-        self, tmp_path: Path
-    ) -> None:
+    def test_solvency_ledger_zero_drift_invariant_across_lifecycles(self, tmp_path: Path) -> None:
         """Validates that Cash + Allocated Margin + Unrealized PnL == Starting Equity + Realized PnL
 
         strictly preserves |drift| < 10^-15 USDT across simulated fills, mark-to-market updates,
@@ -576,9 +568,7 @@ class TestSolvencyLedgerAndRecordCountConsistency:
 
         engine.close_telemetry_db()
 
-    def test_autopsy_drain_record_count_matches_tables_1_to_1(
-        self, tmp_path: Path
-    ) -> None:
+    def test_autopsy_drain_record_count_matches_tables_1_to_1(self, tmp_path: Path) -> None:
         """Verifies that draining autopsies across all active pairs creates 1:1 records."""
         engine = SelfDrivingTradingEngine(storage_dir=tmp_path)
         engine.perform_preflight_checks()
@@ -604,12 +594,16 @@ class TestSolvencyLedgerAndRecordCountConsistency:
         # Verify ict_trade_autopsies record count
         cur.execute("SELECT COUNT(*) FROM ict_trade_autopsies")
         autopsy_count = cur.fetchone()[0]
-        assert autopsy_count == len(ACTIVE_PAIRS), f"Expected {len(ACTIVE_PAIRS)} autopsies, got {autopsy_count}"
+        assert autopsy_count == len(ACTIVE_PAIRS), (
+            f"Expected {len(ACTIVE_PAIRS)} autopsies, got {autopsy_count}"
+        )
 
         # Verify ict_candidate_registry record count
         cur.execute("SELECT COUNT(*) FROM ict_candidate_registry")
         candidate_count = cur.fetchone()[0]
-        assert candidate_count == len(ACTIVE_PAIRS), f"Expected {len(ACTIVE_PAIRS)} candidates in registry, got {candidate_count}"
+        assert candidate_count == len(ACTIVE_PAIRS), (
+            f"Expected {len(ACTIVE_PAIRS)} candidates in registry, got {candidate_count}"
+        )
 
         # Verify all 8 candidate IDs are enrolled
         cur.execute("SELECT candidate_id, symbol, health_tier FROM ict_candidate_registry")
@@ -752,9 +746,7 @@ class TestTraderLoopTimeoutBudgetEnforcement:
         trader.last_export_ts = now
 
         # Enqueue autopsy
-        trader.engine.enqueue_ict_autopsy(
-            make_autopsy_payload(trade_id="trd-stall-001")
-        )
+        trader.engine.enqueue_ict_autopsy(make_autopsy_payload(trade_id="trd-stall-001"))
         assert trader.engine.has_pending_autopsies()
 
         # Mock drain_pending_autopsies with a deliberate 50ms blocking sleep
@@ -766,6 +758,7 @@ class TestTraderLoopTimeoutBudgetEnforcement:
         is_windows = os.name == "nt"
         if is_windows:
             import ctypes
+
             ctypes.windll.winmm.timeBeginPeriod(1)
 
         try:
@@ -776,6 +769,7 @@ class TestTraderLoopTimeoutBudgetEnforcement:
         finally:
             if is_windows:
                 import ctypes
+
                 ctypes.windll.winmm.timeEndPeriod(1)
 
         # Cycle latency must be bound by the ~5ms timeout, staying strictly < 15.0 ms

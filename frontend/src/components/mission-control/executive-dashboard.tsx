@@ -2,6 +2,7 @@ import type { ExecutiveDashboardModel, IctSignalsResponse } from './types'
 import { MissionControlHeader } from './mission-control-header'
 import { KpiCards } from './kpi-cards'
 import { PairPriceTickersCard } from './pair-price-tickers-card'
+import { StrategyEvolutionRadar } from './strategy-evolution-radar'
 import { OrderFeedTable } from './order-feed-table'
 import { useIctSignals, getFallbackIctSignals } from '../../lib/use-ict-signals'
 
@@ -49,6 +50,9 @@ export function ExecutiveDashboard({
         btcMacroTrend={model.radar.btcMacroTrend}
         onSelectPair={onSelectPair}
       />
+
+      {/* AI Self-Learning Strategy Evolution & Autopsy Status */}
+      <StrategyEvolutionRadar evolutionRadar={model.evolutionRadar} />
 
       {/* Recent Orders & Execution Log */}
       <OrderFeedTable orders={model.orders} />

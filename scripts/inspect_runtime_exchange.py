@@ -7,6 +7,7 @@ import hashlib
 import json
 import urllib.request
 from pathlib import Path
+from typing import Any, cast
 
 UNIVERSE = (
     "BTCUSDT",
@@ -24,12 +25,12 @@ UNIVERSE = (
 )
 
 
-def public_json(base: str, endpoint: str) -> dict:
+def public_json(base: str, endpoint: str) -> dict[str, Any]:
     request = urllib.request.Request(
         base + endpoint, headers={"User-Agent": "AFBotQualification/1"}
     )
     with urllib.request.urlopen(request, timeout=20) as response:
-        return json.load(response)
+        return cast(dict[str, Any], json.load(response))
 
 
 def main() -> None:

@@ -42,8 +42,11 @@ def _cache_inputs(
     return manifest, manifest_path, table
 
 
-def _timestamps(table: pa.Table, timeframe: str) -> np.ndarray:
-    values = table["timestamp"].cast(pa.int64()).to_numpy(zero_copy_only=False)
+def _timestamps(table: pa.Table, timeframe: str) -> np.ndarray[Any, np.dtype[np.int64]]:
+    values: np.ndarray[Any, np.dtype[np.int64]] = np.asarray(
+        table["timestamp"].cast(pa.int64()).to_numpy(zero_copy_only=False),
+        dtype=np.int64,
+    )
     if len(values) == 0 or (len(values) > 1 and np.any(np.diff(values) != DURATIONS[timeframe])):
         raise ValueError(f"Cache has empty or non-contiguous {timeframe} candles")
     return values

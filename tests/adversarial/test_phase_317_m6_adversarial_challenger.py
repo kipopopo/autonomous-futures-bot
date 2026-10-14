@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Phase 317 Milestone 6 Empirical Challenger: Live HTTPS Endpoints, Solvency Zero-Drift Invariant, and Adversarial Concurrency Stress.
 
 Empirical Challenger Test Suite for Phase 317 Milestone 6 on https://futures.semua.dev:
@@ -19,14 +20,12 @@ Empirical Challenger Test Suite for Phase 317 Milestone 6 on https://futures.sem
 from __future__ import annotations
 
 import asyncio
-import json
 import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
 import httpx
-import pytest
 
 LIVE_BASE_URL = "https://futures.semua.dev"
 SSH_KEY_PATH = Path.home() / ".ssh" / "kainode_ed25519_openssh"
@@ -49,9 +48,12 @@ def run_ssh(cmd: str) -> subprocess.CompletedProcess[str]:
     full_cmd = [
         "ssh",
         "-n",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=10",
-        "-i", str(SSH_KEY_PATH),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-i",
+        str(SSH_KEY_PATH),
         VPS_HOST,
         cmd,
     ]
@@ -124,7 +126,13 @@ def test_live_strategy_ict_signals_schema() -> None:
         # twins_state validation
         twins = sig.get("twins_state")
         assert isinstance(twins, dict), f"twins_state missing for {pair}"
-        for step in ["step_1_htf_hit", "step_2_m5_cisd", "step_3_twins_fvg", "step_4_ote_retrace", "step_5_m1_cisd"]:
+        for step in [
+            "step_1_htf_hit",
+            "step_2_m5_cisd",
+            "step_3_twins_fvg",
+            "step_4_ote_retrace",
+            "step_5_m1_cisd",
+        ]:
             assert step in twins, f"Missing {step} in twins_state for {pair}"
             assert isinstance(twins[step], bool)
 
@@ -154,7 +162,9 @@ def test_live_execution_solvency_zero_drift() -> None:
     data = resp.json()
 
     assert data.get("verified") is True
-    assert float(data.get("aggregate_exposure_usdt", 999.0)) == 0.0, "Aggregate exposure must be 0.0 USDT when flat"
+    assert float(data.get("aggregate_exposure_usdt", 999.0)) == 0.0, (
+        "Aggregate exposure must be 0.0 USDT when flat"
+    )
 
     solvency = data.get("solvency", {})
     assert isinstance(solvency, dict)
@@ -164,7 +174,9 @@ def test_live_execution_solvency_zero_drift() -> None:
     assert abs(drift) < 1e-15, f"Drift violation: |{drift}| >= 1e-15 USDT"
 
     cash_reserve_pct = float(solvency.get("cash_reserve_pct", 0.0))
-    assert cash_reserve_pct == 100.0, f"Cash reserve {cash_reserve_pct}% != 100.0% (must be >= 75.0% floor)"
+    assert cash_reserve_pct == 100.0, (
+        f"Cash reserve {cash_reserve_pct}% != 100.0% (must be >= 75.0% floor)"
+    )
 
     # Double-entry balance equality:
     # Cash + Allocated Margin + Unrealized PnL == Starting Equity + Realized PnL
@@ -199,9 +211,15 @@ async def _run_concurrent_ict_signals(concurrency: int = 30) -> list[dict[str, A
 
         async def fetch(i: int) -> dict[str, Any]:
             t0 = time.perf_counter()
-            r = await client.get(f"/api/v1/strategy/ict-signals?_b={i}&_ts={int(time.time()*1000)}")
+            r = await client.get(
+                f"/api/v1/strategy/ict-signals?_b={i}&_ts={int(time.time() * 1000)}"
+            )
             dt = (time.perf_counter() - t0) * 1000
-            return {"status_code": r.status_code, "latency_ms": dt, "data": r.json() if r.status_code == 200 else None}
+            return {
+                "status_code": r.status_code,
+                "latency_ms": dt,
+                "data": r.json() if r.status_code == 200 else None,
+            }
 
         tasks = [fetch(i) for i in range(concurrency)]
         results = await asyncio.gather(*tasks)
@@ -215,9 +233,13 @@ async def _run_concurrent_execution_status(concurrency: int = 30) -> list[dict[s
 
         async def fetch(i: int) -> dict[str, Any]:
             t0 = time.perf_counter()
-            r = await client.get(f"/api/v1/execution/status?_b={i}&_ts={int(time.time()*1000)}")
+            r = await client.get(f"/api/v1/execution/status?_b={i}&_ts={int(time.time() * 1000)}")
             dt = (time.perf_counter() - t0) * 1000
-            return {"status_code": r.status_code, "latency_ms": dt, "data": r.json() if r.status_code == 200 else None}
+            return {
+                "status_code": r.status_code,
+                "latency_ms": dt,
+                "data": r.json() if r.status_code == 200 else None,
+            }
 
         tasks = [fetch(i) for i in range(concurrency)]
         results = await asyncio.gather(*tasks)
@@ -301,7 +323,9 @@ with httpx.Client(base_url="http://127.0.0.1:8000", timeout=10.0) as client:
 
 def test_vps_trader_daemon_continuous_invariant() -> None:
     """Asserts autonomous-futures-trader.service Main PID == 87549 with NRestarts == 0 and active status."""
-    res = run_ssh("systemctl --user show autonomous-futures-trader.service --property=MainPID,NRestarts,ActiveState,SubState,Result && ps -p 87549 -o pid,ppid,user,etime,args --no-headers")
+    res = run_ssh(
+        "systemctl --user show autonomous-futures-trader.service --property=MainPID,NRestarts,ActiveState,SubState,Result && ps -p 87549 -o pid,ppid,user,etime,args --no-headers"
+    )
     assert res.returncode == 0, f"SSH daemon check failed: {res.stderr}"
     stdout = res.stdout
 
@@ -321,21 +345,28 @@ def test_vps_trader_daemon_continuous_invariant() -> None:
 
 def test_production_bundle_english_localization() -> None:
     """Asserts that live production web HTML and JS bundle have 0 matches for banned non-English terms."""
-    from tests.adversarial.test_phase_316_m5_empirical_challenger import BANNED_MALAY_TERMS, find_banned_matches
+    from tests.adversarial.test_phase_316_m5_empirical_challenger import (
+        find_banned_matches,
+    )
 
     with httpx.Client(timeout=15.0) as client:
         html_resp = client.get(LIVE_BASE_URL)
         assert html_resp.status_code == 200
         html_text = html_resp.text
         html_matches = find_banned_matches(html_text)
-        assert len(html_matches) == 0, f"Found {len(html_matches)} banned terms in HTML: {html_matches[:5]}"
+        assert len(html_matches) == 0, (
+            f"Found {len(html_matches)} banned terms in HTML: {html_matches[:5]}"
+        )
 
         # Extract JS bundle path
         import re
+
         match = re.search(r'src=["\'](/assets/index-[^"\']+\.js)["\']', html_text)
         assert match is not None, "Failed to find main JS bundle script in index.html"
         js_url = f"{LIVE_BASE_URL}{match.group(1)}"
         js_resp = client.get(js_url)
         assert js_resp.status_code == 200
         js_matches = find_banned_matches(js_resp.text)
-        assert len(js_matches) == 0, f"Found {len(js_matches)} banned terms in JS bundle: {js_matches[:5]}"
+        assert len(js_matches) == 0, (
+            f"Found {len(js_matches)} banned terms in JS bundle: {js_matches[:5]}"
+        )

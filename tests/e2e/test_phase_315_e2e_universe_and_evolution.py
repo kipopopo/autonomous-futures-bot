@@ -753,9 +753,7 @@ class TestTier1FeatureCoverage:
             assert sym in data["prices"]
             assert data["prices"][sym] > 0.0
 
-    def test_t1_f7_dashboard_execution_status_all_eight_pairs(
-        self, api_client: TestClient
-    ) -> None:
+    def test_t1_f7_dashboard_execution_status_all_eight_pairs(self, api_client: TestClient) -> None:
         """F7.2: Verify execution status positions dictionary contains all 8 pairs."""
         resp = api_client.get("/api/v1/execution/status")
         assert resp.status_code == 200
@@ -833,9 +831,7 @@ class TestTier1FeatureCoverage:
         r_bad = api_client.get("/api/v1/market/klines?symbol=SOLUSDT&interval=2h&limit=5")
         assert r_bad.status_code == 422
 
-    def test_t1_f8_candlestick_sub_dollar_precision_doge_xrp(
-        self, api_client: TestClient
-    ) -> None:
+    def test_t1_f8_candlestick_sub_dollar_precision_doge_xrp(self, api_client: TestClient) -> None:
         """F8.3: Verify sub-dollar coins maintain accurate decimal formatting."""
         r_doge = api_client.get("/api/v1/market/klines?symbol=DOGEUSDT&interval=15m&limit=5")
         assert r_doge.status_code == 200
@@ -1136,9 +1132,7 @@ class TestTier2BoundaryAndCorner:
         )
         assert doge_p == Decimal("0.08642")
 
-        xrp_p = engine._round_tick_size(
-            Decimal("1.402549"), DEFAULT_SPECS["XRPUSDT"]["tick_size"]
-        )
+        xrp_p = engine._round_tick_size(Decimal("1.402549"), DEFAULT_SPECS["XRPUSDT"]["tick_size"])
         assert xrp_p == Decimal("1.4025")
 
     # --------------------------------------------------------------------------
@@ -1597,9 +1591,7 @@ class TestTier4RealWorldWorkloads:
         bearish_btc = make_15m_candle_series(50, base_price=Decimal("80000.00"))
         assert engine.trend_filter.evaluate(bearish_btc) is False
 
-        order_bear = engine.evaluate_and_dispatch_scalper(
-            "SOLUSDT", dip_bar, history, bearish_btc
-        )
+        order_bear = engine.evaluate_and_dispatch_scalper("SOLUSDT", dip_bar, history, bearish_btc)
         assert order_bear is None
 
         # Step 2: Macro regime flips to Bullish (250 candles with EMA 50 > EMA 200)
@@ -1609,9 +1601,7 @@ class TestTier4RealWorldWorkloads:
         assert engine.trend_filter.evaluate(bullish_btc) is True
 
         # Step 3: Reactivated scalper generates Maker limit order with brackets
-        order_bull = engine.evaluate_and_dispatch_scalper(
-            "SOLUSDT", dip_bar, history, bullish_btc
-        )
+        order_bull = engine.evaluate_and_dispatch_scalper("SOLUSDT", dip_bar, history, bullish_btc)
         assert order_bull is not None
         assert order_bull.is_maker is True
         assert order_bull.take_profit > order_bull.price

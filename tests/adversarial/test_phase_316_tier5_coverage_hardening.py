@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Phase 316 Final Milestone Tier 5 Backend Adversarial Challenger Test Suite.
 
 Comprehensive white-box adversarial stress test suite targeting backend telemetry and invariants:
@@ -26,16 +27,13 @@ Adversarial Verification Dimensions:
 from __future__ import annotations
 
 import concurrent.futures
-import copy
 import hashlib
 import json
 import math
 import random
 import sqlite3
-import time
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -48,7 +46,6 @@ from autonomous_futures.api.app import (
     ExecutionSolvency,
     ExecutionStatusResponse,
     MarketKlinesResponse,
-    _baseline_execution_status,
     _compute_ema_series,
     _safe_float,
     _safe_int,
@@ -62,16 +59,12 @@ from autonomous_futures.api.canary import (
     CanaryAutoEvolutionResponse,
     CanaryEvidenceIntegrityError,
     CanaryEvidenceNotFoundError,
-    MacroGatingStateItem,
-    OOSQualificationGateItem,
     _build_macro_gating_state,
     load_verified_canary_auto_evolution,
     verify_canary_phase_integrity,
 )
-from autonomous_futures.domain.contracts import DomainModel
 from autonomous_futures.safety.kill_switch import (
     CentralizedSolvencyLedger,
-    SolvencyLedgerSnapshot,
 )
 
 ALL_8_PAIRS: tuple[str, ...] = (
@@ -400,9 +393,9 @@ class TestTier5ExtremeFloatAndZeroDriftBoundaryFuzzing:
             )
 
             status = load_execution_status(tmp_path)
-            assert (
-                status.solvency.zero_balance_drift_verified is exp_verified
-            ), f"Offset {offset} expected verified={exp_verified}, got {status.solvency.zero_balance_drift_verified}"
+            assert status.solvency.zero_balance_drift_verified is exp_verified, (
+                f"Offset {offset} expected verified={exp_verified}, got {status.solvency.zero_balance_drift_verified}"
+            )
             if exp_drift_zero:
                 assert status.solvency.drift_usdt == 0.0
             else:
@@ -741,9 +734,9 @@ class TestTier5MacroRegimeBoundaryToggling:
             for text in (state.explanation, state.explanation_ms):
                 text_lower = text.lower()
                 for banned in banned_terms:
-                    assert (
-                        banned not in text_lower
-                    ), f"Banned term '{banned}' leaked into explanation: {text}"
+                    assert banned not in text_lower, (
+                        f"Banned term '{banned}' leaked into explanation: {text}"
+                    )
 
     def test_macro_regime_sub_cent_ema_cross_boundary(self) -> None:
         """Verifies numerical precision when EMA 50 and EMA 200 are within sub-cent distance."""
@@ -789,9 +782,9 @@ class TestTier5MaliciousQueryParamsAndIngressSecurity:
         ]
         for sym in malicious_symbols:
             resp = api_client.get(f"/api/v1/market/klines?symbol={sym}&interval=15m&limit=10")
-            assert (
-                resp.status_code == 200
-            ), f"Expected 200 graceful fallback for symbol '{sym}', got {resp.status_code}"
+            assert resp.status_code == 200, (
+                f"Expected 200 graceful fallback for symbol '{sym}', got {resp.status_code}"
+            )
             data = resp.json()
             assert data["count"] == 10
             assert isinstance(data["candles"], list)
@@ -810,7 +803,9 @@ class TestTier5MaliciousQueryParamsAndIngressSecurity:
         """Verifies limit outside [1, 1000] is rejected with HTTP 422 by FastAPI query validation."""
         out_of_bound_limits = [0, -1, -100, 1001, 50000, "abc"]
         for limit in out_of_bound_limits:
-            resp = api_client.get(f"/api/v1/market/klines?symbol=SOLUSDT&interval=15m&limit={limit}")
+            resp = api_client.get(
+                f"/api/v1/market/klines?symbol=SOLUSDT&interval=15m&limit={limit}"
+            )
             assert resp.status_code == 422
 
     def test_execution_status_corrupted_orders_jsonl_graceful_recovery(
@@ -990,7 +985,9 @@ class TestTier5RapidConcurrentSchemaPolling:
             try:
                 resp = api_client.get(url)
                 if resp.status_code != 200:
-                    errors.append(f"Request {request_id} ({url}) returned status {resp.status_code}")
+                    errors.append(
+                        f"Request {request_id} ({url}) returned status {resp.status_code}"
+                    )
                     return
                 data = resp.json()
                 if model_cls is not dict:
@@ -1003,7 +1000,9 @@ class TestTier5RapidConcurrentSchemaPolling:
             futures = [executor.submit(worker, i) for i in range(total_requests)]
             concurrent.futures.wait(futures)
 
-        assert len(errors) == 0, f"Encountered {len(errors)} errors during rapid concurrent polling: {errors[:5]}"
+        assert len(errors) == 0, (
+            f"Encountered {len(errors)} errors during rapid concurrent polling: {errors[:5]}"
+        )
 
     def test_concurrent_live_market_cache_invalidation_safety(self) -> None:
         """Stress-tests reset_live_market_cache and get_live_market_data under concurrent multithreading."""

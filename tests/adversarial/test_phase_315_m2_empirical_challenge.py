@@ -268,9 +268,7 @@ class TestTestnetMicroSlicingAndRapidTicks:
 
         # Non-representable price: at $95,000, 5.00 / 95000 = 0.0000526 -> 0.00005 * 95000 = 4.75.
         # BTC is NOT in scalper pool, so step-up must NOT apply: fail-closed 0.0 quantity.
-        _qp95, qq95, notional95 = engine._calculate_child_order_qty(
-            "BTCUSDT", Decimal("95000.00")
-        )
+        _qp95, qq95, notional95 = engine._calculate_child_order_qty("BTCUSDT", Decimal("95000.00"))
         assert qq95 == Decimal("0.0")
         assert notional95 == Decimal("0.0")
 
@@ -428,8 +426,7 @@ class TestMicroCapitalGuardrailInterlocks:
                 dispatched.append(o)
 
         threads = [
-            threading.Thread(target=fire_synchronized, args=(sym,))
-            for sym in CANDIDATE_7_PAIRS
+            threading.Thread(target=fire_synchronized, args=(sym,)) for sym in CANDIDATE_7_PAIRS
         ]
         for t in threads:
             t.start()

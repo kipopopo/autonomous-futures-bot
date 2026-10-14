@@ -160,6 +160,7 @@ def test_lifecycle_coordinator_persists_autopsies_on_trade_close(tmp_path) -> No
                 }
             },
         )
+
         async def get_fills(symbol: str, order_id: int, start_ms: int, end_ms: int):
             if order_id == 11:
                 return [
@@ -383,4 +384,3 @@ def test_xrp_holdout_rejection_and_autopsy_bridge_into_learner_and_creator() -> 
     assert "oos_trades_below_threshold" in critic_user["content"]
     assert "autopsy_realized_net_pnl_negative" in critic_user["content"]
     assert "stop_loss_regime_mismatch_cluster" in critic_user["content"]
-

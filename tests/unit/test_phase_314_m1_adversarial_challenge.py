@@ -219,15 +219,11 @@ def test_adversarial_oracle_numerical_precision_verification() -> None:
         ),
         (
             "http_502_bad_gateway",
-            urllib.error.HTTPError(
-                "http://test", 502, "Bad Gateway", cast(Any, {}), None
-            ),
+            urllib.error.HTTPError("http://test", 502, "Bad Gateway", cast(Any, {}), None),
         ),
         (
             "http_429_rate_limit",
-            urllib.error.HTTPError(
-                "http://test", 429, "Too Many Requests", cast(Any, {}), None
-            ),
+            urllib.error.HTTPError("http://test", 429, "Too Many Requests", cast(Any, {}), None),
         ),
         ("socket_disconnect", OSError("Connection reset by peer")),
     ],

@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Phase 314 Milestone 4: Remote Kainode Linux VPS Trader Daemon Continuity Challenge Suite.
 
 Empirically challenges and verifies:
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+
 import httpx
 import pytest
 
@@ -29,9 +31,12 @@ def run_ssh_cmd(command: str) -> subprocess.CompletedProcess[str]:
     """Execute SSH command on Kainode VPS."""
     full_cmd = [
         "ssh",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=10",
-        "-i", str(SSH_KEY_PATH),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-i",
+        str(SSH_KEY_PATH),
         VPS_HOST,
         command,
     ]
@@ -79,12 +84,16 @@ class TestKainodeVPSContinuity:
         assert "87549" in stdout, f"PID 87549 not found in ps table: {stdout}"
         assert "run_phase_310_real_autonomous_trading.py" in stdout
         # Confirm elapsed time indicates continuous operation (> 1 day, e.g., '1-13:', '2-08:', '3-04:')
-        assert "1-" in stdout or "2-" in stdout or "3-" in stdout, f"Process appears restarted (no day prefix in etime): {stdout}"
+        assert "1-" in stdout or "2-" in stdout or "3-" in stdout, (
+            f"Process appears restarted (no day prefix in etime): {stdout}"
+        )
 
     def test_trader_daemon_journalctl_clean_logs(self) -> None:
         """Verify journalctl logs contain 0 fatal errors, crashes, or unhandled tracebacks."""
         # 1. Check priority err..emerg
-        proc_err = run_ssh_cmd("journalctl --user -u autonomous-futures-trader.service -p err --no-pager")
+        proc_err = run_ssh_cmd(
+            "journalctl --user -u autonomous-futures-trader.service -p err --no-pager"
+        )
         assert proc_err.returncode == 0
         assert "-- No entries --" in proc_err.stdout or proc_err.stdout.strip() == ""
 

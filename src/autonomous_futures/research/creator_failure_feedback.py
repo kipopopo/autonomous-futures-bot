@@ -249,19 +249,11 @@ def build_runtime_qualification_failure_feedback(
         report_hash = sha256(canonical).hexdigest()
 
     resolved_artifact_hash = str(
-        candidate_artifact_hash
-        or cand_val.get("candidate_manifest_sha256")
-        or report_hash
+        candidate_artifact_hash or cand_val.get("candidate_manifest_sha256") or report_hash
     ).strip()
-    resolved_bundle_hash = str(
-        bundle_hash
-        or exec_manifest.get("sha256")
-        or report_hash
-    ).strip()
+    resolved_bundle_hash = str(bundle_hash or exec_manifest.get("sha256") or report_hash).strip()
     resolved_registry_hash = str(
-        dataset_registry_hash
-        or mkt_manifest.get("sha256")
-        or report_hash
+        dataset_registry_hash or mkt_manifest.get("sha256") or report_hash
     ).strip()
 
     raw_policy_hash = str(report.get("policy_hash", "")).strip()

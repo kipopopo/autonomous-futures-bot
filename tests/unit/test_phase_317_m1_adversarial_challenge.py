@@ -156,8 +156,7 @@ class TestZeroRangeAndVolumeAnomalies:
         """Verifies zero-range candles ($H == L == O == C$) produce 0 PDAs and 0 division errors."""
         engine = IctMmxmEngine()
         flat_candles = [
-            _c(1000 + i * 60000, "100.0", "100.0", "100.0", "100.0", "100.0")
-            for i in range(20)
+            _c(1000 + i * 60000, "100.0", "100.0", "100.0", "100.0", "100.0") for i in range(20)
         ]
         pdas = engine.detect_pd_arrays(flat_candles, timeframe="1h")
         assert pdas == []
@@ -173,8 +172,7 @@ class TestZeroRangeAndVolumeAnomalies:
         engine = IctMmxmEngine()
         # Flatline multi-tf candles
         flat_c = [
-            _c(1000 + i * 60000, "100.0", "100.0", "100.0", "100.0", "100.0")
-            for i in range(10)
+            _c(1000 + i * 60000, "100.0", "100.0", "100.0", "100.0", "100.0") for i in range(10)
         ]
         state = engine.evaluate_twins_setup(
             symbol="BTCUSDT",
@@ -195,14 +193,11 @@ class TestErraticAndInvertedSequences:
         """Verifies sequences of extreme dojis (H=1000, L=1, O=C=500) do not crash detectors."""
         engine = IctMmxmEngine()
         dojis = [
-            _c(1000 + i * 60000, "500.0", "1000.0", "1.0", "500.0", "1000.0")
-            for i in range(15)
+            _c(1000 + i * 60000, "500.0", "1000.0", "1.0", "500.0", "1000.0") for i in range(15)
         ]
         pdas = engine.detect_pd_arrays(dojis, timeframe="1h")
         obs = [
-            p
-            for p in pdas
-            if p.array_type in (PdArrayType.ORDER_BLOCK, PdArrayType.BREAKER_BLOCK)
+            p for p in pdas if p.array_type in (PdArrayType.ORDER_BLOCK, PdArrayType.BREAKER_BLOCK)
         ]
         assert obs == []
 
@@ -210,8 +205,7 @@ class TestErraticAndInvertedSequences:
         """Probes engine when candles have inverted prices (low > high)."""
         engine = IctMmxmEngine()
         inv_candles = [
-            _c(1000 + i * 60000, "100.0", "90.0", "110.0", "95.0", "100.0")
-            for i in range(10)
+            _c(1000 + i * 60000, "100.0", "90.0", "110.0", "95.0", "100.0") for i in range(10)
         ]
         # Does not crash with unhandled exception
         pdas = engine.detect_pd_arrays(inv_candles, timeframe="1h")

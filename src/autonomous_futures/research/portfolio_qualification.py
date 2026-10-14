@@ -155,7 +155,6 @@ class PortfolioLedger:
     def pending_margin(self) -> Decimal:
         return sum((order.plan.initial_margin for order in self.pending_orders.values()), D("0"))
 
-
     @property
     def reserved_margin(self) -> Decimal:
         return self.open_margin + self.pending_margin
@@ -273,9 +272,7 @@ def simulate_shared_wallet_portfolio(
         symbol: {bar.timestamp_ms: bar for bar in bars if oos_start_ms <= bar.timestamp_ms < end_ms}
         for symbol, bars in execution_by_symbol.items()
     }
-    all_bar_timestamps = sorted(
-        {ts for symbol_bars in bar_lookup.values() for ts in symbol_bars}
-    )
+    all_bar_timestamps = sorted({ts for symbol_bars in bar_lookup.values() for ts in symbol_bars})
     funding_cursors: dict[str, int] = {
         symbol: bisect.bisect_right([item[0] for item in items], oos_start_ms)
         for symbol, items in funding_by_symbol.items()
@@ -443,9 +440,7 @@ def simulate_shared_wallet_portfolio(
             else:
                 adverse_marks[symbol] = bar.low if pos.sign == 1 else bar.high
                 protected_marks[symbol] = (
-                    min(pos.plan.stop, bar.open)
-                    if pos.sign == 1
-                    else max(pos.plan.stop, bar.open)
+                    min(pos.plan.stop, bar.open) if pos.sign == 1 else max(pos.plan.stop, bar.open)
                 )
 
         adverse_equity = ledger.equity(adverse_marks)
@@ -491,14 +486,15 @@ def simulate_shared_wallet_portfolio(
                     max_drawdown_usdt = max(max_drawdown_usdt, peak_equity - ledger.equity())
 
             # Check if remaining open positions still breach daily loss on adverse marks.
-            remaining_adverse_marks = {
-                sym: adverse_marks[sym] for sym in ledger.open_positions
-            }
-            if ledger.open_positions and DailyRisk(
-                day_start_equity,
-                ledger.equity(remaining_adverse_marks),
-                limit_pct=policy.daily_loss_pct,
-            ).breached:
+            remaining_adverse_marks = {sym: adverse_marks[sym] for sym in ledger.open_positions}
+            if (
+                ledger.open_positions
+                and DailyRisk(
+                    day_start_equity,
+                    ledger.equity(remaining_adverse_marks),
+                    limit_pct=policy.daily_loss_pct,
+                ).breached
+            ):
                 daily_halted = True
                 for pending_sym in sorted(list(ledger.pending_orders)):
                     pending_order = ledger.pending_orders.pop(pending_sym)
@@ -542,9 +538,7 @@ def simulate_shared_wallet_portfolio(
             reason = "TIME_STOP"
             if stop_hit:
                 resolved_exit_price = (
-                    min(pos.plan.stop, bar.open)
-                    if pos.sign == 1
-                    else max(pos.plan.stop, bar.open)
+                    min(pos.plan.stop, bar.open) if pos.sign == 1 else max(pos.plan.stop, bar.open)
                 )
                 reason = "STOP_LOSS"
             elif ts > pos.entry_ms and target_hit:
@@ -615,8 +609,7 @@ def simulate_shared_wallet_portfolio(
         "positive_net_edge": net > 0,
         "profit_factor": bool(trades)
         and (losses == 0 or profits / losses >= policy.minimum_profit_factor),
-        "drawdown": max_drawdown_usdt / policy.starting_equity * 100
-        <= policy.maximum_drawdown_pct,
+        "drawdown": max_drawdown_usdt / policy.starting_equity * 100 <= policy.maximum_drawdown_pct,
         "window_consistency": profitable_windows >= policy.minimum_profitable_windows,
         "stress_positive": stress_net > 0,
         "accounting_reconciled": (

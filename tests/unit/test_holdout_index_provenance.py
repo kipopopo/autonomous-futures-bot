@@ -39,5 +39,3 @@ def test_aug_sep_holdout_index_records_consumed_link_and_xrp_validations() -> No
     assert len(index["consumption"]["uninspected_target_symbols"]) == 8
     assert "XRPUSDT" not in index["consumption"]["uninspected_target_symbols"]
     assert "SUIUSDT" not in index["consumption"]["uninspected_target_symbols"]
-
-

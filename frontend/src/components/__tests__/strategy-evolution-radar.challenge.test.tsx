@@ -368,8 +368,8 @@ describe('Milestone 3 Empirical Challenge: Strategy Evolution Radar & Navigation
         <ExecutiveDashboard model={model} onRefresh={() => {}} isLoading={false} />,
       )
 
-      // Verified inclusion between Confluence Radar and Order Feed
-      expect(html).toContain('Strategy Confluence Radar &amp; 15m Scalper')
+      // Verified inclusion between Pair Tickers Radar and Order Feed
+      expect(html).toContain('Live Pair Tickers &amp; Opportunity Radar')
       expect(html).toContain('Strategy Evolution &amp; Autopsy Status')
       expect(html).toContain('Recent Orders &amp; Execution Feed')
       expect(html).toContain('⚡ ACTIVE DAEMON LOOP')

@@ -214,7 +214,44 @@ def test_api_serves_frontend_dist(tmp_path: Path) -> None:
     assert "Mission Control" in response.text
 
 
-def test_market_prices_endpoint(tmp_path: Path) -> None:
+def test_market_prices_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+    import json
+    import urllib.request
+
+    from autonomous_futures.api.app import TARGET_PERPETUAL_SYMBOLS, reset_live_market_cache
+
+    reset_live_market_cache()
+
+    def mock_urlopen(req: object, *args: object, **kwargs: object) -> io.BytesIO:
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "ticker/price" in url:
+            body = json.dumps(
+                [
+                    {"symbol": sym, "price": str(100.0 + idx)}
+                    for idx, sym in enumerate(TARGET_PERPETUAL_SYMBOLS)
+                ]
+            )
+        elif "premiumIndex" in url:
+            body = json.dumps(
+                [
+                    {
+                        "symbol": sym,
+                        "markPrice": str(100.0 + idx),
+                        "indexPrice": str(100.0 + idx),
+                        "lastFundingRate": "0.0001",
+                    }
+                    for idx, sym in enumerate(TARGET_PERPETUAL_SYMBOLS)
+                ]
+            )
+        else:
+            body = json.dumps(
+                [[idx * 3600000, "100", "101", "99", "100.5", "10"] for idx in range(210)]
+            )
+        return io.BytesIO(body.encode("utf-8"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
     app = create_app(
         bundle_path=tmp_path / "missing-bundle.json",
         registry_path=tmp_path / "missing-registry.json",

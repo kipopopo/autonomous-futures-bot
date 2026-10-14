@@ -79,6 +79,7 @@ from autonomous_futures.paper.candidate_registry import (
 # Suite 1: Stage 1 Cumulative Return Boundary Tests
 # =============================================================================
 
+
 class TestStage1CumulativeReturnBoundary:
     """Adversarial stress-testing of Stage 1: Cumulative Return >= 0.0%."""
 
@@ -217,6 +218,7 @@ class TestStage1CumulativeReturnBoundary:
 # Suite 2: Stage 2 Max Drawdown Boundary Tests
 # =============================================================================
 
+
 class TestStage2MaxDrawdownBoundary:
     """Adversarial stress-testing of Stage 2: Max Drawdown <= 15.0%."""
 
@@ -290,6 +292,7 @@ class TestStage2MaxDrawdownBoundary:
 # =============================================================================
 # Suite 3: Stage 3 Profit Factor Boundary & Zero-Division Tests
 # =============================================================================
+
 
 class TestStage3ProfitFactorBoundary:
     """Adversarial stress-testing of Stage 3: Profit Factor >= 1.05."""
@@ -396,6 +399,7 @@ class TestStage3ProfitFactorBoundary:
 # Suite 4: Stage 4 Sample Size Hurdle Tests
 # =============================================================================
 
+
 class TestStage4SampleSizeBoundary:
     """Adversarial stress-testing of Stage 4: Minimum sample size >= 5 trades."""
 
@@ -477,6 +481,7 @@ class TestStage4SampleSizeBoundary:
 # =============================================================================
 # Suite 5: Stage 5 Monte Carlo Stress Survival Tests
 # =============================================================================
+
 
 class TestStage5MonteCarloStressSurvival:
     """Adversarial stress-testing of Stage 5: Monte Carlo randomized slippage & fees."""
@@ -577,9 +582,7 @@ class TestStage5MonteCarloStressSurvival:
         assert stress.survival_rate_pct == 0.0
         assert stress.passed is False
 
-    def test_monte_carlo_seed_reproducibility(
-        self, evaluator: Phase317OosGateEvaluator
-    ) -> None:
+    def test_monte_carlo_seed_reproducibility(self, evaluator: Phase317OosGateEvaluator) -> None:
         """Deterministic seed yields bit-for-bit identical results."""
         trades = [
             {
@@ -601,6 +604,7 @@ class TestStage5MonteCarloStressSurvival:
 # =============================================================================
 # Suite 6: Candidate Lifecycle Adverse Transitions & State Machine Stress
 # =============================================================================
+
 
 class TestCandidateLifecycleAdverseTransitions:
     """Adversarial stress-testing of candidate state machine transitions."""
@@ -830,6 +834,7 @@ class TestCandidateLifecycleAdverseTransitions:
 # Suite 7: Candidate Registry Manifest Tamper Resistance
 # =============================================================================
 
+
 class TestCandidateRegistryManifestTamperResistance:
     """Verifies candidate registry cryptographic manifest fail-closed behavior."""
 
@@ -876,6 +881,7 @@ class TestCandidateRegistryManifestTamperResistance:
 # =============================================================================
 # Suite 8: Autopsy Calculator Edge Cases & Invariant Handling
 # =============================================================================
+
 
 class TestAutopsyCalculatorEdgeCases:
     """Adversarial testing of autopsy calculator math under edge conditions."""

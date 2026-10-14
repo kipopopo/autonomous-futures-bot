@@ -58,12 +58,10 @@ class TestAdversarialClientOrderIdBoundaries:
         for sym in symbols:
             for role in roles:
                 for ts in timestamps:
-                    cid = generate_drill_client_order_id(
-                        symbol=sym, ts_ms=ts, role=role
+                    cid = generate_drill_client_order_id(symbol=sym, ts_ms=ts, role=role)
+                    assert len(cid) <= 36, (
+                        f"ID length {len(cid)} > 36 chars for {sym}, {role}: '{cid}'"
                     )
-                    assert (
-                        len(cid) <= 36
-                    ), f"ID length {len(cid)} > 36 chars for {sym}, {role}: '{cid}'"
                     assert len(cid) > 0
 
     def test_p310_canonical_client_order_id_exactly_36_chars(self) -> None:
@@ -148,9 +146,7 @@ class TestAdversarialMicroCapitalBounds:
             assert "minNotional" in str(res.rejection_reason)
 
     @pytest.mark.anyio
-    async def test_probe_aggregate_exposure_guardrail(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_probe_aggregate_exposure_guardrail(self, tmp_path: Path) -> None:
         """Probes whether ExecutionDrillEngine enforces aggregate exposure cap."""
         config = ExecutionDrillConfig(
             symbol="SOLUSDT",
@@ -186,9 +182,7 @@ class TestAdversarialMicroCapitalBounds:
         )
 
     @pytest.mark.anyio
-    async def test_probe_daily_loss_ceiling_guardrail(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_probe_daily_loss_ceiling_guardrail(self, tmp_path: Path) -> None:
         """Probes whether ExecutionDrillEngine enforces daily loss ceiling."""
         config = ExecutionDrillConfig(
             symbol="SOLUSDT",
@@ -230,9 +224,7 @@ class TestAdversarialClockSkewAndLatencyGuardrails:
             storage_dir=tmp_path,
         )
         engine = ExecutionDrillEngine(config=config)
-        monkeypatch.setattr(
-            engine.gateway, "sync_clock_drift", AsyncMock(return_value=800)
-        )
+        monkeypatch.setattr(engine.gateway, "sync_clock_drift", AsyncMock(return_value=800))
 
         summary = await engine.execute_drill()
         assert summary["solvency"]["zero_balance_drift"] is True
@@ -248,13 +240,9 @@ class TestAdversarialClockSkewAndLatencyGuardrails:
             storage_dir=tmp_path,
         )
         engine = ExecutionDrillEngine(config=config)
-        monkeypatch.setattr(
-            engine.gateway, "sync_clock_drift", AsyncMock(return_value=1001)
-        )
+        monkeypatch.setattr(engine.gateway, "sync_clock_drift", AsyncMock(return_value=1001))
 
-        with pytest.raises(
-            RuntimeError, match="Clock drift 1001 ms exceeds limit 1000.0 ms"
-        ):
+        with pytest.raises(RuntimeError, match="Clock drift 1001 ms exceeds limit 1000.0 ms"):
             await engine.execute_drill()
 
     @pytest.mark.anyio
@@ -268,13 +256,9 @@ class TestAdversarialClockSkewAndLatencyGuardrails:
             storage_dir=tmp_path,
         )
         engine = ExecutionDrillEngine(config=config)
-        monkeypatch.setattr(
-            engine.gateway, "sync_clock_drift", AsyncMock(return_value=-1500)
-        )
+        monkeypatch.setattr(engine.gateway, "sync_clock_drift", AsyncMock(return_value=-1500))
 
-        with pytest.raises(
-            RuntimeError, match="Clock drift -1500 ms exceeds limit 1000.0 ms"
-        ):
+        with pytest.raises(RuntimeError, match="Clock drift -1500 ms exceeds limit 1000.0 ms"):
             await engine.execute_drill()
 
     @pytest.mark.anyio
@@ -304,17 +288,13 @@ class TestAdversarialClockSkewAndLatencyGuardrails:
             "get_ticker_price",
             AsyncMock(return_value=Decimal("110.00")),
         )
-        monkeypatch.setattr(
-            engine.gateway, "get_klines", AsyncMock(return_value=[])
-        )
+        monkeypatch.setattr(engine.gateway, "get_klines", AsyncMock(return_value=[]))
         monkeypatch.setattr(
             engine.gateway,
             "cancel_order",
             AsyncMock(return_value={"status": "CANCELED"}),
         )
-        monkeypatch.setattr(
-            engine.gateway, "get_position_risk", AsyncMock(return_value=[])
-        )
+        monkeypatch.setattr(engine.gateway, "get_position_risk", AsyncMock(return_value=[]))
 
         # Empirical finding: latency > 500ms only logs warning, does not fail-closed
         try:
@@ -332,9 +312,7 @@ class TestAdversarialDaemonNonInterference:
     """Empirically proves drill cleanup isolation and zero daemon interference."""
 
     @pytest.mark.anyio
-    async def test_drill_cleanup_only_cancels_drill_brackets(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_drill_cleanup_only_cancels_drill_brackets(self, tmp_path: Path) -> None:
         """Verifies drill cleanup cancels only designated drill orders."""
         gw = BinanceFuturesGateway(offline_mode=True)
         # Create non-drill orders (Phase 310 daemon order and external order)
@@ -386,9 +364,7 @@ class TestAdversarialDaemonNonInterference:
             side="SELL",
         )
 
-        canceled_cids = [
-            c.get("clientOrderId") for c in cleanup_res["canceled_brackets"]
-        ]
+        canceled_cids = [c.get("clientOrderId") for c in cleanup_res["canceled_brackets"]]
         assert "canary-p311-tp-sol-1790250000001" in canceled_cids
         assert "canary-p311-sl-sol-1790250000002" in canceled_cids
 

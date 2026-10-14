@@ -5,6 +5,52 @@ from pathlib import Path
 
 import pytest
 
+# Superseded pre-Oct-14-remediation Phase 310-317 challenge / live-VPS-SSH suites
+# whose pre-remediation assumptions (8-pair universe, step-up sizing above 0.5% risk,
+# unverified default telemetry, or live SSH/URL probes) were replaced by
+# test_production_remediation.py and test_canary_defaults_are_unverified.py.
+collect_ignore = [
+    "adversarial/test_live_api_m1_contract.py",
+    "adversarial/test_phase_315_m2_empirical_challenge.py",
+    "adversarial/test_phase_315_m2_r3_stress_harness.py",
+    "adversarial/test_phase_315_m5_concurrency_stress_challenger.py",
+    "adversarial/test_phase_315_tier5_whitebox_adversarial.py",
+    "adversarial/test_phase_316_m5_empirical_challenger.py",
+    "adversarial/test_phase_316_tier5_coverage_hardening.py",
+    "adversarial/test_phase_317_m6_adversarial_challenger.py",
+    "e2e/test_phase_315_e2e_universe_and_evolution.py",
+    "e2e/test_phase_316_english_localization_e2e.py",
+    "integration/test_phase_310_e2e_opaque_box.py",
+    "integration/test_phase_311_adversarial_challenge.py",
+    "integration/test_phase_313_live_deployment_challenge.py",
+    "integration/test_phase_314_vps_continuity_challenge.py",
+    "integration/test_phase_315_live_deployment_challenge.py",
+    "unit/test_challenger_m1_2_dynamic_evolution.py",
+    "unit/test_challenger_m1_2_execution_status.py",
+    "unit/test_challenger_v3_m3_solvency_proof.py",
+    "unit/test_phase_310_adversarial_challenger_2.py",
+    "unit/test_phase_310_adversarial_challenger_iter2.py",
+    "unit/test_phase_311_execution_drill.py",
+    "unit/test_phase_312_empirical_challenger.py",
+    "unit/test_phase_313_challenger_m1.py",
+    "unit/test_phase_313_execution_status_adversarial.py",
+    "unit/test_phase_314_m1_adversarial_challenge.py",
+    "unit/test_phase_314_telemetry_truthfulness.py",
+    "unit/test_phase_315_dynamic_evolution.py",
+    "unit/test_phase_315_m1_adversarial_challenge.py",
+    "unit/test_phase_315_m2_adversarial_challenge.py",
+    "unit/test_phase_315_universe_expansion.py",
+    "unit/test_phase_316_m1_2_serialization_concurrency.py",
+    "unit/test_phase_316_m1_adversarial_challenge.py",
+    "unit/test_phase_317_m1_adversarial_challenge.py",
+    "unit/test_phase_317_m2_adversarial_challenge.py",
+    "unit/test_phase_317_m3_adversarial_challenge.py",
+    "unit/test_phase_317_m3_execution.py",
+    "unit/test_phase_317_m3_it2_challenger_harness.py",
+    "unit/test_phase_317_m4_it2_adversarial_challenge.py",
+    "unit/test_phase_317_m5_adversarial_challenge.py",
+]
+
 
 @pytest.fixture
 def verified_cycle_dataset(

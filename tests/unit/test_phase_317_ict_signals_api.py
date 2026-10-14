@@ -77,11 +77,24 @@ def test_twins_state_sub_schema_conformance() -> None:
     data = resp.json()
 
     expected_keys = {
-        "step_1_htf_hit", "step_2_m5_cisd", "step_3_twins_fvg",
-        "step_4_ote_retrace", "step_5_m1_cisd", "step_6_ready",
-        "active_pda", "m5_cisd_price", "m1_cisd_price",
-        "ote_62", "ote_705", "ote_79", "stdv_2_0", "stdv_4_0",
-        "stop_loss", "take_profit_partial", "take_profit_final", "side"
+        "step_1_htf_hit",
+        "step_2_m5_cisd",
+        "step_3_twins_fvg",
+        "step_4_ote_retrace",
+        "step_5_m1_cisd",
+        "step_6_ready",
+        "active_pda",
+        "m5_cisd_price",
+        "m1_cisd_price",
+        "ote_62",
+        "ote_705",
+        "ote_79",
+        "stdv_2_0",
+        "stdv_4_0",
+        "stop_loss",
+        "take_profit_partial",
+        "take_profit_final",
+        "side",
     }
 
     for sym, pair_data in data["signals"].items():
@@ -123,6 +136,7 @@ def test_candidate_genome_attributes() -> None:
 
 def test_ttl_cache_hit_latency_under_10ms() -> None:
     import gc
+
     gc.collect()
 
     app = create_app()
@@ -149,12 +163,8 @@ def test_ttl_cache_hit_latency_under_10ms() -> None:
     sorted_lats = sorted(latencies)
     median_ms = sorted_lats[len(sorted_lats) // 2]
     avg_ms = sum(latencies) / len(latencies)
-    assert median_ms < 10.0, (
-        f"Median cached latency {median_ms:.2f}ms exceeded 10.0ms ceiling"
-    )
-    assert avg_ms < 10.0, (
-        f"Average cached latency {avg_ms:.2f}ms exceeded 10.0ms ceiling"
-    )
+    assert median_ms < 10.0, f"Median cached latency {median_ms:.2f}ms exceeded 10.0ms ceiling"
+    assert avg_ms < 10.0, f"Average cached latency {avg_ms:.2f}ms exceeded 10.0ms ceiling"
     assert sorted_lats[int(len(sorted_lats) * 0.8)] < 15.0, "P80 latency exceeded 15.0ms threshold"
 
 

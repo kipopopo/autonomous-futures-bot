@@ -170,7 +170,3 @@ def test_frozen_sui_candidate_manifest_binds_selection_and_shared_context() -> N
 
     with pytest.raises(ValueError, match="Holdout partition index changed since candidate freeze"):
         runner.load_candidate(manifest_path, repo=repo)
-
-
-
-

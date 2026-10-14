@@ -23,9 +23,6 @@ import re
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List
-
-import pytest
 
 BASE_URL = "https://futures.semua.dev"
 
@@ -114,17 +111,13 @@ class TestLiveDeploymentExecutionStatus:
         assert len(recent_orders) > 0, "recent_orders should not be empty"
 
         # Assert zero ord-p309 orders
-        p309_matches = [
-            o for o in recent_orders if "ord-p309" in str(o.get("client_order_id", ""))
-        ]
+        p309_matches = [o for o in recent_orders if "ord-p309" in str(o.get("client_order_id", ""))]
         assert len(p309_matches) == 0, f"Found stale p309 orders: {p309_matches}"
 
         # Assert authentic Phase 310 or 311 drill orders
         for o in recent_orders:
             cid = str(o.get("client_order_id", ""))
-            assert "p310" in cid or "p311" in cid, (
-                f"Order {cid} is neither Phase 310 nor Phase 311"
-            )
+            assert "p310" in cid or "p311" in cid, f"Order {cid} is neither Phase 310 nor Phase 311"
             assert o.get("symbol") in ["SOLUSDT", "ETHUSDT", "BTCUSDT"]
             assert o.get("side") in ["BUY", "SELL"]
 
@@ -171,26 +164,24 @@ class TestLiveFrontendBundleAndNavigation:
                 assert (
                     "Strategy Evolution & Autopsy" in js_content
                     or "Pembelajaran & Autopsi" in js_content
-                ), (
-                    "Missing 'Strategy Evolution & Autopsy' tab title in production JS bundle"
-                )
+                ), "Missing 'Strategy Evolution & Autopsy' tab title in production JS bundle"
 
                 # Assert Strategy Evolution Radar component references
                 assert (
                     "Strategy Evolution & Autopsy Status" in js_content
                     or "Strategy Evolution Radar" in js_content
                     or "Status Pembelajaran & Autopsi Strategi" in js_content
-                ), (
-                    "Missing 'Strategy Evolution Radar' header in bundle"
-                )
+                ), "Missing 'Strategy Evolution Radar' header in bundle"
 
                 # Assert that sanitization filter is active in bundle
-                assert "ord-p309-" in js_content, "Sanitization filter for ord-p309- missing in bundle"
+                assert "ord-p309-" in js_content, (
+                    "Sanitization filter for ord-p309- missing in bundle"
+                )
 
                 # Check Walk-Forward OOS Gates or related telemetry
-                assert "OOS" in js_content or "Walk-Forward" in js_content or "Mining" in js_content, (
-                    "Missing OOS or Mining references in production JS bundle"
-                )
+                assert (
+                    "OOS" in js_content or "Walk-Forward" in js_content or "Mining" in js_content
+                ), "Missing OOS or Mining references in production JS bundle"
                 print(f"\n[Bundle Verified] {full_js_url} (size: {len(js_content):,} bytes)")
                 print("  - Route #/evolution: FOUND")
                 print("  - Tab 'Pembelajaran & Autopsi': FOUND")
@@ -245,7 +236,9 @@ class TestLiveAdversarialStress:
 
     def test_unexpected_query_params_sanitization(self) -> None:
         """Sends adversarial query parameters to verify robust parameter parsing."""
-        url = f"{BASE_URL}/api/v1/execution/status?symbol=%3Cscript%3Ealert(1)%3C/script%3E&null=%00"
+        url = (
+            f"{BASE_URL}/api/v1/execution/status?symbol=%3Cscript%3Ealert(1)%3C/script%3E&null=%00"
+        )
         code, _, body = _http_get(url)
         assert code == 200
         assert "<script>" not in body

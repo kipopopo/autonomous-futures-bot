@@ -360,12 +360,12 @@ class TestAdversarialGapInterpolationStress:
         t = 1700000000000
 
         bars = [
-            _make_candle(t + 0 * step),   # [0]
-            _make_candle(t + 1 * step),   # [1]
-            _make_candle(t + 3 * step),   # [2] (1-bar gap: t+2)
-            _make_candle(t + 4 * step),   # [3]
-            _make_candle(t + 7 * step),   # [4] (2-bar gap: t+5, t+6)
-            _make_candle(t + 8 * step),   # [5]
+            _make_candle(t + 0 * step),  # [0]
+            _make_candle(t + 1 * step),  # [1]
+            _make_candle(t + 3 * step),  # [2] (1-bar gap: t+2)
+            _make_candle(t + 4 * step),  # [3]
+            _make_candle(t + 7 * step),  # [4] (2-bar gap: t+5, t+6)
+            _make_candle(t + 8 * step),  # [5]
             _make_candle(t + 19 * step),  # [6] (10-bar gap: t+9..t+18 -> isolate)
             _make_candle(t + 21 * step),  # [7] (1-bar gap: t+20)
         ]
@@ -449,14 +449,14 @@ class TestAdversarialMemoryLeakBenchmark:
         # 2. Verify total memory calculated by sequencer is < 5.0 MB
         total_bytes = sequencer.total_memory_bytes()
         five_mb_ceiling = 5 * 1024 * 1024  # 5,242,880 bytes
-        assert (
-            total_bytes < five_mb_ceiling
-        ), f"Sequencer total_memory_bytes {total_bytes} exceeds 5.0 MB ceiling!"
+        assert total_bytes < five_mb_ceiling, (
+            f"Sequencer total_memory_bytes {total_bytes} exceeds 5.0 MB ceiling!"
+        )
 
         # 3. Verify tracemalloc peak memory < 5.0 MB
-        assert (
-            peak_mem < five_mb_ceiling
-        ), f"Tracemalloc peak memory {peak_mem} exceeds 5.0 MB ceiling!"
+        assert peak_mem < five_mb_ceiling, (
+            f"Tracemalloc peak memory {peak_mem} exceeds 5.0 MB ceiling!"
+        )
 
     def test_memory_stability_across_repeated_push_cycles(self) -> None:
         """Pushes 5,000, then 20,000, then 40,000 candles to prove zero memory leak."""
@@ -523,9 +523,9 @@ class TestAdversarialMemoryLeakBenchmark:
 
         # Memory between 20k and 40k must be nearly identical (delta < 50 KB)
         delta_bytes = abs(mem_40k - mem_20k)
-        assert (
-            delta_bytes < 50 * 1024
-        ), f"Memory leak detected: delta={delta_bytes} bytes between 20k and 40k pushes!"
+        assert delta_bytes < 50 * 1024, (
+            f"Memory leak detected: delta={delta_bytes} bytes between 20k and 40k pushes!"
+        )
 
 
 # =============================================================================

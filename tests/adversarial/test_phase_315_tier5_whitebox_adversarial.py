@@ -165,9 +165,9 @@ class TestTier5DoubleEntrySolvencyStress:
                 if drift_dec > max_drift_observed:
                     max_drift_observed = drift_dec
                 assert snap.zero_balance_drift is True
-                assert (
-                    drift_dec < Decimal("1e-15")
-                ), f"Drift breach at op {op_idx}: {snap.drift} USDT"
+                assert drift_dec < Decimal("1e-15"), (
+                    f"Drift breach at op {op_idx}: {snap.drift} USDT"
+                )
 
         assert max_drift_observed < Decimal("1e-15")
 
@@ -278,9 +278,9 @@ class TestTier5DoubleEntrySolvencyStress:
         # Verify solvency ledger zero drift
         snap = engine.ledger.get_snapshot()
         assert snap.zero_balance_drift is True
-        assert (
-            abs(Decimal(str(snap.drift))) < Decimal("1e-15")
-        ), f"Drift on flattening: {snap.drift}"
+        assert abs(Decimal(str(snap.drift))) < Decimal("1e-15"), (
+            f"Drift on flattening: {snap.drift}"
+        )
 
 
 # =============================================================================
@@ -524,12 +524,12 @@ class TestTier5MicroCapitalHardCapsAndWhitelistIsolation:
                     # Check notional is at or slightly above $5.00 only due to single step size
                     step_size = DEFAULT_SPECS[sym]["step_size"]
                     max_allowed = Decimal("5.00") + (step_size * q_price)
-                    assert (
-                        notional <= max_allowed
-                    ), f"{sym} exceeded max allowable step-up: {notional} > {max_allowed}"
-                    assert notional >= Decimal(
-                        "4.50"
-                    ), f"{sym} produced unexpectedly small notional: {notional}"
+                    assert notional <= max_allowed, (
+                        f"{sym} exceeded max allowable step-up: {notional} > {max_allowed}"
+                    )
+                    assert notional >= Decimal("4.50"), (
+                        f"{sym} produced unexpectedly small notional: {notional}"
+                    )
 
     def test_btc_strict_step_up_whitelist_exclusion(self, tmp_path: Path) -> None:
         """Verifies BTCUSDT is strictly excluded from candidate step-up whitelist in
@@ -739,9 +739,9 @@ class TestTier5BoundaryAndFuzzingHardening:
 
                 for role in ("drill", "tp", "sl", "flatten", "cl"):
                     drill_cid = generate_drill_client_order_id(s, ts, role=role)
-                    assert (
-                        len(drill_cid) <= 36
-                    ), f"Drill CID length breach: {len(drill_cid)} for {drill_cid}"
+                    assert len(drill_cid) <= 36, (
+                        f"Drill CID length breach: {len(drill_cid)} for {drill_cid}"
+                    )
 
     def test_exchange_filter_quantization_all_8_pairs(self) -> None:
         """Verifies step size ROUND_DOWN and tick size ROUND_HALF_UP compliance

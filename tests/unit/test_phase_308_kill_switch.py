@@ -134,9 +134,7 @@ def test_kill_switch_starts_without_invented_credentials_or_inventory() -> None:
     gov = MultiSigGovernanceEngine(
         signers=[SignerIdentity("signer-1", "pub1", "ROLE_CRO")], required_quorum=1
     )
-    engine = HardwareOSKillSwitchEngine(
-        governance=gov, solvency_ledger=CentralizedSolvencyLedger()
-    )
+    engine = HardwareOSKillSwitchEngine(governance=gov, solvency_ledger=CentralizedSolvencyLedger())
 
     assert engine._secure_memory_store == {}
     assert engine.open_orders == []

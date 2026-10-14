@@ -101,9 +101,7 @@ def build_closed_trade_autopsy(
         if plan.entry > 0
         else D("0")
     )
-    realized_edge_bps = (
-        net_pnl / entry_quote * D("10000") if entry_quote > 0 else D("0")
-    )
+    realized_edge_bps = net_pnl / entry_quote * D("10000") if entry_quote > 0 else D("0")
     hold_duration_ms = (
         max(0, last_fill_ms - first_fill_ms)
         if isinstance(first_fill_ms, int) and isinstance(last_fill_ms, int)

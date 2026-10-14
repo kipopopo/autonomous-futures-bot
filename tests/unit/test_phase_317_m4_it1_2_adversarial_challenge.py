@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Autonomous Futures Bot - Phase 317 Milestone 4 Empirical Adversarial Challenge Suite.
 
 File: tests/unit/test_phase_317_m4_it1_2_adversarial_challenge.py
@@ -50,7 +51,6 @@ from autonomous_futures.strategy.ict_mmxm import Candle
 from autonomous_futures.strategy.macro_liquidity_scalper import (
     Candle as MacroCandle,
 )
-
 
 # =============================================================================
 # Challenge 1: Genome Mutation & Invariant Preservation (10,000 Iterations)
@@ -293,9 +293,7 @@ class TestContinuousTraderCycleLatencyBenchmark:
     """
 
     @pytest.mark.anyio
-    async def test_worker_autopsy_drain_first_cycle_latency_spike(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_worker_autopsy_drain_first_cycle_latency_spike(self, tmp_path: Path) -> None:
         """Demonstrates that Cycle 0 spikes significantly when draining an autopsy.
 
         Exposes the vulnerability where test_non_blocking_autopsy_trigger_under_15ms
@@ -345,20 +343,22 @@ class TestContinuousTraderCycleLatencyBenchmark:
         trader.last_export_ts = now
 
         # Enqueue a single pending autopsy
-        trader.engine.enqueue_ict_autopsy({
-            "trade_id": "trd-latency-001",
-            "candidate_id": "cand-solusdt-ict-001",
-            "symbol": "SOLUSDT",
-            "side": "BUY",
-            "entry_price": 100.0,
-            "exit_price": 102.5,
-            "fill_qty": 0.04,
-            "optimal_price": 100.0,
-            "fvg_boundary_price": 100.0,
-            "lowest_price_during_trade": 99.8,
-            "highest_price_during_trade": 103.0,
-            "timestamp_ms": int(now * 1000),
-        })
+        trader.engine.enqueue_ict_autopsy(
+            {
+                "trade_id": "trd-latency-001",
+                "candidate_id": "cand-solusdt-ict-001",
+                "symbol": "SOLUSDT",
+                "side": "BUY",
+                "entry_price": 100.0,
+                "exit_price": 102.5,
+                "fill_qty": 0.04,
+                "optimal_price": 100.0,
+                "fvg_boundary_price": 100.0,
+                "lowest_price_during_trade": 99.8,
+                "highest_price_during_trade": 103.0,
+                "timestamp_ms": int(now * 1000),
+            }
+        )
 
         cycle_latencies: list[float] = []
         for _ in range(3):
@@ -448,20 +448,22 @@ class TestContinuousTraderCycleLatencyBenchmark:
                     trader.sequencer.last_fetch_ts[(sym, tf)] = now_iter
 
             # Enqueue a pending trade autopsy to exercise SQLite database write & commit
-            trader.engine.enqueue_ict_autopsy({
-                "trade_id": f"trd-bench-{cycle_idx:04d}",
-                "candidate_id": f"cand-{ACTIVE_PAIRS[cycle_idx % len(ACTIVE_PAIRS)].lower()}-ict-001",
-                "symbol": ACTIVE_PAIRS[cycle_idx % len(ACTIVE_PAIRS)],
-                "side": "BUY" if cycle_idx % 2 == 0 else "SELL",
-                "entry_price": 100.0,
-                "exit_price": 102.5 if cycle_idx % 2 == 0 else 97.5,
-                "fill_qty": 0.05,
-                "optimal_price": 100.0,
-                "fvg_boundary_price": 100.0,
-                "lowest_price_during_trade": 99.5,
-                "highest_price_during_trade": 103.0,
-                "timestamp_ms": int(now_iter * 1000),
-            })
+            trader.engine.enqueue_ict_autopsy(
+                {
+                    "trade_id": f"trd-bench-{cycle_idx:04d}",
+                    "candidate_id": f"cand-{ACTIVE_PAIRS[cycle_idx % len(ACTIVE_PAIRS)].lower()}-ict-001",
+                    "symbol": ACTIVE_PAIRS[cycle_idx % len(ACTIVE_PAIRS)],
+                    "side": "BUY" if cycle_idx % 2 == 0 else "SELL",
+                    "entry_price": 100.0,
+                    "exit_price": 102.5 if cycle_idx % 2 == 0 else 97.5,
+                    "fill_qty": 0.05,
+                    "optimal_price": 100.0,
+                    "fvg_boundary_price": 100.0,
+                    "lowest_price_during_trade": 99.5,
+                    "highest_price_during_trade": 103.0,
+                    "timestamp_ms": int(now_iter * 1000),
+                }
+            )
 
             t_start = time.perf_counter()
             await trader.run_single_cycle()

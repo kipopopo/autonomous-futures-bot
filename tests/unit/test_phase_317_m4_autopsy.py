@@ -1020,7 +1020,9 @@ class TestAutopsyEngineContinuousTraderIntegration:
         cur.execute("SELECT COUNT(*) FROM ict_trade_autopsies")
         count = cur.fetchone()[0]
         conn.close()
-        assert count == len(ACTIVE_PAIRS), f"Expected {len(ACTIVE_PAIRS)} autopsies in SQLite, found {count}"
+        assert count == len(ACTIVE_PAIRS), (
+            f"Expected {len(ACTIVE_PAIRS)} autopsies in SQLite, found {count}"
+        )
 
     def test_sqlite_persistence_ict_autopsies(self, test_db_setup: Path) -> None:
         """Verifies completed trade autopsy inserts record into SQLite."""

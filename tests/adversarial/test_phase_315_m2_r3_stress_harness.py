@@ -337,9 +337,7 @@ class TestExactDecimalFeeDeductionConservation:
             fee = (notional * fee_rate).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
 
             rpnl = (
-                Decimal(str(round(rng.uniform(-0.50, 0.80), 6)))
-                if not is_maker
-                else Decimal("0.0")
+                Decimal(str(round(rng.uniform(-0.50, 0.80), 6))) if not is_maker else Decimal("0.0")
             )
 
             cumulative_fees += fee

@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 #!/usr/bin/env python3
 """Empirical Challenger Script for Phase 316 Milestone M1.
 
@@ -161,7 +162,9 @@ def main() -> int:
         assert g.is_long_allowed is allowed, f"Allowed mismatch for {inp}"
         assert scan_banned(g.explanation_ms) == [], f"Malay found in explanation_ms for {inp}"
         assert scan_banned(g.explanation) == [], f"Malay found in explanation for {inp}"
-        print(f"  [PASS] Regime '{inp}' -> normalized '{g.regime}', longs_allowed={g.is_long_allowed}")
+        print(
+            f"  [PASS] Regime '{inp}' -> normalized '{g.regime}', longs_allowed={g.is_long_allowed}"
+        )
 
     # Verify model defaults
     m_def = MacroGatingStateItem()
@@ -191,7 +194,9 @@ def main() -> int:
         for text, matches in violations:
             print(f"     Text: '{text}' | Matches: {matches}")
         return 1
-    print(f"  [PASS] 100% clean: 0 matches across {len(BANNED_MALAY_TOKENS)} banned Malay root words.")
+    print(
+        f"  [PASS] 100% clean: 0 matches across {len(BANNED_MALAY_TOKENS)} banned Malay root words."
+    )
 
     # 3. Solvency Zero-Drift Invariant
     print("\n[PROBE 3/5] Solvency Zero-Drift Invariant (|Δ| < 10^-15 USDT)...")
@@ -208,16 +213,21 @@ def main() -> int:
     calculated_drift = abs(cash + margin - starting - realized)
 
     assert calculated_drift < Decimal("1e-15"), f"Drift {calculated_drift} >= 1e-15"
-    print(f"  [PASS] Model solvency verified: drift_usdt={solv.drift_usdt}, |Δ|={calculated_drift} USDT")
+    print(
+        f"  [PASS] Model solvency verified: drift_usdt={solv.drift_usdt}, |Δ|={calculated_drift} USDT"
+    )
 
     api_solv = payload["solvency"]
     assert api_solv["drift_usdt"] == 0.0
     assert api_solv["zero_balance_drift_verified"] is True
-    print("  [PASS] API response solvency verified: drift_usdt=0.0, zero_balance_drift_verified=True")
+    print(
+        "  [PASS] API response solvency verified: drift_usdt=0.0, zero_balance_drift_verified=True"
+    )
 
     # 4. Trader Daemon PID & Online Status
     print("\n[PROBE 4/5] Trader Daemon PID 87549 and 'ONLINE 24/7' Continuity...")
     prog = res.live_progress
+    assert prog is not None
     assert prog.daemon_pid == 87549, f"daemon_pid is {prog.daemon_pid}"
     assert prog.daemon_status == "ONLINE 24/7", f"daemon_status is {prog.daemon_status}"
     assert prog.is_live_daemon_active is True
@@ -226,11 +236,13 @@ def main() -> int:
     assert api_prog["daemon_pid"] == 87549
     assert api_prog["daemon_status"] == "ONLINE 24/7"
     assert api_prog["is_live_daemon_active"] is True
-    print(f"  [PASS] Daemon continuity verified: PID={prog.daemon_pid}, Status='{prog.daemon_status}'")
+    print(
+        f"  [PASS] Daemon continuity verified: PID={prog.daemon_pid}, Status='{prog.daemon_status}'"
+    )
 
     # 5. Exact Expected English Titles and Details for 5 Recent Events
     print("\n[PROBE 5/5] Inspecting all 5 recent_events in timeline...")
-    events = res.live_progress.recent_events
+    events = prog.recent_events
     assert len(events) == 5, f"Expected 5 events, got {len(events)}"
 
     # Event 0

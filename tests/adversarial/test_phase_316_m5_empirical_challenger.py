@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Milestone M5 Empirical Challenger: Phase 316 Institutional English & Daemon Continuity Challenge.
 
 Authoritative Adversarial Verification for Phase 316 Live Deployment on https://futures.semua.dev:
@@ -34,7 +35,6 @@ import hashlib
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
@@ -43,64 +43,303 @@ LIVE_BASE_URL = "https://futures.semua.dev"
 SSH_KEY_PATH = Path.home() / ".ssh" / "kainode_ed25519_openssh"
 VPS_HOST = "afbot@147.79.18.15"
 
-BANNED_MALAY_TERMS: list[str] = sorted(list(set([
-    # From phase316-m2-empirical-adversarial.challenge.test.tsx
-    'fasa', 'carta', 'pesanan', 'suapan', 'kemasukan', 'kecairan', 'pelaksanaan',
-    'kedudukan', 'pendedahan', 'kesihatan', 'ketulenan', 'untung', 'kadar', 'kemenangan',
-    'sifar', 'sekatan', 'bahaya', 'pasaran', 'nisbah', 'sembunyi', 'dibuka',
-    'dikecilkan', 'segar', 'semak', 'senarai', 'penapis', 'yuran', 'gagal', 'tiada',
-    'memuatkan', 'baru sahaja', 'yang lalu', 'pulangan', 'purata', 'maksimum',
-    'keuntungan', 'dagangan', 'ranap', 'kilat', 'kesilapan', 'kelebihan', 'pilihan',
-    'buruk', 'lantai', 'utama', 'posisi', 'kawalan', 'keselamatan', 'pembelajaran',
-    'autopsi', 'arkib', 'penyelidikan', 'degupan', 'jantung', 'lejar', 'dwi-kemasukan',
-    'berterusan', 'calon', 'mutasi', 'genom', 'simulasi', 'bayangan', 'pintu',
-    'promosi', 'perdagangan', 'baki', 'ekuiti', 'tunai', 'tersedia', 'diperuntukkan',
-    'jumlah', 'bersih', 'nyata', 'belum', 'rizab', 'tertutup', 'terbuka', 'simpanan',
-    'sejarah', 'pantau', 'harga', 'saiz', 'sasaran', 'kategori', 'kemaskini', 'kunci',
-    'batal', 'tutup', 'padam', 'cari', 'maklumat', 'terkini', 'penyegerakan',
-    'berjaya', 'oleh', 'untuk', 'pada', 'dari', 'daripada', 'dengan', 'atau',
-    'adalah', 'iaitu', 'dalam', 'luar', 'atas', 'bawah', 'kiri', 'kanan', 'tambah',
-    'kurang', 'baharu', 'lama', 'telah', 'sedang', 'akan', 'pernah', 'boleh',
-    'tidak', 'bukan', 'jangan', 'sila', 'tolong', 'kembali', 'seterusnya', 'sebelum',
-    'selepas', 'semasa', 'ketika', 'antara', 'setiap', 'banyak', 'sedikit', 'tinggi',
-    'rendah', 'cepat', 'lambat', 'mudah', 'sukar', 'betul', 'salah', 'pasti',
-    'mungkin', 'hanya', 'juga', 'lagi', 'masih', 'sudah', 'selalu', 'jarang',
-    'kadang', 'mana', 'siapa', 'apa', 'bila', 'kenapa', 'mengapa', 'bagaimana',
-
-    # From run_phase_316_m1_empirical_challenge.py
-    'aliran', 'beli', 'jual', 'dibenarkan', 'ditangguhkan', 'sementara', 'kerana',
-    'melindungi', 'rejim', 'keadaan', 'menunggu', 'sampel', 'transaksi', 'selesai',
-    'menguji', 'melepasi', 'menilai', 'diuji', 'terhadap', 'peningkatan', 'penstriman',
-    'disegerakkan', 'pasangan', 'disahkan', 'matematis', 'penilaian', 'dinilai',
-    'diarahkan', 'dijana', 'kelayakan', 'diperoleh', 'interaktif', 'kerugian',
-    'saat', 'minit', 'minggu', 'bulan', 'tahun',
-
-    # From m3-ssr-adversarial.challenge.test.tsx
-    'konfluens', 'skalper', 'makro', 'lepasserang', 'isipadu', 'lonjakan',
-    'terlebih', 'pembuat', 'kurungan', 'jejari', 'spektrum', 'selamat', 'toksik',
-    'amaran', 'kritikal', 'kelulusan', 'ditahan', 'autorisasi', 'belian', 'lulus',
-    'bilangan', 'ketahanan', 'kemalangan', 'ralat', 'pemasaan', 'pemilihan',
-    'merugikan', 'terperinci', 'dipantau', 'diisi', 'integriti', 'semakan',
-    'hadkan', 'sekat', 'ditapis', 'kitaran', 'lilin', 'imbasan', 'layak', 'semua',
-
-    # Specific DISPATCH.md and financial domain terms
-    'had', 'tahap', 'laksana', 'laporan', 'pelaburan', 'tarikh', 'masa',
-    'kejatuhan', 'kejatuhan kilat', 'ambang', 'penunjuk', 'analisis', 'corak',
-    'penyelesaian', 'pendedahan kumulatif', 'wang tunai', 'kelewatan', 'pelayan',
-    'sambungan', 'pemulihan', 'sandaran', 'henti rugi', 'ambil untung',
-    'pesanan had', 'pesanan pasaran', 'kadar kemenangan', 'lejar am', 'jurnal',
-    'kemaskini data', 'muat turun', 'muat naik', 'tetapan', 'bantuan',
-    'dokumentasi', 'penafian', 'risiko', 'semak semula'
-])))
+BANNED_MALAY_TERMS: list[str] = sorted(
+    list(
+        set(
+            [
+                # From phase316-m2-empirical-adversarial.challenge.test.tsx
+                "fasa",
+                "carta",
+                "pesanan",
+                "suapan",
+                "kemasukan",
+                "kecairan",
+                "pelaksanaan",
+                "kedudukan",
+                "pendedahan",
+                "kesihatan",
+                "ketulenan",
+                "untung",
+                "kadar",
+                "kemenangan",
+                "sifar",
+                "sekatan",
+                "bahaya",
+                "pasaran",
+                "nisbah",
+                "sembunyi",
+                "dibuka",
+                "dikecilkan",
+                "segar",
+                "semak",
+                "senarai",
+                "penapis",
+                "yuran",
+                "gagal",
+                "tiada",
+                "memuatkan",
+                "baru sahaja",
+                "yang lalu",
+                "pulangan",
+                "purata",
+                "maksimum",
+                "keuntungan",
+                "dagangan",
+                "ranap",
+                "kilat",
+                "kesilapan",
+                "kelebihan",
+                "pilihan",
+                "buruk",
+                "lantai",
+                "utama",
+                "posisi",
+                "kawalan",
+                "keselamatan",
+                "pembelajaran",
+                "autopsi",
+                "arkib",
+                "penyelidikan",
+                "degupan",
+                "jantung",
+                "lejar",
+                "dwi-kemasukan",
+                "berterusan",
+                "calon",
+                "mutasi",
+                "genom",
+                "simulasi",
+                "bayangan",
+                "pintu",
+                "promosi",
+                "perdagangan",
+                "baki",
+                "ekuiti",
+                "tunai",
+                "tersedia",
+                "diperuntukkan",
+                "jumlah",
+                "bersih",
+                "nyata",
+                "belum",
+                "rizab",
+                "tertutup",
+                "terbuka",
+                "simpanan",
+                "sejarah",
+                "pantau",
+                "harga",
+                "saiz",
+                "sasaran",
+                "kategori",
+                "kemaskini",
+                "kunci",
+                "batal",
+                "tutup",
+                "padam",
+                "cari",
+                "maklumat",
+                "terkini",
+                "penyegerakan",
+                "berjaya",
+                "oleh",
+                "untuk",
+                "pada",
+                "dari",
+                "daripada",
+                "dengan",
+                "atau",
+                "adalah",
+                "iaitu",
+                "dalam",
+                "luar",
+                "atas",
+                "bawah",
+                "kiri",
+                "kanan",
+                "tambah",
+                "kurang",
+                "baharu",
+                "lama",
+                "telah",
+                "sedang",
+                "akan",
+                "pernah",
+                "boleh",
+                "tidak",
+                "bukan",
+                "jangan",
+                "sila",
+                "tolong",
+                "kembali",
+                "seterusnya",
+                "sebelum",
+                "selepas",
+                "semasa",
+                "ketika",
+                "antara",
+                "setiap",
+                "banyak",
+                "sedikit",
+                "tinggi",
+                "rendah",
+                "cepat",
+                "lambat",
+                "mudah",
+                "sukar",
+                "betul",
+                "salah",
+                "pasti",
+                "mungkin",
+                "hanya",
+                "juga",
+                "lagi",
+                "masih",
+                "sudah",
+                "selalu",
+                "jarang",
+                "kadang",
+                "mana",
+                "siapa",
+                "apa",
+                "bila",
+                "kenapa",
+                "mengapa",
+                "bagaimana",
+                # From run_phase_316_m1_empirical_challenge.py
+                "aliran",
+                "beli",
+                "jual",
+                "dibenarkan",
+                "ditangguhkan",
+                "sementara",
+                "kerana",
+                "melindungi",
+                "rejim",
+                "keadaan",
+                "menunggu",
+                "sampel",
+                "transaksi",
+                "selesai",
+                "menguji",
+                "melepasi",
+                "menilai",
+                "diuji",
+                "terhadap",
+                "peningkatan",
+                "penstriman",
+                "disegerakkan",
+                "pasangan",
+                "disahkan",
+                "matematis",
+                "penilaian",
+                "dinilai",
+                "diarahkan",
+                "dijana",
+                "kelayakan",
+                "diperoleh",
+                "interaktif",
+                "kerugian",
+                "saat",
+                "minit",
+                "minggu",
+                "bulan",
+                "tahun",
+                # From m3-ssr-adversarial.challenge.test.tsx
+                "konfluens",
+                "skalper",
+                "makro",
+                "lepasserang",
+                "isipadu",
+                "lonjakan",
+                "terlebih",
+                "pembuat",
+                "kurungan",
+                "jejari",
+                "spektrum",
+                "selamat",
+                "toksik",
+                "amaran",
+                "kritikal",
+                "kelulusan",
+                "ditahan",
+                "autorisasi",
+                "belian",
+                "lulus",
+                "bilangan",
+                "ketahanan",
+                "kemalangan",
+                "ralat",
+                "pemasaan",
+                "pemilihan",
+                "merugikan",
+                "terperinci",
+                "dipantau",
+                "diisi",
+                "integriti",
+                "semakan",
+                "hadkan",
+                "sekat",
+                "ditapis",
+                "kitaran",
+                "lilin",
+                "imbasan",
+                "layak",
+                "semua",
+                # Specific DISPATCH.md and financial domain terms
+                "had",
+                "tahap",
+                "laksana",
+                "laporan",
+                "pelaburan",
+                "tarikh",
+                "masa",
+                "kejatuhan",
+                "kejatuhan kilat",
+                "ambang",
+                "penunjuk",
+                "analisis",
+                "corak",
+                "penyelesaian",
+                "pendedahan kumulatif",
+                "wang tunai",
+                "kelewatan",
+                "pelayan",
+                "sambungan",
+                "pemulihan",
+                "sandaran",
+                "henti rugi",
+                "ambil untung",
+                "pesanan had",
+                "pesanan pasaran",
+                "kadar kemenangan",
+                "lejar am",
+                "jurnal",
+                "kemaskini data",
+                "muat turun",
+                "muat naik",
+                "tetapan",
+                "bantuan",
+                "dokumentasi",
+                "penafian",
+                "risiko",
+                "semak semula",
+            ]
+        )
+    )
+)
 
 
 def run_ssh(cmd: str) -> subprocess.CompletedProcess[str]:
     """Execute SSH command on Kainode VPS."""
     full_cmd = [
         "ssh",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=10",
-        "-i", str(SSH_KEY_PATH),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-i",
+        str(SSH_KEY_PATH),
         VPS_HOST,
         cmd,
     ]
@@ -115,7 +354,7 @@ def find_banned_matches(text: str) -> list[tuple[str, int, str]]:
         matches = list(pat.finditer(text))
         if matches:
             first_m = matches[0]
-            snippet = text[max(0, first_m.start() - 25): min(len(text), first_m.end() + 25)]
+            snippet = text[max(0, first_m.start() - 25) : min(len(text), first_m.end() + 25)]
             hits.append((term, len(matches), snippet.strip()))
     return hits
 
@@ -123,6 +362,7 @@ def find_banned_matches(text: str) -> list[tuple[str, int, str]]:
 # =============================================================================
 # 1. Banned Malay Terms Scan Suite
 # =============================================================================
+
 
 class TestBannedMalayTermsLiveScan:
     """Rigorous empirical scan of live production assets against 220+ banned terms."""
@@ -149,11 +389,15 @@ class TestBannedMalayTermsLiveScan:
             bundle_name = m.group(1) if m else "index-DOERVwn7.js"
 
             resp = client.get(f"/assets/{bundle_name}")
-            assert resp.status_code == 200, f"JS bundle {bundle_name} returned HTTP {resp.status_code}"
+            assert resp.status_code == 200, (
+                f"JS bundle {bundle_name} returned HTTP {resp.status_code}"
+            )
             assert len(resp.text) > 500_000, f"JS bundle unexpectedly small: {len(resp.text)} chars"
 
             hits = find_banned_matches(resp.text)
-            assert len(hits) == 0, f"Detected {len(hits)} banned terms in JS bundle {bundle_name}: {hits}"
+            assert len(hits) == 0, (
+                f"Detected {len(hits)} banned terms in JS bundle {bundle_name}: {hits}"
+            )
 
     def test_live_evolution_api_zero_banned_terms(self) -> None:
         """Verify GET /api/v1/canary/evolution contains exactly 0 banned Malay terms."""
@@ -183,6 +427,7 @@ class TestBannedMalayTermsLiveScan:
 # =============================================================================
 # 2. VPS Trader Daemon Continuous Invariant Suite
 # =============================================================================
+
 
 @pytest.mark.skipif(not SSH_KEY_PATH.exists(), reason="Kainode VPS SSH key missing")
 class TestVPSTraderDaemonContinuousInvariant:
@@ -217,19 +462,24 @@ class TestVPSTraderDaemonContinuousInvariant:
         assert "87549" in stdout, f"PID 87549 not in process table: {stdout}"
         assert "run_phase_310_real_autonomous_trading.py" in stdout
         # Must show multi-day prefix in elapsed time (e.g. '2-')
-        assert "2-" in stdout or "3-" in stdout, f"Process appears recently restarted (no multi-day prefix): {stdout}"
+        assert "2-" in stdout or "3-" in stdout, (
+            f"Process appears recently restarted (no multi-day prefix): {stdout}"
+        )
 
     def test_daemon_journalctl_error_log_is_clean(self) -> None:
         """Verify journalctl user service error-level log has 0 entries."""
         proc = run_ssh("journalctl --user -u autonomous-futures-trader.service -p err --no-pager")
         assert proc.returncode == 0, f"journalctl query failed: {proc.stderr}"
         stdout = proc.stdout.strip()
-        assert "-- No entries --" in stdout or len(stdout) == 0, f"Unexpected error log entries: {stdout}"
+        assert "-- No entries --" in stdout or len(stdout) == 0, (
+            f"Unexpected error log entries: {stdout}"
+        )
 
 
 # =============================================================================
 # 3. Cryptographic Parity & Zero Balance Drift Suite
 # =============================================================================
+
 
 @pytest.mark.skipif(not SSH_KEY_PATH.exists(), reason="Kainode VPS SSH key missing")
 class TestCryptographicParityAndSolvency:
@@ -245,7 +495,9 @@ class TestCryptographicParityAndSolvency:
         assert proc.returncode == 0, f"sha256sum query failed: {proc.stderr}"
         remote_hash = proc.stdout.strip().split()[0]
 
-        assert remote_hash == local_hash, f"Hash mismatch: remote {remote_hash} != local {local_hash}"
+        assert remote_hash == local_hash, (
+            f"Hash mismatch: remote {remote_hash} != local {local_hash}"
+        )
 
     def test_live_execution_status_solvency_zero_drift(self) -> None:
         """Verify /api/v1/execution/status reports zero balance drift (|Δ| < 10^-15 USDT)."""

@@ -347,9 +347,7 @@ class TestAdversarialShortPositionExits:
 class TestAdversarialPositionFlatteningAndBracketClearance:
     """Stress-tests complete clearance of brackets upon emergency position flattening."""
 
-    def test_flattening_clears_all_brackets_without_phantom_brackets(
-        self, tmp_path: Path
-    ) -> None:
+    def test_flattening_clears_all_brackets_without_phantom_brackets(self, tmp_path: Path) -> None:
         """Verifies _flatten_all_positions completely clears stop_loss and take_profit
 
         on BOTH active position candidates AND flat candidates.
@@ -565,9 +563,7 @@ class TestEmpiricalTraderLatencyBenchmark:
     """Measures 50 consecutive cycles of continuous trader execution loop."""
 
     @pytest.mark.anyio
-    async def test_continuous_trader_50_cycles_p99_latency_benchmark(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_continuous_trader_50_cycles_p99_latency_benchmark(self, tmp_path: Path) -> None:
         """Executes 50 cycles across 8 pairs x 5 timeframes, asserting P99 latency < 15.0 ms."""
         mock_gateway = AsyncMock(spec=BinanceFuturesGateway)
         mock_gateway.get_position_risk.return_value = []

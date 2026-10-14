@@ -54,6 +54,7 @@ from autonomous_futures.strategy.macro_liquidity_scalper import (
 # Helper Utilities & Fixtures
 # =============================================================================
 
+
 def _build_test_candle(ts_ms: int, p: str = "100.0", vol: str = "1000.0") -> Candle:
     d = Decimal(p)
     return Candle(
@@ -123,6 +124,7 @@ def _build_mock_twins_state(
 # Suite 1: TestOrderTaggingFormatAndLength
 # =============================================================================
 
+
 class TestOrderTaggingFormatAndLength:
     """Verifies deterministic client order ID syntax, max 36-char bounds, and uniqueness."""
 
@@ -154,19 +156,23 @@ class TestOrderTaggingFormatAndLength:
 # Suite 2: TestChildOrderCapAndStepSizeQuantization
 # =============================================================================
 
+
 class TestChildOrderCapAndStepSizeQuantization:
     """Verifies child order sizing adheres strictly to <= 5.00 USDT cap with Binance stepSize."""
 
-    @pytest.mark.parametrize("symbol,price_str", [
-        ("BTCUSDT", "82600.00"),
-        ("ETHUSDT", "2500.00"),
-        ("SOLUSDT", "170.00"),
-        ("DOGEUSDT", "0.08600"),
-        ("BNBUSDT", "750.00"),
-        ("XRPUSDT", "1.4000"),
-        ("SUIUSDT", "1.1100"),
-        ("AVAXUSDT", "10.500"),
-    ])
+    @pytest.mark.parametrize(
+        "symbol,price_str",
+        [
+            ("BTCUSDT", "82600.00"),
+            ("ETHUSDT", "2500.00"),
+            ("SOLUSDT", "170.00"),
+            ("DOGEUSDT", "0.08600"),
+            ("BNBUSDT", "750.00"),
+            ("XRPUSDT", "1.4000"),
+            ("SUIUSDT", "1.1100"),
+            ("AVAXUSDT", "10.500"),
+        ],
+    )
     def test_child_order_cap_enforced_across_active_pairs(
         self, tmp_path: Path, symbol: str, price_str: str
     ) -> None:
@@ -211,6 +217,7 @@ class TestChildOrderCapAndStepSizeQuantization:
 # =============================================================================
 # Suite 3: TestPortfolioExposureCap
 # =============================================================================
+
 
 class TestPortfolioExposureCap:
     """Verifies aggregate exposure ceiling ($25.00 USDT) blocks excess orders fail-closed."""
@@ -261,6 +268,7 @@ class TestPortfolioExposureCap:
 # Suite 4: TestLiquidCashReserveFloor
 # =============================================================================
 
+
 class TestLiquidCashReserveFloor:
     """Verifies liquid cash reserve floor (>= 75.0%) rejects order slicing when cash is low."""
 
@@ -299,6 +307,7 @@ class TestLiquidCashReserveFloor:
 # =============================================================================
 # Suite 5: TestDailyLossLimitFailClosedCircuitBreaker
 # =============================================================================
+
 
 class TestDailyLossLimitFailClosedCircuitBreaker:
     """Verifies $3.00 USDT daily loss budget trigger auto-flattens all positions fail-closed."""
@@ -345,6 +354,7 @@ class TestDailyLossLimitFailClosedCircuitBreaker:
 # =============================================================================
 # Suite 6: TestDoubleEntryLedgerBalanceConservation
 # =============================================================================
+
 
 class TestDoubleEntryLedgerBalanceConservation:
     """Verifies double-entry ledger balance conservation (|drift| < 10^-15 USDT)."""
@@ -422,6 +432,7 @@ class TestDoubleEntryLedgerBalanceConservation:
 # =============================================================================
 # Suite 7: TestOrderDispatchStateMachine
 # =============================================================================
+
 
 class TestOrderDispatchStateMachine:
     """Verifies the state machine: step_6_ready -> intention -> fill -> protective brackets."""
@@ -596,6 +607,7 @@ class TestOrderDispatchStateMachine:
 # =============================================================================
 # Suite 8: TestContinuousTraderNonBlockingCycleLatency
 # =============================================================================
+
 
 class TestContinuousTraderNonBlockingCycleLatency:
     """Verifies that evaluation across all 8 active pairs remains strictly < 15ms per cycle."""

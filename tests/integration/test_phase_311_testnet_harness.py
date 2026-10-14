@@ -60,9 +60,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # Phase 310 upstream parent Merkle root constant from PROJECT.md and Phase 310 summary
-PHASE_310_UPSTREAM_MERKLE_ROOT = (
-    "0004387045399718c6229d1a18fec40399d4baba01b0eecd0ab51c782268dd84"
-)
+PHASE_310_UPSTREAM_MERKLE_ROOT = "0004387045399718c6229d1a18fec40399d4baba01b0eecd0ab51c782268dd84"
 
 # Core library imports
 from autonomous_futures.execution.binance_gateway import (  # noqa: E402
@@ -138,7 +136,7 @@ def derive_phase_311_client_order_id(
     ts: int | None = None,
 ) -> str:
     """Authoritative client order ID generator matching Phase 311 specification.
-    
+
     Constraint: Length must strictly not exceed 36 characters per Binance Futures REST API.
     Format: {prefix}-{sym[:3].lower()}-{timestamp_ms}
     """
@@ -156,7 +154,7 @@ def derive_dynamic_brackets(
     tick_size: Decimal = Decimal("0.01"),
 ) -> tuple[Decimal, Decimal, Decimal]:
     """Computes dynamic protective brackets according to Phase 311 specification:
-    
+
     Take-Profit: +2.0x ATR for BUY, -2.0x ATR for SELL
     Stop-Loss:   -1.2x ATR for BUY, +1.2x ATR for SELL
     Risk:Reward Ratio: 2.0 / 1.2 = 1.6667:1
@@ -815,6 +813,7 @@ class TestTier2Boundary1EmptyInputs:
 
     def test_t2_b1_01_empty_symbol_string_rejected(self) -> None:
         """T2.B1.01: Empty symbol string raises ValueError."""
+
         def validate_symbol(sym: str) -> str:
             if not sym or not sym.strip():
                 raise ValueError("Symbol cannot be empty.")
@@ -827,6 +826,7 @@ class TestTier2Boundary1EmptyInputs:
 
     def test_t2_b1_02_invalid_side_string_rejected(self) -> None:
         """T2.B1.02: Invalid side string raises ValueError."""
+
         def validate_side(side: str) -> str:
             s = side.strip().upper()
             if s not in ("BUY", "SELL"):
@@ -840,6 +840,7 @@ class TestTier2Boundary1EmptyInputs:
 
     def test_t2_b1_03_zero_notional_rejected(self) -> None:
         """T2.B1.03: Zero notional Decimal('0.00') raises ValueError."""
+
         def validate_notional(n: Decimal) -> Decimal:
             if n <= Decimal("0.0"):
                 raise ValueError("Notional must be positive.")
@@ -850,6 +851,7 @@ class TestTier2Boundary1EmptyInputs:
 
     def test_t2_b1_04_negative_notional_rejected(self) -> None:
         """T2.B1.04: Negative notional raises ValueError."""
+
         def validate_notional(n: Decimal) -> Decimal:
             if n <= Decimal("0.0"):
                 raise ValueError("Notional must be positive.")
@@ -876,6 +878,7 @@ class TestTier2Boundary2MicroCapitalCeilings:
 
     def test_t2_b2_02_extreme_notional_100_usdt_rejected(self) -> None:
         """T2.B2.02: Excessive notional 100.00 USDT raises ValueError violating micro-cap."""
+
         def check_micro_capital(notional: Decimal) -> None:
             if notional > Decimal("5.00"):
                 raise ValueError(f"Notional {notional} exceeds micro child cap of 5.00 USDT.")
@@ -1420,7 +1423,7 @@ class TestTier4RealWorldWorkloadScenarios:
 
     def test_t4_01_scenario_dry_run_full_verification(self, tmp_path: Path) -> None:
         """Scenario 1: Dry-Run Verification Lifecycle without network order submission.
-        
+
         Workflow:
         1. Parse CLI arguments (--symbol SOLUSDT, --dry-run)
         2. Verify credentials and clock synchronization (|dt| <= 1000ms)
@@ -1472,7 +1475,7 @@ class TestTier4RealWorldWorkloadScenarios:
 
     def test_t4_02_scenario_maker_limit_entry_and_bracket_lifecycle(self) -> None:
         """Scenario 2: Authentic Maker Limit Entry, ATR Brackets & Order Lifecycle.
-        
+
         Workflow:
         1. Generate deterministic client order ID (<= 36 chars)
         2. Submit Maker Limit order (GTX post-only)
@@ -1481,6 +1484,7 @@ class TestTier4RealWorldWorkloadScenarios:
         5. Dispatch protective brackets: Limit TP at +2.0x ATR and Stop-Loss at -1.2x ATR
         6. Reconcile ledger balance preserving zero-drift invariant
         """
+
         async def _run() -> None:
             gw = BinanceFuturesGateway(offline_mode=True)
             ledger = CentralizedSolvencyLedger(starting_equity=100.0)
@@ -1548,7 +1552,7 @@ class TestTier4RealWorldWorkloadScenarios:
 
     def test_t4_03_scenario_complete_drill_and_auto_close_cleanup(self) -> None:
         """Scenario 3: Complete Execution Drill with Auto-Close & Position Cleanup.
-        
+
         Workflow:
         1. Submit entry Maker Limit order and protective brackets
         2. Trigger --cleanup routine
@@ -1557,6 +1561,7 @@ class TestTier4RealWorldWorkloadScenarios:
         5. Submit market reduceOnly=True order to flatten net position to 0.00
         6. Reconcile ledger and verify zero-drift solvency snapshot
         """
+
         async def _run() -> None:
             gw = BinanceFuturesGateway(offline_mode=True)
             ledger = CentralizedSolvencyLedger(starting_equity=100.0)
@@ -1606,7 +1611,7 @@ class TestTier4RealWorldWorkloadScenarios:
 
     def test_t4_04_scenario_hostile_input_and_fail_closed_guardrails(self) -> None:
         """Scenario 4: Adversarial Micro-Capital & Fail-Closed Guardrails on Hostile Inputs.
-        
+
         Workflow:
         1. Attempt notional 10.00 USDT (> 5.00 USDT cap) -> BLOCKED
         2. Attempt clock drift 1200 ms (> 1000 ms threshold) -> BLOCKED
@@ -1641,7 +1646,7 @@ class TestTier4RealWorldWorkloadScenarios:
         self, tmp_path: Path
     ) -> None:
         """Scenario 5: Complete End-to-End Cryptographic Audit & Merkle Lineage DAG Verification.
-        
+
         Workflow:
         1. Create isolated storage directory
         2. Write SQLite database with order records

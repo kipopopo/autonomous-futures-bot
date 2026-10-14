@@ -333,9 +333,9 @@ def _load_recent_autopsies(
 
     if not db_path or not db_path.is_file():
         for sym in symbols:
-            result[sym] = sorted(
-                result[sym], key=lambda item: item.timestamp_ms, reverse=True
-            )[:limit_per_symbol]
+            result[sym] = sorted(result[sym], key=lambda item: item.timestamp_ms, reverse=True)[
+                :limit_per_symbol
+            ]
         return result
 
     try:

@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Milestone 1 Empirical Challenger: Live Production API Penetration & Verification Harness.
 
 Target: https://futures.semua.dev/
@@ -146,11 +147,13 @@ async def test_btc_macro_and_leakage(client: httpx.AsyncClient) -> dict[str, Any
     for sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
         p = payload.get(sym) or (payload.get("prices", {}).get(sym))
         is_valid = isinstance(p, (int, float)) and p > 0
-        findings["checks"].append({
-            "check": f"price_exists_{sym}",
-            "value": p,
-            "passed": is_valid,
-        })
+        findings["checks"].append(
+            {
+                "check": f"price_exists_{sym}",
+                "value": p,
+                "passed": is_valid,
+            }
+        )
         if not is_valid:
             findings["passed"] = False
 
@@ -185,7 +188,9 @@ async def test_btc_macro_and_leakage(client: httpx.AsyncClient) -> dict[str, Any
         findings["passed"] = False
         print("  [FAIL] Fake linear multiplier detected in BTC macro!")
     else:
-        print(f"  [PASS] Authentic non-linear EMAs confirmed: ratio50={ratio_50:.4f}, ratio200={ratio_200:.4f}")
+        print(
+            f"  [PASS] Authentic non-linear EMAs confirmed: ratio50={ratio_50:.4f}, ratio200={ratio_200:.4f}"
+        )
 
     if regime not in ("BULLISH ALIGNED", "BEARISH", "SIDEWAYS"):
         findings["passed"] = False
@@ -236,7 +241,6 @@ async def test_zero_drift_solvency(client: httpx.AsyncClient) -> dict[str, Any]:
 
     for sym, pos in positions.items():
         qty = pos.get("position_qty", 0.0)
-        state = pos.get("state")
         tp = pos.get("take_profit_price")
         sl = pos.get("stop_loss_price")
         alloc_exp = pos.get("allocated_exposure_usdt", 0.0)
@@ -306,21 +310,29 @@ async def test_timestamp_freshness_and_monotonicity(
         m_ts = r_market.json().get("timestamp_ms", 0)
         e_ts = r_exec.json().get("timestamp_ms", 0)
 
-        samples.append({
-            "round": i + 1,
-            "req_time_sec": t_req,
-            "market_ts_ms": m_ts,
-            "exec_ts_ms": e_ts,
-            "market_datetime": datetime.datetime.fromtimestamp(m_ts / 1000.0, tz=datetime.timezone.utc).isoformat(),
-            "exec_datetime": datetime.datetime.fromtimestamp(e_ts / 1000.0, tz=datetime.timezone.utc).isoformat(),
-        })
+        samples.append(
+            {
+                "round": i + 1,
+                "req_time_sec": t_req,
+                "market_ts_ms": m_ts,
+                "exec_ts_ms": e_ts,
+                "market_datetime": datetime.datetime.fromtimestamp(
+                    m_ts / 1000.0, tz=datetime.UTC
+                ).isoformat(),
+                "exec_datetime": datetime.datetime.fromtimestamp(
+                    e_ts / 1000.0, tz=datetime.UTC
+                ).isoformat(),
+            }
+        )
         await asyncio.sleep(1.2)
 
     # Evaluate monotonicity
     market_ts_seq = [s["market_ts_ms"] for s in samples]
     exec_ts_seq = [s["exec_ts_ms"] for s in samples]
 
-    market_monotonic = all(market_ts_seq[j] <= market_ts_seq[j + 1] for j in range(len(market_ts_seq) - 1))
+    market_monotonic = all(
+        market_ts_seq[j] <= market_ts_seq[j + 1] for j in range(len(market_ts_seq) - 1)
+    )
     exec_monotonic = all(exec_ts_seq[j] <= exec_ts_seq[j + 1] for j in range(len(exec_ts_seq) - 1))
 
     # Evaluate freshness
@@ -335,7 +347,9 @@ async def test_timestamp_freshness_and_monotonicity(
     print(f"  Market clock skew: {market_skew_ms / 1000.0:.2f}s")
     print(f"  Exec clock skew:   {exec_skew_ms / 1000.0:.2f}s")
 
-    passed = market_monotonic and exec_monotonic and (market_skew_ms < 60000) and (exec_skew_ms < 60000)
+    passed = (
+        market_monotonic and exec_monotonic and (market_skew_ms < 60000) and (exec_skew_ms < 60000)
+    )
 
     return {
         "passed": passed,
@@ -354,19 +368,39 @@ async def test_adversarial_parameter_fuzzing(client: httpx.AsyncClient) -> dict[
         ("/api/v1/market/prices?symbol=INVALID_COIN", 200, "prices_invalid_param"),
         ("/api/v1/market/prices?injection=%27%20OR%201=1--", 200, "prices_sqli_probe"),
         ("/api/v1/market/prices?xss=%3Cscript%3Ealert(1)%3C/script%3E", 200, "prices_xss_probe"),
-        (f"/api/v1/market/prices?overflow={'A'*3000}", 200, "prices_buffer_probe"),
+        (f"/api/v1/market/prices?overflow={'A' * 3000}", 200, "prices_buffer_probe"),
         # Execution status
         ("/api/v1/execution/status?research_dir=/etc/shadow", 200, "exec_path_traversal_probe"),
-        ("/api/v1/execution/status?research_dir=../../../../etc", 200, "exec_relative_traversal_probe"),
+        (
+            "/api/v1/execution/status?research_dir=../../../../etc",
+            200,
+            "exec_relative_traversal_probe",
+        ),
         ("/api/v1/execution/status?filter=hacked", 200, "exec_filter_probe"),
         # Canary summary
         ("/api/v1/canary/summary?phase=malformed_phase_name", 200, "canary_invalid_phase_probe"),
         ("/api/v1/canary/summary?manifest_version=-9999", 200, "canary_neg_manifest_probe"),
         # Market klines
-        ("/api/v1/market/klines?symbol=NONEXISTENT_PAIR_XYZ&interval=15m&limit=10", 200, "klines_unknown_pair"),
-        ("/api/v1/market/klines?symbol=SOLUSDT&interval=99h&limit=10", 422, "klines_invalid_interval"),
-        ("/api/v1/market/klines?symbol=SOLUSDT&interval=15m&limit=-5", 422, "klines_negative_limit"),
-        ("/api/v1/market/klines?symbol=SOLUSDT&interval=15m&limit=999999", 422, "klines_huge_limit"),
+        (
+            "/api/v1/market/klines?symbol=NONEXISTENT_PAIR_XYZ&interval=15m&limit=10",
+            200,
+            "klines_unknown_pair",
+        ),
+        (
+            "/api/v1/market/klines?symbol=SOLUSDT&interval=99h&limit=10",
+            422,
+            "klines_invalid_interval",
+        ),
+        (
+            "/api/v1/market/klines?symbol=SOLUSDT&interval=15m&limit=-5",
+            422,
+            "klines_negative_limit",
+        ),
+        (
+            "/api/v1/market/klines?symbol=SOLUSDT&interval=15m&limit=999999",
+            422,
+            "klines_huge_limit",
+        ),
     ]
 
     fuzz_results: list[dict[str, Any]] = []
@@ -377,28 +411,32 @@ async def test_adversarial_parameter_fuzzing(client: httpx.AsyncClient) -> dict[
         try:
             resp = await client.get(url, timeout=10.0)
             status = resp.status_code
-            is_expected = (status == expected_status)
+            is_expected = status == expected_status
             if not is_expected:
                 all_passed = False
-            fuzz_results.append({
-                "test_name": test_name,
-                "endpoint_query": endpoint_query,
-                "status_code": status,
-                "expected_status": expected_status,
-                "passed": is_expected,
-            })
+            fuzz_results.append(
+                {
+                    "test_name": test_name,
+                    "endpoint_query": endpoint_query,
+                    "status_code": status,
+                    "expected_status": expected_status,
+                    "passed": is_expected,
+                }
+            )
             tag = "[PASS]" if is_expected else "[FAIL]"
             print(f"  {tag} {test_name}: status={status} (expected={expected_status})")
         except Exception as e:
             all_passed = False
-            fuzz_results.append({
-                "test_name": test_name,
-                "endpoint_query": endpoint_query,
-                "status_code": 0,
-                "expected_status": expected_status,
-                "passed": False,
-                "error": str(e),
-            })
+            fuzz_results.append(
+                {
+                    "test_name": test_name,
+                    "endpoint_query": endpoint_query,
+                    "status_code": 0,
+                    "expected_status": expected_status,
+                    "passed": False,
+                    "error": str(e),
+                }
+            )
             print(f"  [FAIL] {test_name}: exception={e}")
 
     return {
@@ -412,7 +450,7 @@ async def main() -> int:
     print("=" * 70)
     print("AUTONOMOUS FUTURES BOT: MILESTONE 1 ADVERSARIAL PENETRATION HARNESS")
     print(f"Target: {BASE_URL}")
-    print(f"Execution Timestamp: {datetime.datetime.now(datetime.timezone.utc).isoformat()}")
+    print(f"Execution Timestamp: {datetime.datetime.now(datetime.UTC).isoformat()}")
     print("=" * 70)
 
     limits = httpx.Limits(max_keepalive_connections=50, max_connections=100)
@@ -425,15 +463,12 @@ async def main() -> int:
         fuzz_res = await test_adversarial_parameter_fuzzing(client)
 
     verdict_approve = (
-        macro_res["passed"]
-        and solv_res["passed"]
-        and time_res["passed"]
-        and fuzz_res["passed"]
+        macro_res["passed"] and solv_res["passed"] and time_res["passed"] and fuzz_res["passed"]
     )
 
     print("\n" + "=" * 70)
     print("ADVERSARIAL VERDICT SUMMARY:")
-    print(f"  Step 1 (Multi-request Burst): PASS (All 30/30 on all endpoints 200 OK)")
+    print("  Step 1 (Multi-request Burst): PASS (All 30/30 on all endpoints 200 OK)")
     print(f"  Step 2 (BTC Macro Anti-Mock): {'PASS' if macro_res['passed'] else 'FAIL'}")
     print(f"  Step 3 (Zero-Drift Solvency): {'PASS' if solv_res['passed'] else 'FAIL'}")
     print(f"  Step 4 (Timestamp Freshness): {'PASS' if time_res['passed'] else 'FAIL'}")
@@ -442,7 +477,7 @@ async def main() -> int:
     print("=" * 70)
 
     report_payload = {
-        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "timestamp_utc": datetime.datetime.now(datetime.UTC).isoformat(),
         "target": BASE_URL,
         "verdict": "APPROVE" if verdict_approve else "REJECT",
         "burst_summary": burst_res,

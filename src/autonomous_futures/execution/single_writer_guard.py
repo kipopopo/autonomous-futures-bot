@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
+_UNSET = object()
 
 
 class LegacyWriterHandoffGuard:
@@ -18,14 +19,15 @@ class LegacyWriterHandoffGuard:
         service_name: str = "autonomous-futures-trader.service",
         *,
         command_runner: CommandRunner | None = None,
-        systemctl_path: str | None = None,
+        systemctl_path: str | None | object = _UNSET,
         platform_name: str | None = None,
     ) -> None:
         self.service_name = service_name
         self.command_runner = command_runner or subprocess.run
-        self.systemctl_path = (
-            shutil.which("systemctl") if systemctl_path is None else systemctl_path
-        )
+        if systemctl_path is _UNSET:
+            self.systemctl_path: str | None = shutil.which("systemctl")
+        else:
+            self.systemctl_path = systemctl_path if isinstance(systemctl_path, str) else None
         self.platform_name = sys.platform if platform_name is None else platform_name
 
     def assert_legacy_inactive(self) -> None:
@@ -56,11 +58,7 @@ class LegacyWriterHandoffGuard:
                 "Cannot verify the legacy writer state; same-key trading is blocked"
             ) from exc
 
-        properties = dict(
-            line.split("=", 1)
-            for line in result.stdout.splitlines()
-            if "=" in line
-        )
+        properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
         disabled = properties.get("UnitFileState") in {"disabled", "masked"}
         inactive = (
             properties.get("LoadState") == "loaded"

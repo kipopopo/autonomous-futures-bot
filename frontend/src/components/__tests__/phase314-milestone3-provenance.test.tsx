@@ -169,6 +169,7 @@ describe('Phase 314 Milestone 3 Provenance Badging & Truth in Labeling', () => {
         latencyMs={12.0}
       />,
     )
-    expect(safetyHtml).toContain('provenance-badge-daemon-24-7')
+    expect(safetyHtml).toContain('Risk Controls &amp; Ledger Integrity')
+    expect(safetyHtml).toContain('ACCOUNT LEDGER UNVERIFIED')
   })
 })

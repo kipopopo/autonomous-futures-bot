@@ -73,18 +73,10 @@ class TestEmpiricalExecutionStatusDefaultApp:
         for idx, order in enumerate(recent_orders):
             cid = order.get("client_order_id", "")
             oid = str(order.get("order_id", ""))
-            assert "ord-p309-" not in cid, (
-                f"Order #{idx} client_order_id contains ord-p309-: {cid}"
-            )
-            assert "ord-p309-" not in oid, (
-                f"Order #{idx} order_id contains ord-p309-: {oid}"
-            )
-            assert not cid.startswith("ord-p309-"), (
-                f"Order #{idx} cid starts with ord-p309-: {cid}"
-            )
-            assert not oid.startswith("ord-p309-"), (
-                f"Order #{idx} oid starts with ord-p309-: {oid}"
-            )
+            assert "ord-p309-" not in cid, f"Order #{idx} client_order_id contains ord-p309-: {cid}"
+            assert "ord-p309-" not in oid, f"Order #{idx} order_id contains ord-p309-: {oid}"
+            assert not cid.startswith("ord-p309-"), f"Order #{idx} cid starts with ord-p309-: {cid}"
+            assert not oid.startswith("ord-p309-"), f"Order #{idx} oid starts with ord-p309-: {oid}"
 
     def test_all_orders_match_authentic_canary_prefixes(self) -> None:
         """Asserts that ALL recent order IDs match authentic canary prefixes."""
@@ -313,24 +305,26 @@ class TestAdversarialStressAndOracles:
 
         # 2. Hostile phase311 orders JSONL with ord-p309- events
         jsonl_lines = [
-            json.dumps({
-                "timestamp_ms": 1791552527222,
-                "event_type": "ORDER_SUBMITTED",
-                "order_id": "82745773",
-                "client_order_id": "canary-p311-drill-sol-1791552527210",
-                "status": "NEW",
-            }),
-            json.dumps({
-                "timestamp_ms": 1791552527299,
-                "event_type": "ORDER_SUBMITTED",
-                "order_id": "ord-p309-stream-poison",
-                "client_order_id": "ord-p309-stream-poison-cid",
-                "status": "NEW",
-            }),
+            json.dumps(
+                {
+                    "timestamp_ms": 1791552527222,
+                    "event_type": "ORDER_SUBMITTED",
+                    "order_id": "82745773",
+                    "client_order_id": "canary-p311-drill-sol-1791552527210",
+                    "status": "NEW",
+                }
+            ),
+            json.dumps(
+                {
+                    "timestamp_ms": 1791552527299,
+                    "event_type": "ORDER_SUBMITTED",
+                    "order_id": "ord-p309-stream-poison",
+                    "client_order_id": "ord-p309-stream-poison-cid",
+                    "status": "NEW",
+                }
+            ),
         ]
-        (p311_dir / "canary-orders.jsonl").write_text(
-            "\n".join(jsonl_lines), encoding="utf-8"
-        )
+        (p311_dir / "canary-orders.jsonl").write_text("\n".join(jsonl_lines), encoding="utf-8")
 
         # Valid baseline reports for solvency
         p310_report = {
@@ -364,10 +358,9 @@ class TestAdversarialStressAndOracles:
             assert "ord-p309-" not in o.order_id
             assert not o.client_order_id.startswith("ord-p309-")
             assert not o.order_id.startswith("ord-p309-")
-            valid_prefix = (
-                o.client_order_id.startswith("canary-p310-")
-                or o.client_order_id.startswith("canary-p311-")
-            )
+            valid_prefix = o.client_order_id.startswith(
+                "canary-p310-"
+            ) or o.client_order_id.startswith("canary-p311-")
             assert valid_prefix
 
         assert len(orders) == 2, f"Expected exactly 2 legitimate orders, got {len(orders)}"

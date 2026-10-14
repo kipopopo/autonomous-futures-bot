@@ -255,15 +255,14 @@ def main() -> int:
         print(f"  Max Fill Drift       : {res_centralized['max_drift_usdt']} USDT (< 1e-15)")
         print(f"  Fill Violations      : {res_centralized['violations']}")
         print(f"  Record Fill Verdict  : [{res_centralized['record_fill_zero_drift_invariant']}]")
-        f_drift = res_centralized['flatten_position_staged_drift_usdt']
-        f_verdict = res_centralized['flatten_position_zero_drift_invariant']
+        f_drift = res_centralized["flatten_position_staged_drift_usdt"]
+        f_verdict = res_centralized["flatten_position_zero_drift_invariant"]
         print(f"  Flatten Drift        : {f_drift} USDT")
         print(f"  Flatten Verdict      : [{f_verdict}]")
 
         print("\n--- 2. DrillSolvencyLedger Invariant ---")
         print(
-            f"  Transitions Executed : {res_drill['iterations']:,} "
-            f"in {res_drill['elapsed_sec']}s"
+            f"  Transitions Executed : {res_drill['iterations']:,} in {res_drill['elapsed_sec']}s"
         )
         print(f"  Max Fill Drift       : {res_drill['max_drift_usdt']} USDT (< 1e-15)")
         print(f"  Fill Violations      : {res_drill['violations']}")
