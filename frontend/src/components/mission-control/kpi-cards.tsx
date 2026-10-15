@@ -278,6 +278,21 @@ export function KpiCards({ kpis }: KpiCardsProps) {
               </span>
             </div>
           )}
+          {kpis.watchdogChannels && kpis.watchdogChannels.length > 0 && (
+            <div
+              className={`flex items-center justify-between text-[11px] ${
+                kpis.watchdogAlertActive ? 'text-amber-400' : 'text-cyan-400'
+              }`}
+              data-testid="runtime-watchdog-alerts-row"
+            >
+              <span>Watchdog Alerts:</span>
+              <span className="font-semibold tabular-nums">
+                {`${kpis.watchdogChannels.map((c) => c.toUpperCase()).join(' + ')} (${
+                  kpis.watchdogAlertActive ? 'ACTIVE' : 'STANDBY'
+                } · ${kpis.watchdogTotalAlertsSent ?? 0} sent)`}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

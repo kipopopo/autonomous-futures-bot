@@ -211,6 +211,9 @@ export interface ExecutiveDashboardModel {
     watchdogSystemdPassed?: boolean
     watchdogMainPid?: number
     watchdogRestarts?: number
+    watchdogAlertActive?: boolean
+    watchdogTotalAlertsSent?: number
+    watchdogChannels?: string[]
   }
   positions: PositionTelemetry[]
   pairTickers?: PairTicker[]

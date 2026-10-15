@@ -379,6 +379,10 @@ export interface ExecutionWatchdogSummaryData {
   systemd_passed?: boolean | null
   runtime_main_pid?: number | null
   runtime_restarts?: number | null
+  alert_active?: boolean
+  last_alert_sent_ms?: number | null
+  total_alerts_sent?: number
+  channels_configured?: string[]
 }
 
 export interface ExecutionStatusResponse {

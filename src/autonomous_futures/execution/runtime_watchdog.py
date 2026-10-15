@@ -704,8 +704,103 @@ def dispatch_watchdog_alerts(
     return summary
 
 
+def send_watchdog_test_alert(
+    report: dict[str, Any],
+    *,
+    notifier: Any | None = None,
+    webhook_url: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Send a one-shot verification test alert without mutating `watchdog-alert-state.json`."""
+    import os
+
+    import httpx
+
+    from autonomous_futures.notify.telegram import (
+        TelegramNotifierClient,
+        format_watchdog_alert,
+        resolve_telegram_credentials,
+    )
+
+    eval_ms = int(report.get("evaluated_at_ms") or (time.time_ns() // 1_000_000))
+    resolved_webhook = (
+        webhook_url
+        if webhook_url is not None
+        else os.environ.get("WATCHDOG_WEBHOOK_URL", "").strip()
+    )
+    raw_dir = report.get("storage_dir")
+    storage_dir = Path(str(raw_dir)) if raw_dir else None
+    tg_config = resolve_telegram_credentials(dry_run=dry_run, storage_dir=storage_dir)
+    tg_configured = notifier is not None or tg_config.is_configured
+    channels_configured: list[str] = []
+    if tg_configured:
+        channels_configured.append("telegram")
+    if resolved_webhook:
+        channels_configured.append("webhook")
+
+    formatted_text = format_watchdog_alert(report, transition="TEST")
+    errors: list[str] = []
+
+    if notifier is not None:
+        try:
+            res = notifier.send_message(formatted_text)
+            if isinstance(res, dict) and res.get("ok") is False:
+                errors.append(f"telegram:{res.get('error', 'send_failed')}")
+        except Exception as exc:
+            errors.append(f"telegram:{type(exc).__name__}")
+    elif tg_config.is_configured or tg_config.dry_run:
+        try:
+            with TelegramNotifierClient(tg_config) as client:
+                res = client.send_message(formatted_text)
+                if not res.get("ok"):
+                    errors.append(f"telegram:{res.get('error', 'send_failed')}")
+        except Exception as exc:
+            errors.append(f"telegram:{type(exc).__name__}")
+
+    if resolved_webhook and not dry_run:
+        try:
+            with httpx.Client(timeout=10.0) as http_client:
+                resp = http_client.post(
+                    resolved_webhook,
+                    json={
+                        "event": "watchdog_test_alert",
+                        "transition": "TEST",
+                        "status": str(report.get("status", "UNKNOWN")).upper(),
+                        "evaluated_at_ms": eval_ms,
+                        "text": formatted_text,
+                        "report": report,
+                    },
+                )
+                if resp.status_code >= 400:
+                    errors.append(f"webhook:HTTP_{resp.status_code}")
+        except Exception as exc:
+            errors.append(f"webhook:{type(exc).__name__}")
+
+    delivery_ok = len(errors) == 0 and (len(channels_configured) > 0 or dry_run)
+    if not channels_configured and not dry_run:
+        errors.append("no_alert_channels_configured")
+    delivery_error = "; ".join(errors) if errors else None
+
+    summary: dict[str, Any] = {
+        "dispatched": True,
+        "transition": "TEST",
+        "evaluated_at_ms": eval_ms,
+        "dry_run": bool(tg_config.dry_run and not resolved_webhook),
+        "channels_configured": channels_configured,
+        "delivery_ok": delivery_ok,
+        "delivery_error": delivery_error,
+        "message_preview": formatted_text[:200],
+    }
+    report["test_alert_dispatch"] = summary
+    report["watchdog_hash"] = content_hash(
+        {k: v for k, v in report.items() if k != "watchdog_hash"}
+    )
+    return summary
+
+
 def write_watchdog_report(storage_dir: Path, report: dict[str, Any]) -> Path:
     """Atomically persist the latest watchdog report inside `storage_dir`."""
     target = storage_dir / "watchdog-report.json"
     atomic_json(target, report)
     return target
+

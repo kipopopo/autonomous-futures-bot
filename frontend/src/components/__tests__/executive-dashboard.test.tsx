@@ -275,6 +275,27 @@ describe('KpiCards component', () => {
     expect(html).toContain('12.4 ms')
     expect(html).toContain('1 Interlock Blocks (0 Hazards)')
   })
+
+  it('renders Runtime Watchdog and Watchdog Alerts channel telemetry when configured', () => {
+    const html = renderToString(
+      <KpiCards
+        kpis={{
+          ...MOCK_MODEL.kpis,
+          watchdogStatus: 'HEALTHY',
+          watchdogMainPid: 302731,
+          watchdogRestarts: 0,
+          watchdogAlertActive: false,
+          watchdogTotalAlertsSent: 37,
+          watchdogChannels: ['telegram'],
+        }}
+      />,
+    )
+
+    expect(html).toContain('Runtime Watchdog:')
+    expect(html).toContain('HEALTHY (PID 302731 · 0 restarts)')
+    expect(html).toContain('Watchdog Alerts:')
+    expect(html).toContain('TELEGRAM (STANDBY · 37 sent)')
+  })
 })
 
 describe('StrategyConfluenceRadar component', () => {

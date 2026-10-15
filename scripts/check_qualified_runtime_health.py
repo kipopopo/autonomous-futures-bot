@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO / "src"))
 from autonomous_futures.execution.runtime_watchdog import (  # noqa: E402
     dispatch_watchdog_alerts,
     evaluate_runtime_watchdog,
+    send_watchdog_test_alert,
     write_watchdog_report,
 )
 
@@ -40,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
         "--notify",
         action="store_true",
         help="Evaluate state transitions & cooldowns and send Telegram/Webhook alerts.",
+    )
+    parser.add_argument(
+        "--send-test-alert",
+        action="store_true",
+        help="Send a one-shot verification test alert without mutating watchdog-alert-state.json.",
     )
     parser.add_argument(
         "--alert-cooldown-seconds",
@@ -87,6 +93,15 @@ def main(argv: list[str] | None = None) -> int:
             webhook_url=args.webhook_url,
             dry_run=args.dry_run_notify,
         )
+    if args.send_test_alert:
+        test_res = send_watchdog_test_alert(
+            report,
+            webhook_url=args.webhook_url,
+            dry_run=args.dry_run_notify,
+        )
+        if not test_res.get("delivery_ok", False):
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 1
     if args.write_report and args.storage_dir.is_dir():
         report_path = write_watchdog_report(args.storage_dir, report)
         report["persisted_report_path"] = str(report_path)

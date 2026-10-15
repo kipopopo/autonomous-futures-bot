@@ -8,6 +8,7 @@ from autonomous_futures.execution.runtime_watchdog import (
     WATCHDOG_ALERT_STATE_NAME,
     dispatch_watchdog_alerts,
     evaluate_runtime_watchdog,
+    send_watchdog_test_alert,
     write_watchdog_report,
 )
 from autonomous_futures.notify.telegram import format_watchdog_alert
@@ -444,5 +445,28 @@ def test_dispatch_watchdog_alerts_lifecycle_cooldown_escalation_and_recovery(
     persisted_report = json.loads((tmp_path / "watchdog-report.json").read_text(encoding="utf-8"))
     assert "alert_dispatch" in persisted_report
     assert persisted_report["alert_dispatch"]["total_alerts_sent"] == 4
+
+    # One-shot test alert check (must not mutate watchdog-alert-state.json)
+    state_before = (tmp_path / WATCHDOG_ALERT_STATE_NAME).read_text(encoding="utf-8")
+    test_summary = send_watchdog_test_alert(rep_h2, notifier=notifier)
+    assert test_summary["dispatched"] is True
+    assert test_summary["transition"] == "TEST"
+    assert test_summary["delivery_ok"] is True
+    assert len(sent_messages) == 5
+    assert "WATCHDOG TEST ALERT" in sent_messages[-1]
+    assert (tmp_path / WATCHDOG_ALERT_STATE_NAME).read_text(encoding="utf-8") == state_before
+
+    # CLI check with --send-test-alert --dry-run-notify
+    rc_test_alert = watchdog_cli_main(
+        [
+            "--storage-dir",
+            str(tmp_path),
+            "--send-test-alert",
+            "--dry-run-notify",
+        ]
+    )
+    assert rc_test_alert == 0
+    assert (tmp_path / WATCHDOG_ALERT_STATE_NAME).read_text(encoding="utf-8") == state_before
+
 
 

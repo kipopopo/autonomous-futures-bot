@@ -974,6 +974,19 @@ export function buildExecutiveDashboardModel(
         typeof watchdogData?.runtime_restarts === 'number'
           ? watchdogData.runtime_restarts
           : undefined,
+      watchdogAlertActive:
+        typeof watchdogData?.alert_active === 'boolean'
+          ? watchdogData.alert_active
+          : undefined,
+      watchdogTotalAlertsSent:
+        typeof watchdogData?.total_alerts_sent === 'number'
+          ? watchdogData.total_alerts_sent
+          : undefined,
+      watchdogChannels:
+        Array.isArray(watchdogData?.channels_configured) &&
+        watchdogData.channels_configured.length > 0
+          ? watchdogData.channels_configured
+          : undefined,
     },
     positions,
     pairTickers,

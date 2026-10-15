@@ -605,10 +605,12 @@ def format_command_help() -> str:
 
 
 def format_watchdog_alert(report: dict[str, Any], *, transition: str = "ALERT") -> str:
-    """Format a Qualified Runtime Watchdog alert (CRITICAL, WARNING, or RECOVERED) in MarkdownV2."""
+    """Format a Qualified Runtime Watchdog alert in Telegram MarkdownV2."""
     status = str(report.get("status", "UNKNOWN")).upper()
     trans_label = str(transition or report.get("transition") or "ALERT").upper()
-    if trans_label == "RECOVERED" or status == "HEALTHY":
+    if trans_label == "TEST":
+        header = f"🧪 *WATCHDOG TEST ALERT* \\| {escape_markdown_v2(status)}"
+    elif trans_label == "RECOVERED" or status == "HEALTHY":
         header = f"✅ *WATCHDOG RECOVERED* \\| {escape_markdown_v2(status)}"
     elif status == "CRITICAL":
         header = f"🚨 *WATCHDOG CRITICAL ALERT* \\| {escape_markdown_v2(trans_label)}"
