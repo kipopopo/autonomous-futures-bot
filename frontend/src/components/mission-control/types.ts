@@ -150,6 +150,8 @@ export interface QualifiedPortfolioSummaryItem {
   drawdownPct: string
   executionAuthority: boolean
   liveVariants?: PortfolioVariantChecklistItem[]
+  scannerSource?: string
+  scannerEvaluatedAtMs?: number
 }
 
 export interface StrategyEvolutionRadarData {
@@ -169,6 +171,8 @@ export interface StrategyEvolutionRadarData {
   promotedCandidatesCount: number
   qualifiedPortfolios?: QualifiedPortfolioSummaryItem[]
   liveVariants?: PortfolioVariantChecklistItem[]
+  scannerSource?: string
+  scannerEvaluatedAtMs?: number
 }
 
 export interface ExecutiveDashboardModel {

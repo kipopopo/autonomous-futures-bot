@@ -243,6 +243,25 @@ def test_portfolio_scanner_evaluates_members_in_priority_order_and_respects_occu
     assert asyncio.run(scanner()) is None
     assert evaluated_thresholds == []
 
+    import json
+
+    state_file = tmp_path / "portfolio-scanner-state.json"
+    assert state_file.is_file()
+    persisted = json.loads(state_file.read_text(encoding="utf-8"))
+    assert persisted["schema"] == "portfolio-scanner-state-v1"
+    assert persisted["source"] == "qualified_runtime_scanner"
+    assert persisted["portfolio_id"] == "macro-scalper-uninspected-3sym-medium-frequency-v1"
+    assert persisted["occupied_symbols"] == ["ETHUSDT"]
+    assert persisted["last_intention"]["member_id"] == "eth-2-med-d-3.5-tp10.0-sl8.0"
+    assert [v["member_id"] for v in persisted["variants"]] == [
+        "avax-1-hf-d-3.5-tp6.0-sl10.0",
+        "eth-1-deep-d-4.0-tp10.0-sl6.0",
+        "eth-2-med-d-3.5-tp10.0-sl8.0",
+        "eth-3-hf-d-3.0-tp12.0-sl12.0",
+        "sol-1-deep-d-4.0-tp3.0-sl3.0",
+        "sol-2-hf-d-1.8-tp8.0-sl10.0",
+    ]
+
 
 def test_entry_admission_verifies_portfolio_receipt_and_member_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

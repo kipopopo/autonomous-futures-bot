@@ -478,7 +478,9 @@ export function StrategyEvolutionRadar({
                         Live 6-Variant Causal Scanner Checklist (15m Closed Bar)
                       </span>
                       <span className="text-[10px] font-mono text-zinc-400">
-                        {`BTC 1h/4h Macro: ${qp.liveVariants[0].macroRegime}`}
+                        {qp.scannerSource
+                          ? `BTC 1h/4h Macro: ${qp.liveVariants[0].macroRegime} · ${qp.scannerSource}`
+                          : `BTC 1h/4h Macro: ${qp.liveVariants[0].macroRegime}`}
                       </span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-[11px] font-mono">

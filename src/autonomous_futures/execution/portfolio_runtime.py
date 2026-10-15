@@ -21,7 +21,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from autonomous_futures.execution.account_evidence import finite_decimal, read_account
+from autonomous_futures.execution.account_evidence import (
+    atomic_json,
+    finite_decimal,
+    read_account,
+)
 from autonomous_futures.execution.entry_risk import remaining_daily_budget
 from autonomous_futures.execution.qualification_domain import verify_execution_domain
 from autonomous_futures.execution.qualification_receipts import (
@@ -41,7 +45,13 @@ from autonomous_futures.strategy.macro_liquidity_scalper import (
     Candle,
     MacroLiquidityDipScalper,
     MacroTrendFilter,
+    compute_atr,
+    compute_ema,
+    compute_rsi,
+    compute_sma,
 )
+
+PORTFOLIO_SCANNER_STATE_NAME = "portfolio-scanner-state.json"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -232,6 +242,168 @@ def symbol_is_occupied(
     )
 
 
+def member_tier_label(member_id: str) -> str:
+    """Classify a portfolio member ID into its execution tier label."""
+    lower = member_id.lower()
+    if "deep" in lower:
+        return "DEEP"
+    if "med" in lower:
+        return "MED"
+    if "hf" in lower:
+        return "HF"
+    return "STD"
+
+
+def evaluate_btc_macro_snapshot(
+    btc_1h_candles: list[Candle],
+    btc_4h_candles: list[Candle] | None = None,
+    *,
+    regime_override: str | None = None,
+) -> dict[str, Any]:
+    """Compute BTC 1h/4h EMA50/EMA200 values and aligned regime snapshot."""
+    ema50_1h: float | None = None
+    ema200_1h: float | None = None
+    ema50_4h: float | None = None
+    ema200_4h: float | None = None
+
+    if len(btc_1h_candles) >= 50:
+        closes_1h = [c.close for c in btc_1h_candles]
+        ema50_1h = round(float(compute_ema(closes_1h, 50)[-1]), 2)
+        ema200_1h = round(float(compute_ema(closes_1h, min(200, len(closes_1h)))[-1]), 2)
+
+    if btc_4h_candles is not None and len(btc_4h_candles) >= 50:
+        closes_4h = [c.close for c in btc_4h_candles]
+        ema50_4h = round(float(compute_ema(closes_4h, 50)[-1]), 2)
+        ema200_4h = round(float(compute_ema(closes_4h, min(200, len(closes_4h)))[-1]), 2)
+
+    raw_regime: str | None = regime_override
+    if raw_regime is None and len(btc_1h_candles) >= 50:
+        raw_regime = MacroTrendFilter().evaluate_regime(btc_1h_candles, btc_4h_candles)
+        if raw_regime is None and ema50_1h is not None and ema200_1h is not None:
+            close_1h = float(btc_1h_candles[-1].close)
+            if (
+                btc_4h_candles is not None
+                and len(btc_4h_candles) >= 50
+                and ema50_4h is not None
+                and ema200_4h is not None
+            ):
+                if close_1h > ema200_1h and ema50_1h > ema200_1h and ema50_4h > ema200_4h:
+                    raw_regime = "BULLISH"
+                elif close_1h < ema200_1h and ema50_1h < ema200_1h and ema50_4h < ema200_4h:
+                    raw_regime = "BEARISH"
+            else:
+                if close_1h > ema200_1h and ema50_1h > ema200_1h:
+                    raw_regime = "BULLISH"
+                elif close_1h < ema200_1h and ema50_1h < ema200_1h:
+                    raw_regime = "BEARISH"
+
+    if raw_regime == "BULLISH":
+        btc_regime = "BULLISH ALIGNED"
+        macro_aligned = True
+    elif raw_regime == "BEARISH":
+        btc_regime = "BEARISH"
+        macro_aligned = True
+    elif len(btc_1h_candles) >= 50:
+        btc_regime = "SIDEWAYS"
+        macro_aligned = False
+    else:
+        btc_regime = "UNKNOWN"
+        macro_aligned = False
+
+    return {
+        "raw_regime": raw_regime,
+        "btc_regime": btc_regime,
+        "macro_aligned": macro_aligned,
+        "ema50_1h": ema50_1h,
+        "ema200_1h": ema200_1h,
+        "ema50_4h": ema50_4h,
+        "ema200_4h": ema200_4h,
+    }
+
+
+def evaluate_symbol_members_checklist(
+    symbol: str,
+    candles: list[Candle],
+    members: tuple[RuntimePortfolioMember, ...],
+    *,
+    btc_macro: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Evaluate all portfolio members for `symbol` on completed 15m candles."""
+    if len(candles) < 21 or not members:
+        return []
+    closes = [b.close for b in candles]
+    volumes = [b.volume for b in candles]
+    ema20 = float(compute_ema(closes, 20)[-1])
+    atr14 = float(compute_atr(candles, 14)[-1])
+    vol_sma20 = float(compute_sma(volumes, 20)[-1])
+    rsi14 = float(compute_rsi(closes, 14)[-1])
+    last_close = float(candles[-1].close)
+    last_vol = float(candles[-1].volume)
+    bar_close_ms = int(candles[-1].timestamp_ms)
+
+    dist_atr = (last_close - ema20) / atr14 if atr14 > 0 else 0.0
+    rel_vol = last_vol / vol_sma20 if vol_sma20 > 0 else 0.0
+    price_below_ema = round(max(0.0, -dist_atr), 2)
+    dist_val = round(dist_atr, 3)
+    rel_vol_val = round(rel_vol, 2)
+    rsi_val = round(rsi14, 1)
+
+    btc_regime = str(btc_macro.get("btc_regime", "UNKNOWN"))
+    macro_aligned = bool(btc_macro.get("macro_aligned", False))
+
+    items: list[dict[str, Any]] = []
+    for member in members:
+        dist_thresh = float(member.distance_threshold)
+        vol_mult = float(member.vol_spike_multiplier)
+        rsi_thresh = float(member.rsi_threshold)
+        abs_thresh = abs(dist_thresh)
+        dist_triggered = (
+            (dist_atr > abs_thresh) if btc_regime == "BEARISH" else (dist_atr < -abs_thresh)
+        )
+        vol_triggered = rel_vol > vol_mult
+        rsi_triggered = (
+            (rsi14 > (100.0 - rsi_thresh))
+            if btc_regime == "BEARISH"
+            else (rsi14 < rsi_thresh)
+        )
+        gates_passed = (
+            int(macro_aligned)
+            + int(dist_triggered)
+            + int(vol_triggered)
+            + int(rsi_triggered)
+        )
+        signal_ready = bool(
+            macro_aligned and dist_triggered and vol_triggered and rsi_triggered
+        )
+        items.append(
+            {
+                "member_id": member.member_id,
+                "symbol": symbol,
+                "tier": member_tier_label(member.member_id),
+                "close_price": round(last_close, 4),
+                "ema20": round(ema20, 4),
+                "atr14": round(atr14, 4),
+                "dist_atr": dist_val,
+                "price_below_ema20_atr": price_below_ema,
+                "distance_threshold": dist_thresh,
+                "dist_triggered": dist_triggered,
+                "relative_volume": rel_vol_val,
+                "vol_spike_multiplier": vol_mult,
+                "vol_triggered": vol_triggered,
+                "rsi_14": rsi_val,
+                "rsi_threshold": rsi_thresh,
+                "rsi_triggered": rsi_triggered,
+                "macro_regime": btc_regime,
+                "macro_aligned": macro_aligned,
+                "gates_passed": gates_passed,
+                "gates_total": 4,
+                "signal_ready": signal_ready,
+                "bar_close_ms": bar_close_ms,
+            }
+        )
+    return items
+
+
 class PortfolioCausalScanner:
     """Evaluate a verified multi-variant shared-wallet portfolio on completed exchange bars."""
 
@@ -243,6 +415,7 @@ class PortfolioCausalScanner:
         account_path: Path,
         portfolio: VerifiedRuntimePortfolio,
         pending_symbols_provider: Callable[[], tuple[str, ...]] | None = None,
+        state_path: Path | None = None,
     ) -> None:
         if portfolio.family != "MACRO_SCALPER":
             raise ValueError("PortfolioCausalScanner requires a MACRO_SCALPER portfolio")
@@ -256,11 +429,17 @@ class PortfolioCausalScanner:
         self.feed = feed
         self.repo = repo
         self.account_path = account_path
+        self.state_path = state_path or account_path.with_name(PORTFOLIO_SCANNER_STATE_NAME)
         self.portfolio = portfolio
         self.reader = ClosedHistoryReader(feed.gateway)
         self.cursor = 0
         self._verified = False
         self._pending_symbols_provider = pending_symbols_provider
+        self._member_snapshots: dict[str, dict[str, Any]] = {}
+        self._btc_macro_snapshot: dict[str, Any] = {}
+        self._last_decision_ms: int | None = None
+        self._occupied_symbols: tuple[str, ...] = ()
+        self._last_intention: dict[str, Any] | None = None
 
     def _pending_symbols(self) -> tuple[str, ...]:
         if self._pending_symbols_provider is not None:
@@ -281,6 +460,37 @@ class PortfolioCausalScanner:
             )
         except Exception:
             return ()
+
+    def _persist_scanner_state(self, evaluated_at_ms: int) -> None:
+        try:
+            if not self.state_path.parent.is_dir():
+                return
+            variants = [
+                self._member_snapshots[m.member_id]
+                for m in self.portfolio.members
+                if m.member_id in self._member_snapshots
+            ]
+            atomic_json(
+                self.state_path,
+                {
+                    "schema": "portfolio-scanner-state-v1",
+                    "source": "qualified_runtime_scanner",
+                    "portfolio_id": self.portfolio.portfolio_id,
+                    "report_hash": self.portfolio.report_hash,
+                    "evaluated_at_ms": evaluated_at_ms,
+                    "decision_boundary_ms": self._last_decision_ms,
+                    "occupied_symbols": list(self._occupied_symbols),
+                    "last_intention": self._last_intention,
+                    "btc_regime": self._btc_macro_snapshot.get("btc_regime", "UNKNOWN"),
+                    "ema50_1h": self._btc_macro_snapshot.get("ema50_1h"),
+                    "ema200_1h": self._btc_macro_snapshot.get("ema200_1h"),
+                    "ema50_4h": self._btc_macro_snapshot.get("ema50_4h"),
+                    "ema200_4h": self._btc_macro_snapshot.get("ema200_4h"),
+                    "variants": variants,
+                },
+            )
+        except Exception:
+            pass
 
     async def __call__(self) -> QualifiedIntention | None:
         symbol = self.portfolio.symbols[self.cursor]
@@ -317,7 +527,14 @@ class PortfolioCausalScanner:
             leverage=leverages[0],
             pending_symbols=pending_syms,
         )
-        if symbol_is_occupied(symbol, account, pending_symbols=pending_syms):
+        self._last_decision_ms = decision
+        self._occupied_symbols = tuple(
+            sym
+            for sym in self.portfolio.symbols
+            if symbol_is_occupied(sym, account, pending_symbols=pending_syms)
+        )
+        if symbol in self._occupied_symbols:
+            self._persist_scanner_state(local_ms)
             return None
         filters = SymbolFilters.from_gateway(self.feed.gateway.symbol_specs[symbol])
         raw, btc_hour, btc_four = await asyncio.gather(
@@ -330,7 +547,23 @@ class PortfolioCausalScanner:
             return [Candle(**dataclasses.asdict(bar)) for bar in bars]
 
         bars = convert(raw)
-        macro_regime = MacroTrendFilter().evaluate_regime(convert(btc_hour), convert(btc_four))
+        btc_1h_bars = convert(btc_hour)
+        btc_4h_bars = convert(btc_four)
+        macro_regime = MacroTrendFilter().evaluate_regime(btc_1h_bars, btc_4h_bars)
+        btc_macro = evaluate_btc_macro_snapshot(
+            btc_1h_bars,
+            btc_4h_bars,
+            regime_override=macro_regime,
+        )
+        self._btc_macro_snapshot = btc_macro
+        for item in evaluate_symbol_members_checklist(
+            symbol,
+            bars,
+            self.portfolio.members_by_symbol[symbol],
+            btc_macro=btc_macro,
+        ):
+            self._member_snapshots[item["member_id"]] = item
+
         for member in self.portfolio.members_by_symbol[symbol]:
             scalper = member.create_engine()
             signal = scalper.evaluate_15m_bar(symbol, bars[-1], bars[:-1], macro_regime)
@@ -340,6 +573,13 @@ class PortfolioCausalScanner:
                 plan = scalper_plan(signal, filters, leverages, equity, available, budget)
             except IneligibleTrade:
                 continue
+            self._last_intention = {
+                "member_id": member.member_id,
+                "symbol": symbol,
+                "decision_ms": decision,
+                "timestamp_ms": local_ms,
+            }
+            self._persist_scanner_state(local_ms)
             return QualifiedIntention(
                 plan=plan,
                 report_path=self.portfolio.report_path,
@@ -348,4 +588,5 @@ class PortfolioCausalScanner:
                 portfolio_id=self.portfolio.portfolio_id,
                 member_id=member.member_id,
             )
+        self._persist_scanner_state(local_ms)
         return None

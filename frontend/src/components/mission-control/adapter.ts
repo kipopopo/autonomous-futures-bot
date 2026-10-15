@@ -847,6 +847,8 @@ export function buildExecutiveDashboardModel(
     drawdownPct: qp.drawdown_pct,
     executionAuthority: Boolean(qp.execution_authority) || isPortfolioRuntimeActive,
     liveVariants,
+    scannerSource: scannerData?.source,
+    scannerEvaluatedAtMs: scannerData?.evaluated_at_ms ?? undefined,
   }))
 
   const evolutionRadar: StrategyEvolutionRadarData = {
@@ -891,6 +893,8 @@ export function buildExecutiveDashboardModel(
     promotedCandidatesCount: perf?.promoted_candidates_count ?? 3,
     qualifiedPortfolios,
     liveVariants,
+    scannerSource: scannerData?.source,
+    scannerEvaluatedAtMs: scannerData?.evaluated_at_ms ?? undefined,
   }
 
   const dailyRisk = executionStatus?.daily_risk

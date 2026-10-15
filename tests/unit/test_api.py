@@ -621,15 +621,16 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     assert payload["runtime_health"]["arrival_count"] == 36930
     assert payload["runtime_health"]["spectral_radius"] == pytest.approx(0.5455993315954724)
     assert payload["runtime_health"]["event_counts"]["BTCUSDT"] == 4451
+    expected_members = [
+        "avax-1-hf-d-3.5-tp6.0-sl10.0",
+        "eth-1-deep-d-4.0-tp10.0-sl6.0",
+        "eth-2-med-d-3.5-tp10.0-sl8.0",
+        "eth-3-hf-d-3.0-tp12.0-sl12.0",
+        "sol-1-deep-d-4.0-tp3.0-sl3.0",
+        "sol-2-hf-d-1.8-tp8.0-sl10.0",
+    ]
     assert payload["scalper_criteria"] is not None
-    assert payload["scalper_criteria"]["variant_id"] in {
-        "avax-1-deep",
-        "avax-2-hf",
-        "eth-1-deep",
-        "eth-2-hf",
-        "sol-1-deep",
-        "sol-2-hf",
-    }
+    assert payload["scalper_criteria"]["variant_id"] in set(expected_members)
     assert payload["portfolio_scanner"]["observed"] is True
     assert (
         payload["portfolio_scanner"]["portfolio_id"]
@@ -639,14 +640,23 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     assert payload["portfolio_scanner"]["ema200_1h"] is not None
     assert payload["portfolio_scanner"]["ema50_4h"] is not None
     assert payload["portfolio_scanner"]["ema200_4h"] is not None
-    assert [v["member_id"] for v in payload["portfolio_scanner"]["variants"]] == [
-        "avax-1-deep",
-        "avax-2-hf",
-        "eth-1-deep",
-        "eth-2-hf",
-        "sol-1-deep",
-        "sol-2-hf",
-    ]
+    assert [v["member_id"] for v in payload["portfolio_scanner"]["variants"]] == expected_members
+    assert (qualified_dir / "portfolio-scanner-state.json").is_file()
+
+    # Verify reading a fresh qualified_runtime_scanner state file directly
+    import json
+
+    runtime_state_file = json.loads(
+        (qualified_dir / "portfolio-scanner-state.json").read_text(encoding="utf-8")
+    )
+    runtime_state_file["source"] = "qualified_runtime_scanner"
+    runtime_state_file["evaluated_at_ms"] = now_ms
+    atomic_json(qualified_dir / "portfolio-scanner-state.json", runtime_state_file)
+    from_scanner_payload = _request(app, "GET", "/api/v1/execution/status").json()
+    assert from_scanner_payload["portfolio_scanner"]["source"] == "qualified_runtime_scanner"
+    assert [
+        v["member_id"] for v in from_scanner_payload["portfolio_scanner"]["variants"]
+    ] == expected_members
 
     warmup_health = {
         **runtime_health,
