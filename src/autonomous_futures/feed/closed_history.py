@@ -41,9 +41,18 @@ class ClosedHistoryReader:
         if gateway.offline_mode:
             raise ValueError("Runtime histories require observed exchange candles")
         self.gateway = gateway
+        self._cache: dict[tuple[str, str], tuple[int, tuple[Candle, ...]]] = {}
 
     async def read(self, symbol: str, interval: str, decision_ms: int) -> tuple[Candle, ...]:
         if interval not in WIDTH_MS:
             raise ValueError("Unsupported canonical runtime timeframe")
+        width = WIDTH_MS[interval]
+        boundary = decision_ms // width * width
+        cache_key = (symbol.upper(), interval)
+        cached = self._cache.get(cache_key)
+        if cached is not None and cached[0] == boundary:
+            return cached[1]
         rows = await self.gateway.get_klines(symbol, interval, limit=251, end_time=decision_ms - 1)
-        return parse_closed_history(rows, interval, decision_ms)[-250:]
+        parsed = parse_closed_history(rows, interval, decision_ms)[-250:]
+        self._cache[cache_key] = (boundary, parsed)
+        return parsed

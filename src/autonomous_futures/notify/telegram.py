@@ -604,6 +604,88 @@ def format_command_help() -> str:
     )
 
 
+def format_watchdog_alert(report: dict[str, Any], *, transition: str = "ALERT") -> str:
+    """Format a Qualified Runtime Watchdog alert (CRITICAL, WARNING, or RECOVERED) in MarkdownV2."""
+    status = str(report.get("status", "UNKNOWN")).upper()
+    trans_label = str(transition or report.get("transition") or "ALERT").upper()
+    if trans_label == "RECOVERED" or status == "HEALTHY":
+        header = f"✅ *WATCHDOG RECOVERED* \\| {escape_markdown_v2(status)}"
+    elif status == "CRITICAL":
+        header = f"🚨 *WATCHDOG CRITICAL ALERT* \\| {escape_markdown_v2(trans_label)}"
+    else:
+        header = f"⚠️ *WATCHDOG DEGRADED WARNING* \\| {escape_markdown_v2(trans_label)}"
+
+    checks = report.get("checks", {})
+    if not isinstance(checks, dict):
+        checks = {}
+    acc = checks.get("account_reconciliation", {})
+    if not isinstance(acc, dict):
+        acc = {}
+    risk = checks.get("daily_risk_budget", {})
+    if not isinstance(risk, dict):
+        risk = {}
+    hawkes = checks.get("streams_and_hawkes", {})
+    if not isinstance(hawkes, dict):
+        hawkes = {}
+    sys_chk = checks.get("systemd", {})
+    if not isinstance(sys_chk, dict):
+        sys_chk = {}
+    q_unit = sys_chk.get("qualified_runtime", {})
+    if not isinstance(q_unit, dict):
+        q_unit = {}
+
+    pid = str(q_unit.get("MainPID", "N/A"))
+    restarts = str(q_unit.get("NRestarts", "0"))
+    active_state = str(q_unit.get("ActiveState", "unknown"))
+    sub_state = str(q_unit.get("SubState", "unknown"))
+
+    equity = _decimal_text(acc.get("total_equity_usdt"), Decimal("0.01"))
+    reconciled = str(bool(acc.get("reconciled", False)))
+    drift = str(acc.get("wallet_drift") if acc.get("wallet_drift") is not None else "0")
+
+    loss_usdt = _decimal_text(risk.get("loss_usdt"), Decimal("0.01"))
+    limit_usdt = _decimal_text(risk.get("limit_usdt"), Decimal("0.01"))
+    util_pct = _decimal_text(risk.get("utilization_pct"), Decimal("0.1"))
+
+    hawkes_status = str(hawkes.get("hawkes_status", "UNKNOWN"))
+    sr_raw = hawkes.get("spectral_radius")
+    sr_str = _decimal_text(sr_raw, Decimal("0.0001")) if sr_raw is not None else "N/A"
+    streams_ok = str(bool(hawkes.get("streams_healthy", False)))
+
+    crit_list = [str(x) for x in report.get("critical_alerts", [])]
+    warn_list = [str(x) for x in report.get("warning_alerts", [])]
+    crit_str = ", ".join(crit_list) if crit_list else "None"
+    warn_str = ", ".join(warn_list) if warn_list else "None"
+
+    eval_ms = report.get("evaluated_at_ms")
+    if isinstance(eval_ms, (int, float)) and eval_ms > 0:
+        iso_ts = datetime.fromtimestamp(float(eval_ms) / 1000.0, tz=UTC).isoformat()
+        time_str = _myt_text(iso_ts)
+    else:
+        time_str = _myt_text(report.get("occurred_at"))
+
+    reconciled_esc = escape_markdown_v2(reconciled)
+    drift_esc = escape_markdown_v2(drift)
+    risk_summary_esc = escape_markdown_v2(f"${loss_usdt} / ${limit_usdt} USDT ({util_pct}%)")
+
+    return (
+        f"{header}\n"
+        f"─────────────────────────\n"
+        f"• *Status*: *{escape_markdown_v2(status)}* \\({escape_markdown_v2(trans_label)}\\)\n"
+        f"• *Daemon*: {escape_markdown_v2(f'{active_state}/{sub_state}')} "
+        f"\\(PID {escape_markdown_v2(pid)} · {escape_markdown_v2(restarts)} restarts\\)\n"
+        f"• *Net Equity*: {escape_markdown_v2(_money_text(equity))} "
+        f"\\(Reconciled: `{reconciled_esc}`, Drift: `{drift_esc}`\\)\n"
+        f"• *Daily Risk*: {risk_summary_esc}\n"
+        f"• *Hawkes & Streams*: `{escape_markdown_v2(hawkes_status)}` "
+        f"\\(ρ={escape_markdown_v2(sr_str)}, Streams: `{escape_markdown_v2(streams_ok)}`\\)\n"
+        f"• *Critical Alerts*: `{escape_markdown_v2(crit_str)}`\n"
+        f"• *Warning Alerts*: `{escape_markdown_v2(warn_str)}`\n"
+        f"• *Time*: {escape_markdown_v2(time_str)}"
+    )
+
+
+
 # ---------------------------------------------------------------------------
 # Telegram Exceptions
 # ---------------------------------------------------------------------------
@@ -817,6 +899,10 @@ class TelegramNotifierClient:
             text = format_risk_alert(alert_type, payload)
         elif alert_lower == "portfolio_digest":
             text = format_portfolio_digest(payload.get("health", {}), payload.get("positions", []))
+        elif alert_lower in ("watchdog_alert", "watchdog"):
+            text = format_watchdog_alert(
+                payload, transition=str(payload.get("transition", "ALERT"))
+            )
         else:
             text = str(payload)
 
@@ -1024,6 +1110,10 @@ class AsyncTelegramNotifierClient:
             text = format_risk_alert(alert_type, payload)
         elif alert_lower == "portfolio_digest":
             text = format_portfolio_digest(payload.get("health", {}), payload.get("positions", []))
+        elif alert_lower in ("watchdog_alert", "watchdog"):
+            text = format_watchdog_alert(
+                payload, transition=str(payload.get("transition", "ALERT"))
+            )
         else:
             text = str(payload)
         return await self.send_message(text)

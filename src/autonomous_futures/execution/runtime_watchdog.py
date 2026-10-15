@@ -210,9 +210,21 @@ def evaluate_runtime_watchdog(
             reconcile_req = bool(raw_h.get("user_stream_reconciliation_required"))
             stream_gap = bool(raw_h.get("user_stream_gap"))
             flatten_reason = raw_h.get("force_flatten_reason")
+            last_cycle_ms = raw_h.get("last_protective_cycle_ms")
             cycle_err = raw_h.get("cycle_error_type")
             refresh_err = raw_h.get("last_account_refresh_error_type")
             scan_err = raw_h.get("scan_error_type")
+
+            cycle_fresh = (
+                isinstance(last_cycle_ms, int)
+                and abs(eval_ms - last_cycle_ms) <= max_health_age_ms
+            )
+            is_transient_refresh_cycle_err = (
+                cycle_err == "ValueError"
+                and refresh_err is not None
+                and cycle_fresh
+                and bool(account_check.get("passed"))
+            )
 
             if not market_ok:
                 critical_alerts.append("market_stream_disconnected")
@@ -222,7 +234,7 @@ def evaluate_runtime_watchdog(
                 critical_alerts.append("user_data_stream_gap_or_reconciliation_required")
             if flatten_reason is not None:
                 critical_alerts.append(f"force_flatten_active:{flatten_reason}")
-            if cycle_err is not None:
+            if cycle_err is not None and not is_transient_refresh_cycle_err:
                 critical_alerts.append(f"protective_cycle_error:{cycle_err}")
             if refresh_err is not None:
                 warning_alerts.append(f"account_refresh_error:{refresh_err}")
@@ -235,7 +247,7 @@ def evaluate_runtime_watchdog(
                 and not reconcile_req
                 and not stream_gap
                 and flatten_reason is None
-                and cycle_err is None
+                and (cycle_err is None or is_transient_refresh_cycle_err)
             )
             health_check["streams_healthy"] = streams_healthy
 
@@ -422,8 +434,269 @@ def evaluate_runtime_watchdog(
             **({"systemd": systemd_check} if systemd_check is not None else {}),
         },
     }
+    alert_state_path = storage_dir / WATCHDOG_ALERT_STATE_NAME
+    if alert_state_path.is_file():
+        try:
+            raw_alert_state = json.loads(alert_state_path.read_text(encoding="utf-8"))
+            if isinstance(raw_alert_state, dict):
+                body["alert_dispatch"] = {
+                    "alert_active": bool(raw_alert_state.get("alert_active", False)),
+                    "last_transition": raw_alert_state.get("last_transition"),
+                    "last_alert_sent_ms": raw_alert_state.get("last_alert_sent_ms"),
+                    "last_alert_status": raw_alert_state.get("last_alert_status"),
+                    "total_alerts_sent": int(raw_alert_state.get("total_alerts_sent", 0) or 0),
+                    "channels_configured": list(
+                        raw_alert_state.get("channels_configured", [])
+                    ),
+                }
+        except Exception:
+            pass
     body["watchdog_hash"] = content_hash(body)
     return body
+
+
+WATCHDOG_ALERT_STATE_NAME = "watchdog-alert-state.json"
+
+
+def dispatch_watchdog_alerts(
+    storage_dir: Path,
+    report: dict[str, Any],
+    *,
+    cooldown_seconds: int = 900,
+    min_warning_consecutive: int = 2,
+    bot_token: str | None = None,
+    chat_id: str | None = None,
+    webhook_url: str | None = None,
+    dry_run: bool = False,
+    notifier: Any | None = None,
+    http_client: Any | None = None,
+) -> dict[str, Any]:
+    """Evaluate state transitions & cooldowns and dispatch Telegram / Webhook alerts.
+
+    - CRITICAL alerts fire immediately on tick 1 (`CRITICAL_OPENED`), on escalation from
+      WARNING (`CRITICAL_ESCALATED`), on new critical alert keys (`CRITICAL_NEW_ALERT`),
+      or after `cooldown_seconds` (`CRITICAL_REMINDER`).
+    - WARNING alerts fire once `consecutive_warning >= min_warning_consecutive`
+      (`WARNING_OPENED`) and repeat after `cooldown_seconds` (`WARNING_REMINDER`).
+    - Returning to HEALTHY while `alert_active` is True dispatches a one-time
+      `RECOVERED` notification and clears `alert_active`.
+    """
+    import os
+
+    import httpx
+
+    from autonomous_futures.notify.telegram import (
+        TelegramNotifierClient,
+        format_watchdog_alert,
+        resolve_telegram_credentials,
+    )
+
+    state_path = storage_dir / WATCHDOG_ALERT_STATE_NAME
+    prev: dict[str, Any] = {}
+    if state_path.is_file():
+        try:
+            loaded = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                prev = loaded
+        except Exception:
+            prev = {}
+
+    eval_ms = int(report.get("evaluated_at_ms") or (time.time_ns() // 1_000_000))
+    status = str(report.get("status", "UNKNOWN")).upper()
+    critical_alerts = sorted(str(a) for a in report.get("critical_alerts", []))
+    warning_alerts = sorted(str(a) for a in report.get("warning_alerts", []))
+
+    prev_warning = int(prev.get("consecutive_warning", 0) or 0)
+    prev_critical = int(prev.get("consecutive_critical", 0) or 0)
+    prev_non_healthy = int(prev.get("consecutive_non_healthy", 0) or 0)
+    prev_active = bool(prev.get("alert_active", False))
+    prev_alert_status = prev.get("last_alert_status")
+    prev_sent_ms = prev.get("last_alert_sent_ms")
+    prev_total_sent = int(prev.get("total_alerts_sent", 0) or 0)
+    prev_crit_set = {str(x) for x in prev.get("last_alerted_critical_alerts", [])}
+
+    cooldown_ms = max(0, int(cooldown_seconds) * 1000)
+    min_warn = max(1, int(min_warning_consecutive))
+
+    should_send = False
+    suppressed_by_cooldown = False
+    transition = "HEALTHY_NOOP"
+
+    if status == "CRITICAL":
+        consecutive_critical = prev_critical + 1
+        consecutive_warning = 0
+        consecutive_non_healthy = prev_non_healthy + 1
+        new_crit = set(critical_alerts) - prev_crit_set
+        if not prev_active:
+            should_send = True
+            transition = "CRITICAL_OPENED"
+        elif prev_alert_status != "CRITICAL":
+            should_send = True
+            transition = "CRITICAL_ESCALATED"
+        elif new_crit:
+            should_send = True
+            transition = "CRITICAL_NEW_ALERT"
+        elif prev_sent_ms is None or (eval_ms - int(prev_sent_ms)) >= cooldown_ms:
+            should_send = True
+            transition = "CRITICAL_REMINDER"
+        else:
+            should_send = False
+            suppressed_by_cooldown = True
+            transition = "COOLDOWN_ACTIVE"
+    elif status == "WARNING":
+        consecutive_warning = prev_warning + 1
+        consecutive_critical = 0
+        consecutive_non_healthy = prev_non_healthy + 1
+        if consecutive_warning < min_warn and not prev_active:
+            should_send = False
+            transition = "WARNING_DEBOUNCING"
+        elif not prev_active:
+            should_send = True
+            transition = "WARNING_OPENED"
+        elif prev_sent_ms is None or (eval_ms - int(prev_sent_ms)) >= cooldown_ms:
+            should_send = True
+            transition = "WARNING_REMINDER"
+        else:
+            should_send = False
+            suppressed_by_cooldown = True
+            transition = "COOLDOWN_ACTIVE"
+    else:
+        consecutive_warning = 0
+        consecutive_critical = 0
+        consecutive_non_healthy = 0
+        if prev_active:
+            should_send = True
+            transition = "RECOVERED"
+        else:
+            should_send = False
+            transition = "HEALTHY_NOOP"
+
+    tg_config = resolve_telegram_credentials(
+        bot_token,
+        chat_id,
+        dry_run=dry_run,
+        storage_dir=storage_dir,
+    )
+    resolved_webhook = (webhook_url or os.environ.get("WATCHDOG_WEBHOOK_URL", "")).strip()
+    channels_configured: list[str] = []
+    if tg_config.is_configured or notifier is not None:
+        channels_configured.append("telegram")
+    if resolved_webhook:
+        channels_configured.append("webhook")
+
+    dispatched = False
+    delivery_ok: bool | None = None
+    delivery_error: str | None = None
+    formatted_text: str | None = None
+
+    if should_send:
+        formatted_text = format_watchdog_alert(report, transition=transition)
+        errors: list[str] = []
+        # 1. Telegram delivery
+        try:
+            if notifier is not None:
+                notifier.send_message(formatted_text)
+            else:
+                with TelegramNotifierClient(config=tg_config) as tg_client:
+                    tg_client.send_message(formatted_text)
+        except Exception as exc:
+            errors.append(f"telegram:{type(exc).__name__}:{exc}")
+
+        # 2. Optional Webhook delivery
+        if resolved_webhook and not dry_run:
+            webhook_payload = {
+                "schema": "qualified-runtime-watchdog-webhook-v1",
+                "transition": transition,
+                "status": status,
+                "evaluated_at_ms": eval_ms,
+                "critical_alerts": critical_alerts,
+                "warning_alerts": warning_alerts,
+                "text": formatted_text,
+            }
+            try:
+                if http_client is not None:
+                    resp = http_client.post(resolved_webhook, json=webhook_payload, timeout=10.0)
+                    if resp.status_code >= 400:
+                        errors.append(f"webhook:HTTP_{resp.status_code}")
+                else:
+                    with httpx.Client(timeout=10.0) as w_client:
+                        resp = w_client.post(resolved_webhook, json=webhook_payload)
+                        if resp.status_code >= 400:
+                            errors.append(f"webhook:HTTP_{resp.status_code}")
+            except Exception as exc:
+                errors.append(f"webhook:{type(exc).__name__}")
+
+        dispatched = True
+        delivery_ok = len(errors) == 0
+        delivery_error = "; ".join(errors) if errors else None
+        if status == "HEALTHY":
+            alert_active = False
+            last_alert_status = "HEALTHY"
+            last_alerted_critical_alerts: list[str] = []
+        else:
+            alert_active = True
+            last_alert_status = status
+            last_alerted_critical_alerts = list(critical_alerts)
+        last_alert_sent_ms: int | None = eval_ms
+        total_alerts_sent = prev_total_sent + 1
+    else:
+        alert_active = False if status == "HEALTHY" else prev_active
+        last_alert_status = prev_alert_status
+        last_alert_sent_ms = prev_sent_ms
+        last_alerted_critical_alerts = (
+            [] if status == "HEALTHY" else list(prev_crit_set)
+        )
+        total_alerts_sent = prev_total_sent
+
+    next_state: dict[str, Any] = {
+        "schema": "qualified-runtime-watchdog-alert-state-v1",
+        "updated_at_ms": eval_ms,
+        "last_status": status,
+        "last_transition": transition,
+        "consecutive_non_healthy": consecutive_non_healthy,
+        "consecutive_warning": consecutive_warning,
+        "consecutive_critical": consecutive_critical,
+        "alert_active": alert_active,
+        "suppressed_by_cooldown": suppressed_by_cooldown,
+        "cooldown_seconds": int(cooldown_seconds),
+        "min_warning_consecutive": min_warn,
+        "dispatched": dispatched,
+        "dry_run": bool(tg_config.dry_run and not resolved_webhook),
+        "channels_configured": channels_configured,
+        "last_alert_sent_ms": last_alert_sent_ms,
+        "last_alert_status": last_alert_status,
+        "last_alerted_critical_alerts": sorted(last_alerted_critical_alerts),
+        "last_alerted_warning_alerts": (
+            warning_alerts if dispatched else prev.get("last_alerted_warning_alerts", [])
+        ),
+        "last_delivery_ok": delivery_ok if dispatched else prev.get("last_delivery_ok"),
+        "last_delivery_error": delivery_error if dispatched else prev.get("last_delivery_error"),
+        "total_alerts_sent": total_alerts_sent,
+    }
+    if storage_dir.is_dir():
+        atomic_json(state_path, next_state)
+
+    summary = {
+        **next_state,
+        **({"message_preview": formatted_text[:200]} if formatted_text else {}),
+    }
+    report["alert_dispatch"] = {
+        "alert_active": alert_active,
+        "dispatched": dispatched,
+        "transition": transition,
+        "last_transition": transition,
+        "suppressed_by_cooldown": suppressed_by_cooldown,
+        "last_alert_sent_ms": last_alert_sent_ms,
+        "last_alert_status": last_alert_status,
+        "total_alerts_sent": total_alerts_sent,
+        "channels_configured": channels_configured,
+        "delivery_ok": delivery_ok,
+        "delivery_error": delivery_error,
+    }
+    report["watchdog_hash"] = content_hash(
+        {k: v for k, v in report.items() if k != "watchdog_hash"}
+    )
+    return summary
 
 
 def write_watchdog_report(storage_dir: Path, report: dict[str, Any]) -> Path:

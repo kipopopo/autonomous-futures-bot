@@ -12,6 +12,7 @@ from .telegram import (
     format_risk_alert,
     format_trade_closed_alert,
     format_trade_opened_alert,
+    format_watchdog_alert,
     mask_token,
     resolve_telegram_credentials,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "format_risk_alert",
     "format_trade_closed_alert",
     "format_trade_opened_alert",
+    "format_watchdog_alert",
     "mask_token",
     "resolve_telegram_credentials",
 ]

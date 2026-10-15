@@ -16,6 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from autonomous_futures.execution.runtime_watchdog import (  # noqa: E402
+    dispatch_watchdog_alerts,
     evaluate_runtime_watchdog,
     write_watchdog_report,
 )
@@ -36,6 +37,34 @@ def main(argv: list[str] | None = None) -> int:
         help="Atomically write watchdog-report.json inside --storage-dir.",
     )
     parser.add_argument(
+        "--notify",
+        action="store_true",
+        help="Evaluate state transitions & cooldowns and send Telegram/Webhook alerts.",
+    )
+    parser.add_argument(
+        "--alert-cooldown-seconds",
+        type=int,
+        default=900,
+        help="Minimum cooldown in seconds between repeated alerts of the same severity.",
+    )
+    parser.add_argument(
+        "--min-warning-consecutive",
+        type=int,
+        default=2,
+        help="Minimum consecutive WARNING ticks required before sending a warning alert.",
+    )
+    parser.add_argument(
+        "--webhook-url",
+        type=str,
+        default=None,
+        help="Optional webhook URL override for watchdog alert notifications.",
+    )
+    parser.add_argument(
+        "--dry-run-notify",
+        action="store_true",
+        help="Run the alert state machine without making external HTTP requests.",
+    )
+    parser.add_argument(
         "--fail-on-warning",
         action="store_true",
         help="Return exit code 1 when watchdog status is WARNING as well as CRITICAL.",
@@ -49,6 +78,15 @@ def main(argv: list[str] | None = None) -> int:
         max_scanner_age_ms=args.max_scanner_age_ms,
         check_systemd=args.check_systemd,
     )
+    if args.notify:
+        dispatch_watchdog_alerts(
+            args.storage_dir,
+            report,
+            cooldown_seconds=args.alert_cooldown_seconds,
+            min_warning_consecutive=args.min_warning_consecutive,
+            webhook_url=args.webhook_url,
+            dry_run=args.dry_run_notify,
+        )
     if args.write_report and args.storage_dir.is_dir():
         report_path = write_watchdog_report(args.storage_dir, report)
         report["persisted_report_path"] = str(report_path)

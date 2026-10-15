@@ -420,6 +420,10 @@ class ExecutionWatchdogSummary(DomainModel):
     systemd_passed: bool | None = None
     runtime_main_pid: int | None = None
     runtime_restarts: int | None = None
+    alert_active: bool = False
+    last_alert_sent_ms: int | None = None
+    total_alerts_sent: int = 0
+    channels_configured: list[str] = Field(default_factory=list)
 
 
 class ExecutionStatusResponse(DomainModel):
@@ -1062,7 +1066,6 @@ def _load_ohlcv_bars_for_scanner(
 
 def _resolve_admitted_portfolio_members() -> tuple[str, tuple[Any, ...]]:
     from autonomous_futures.execution.portfolio_runtime import (
-        RuntimePortfolioMember,
         load_admitted_portfolios,
     )
 
@@ -1438,6 +1441,11 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
         wd_raw = evaluate_runtime_watchdog(path.parent)
         wd_sys = wd_raw.get("checks", {}).get("systemd")
         wd_q_unit = wd_sys.get("qualified_runtime", {}) if isinstance(wd_sys, dict) else {}
+        wd_alert = (
+            wd_raw.get("alert_dispatch", {})
+            if isinstance(wd_raw.get("alert_dispatch"), dict)
+            else {}
+        )
         watchdog_summary = ExecutionWatchdogSummary(
             status=str(wd_raw.get("status", "UNKNOWN")),
             healthy=bool(wd_raw.get("healthy", False)),
@@ -1458,6 +1466,14 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             runtime_restarts=_safe_int(wd_q_unit.get("NRestarts"))
             if isinstance(wd_q_unit, dict) and wd_q_unit.get("NRestarts") is not None
             else None,
+            alert_active=bool(wd_alert.get("alert_active", False)),
+            last_alert_sent_ms=int(wd_alert["last_alert_sent_ms"])
+            if isinstance(wd_alert.get("last_alert_sent_ms"), int)
+            else None,
+            total_alerts_sent=_safe_int(wd_alert.get("total_alerts_sent"), 0),
+            channels_configured=[
+                str(c) for c in wd_alert.get("channels_configured", []) if isinstance(c, str)
+            ],
         )
         return ExecutionStatusResponse(
             verified=verified,

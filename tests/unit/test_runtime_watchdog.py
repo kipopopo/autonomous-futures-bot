@@ -5,9 +5,12 @@ import time
 from pathlib import Path
 
 from autonomous_futures.execution.runtime_watchdog import (
+    WATCHDOG_ALERT_STATE_NAME,
+    dispatch_watchdog_alerts,
     evaluate_runtime_watchdog,
     write_watchdog_report,
 )
+from autonomous_futures.notify.telegram import format_watchdog_alert
 from scripts.check_qualified_runtime_health import main as watchdog_cli_main
 
 
@@ -232,7 +235,7 @@ def test_watchdog_systemd_units_and_cached_systemd_report(tmp_path: Path) -> Non
 
     assert "Type=oneshot" in svc_text
     assert "scripts/check_qualified_runtime_health.py" in svc_text
-    assert "--check-systemd --write-report" in svc_text
+    assert "--check-systemd --write-report --notify" in svc_text
     assert "NoNewPrivileges=true" in svc_text
     assert "OnUnitActiveSec=60s" in timer_text
     assert "Unit=autonomous-futures-watchdog.service" in timer_text
@@ -264,4 +267,142 @@ def test_watchdog_systemd_units_and_cached_systemd_report(tmp_path: Path) -> Non
     assert report["checks"]["systemd"]["passed"] is True
     assert report["checks"]["systemd"]["cached_from_report"] is True
     assert report["checks"]["systemd"]["qualified_runtime"]["MainPID"] == "63408"
+
+
+def test_transient_account_refresh_cycle_error_remains_warning(tmp_path: Path) -> None:
+    now_ms = int(time.time() * 1000)
+    _write_runtime_fixtures(tmp_path, now_ms=now_ms)
+    health_path = tmp_path / "runtime-health.json"
+    raw_h = json.loads(health_path.read_text(encoding="utf-8"))
+    raw_h["cycle_error_type"] = "ValueError"
+    raw_h["last_account_refresh_error_type"] = "BinanceAPIError"
+    raw_h["last_protective_cycle_ms"] = now_ms
+    health_path.write_text(json.dumps(raw_h), encoding="utf-8")
+
+    report = evaluate_runtime_watchdog(tmp_path, now_ms=now_ms)
+    assert report["status"] == "WARNING"
+    assert report["critical_alerts"] == []
+    assert "account_refresh_error:BinanceAPIError" in report["warning_alerts"]
+    assert report["checks"]["streams_and_hawkes"]["streams_healthy"] is True
+
+
+def test_dispatch_watchdog_alerts_lifecycle_cooldown_escalation_and_recovery(
+    tmp_path: Path,
+) -> None:
+    sent_messages: list[str] = []
+
+    class DummyNotifier:
+        def send_message(self, text: str) -> dict[str, object]:
+            sent_messages.append(text)
+            return {"ok": True}
+
+    notifier = DummyNotifier()
+    base_ms = 1_792_050_000_000
+
+    # 1. HEALTHY -> HEALTHY_NOOP
+    _write_runtime_fixtures(tmp_path, now_ms=base_ms)
+    rep_h1 = evaluate_runtime_watchdog(tmp_path, now_ms=base_ms)
+    res_h1 = dispatch_watchdog_alerts(
+        tmp_path, rep_h1, notifier=notifier, cooldown_seconds=900, min_warning_consecutive=2
+    )
+    assert res_h1["last_transition"] == "HEALTHY_NOOP"
+    assert res_h1["dispatched"] is False
+    assert len(sent_messages) == 0
+
+    # 2. WARNING tick 1 -> WARNING_DEBOUNCING (min_warning_consecutive=2)
+    t1 = base_ms + 60_000
+    _write_runtime_fixtures(tmp_path, now_ms=t1, boundary_symbols=["ETHUSDT"])
+    rep_w1 = evaluate_runtime_watchdog(tmp_path, now_ms=t1)
+    res_w1 = dispatch_watchdog_alerts(
+        tmp_path, rep_w1, notifier=notifier, cooldown_seconds=900, min_warning_consecutive=2
+    )
+    assert res_w1["last_transition"] == "WARNING_DEBOUNCING"
+    assert res_w1["dispatched"] is False
+    assert len(sent_messages) == 0
+
+    # 3. WARNING tick 2 -> WARNING_OPENED (sends alert)
+    t2 = base_ms + 120_000
+    _write_runtime_fixtures(tmp_path, now_ms=t2, boundary_symbols=["ETHUSDT"])
+    rep_w2 = evaluate_runtime_watchdog(tmp_path, now_ms=t2)
+    res_w2 = dispatch_watchdog_alerts(
+        tmp_path, rep_w2, notifier=notifier, cooldown_seconds=900, min_warning_consecutive=2
+    )
+    assert res_w2["last_transition"] == "WARNING_OPENED"
+    assert res_w2["dispatched"] is True
+    assert res_w2["alert_active"] is True
+    assert len(sent_messages) == 1
+    assert "WATCHDOG DEGRADED WARNING" in sent_messages[-1]
+
+    # 4. WARNING tick 3 within cooldown -> COOLDOWN_ACTIVE
+    t3 = base_ms + 180_000
+    _write_runtime_fixtures(tmp_path, now_ms=t3, boundary_symbols=["ETHUSDT"])
+    rep_w3 = evaluate_runtime_watchdog(tmp_path, now_ms=t3)
+    res_w3 = dispatch_watchdog_alerts(
+        tmp_path, rep_w3, notifier=notifier, cooldown_seconds=900, min_warning_consecutive=2
+    )
+    assert res_w3["last_transition"] == "COOLDOWN_ACTIVE"
+    assert res_w3["suppressed_by_cooldown"] is True
+    assert res_w3["dispatched"] is False
+    assert len(sent_messages) == 1
+
+    # 5. Escalation WARNING -> CRITICAL bypasses cooldown immediately!
+    t4 = base_ms + 240_000
+    _write_runtime_fixtures(tmp_path, now_ms=t4, user_stream_connected=False)
+    rep_c1 = evaluate_runtime_watchdog(tmp_path, now_ms=t4)
+    res_c1 = dispatch_watchdog_alerts(
+        tmp_path, rep_c1, notifier=notifier, cooldown_seconds=900, min_warning_consecutive=2
+    )
+    assert res_c1["last_transition"] == "CRITICAL_ESCALATED"
+    assert res_c1["dispatched"] is True
+    assert len(sent_messages) == 2
+    assert "WATCHDOG CRITICAL ALERT" in sent_messages[-1]
+
+    # 6. CRITICAL -> CRITICAL with new critical alert key bypasses cooldown!
+    t5 = base_ms + 300_000
+    _write_runtime_fixtures(
+        tmp_path, now_ms=t5, user_stream_connected=False, daily_breached=True
+    )
+    rep_c2 = evaluate_runtime_watchdog(tmp_path, now_ms=t5)
+    res_c2 = dispatch_watchdog_alerts(
+        tmp_path, rep_c2, notifier=notifier, cooldown_seconds=900, min_warning_consecutive=2
+    )
+    assert res_c2["last_transition"] == "CRITICAL_NEW_ALERT"
+    assert res_c2["dispatched"] is True
+    assert len(sent_messages) == 3
+
+    # 7. CRITICAL -> HEALTHY sends RECOVERED notification and clears alert_active
+    t6 = base_ms + 360_000
+    _write_runtime_fixtures(tmp_path, now_ms=t6)
+    rep_h2 = evaluate_runtime_watchdog(tmp_path, now_ms=t6)
+    res_h2 = dispatch_watchdog_alerts(
+        tmp_path, rep_h2, notifier=notifier, cooldown_seconds=900, min_warning_consecutive=2
+    )
+    assert res_h2["last_transition"] == "RECOVERED"
+    assert res_h2["dispatched"] is True
+    assert res_h2["alert_active"] is False
+    assert res_h2["total_alerts_sent"] == 4
+    assert len(sent_messages) == 4
+    assert "WATCHDOG RECOVERED" in sent_messages[-1]
+    assert (tmp_path / WATCHDOG_ALERT_STATE_NAME).is_file()
+
+    # Format check
+    formatted = format_watchdog_alert(rep_h2, transition="RECOVERED")
+    assert "WATCHDOG RECOVERED" in formatted
+
+    # CLI check with --notify --dry-run-notify --write-report
+    _write_runtime_fixtures(tmp_path, now_ms=int(time.time() * 1000))
+    rc = watchdog_cli_main(
+        [
+            "--storage-dir",
+            str(tmp_path),
+            "--write-report",
+            "--notify",
+            "--dry-run-notify",
+        ]
+    )
+    assert rc == 0
+    persisted_report = json.loads((tmp_path / "watchdog-report.json").read_text(encoding="utf-8"))
+    assert "alert_dispatch" in persisted_report
+    assert persisted_report["alert_dispatch"]["total_alerts_sent"] == 4
+
 
