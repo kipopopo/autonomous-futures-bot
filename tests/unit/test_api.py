@@ -547,6 +547,14 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
         },
         "positions": [],
         "open_orders": [],
+        "reconciliation": {
+            "starting_equity": "4224.09882354",
+            "net_realized_pnl": "0",
+            "net_external_flows": "0",
+            "wallet_drift": "0",
+            "equity_drift": "0",
+            "verified": True,
+        },
         "daily_risk": {
             "verified": True,
             "observed_ms": now_ms,
@@ -642,6 +650,21 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     assert payload["portfolio_scanner"]["ema200_4h"] is not None
     assert [v["member_id"] for v in payload["portfolio_scanner"]["variants"]] == expected_members
     assert (qualified_dir / "portfolio-scanner-state.json").is_file()
+    assert payload["watchdog"]["status"] == "HEALTHY"
+    assert payload["watchdog"]["healthy"] is True
+    assert payload["watchdog"]["critical_alerts"] == []
+    assert payload["watchdog"]["warning_alerts"] == []
+
+    wd_resp = _request(app, "GET", "/api/v1/execution/watchdog")
+    assert wd_resp.status_code == 200
+    wd_payload = wd_resp.json()
+    assert wd_payload["schema"] == "qualified-runtime-watchdog-v1"
+    assert wd_payload["status"] == "HEALTHY"
+    assert wd_payload["healthy"] is True
+    assert wd_payload["checks"]["account_reconciliation"]["passed"] is True
+    assert wd_payload["checks"]["daily_risk_budget"]["passed"] is True
+    assert wd_payload["checks"]["streams_and_hawkes"]["passed"] is True
+    assert wd_payload["checks"]["portfolio_scanner"]["passed"] is True
 
     # Verify reading a fresh qualified_runtime_scanner state file directly
     import json
@@ -673,4 +696,7 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     atomic_json(qualified_dir / "runtime-health.json", warmup_health)
     warmup_payload = _request(app, "GET", "/api/v1/execution/status").json()
     assert warmup_payload["engine_state"] == "QUALIFIED_PORTFOLIO_WARMUP"
+    assert warmup_payload["watchdog"]["status"] == "WARNING"
+    assert "hawkes_microstructure_warmup" in warmup_payload["watchdog"]["warning_alerts"]
+
 

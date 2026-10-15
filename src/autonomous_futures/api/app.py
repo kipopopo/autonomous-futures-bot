@@ -410,6 +410,15 @@ class ExecutionPositionItem(DomainModel):
     stop_loss_price: float | None = None
 
 
+class ExecutionWatchdogSummary(DomainModel):
+    status: str = "UNKNOWN"
+    healthy: bool = False
+    evaluated_at_ms: int | None = None
+    critical_alerts: list[str] = Field(default_factory=list)
+    warning_alerts: list[str] = Field(default_factory=list)
+    watchdog_hash: str | None = None
+
+
 class ExecutionStatusResponse(DomainModel):
     verified: bool = False
     status: str = "ACCOUNT_OBSERVED"
@@ -429,6 +438,7 @@ class ExecutionStatusResponse(DomainModel):
     portfolio_scanner: ExecutionPortfolioScanner = Field(
         default_factory=ExecutionPortfolioScanner
     )
+    watchdog: ExecutionWatchdogSummary = Field(default_factory=ExecutionWatchdogSummary)
 
 
 def _resolve_research_dir() -> Path:
@@ -1301,13 +1311,8 @@ def _compute_portfolio_scanner_telemetry(
     return out
 
 
-def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusResponse:
-    """Account observations never imply reconciled execution or a verified ledger."""
-    from autonomous_futures.execution.account_evidence import (
-        SNAPSHOT_NAME,
-        finite_decimal,
-        read_account,
-    )
+def _resolve_execution_account_path(research_dir: Path | None = None) -> tuple[Path, Path]:
+    from autonomous_futures.execution.account_evidence import SNAPSHOT_NAME
 
     base = research_dir or _resolve_research_dir()
     path = base / SNAPSHOT_NAME
@@ -1324,6 +1329,30 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             if existing
             else base / "phase310" / SNAPSHOT_NAME
         )
+    return base, path
+
+
+def load_execution_watchdog(
+    research_dir: Path | None = None,
+    *,
+    check_systemd: bool = False,
+) -> dict[str, Any]:
+    """Run read-only runtime health and risk watchdog on the active execution storage directory."""
+    from autonomous_futures.execution.runtime_watchdog import evaluate_runtime_watchdog
+
+    _, path = _resolve_execution_account_path(research_dir)
+    return evaluate_runtime_watchdog(path.parent, check_systemd=check_systemd)
+
+
+def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusResponse:
+    """Account observations never imply reconciled execution or a verified ledger."""
+    from autonomous_futures.execution.account_evidence import (
+        finite_decimal,
+        read_account,
+    )
+    from autonomous_futures.execution.runtime_watchdog import evaluate_runtime_watchdog
+
+    base, path = _resolve_execution_account_path(research_dir)
     try:
         data = read_account(path)
         account = data["account"]
@@ -1427,6 +1456,19 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
         scalper_criteria, portfolio_scanner = _compute_portfolio_scanner_telemetry(
             base, runtime_health.observed, account_path=path
         )
+        wd_raw = evaluate_runtime_watchdog(path.parent)
+        watchdog_summary = ExecutionWatchdogSummary(
+            status=str(wd_raw.get("status", "UNKNOWN")),
+            healthy=bool(wd_raw.get("healthy", False)),
+            evaluated_at_ms=int(wd_raw["evaluated_at_ms"])
+            if isinstance(wd_raw.get("evaluated_at_ms"), int)
+            else None,
+            critical_alerts=[str(a) for a in wd_raw.get("critical_alerts", [])],
+            warning_alerts=[str(a) for a in wd_raw.get("warning_alerts", [])],
+            watchdog_hash=str(wd_raw["watchdog_hash"])
+            if wd_raw.get("watchdog_hash") is not None
+            else None,
+        )
         return ExecutionStatusResponse(
             verified=verified,
             status="ACCOUNT_RECONCILED" if verified else "ACCOUNT_UNRECONCILED",
@@ -1472,6 +1514,7 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             runtime_health=runtime_health,
             scalper_criteria=scalper_criteria,
             portfolio_scanner=portfolio_scanner,
+            watchdog=watchdog_summary,
         )
     except (OSError, ValueError, KeyError, TypeError, ArithmeticError) as exc:
         raise HTTPException(
@@ -2581,6 +2624,17 @@ def create_app(
     @app.get("/api/v1/execution/status", response_model=ExecutionStatusResponse)
     def execution_status() -> ExecutionStatusResponse:
         return load_execution_status(configured_research_dir)
+
+    @app.get("/api/v1/execution/watchdog")
+    def execution_watchdog(
+        check_systemd: Annotated[
+            bool, Query(description="Inspect systemd unit state for single-writer and runtime")
+        ] = False,
+    ) -> dict[str, Any]:
+        return load_execution_watchdog(
+            configured_research_dir,
+            check_systemd=check_systemd,
+        )
 
     # Milestone 5: ICT Strategy Signals Endpoint & Confluence Radar
     register_strategy_routes(app, trader=trader, research_dir=configured_research_dir)
