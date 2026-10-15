@@ -898,6 +898,11 @@ export function buildExecutiveDashboardModel(
   }
 
   const dailyRisk = executionStatus?.daily_risk
+  const watchdogData = executionStatus?.watchdog
+  const watchdogAlerts = [
+    ...(watchdogData?.critical_alerts || []),
+    ...(watchdogData?.warning_alerts || []),
+  ]
 
   return {
     botStatus: {
@@ -950,6 +955,25 @@ export function buildExecutiveDashboardModel(
       runtimeArrivalCount: liveRuntimeHealth?.observed
         ? liveRuntimeHealth.arrival_count
         : undefined,
+      watchdogStatus:
+        watchdogData?.status && watchdogData.status !== 'UNKNOWN'
+          ? watchdogData.status
+          : undefined,
+      watchdogHealthy:
+        typeof watchdogData?.healthy === 'boolean' ? watchdogData.healthy : undefined,
+      watchdogAlerts: watchdogData ? watchdogAlerts : undefined,
+      watchdogSystemdPassed:
+        typeof watchdogData?.systemd_passed === 'boolean'
+          ? watchdogData.systemd_passed
+          : undefined,
+      watchdogMainPid:
+        typeof watchdogData?.runtime_main_pid === 'number' && watchdogData.runtime_main_pid > 0
+          ? watchdogData.runtime_main_pid
+          : undefined,
+      watchdogRestarts:
+        typeof watchdogData?.runtime_restarts === 'number'
+          ? watchdogData.runtime_restarts
+          : undefined,
     },
     positions,
     pairTickers,

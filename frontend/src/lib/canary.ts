@@ -369,6 +369,18 @@ export interface ExecutionPortfolioScannerData {
   variants?: PortfolioVariantChecklistItemData[]
 }
 
+export interface ExecutionWatchdogSummaryData {
+  status: string
+  healthy: boolean
+  evaluated_at_ms?: number | null
+  critical_alerts?: string[]
+  warning_alerts?: string[]
+  watchdog_hash?: string | null
+  systemd_passed?: boolean | null
+  runtime_main_pid?: number | null
+  runtime_restarts?: number | null
+}
+
 export interface ExecutionStatusResponse {
   verified: boolean
   status: string
@@ -386,6 +398,7 @@ export interface ExecutionStatusResponse {
   runtime_health?: ExecutionRuntimeHealthData
   scalper_criteria?: ExecutionScalperCriteriaData | null
   portfolio_scanner?: ExecutionPortfolioScannerData
+  watchdog?: ExecutionWatchdogSummaryData
 }
 
 export interface MicrostructureModel {

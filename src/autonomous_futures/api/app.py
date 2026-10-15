@@ -417,6 +417,9 @@ class ExecutionWatchdogSummary(DomainModel):
     critical_alerts: list[str] = Field(default_factory=list)
     warning_alerts: list[str] = Field(default_factory=list)
     watchdog_hash: str | None = None
+    systemd_passed: bool | None = None
+    runtime_main_pid: int | None = None
+    runtime_restarts: int | None = None
 
 
 class ExecutionStatusResponse(DomainModel):
@@ -1457,6 +1460,8 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             base, runtime_health.observed, account_path=path
         )
         wd_raw = evaluate_runtime_watchdog(path.parent)
+        wd_sys = wd_raw.get("checks", {}).get("systemd")
+        wd_q_unit = wd_sys.get("qualified_runtime", {}) if isinstance(wd_sys, dict) else {}
         watchdog_summary = ExecutionWatchdogSummary(
             status=str(wd_raw.get("status", "UNKNOWN")),
             healthy=bool(wd_raw.get("healthy", False)),
@@ -1467,6 +1472,15 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             warning_alerts=[str(a) for a in wd_raw.get("warning_alerts", [])],
             watchdog_hash=str(wd_raw["watchdog_hash"])
             if wd_raw.get("watchdog_hash") is not None
+            else None,
+            systemd_passed=bool(wd_sys["passed"])
+            if isinstance(wd_sys, dict) and isinstance(wd_sys.get("passed"), bool)
+            else None,
+            runtime_main_pid=_safe_int(wd_q_unit.get("MainPID"))
+            if isinstance(wd_q_unit, dict) and wd_q_unit.get("MainPID") is not None
+            else None,
+            runtime_restarts=_safe_int(wd_q_unit.get("NRestarts"))
+            if isinstance(wd_q_unit, dict) and wd_q_unit.get("NRestarts") is not None
             else None,
         )
         return ExecutionStatusResponse(

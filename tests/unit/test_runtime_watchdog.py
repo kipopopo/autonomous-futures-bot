@@ -221,3 +221,47 @@ def test_cli_check_qualified_runtime_health_exit_codes(tmp_path: Path) -> None:
     assert rc_warn_allowed == 0
     rc_warn_strict = watchdog_cli_main(["--storage-dir", str(tmp_path), "--fail-on-warning"])
     assert rc_warn_strict == 1
+
+
+def test_watchdog_systemd_units_and_cached_systemd_report(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[2]
+    svc_path = repo / "deploy" / "systemd" / "autonomous-futures-watchdog.service"
+    timer_path = repo / "deploy" / "systemd" / "autonomous-futures-watchdog.timer"
+    svc_text = svc_path.read_text(encoding="utf-8")
+    timer_text = timer_path.read_text(encoding="utf-8")
+
+    assert "Type=oneshot" in svc_text
+    assert "scripts/check_qualified_runtime_health.py" in svc_text
+    assert "--check-systemd --write-report" in svc_text
+    assert "NoNewPrivileges=true" in svc_text
+    assert "OnUnitActiveSec=60s" in timer_text
+    assert "Unit=autonomous-futures-watchdog.service" in timer_text
+
+    now_ms = int(time.time() * 1000)
+    _write_runtime_fixtures(tmp_path, now_ms=now_ms)
+    write_watchdog_report(
+        tmp_path,
+        {
+            "schema": "qualified-runtime-watchdog-v1",
+            "evaluated_at_ms": now_ms,
+            "status": "HEALTHY",
+            "healthy": True,
+            "checks": {
+                "systemd": {
+                    "passed": True,
+                    "legacy_writer": {"inactive": True},
+                    "qualified_runtime": {
+                        "ActiveState": "active",
+                        "SubState": "running",
+                        "MainPID": "63408",
+                        "NRestarts": "0",
+                    },
+                }
+            },
+        },
+    )
+    report = evaluate_runtime_watchdog(tmp_path, now_ms=now_ms, check_systemd=False)
+    assert report["checks"]["systemd"]["passed"] is True
+    assert report["checks"]["systemd"]["cached_from_report"] is True
+    assert report["checks"]["systemd"]["qualified_runtime"]["MainPID"] == "63408"
+

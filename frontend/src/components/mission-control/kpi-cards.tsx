@@ -257,6 +257,27 @@ export function KpiCards({ kpis }: KpiCardsProps) {
               </span>
             </div>
           )}
+          {kpis.watchdogStatus && (
+            <div
+              className={`flex items-center justify-between text-[11px] ${
+                kpis.watchdogStatus === 'HEALTHY'
+                  ? 'text-emerald-400'
+                  : kpis.watchdogStatus === 'WARNING'
+                    ? 'text-amber-400'
+                    : 'text-rose-400'
+              }`}
+              data-testid="runtime-watchdog-row"
+            >
+              <span>Runtime Watchdog:</span>
+              <span className="font-semibold tabular-nums">
+                {kpis.watchdogMainPid !== undefined
+                  ? `${kpis.watchdogStatus} (PID ${kpis.watchdogMainPid} · ${kpis.watchdogRestarts ?? 0} restarts)`
+                  : kpis.watchdogAlerts && kpis.watchdogAlerts.length > 0
+                    ? `${kpis.watchdogStatus} (${kpis.watchdogAlerts.length} alerts)`
+                    : `${kpis.watchdogStatus} (0 alerts)`}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

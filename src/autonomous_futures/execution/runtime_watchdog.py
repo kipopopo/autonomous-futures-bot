@@ -342,7 +342,7 @@ def evaluate_runtime_watchdog(
         except Exception as exc:
             warning_alerts.append(f"portfolio_scanner_parse_error:{type(exc).__name__}")
 
-    # 4. Optional Systemd Single-Writer & Daemon Audit
+    # 4. Optional Systemd Single-Writer & Daemon Audit (or fresh cached watchdog-report.json)
     systemd_check: dict[str, Any] | None = None
     if check_systemd:
         try:
@@ -379,6 +379,17 @@ def evaluate_runtime_watchdog(
             "qualified_runtime": qualified_unit,
             "passed": bool(inactive and q_active),
         }
+    else:
+        report_path = storage_dir / "watchdog-report.json"
+        if report_path.is_file():
+            try:
+                cached = json.loads(report_path.read_text(encoding="utf-8"))
+                cached_ts = int(cached.get("evaluated_at_ms", 0))
+                cached_sys = cached.get("checks", {}).get("systemd")
+                if isinstance(cached_sys, dict) and abs(eval_ms - cached_ts) <= 180_000:
+                    systemd_check = {**cached_sys, "cached_from_report": True}
+            except Exception:
+                pass
 
     status = (
         "CRITICAL"

@@ -205,6 +205,12 @@ export interface ExecutiveDashboardModel {
     dailyRiskLossUsdt?: number
     engineState?: string
     runtimeArrivalCount?: number
+    watchdogStatus?: string
+    watchdogHealthy?: boolean
+    watchdogAlerts?: string[]
+    watchdogSystemdPassed?: boolean
+    watchdogMainPid?: number
+    watchdogRestarts?: number
   }
   positions: PositionTelemetry[]
   pairTickers?: PairTicker[]

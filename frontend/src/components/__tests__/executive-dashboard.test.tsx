@@ -944,6 +944,16 @@ describe('buildExecutiveDashboardModel adapter', () => {
           arrival_count: 36930,
           spectral_radius: 0.5456,
         },
+        watchdog: {
+          status: 'HEALTHY',
+          healthy: true,
+          evaluated_at_ms: 1792034072664,
+          critical_alerts: [],
+          warning_alerts: [],
+          systemd_passed: true,
+          runtime_main_pid: 63408,
+          runtime_restarts: 0,
+        },
       },
     )
 
@@ -952,12 +962,15 @@ describe('buildExecutiveDashboardModel adapter', () => {
     expect(adapted.kpis.dailyRiskRemainingUsdt).toBeCloseTo(211.2049, 4)
     expect(adapted.kpis.engineState).toBe('QUALIFIED_PORTFOLIO_ACTIVE')
     expect(adapted.kpis.runtimeArrivalCount).toBe(36930)
+    expect(adapted.kpis.watchdogStatus).toBe('HEALTHY')
+    expect(adapted.kpis.watchdogMainPid).toBe(63408)
     expect(adapted.radar.hawkesHazard.spectralRadius).toBeCloseTo(0.5456, 4)
     expect(adapted.radar.hawkesHazard.arrivalCount).toBe(36930)
 
     const kpiHtml = renderToString(<KpiCards kpis={adapted.kpis} />)
     expect(kpiHtml).toContain('$211.20 / $211.20')
     expect(kpiHtml).toContain('QUALIFIED_PORTFOLIO_ACTIVE (36,930 arrivals)')
+    expect(kpiHtml).toContain('HEALTHY (PID 63408 · 0 restarts)')
 
     const radarHtml = renderToString(
       <StrategyConfluenceRadar hawkesHazard={adapted.radar.hawkesHazard} />,
