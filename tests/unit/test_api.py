@@ -559,8 +559,48 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
             "breached": False,
         },
     }
+    runtime_health = {
+        "source": "runtime_observation",
+        "timestamp_ms": now_ms,
+        "last_protective_cycle_ms": now_ms - 100,
+        "cycle_error_type": None,
+        "last_account_refresh_error_type": None,
+        "scan_error_type": None,
+        "market_connected": True,
+        "market_error_type": None,
+        "user_stream_connected": True,
+        "user_stream_reconciliation_required": False,
+        "user_stream_entry_block_reason": None,
+        "user_stream_error_type": None,
+        "user_stream_last_event_type": None,
+        "user_stream_event_count": 0,
+        "user_stream_gap": False,
+        "user_data_event_counts": {},
+        "force_flatten_reason": None,
+        "market_generation": 2,
+        "microstructure": {
+            "calibration_window_ms": 1800000,
+            "calibration": {
+                "beta_per_second": 7.5,
+                "artifact_sha256": "a" * 64,
+                "trace_sha256s": ["b" * 64],
+            },
+            "arrival_count": 36930,
+            "fit_error": None,
+            "fit": {
+                "first_ms": now_ms - 1800000,
+                "last_ms": now_ms - 10,
+                "event_counts": {"BTCUSDT": 4451, "ETHUSDT": 4228, "SOLUSDT": 3147},
+                "beta_per_second": 7.5,
+                "baseline_boundary_symbols": [],
+                "spectral_radius": 0.5455993315954724,
+                "arrivals_sha256": "c" * 64,
+            },
+        },
+    }
     atomic_json(phase310_dir / "exchange-account.json", stale_snapshot)
     atomic_json(qualified_dir / "exchange-account.json", fresh_snapshot)
+    atomic_json(qualified_dir / "runtime-health.json", runtime_health)
 
     app = create_app(
         bundle_path=tmp_path / "missing-bundle.json",
@@ -573,5 +613,11 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     assert payload["solvency"]["total_equity_usdt"] == pytest.approx(4224.09882354)
     assert payload["daily_risk"]["verified"] is True
     assert payload["daily_risk"]["remaining_usdt"] == pytest.approx(211.204941177)
-
-
+    assert payload["engine_state"] == "QUALIFIED_PORTFOLIO_ACTIVE"
+    assert payload["interlock_blocks_count"] == 0
+    assert payload["runtime_health"]["observed"] is True
+    assert payload["runtime_health"]["market_connected"] is True
+    assert payload["runtime_health"]["user_stream_connected"] is True
+    assert payload["runtime_health"]["arrival_count"] == 36930
+    assert payload["runtime_health"]["spectral_radius"] == pytest.approx(0.5455993315954724)
+    assert payload["runtime_health"]["event_counts"]["BTCUSDT"] == 4451

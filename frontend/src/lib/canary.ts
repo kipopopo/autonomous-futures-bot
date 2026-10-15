@@ -290,6 +290,33 @@ export interface ExecutionDailyRiskData {
   equity_basis?: string | null
 }
 
+export interface ExecutionRuntimeHealthData {
+  observed: boolean
+  timestamp_ms?: number | null
+  last_protective_cycle_ms?: number | null
+  cycle_error_type?: string | null
+  last_account_refresh_error_type?: string | null
+  scan_error_type?: string | null
+  market_connected?: boolean
+  market_error_type?: string | null
+  user_stream_connected?: boolean
+  user_stream_reconciliation_required?: boolean
+  user_stream_entry_block_reason?: string | null
+  user_stream_error_type?: string | null
+  user_stream_last_event_type?: string | null
+  user_stream_event_count?: number
+  user_stream_gap?: boolean
+  force_flatten_reason?: string | null
+  market_generation?: number
+  calibration_window_ms?: number | null
+  beta_per_second?: number | null
+  arrival_count?: number
+  fit_error?: string | null
+  spectral_radius?: number | null
+  baseline_boundary_symbols?: string[]
+  event_counts?: Record<string, number>
+}
+
 export interface ExecutionStatusResponse {
   verified: boolean
   status: string
@@ -304,6 +331,7 @@ export interface ExecutionStatusResponse {
   interlock_blocks_count: number
   intra_day_loss_usdt?: number | null
   daily_risk?: ExecutionDailyRiskData
+  runtime_health?: ExecutionRuntimeHealthData
 }
 
 export interface MicrostructureModel {

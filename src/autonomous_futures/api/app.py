@@ -316,6 +316,33 @@ class ExecutionDailyRisk(DomainModel):
     equity_basis: str | None = None
 
 
+class ExecutionRuntimeHealth(DomainModel):
+    observed: bool = False
+    timestamp_ms: int | None = None
+    last_protective_cycle_ms: int | None = None
+    cycle_error_type: str | None = None
+    last_account_refresh_error_type: str | None = None
+    scan_error_type: str | None = None
+    market_connected: bool = False
+    market_error_type: str | None = None
+    user_stream_connected: bool = False
+    user_stream_reconciliation_required: bool = False
+    user_stream_entry_block_reason: str | None = None
+    user_stream_error_type: str | None = None
+    user_stream_last_event_type: str | None = None
+    user_stream_event_count: int = 0
+    user_stream_gap: bool = False
+    force_flatten_reason: str | None = None
+    market_generation: int = 0
+    calibration_window_ms: int | None = None
+    beta_per_second: float | None = None
+    arrival_count: int = 0
+    fit_error: str | None = None
+    spectral_radius: float | None = None
+    baseline_boundary_symbols: list[str] = Field(default_factory=list)
+    event_counts: dict[str, int] = Field(default_factory=dict)
+
+
 class ExecutionPositionItem(DomainModel):
     symbol: str
     position_qty: float = 0.0
@@ -345,6 +372,7 @@ class ExecutionStatusResponse(DomainModel):
     interlock_blocks_count: int = 0
     intra_day_loss_usdt: float | None = None
     daily_risk: ExecutionDailyRisk = Field(default_factory=ExecutionDailyRisk)
+    runtime_health: ExecutionRuntimeHealth = Field(default_factory=ExecutionRuntimeHealth)
 
 
 def _resolve_research_dir() -> Path:
@@ -684,6 +712,152 @@ def _baseline_execution_status(timestamp_ms: int | None = None) -> ExecutionStat
     raise HTTPException(status_code=503, detail="Fresh exchange account evidence unavailable")
 
 
+def _load_runtime_health(account_path: Path) -> tuple[ExecutionRuntimeHealth, str, int]:
+    health_path = account_path.parent / "runtime-health.json"
+    if not health_path.is_file():
+        return ExecutionRuntimeHealth(), "UNKNOWN", 0
+    try:
+        raw = json.loads(health_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or raw.get("source") != "runtime_observation":
+            return ExecutionRuntimeHealth(), "UNKNOWN", 0
+        ts_ms = raw.get("timestamp_ms")
+        if not isinstance(ts_ms, int) or abs(int(time.time() * 1000) - ts_ms) > 30_000:
+            return ExecutionRuntimeHealth(), "UNKNOWN", 0
+        micro = raw.get("microstructure")
+        if not isinstance(micro, dict):
+            micro = {}
+        fit_raw = micro.get("fit")
+        fit: dict[str, Any] | None = fit_raw if isinstance(fit_raw, dict) else None
+        cal_raw = micro.get("calibration")
+        cal: dict[str, Any] = cal_raw if isinstance(cal_raw, dict) else {}
+        raw_sr = fit.get("spectral_radius") if fit is not None else None
+        spectral_radius = float(raw_sr) if isinstance(raw_sr, (int, float)) else None
+        raw_beta = (
+            fit.get("beta_per_second")
+            if fit is not None and fit.get("beta_per_second") is not None
+            else cal.get("beta_per_second")
+        )
+        beta_per_second = float(raw_beta) if isinstance(raw_beta, (int, float)) else None
+        raw_counts = fit.get("event_counts") if fit is not None else {}
+        event_counts = (
+            {str(k): int(v) for k, v in raw_counts.items() if isinstance(v, (int, float))}
+            if isinstance(raw_counts, dict)
+            else {}
+        )
+        raw_boundary = fit.get("baseline_boundary_symbols") if isinstance(fit, dict) else []
+        baseline_boundary_symbols = (
+            [str(s) for s in raw_boundary if isinstance(s, str)]
+            if isinstance(raw_boundary, list)
+            else []
+        )
+        fit_error = str(micro["fit_error"]) if isinstance(micro.get("fit_error"), str) else None
+        streams_healthy = (
+            bool(raw.get("market_connected"))
+            and bool(raw.get("user_stream_connected"))
+            and not bool(raw.get("user_stream_reconciliation_required"))
+            and not bool(raw.get("user_stream_gap"))
+            and raw.get("force_flatten_reason") is None
+            and raw.get("cycle_error_type") is None
+            and raw.get("last_account_refresh_error_type") is None
+            and raw.get("scan_error_type") is None
+        )
+        hawkes_ready = (
+            isinstance(fit, dict)
+            and fit_error is None
+            and spectral_radius is not None
+            and 0.0 <= spectral_radius < 1.0
+            and not baseline_boundary_symbols
+        )
+        if streams_healthy and hawkes_ready:
+            engine_state = "QUALIFIED_PORTFOLIO_ACTIVE"
+        elif streams_healthy and fit_error is not None and "span" in fit_error.lower():
+            engine_state = "QUALIFIED_PORTFOLIO_WARMUP"
+        else:
+            engine_state = "QUALIFIED_PORTFOLIO_DEGRADED"
+        interlock_blocks = sum(
+            1
+            for cond in (
+                not bool(raw.get("market_connected")),
+                not bool(raw.get("user_stream_connected")),
+                bool(raw.get("user_stream_reconciliation_required")),
+                bool(raw.get("user_stream_gap")),
+                raw.get("force_flatten_reason") is not None,
+                fit_error is not None,
+                spectral_radius is not None and spectral_radius >= 1.0,
+            )
+            if cond
+        )
+        runtime_health = ExecutionRuntimeHealth(
+            observed=True,
+            timestamp_ms=ts_ms,
+            last_protective_cycle_ms=(
+                int(raw["last_protective_cycle_ms"])
+                if isinstance(raw.get("last_protective_cycle_ms"), int)
+                else None
+            ),
+            cycle_error_type=(
+                str(raw["cycle_error_type"])
+                if isinstance(raw.get("cycle_error_type"), str)
+                else None
+            ),
+            last_account_refresh_error_type=(
+                str(raw["last_account_refresh_error_type"])
+                if isinstance(raw.get("last_account_refresh_error_type"), str)
+                else None
+            ),
+            scan_error_type=(
+                str(raw["scan_error_type"]) if isinstance(raw.get("scan_error_type"), str) else None
+            ),
+            market_connected=bool(raw.get("market_connected")),
+            market_error_type=(
+                str(raw["market_error_type"])
+                if isinstance(raw.get("market_error_type"), str)
+                else None
+            ),
+            user_stream_connected=bool(raw.get("user_stream_connected")),
+            user_stream_reconciliation_required=bool(
+                raw.get("user_stream_reconciliation_required")
+            ),
+            user_stream_entry_block_reason=(
+                str(raw["user_stream_entry_block_reason"])
+                if isinstance(raw.get("user_stream_entry_block_reason"), str)
+                else None
+            ),
+            user_stream_error_type=(
+                str(raw["user_stream_error_type"])
+                if isinstance(raw.get("user_stream_error_type"), str)
+                else None
+            ),
+            user_stream_last_event_type=(
+                str(raw["user_stream_last_event_type"])
+                if isinstance(raw.get("user_stream_last_event_type"), str)
+                else None
+            ),
+            user_stream_event_count=_safe_int(raw.get("user_stream_event_count"), 0),
+            user_stream_gap=bool(raw.get("user_stream_gap")),
+            force_flatten_reason=(
+                str(raw["force_flatten_reason"])
+                if isinstance(raw.get("force_flatten_reason"), str)
+                else None
+            ),
+            market_generation=_safe_int(raw.get("market_generation"), 0),
+            calibration_window_ms=(
+                int(micro["calibration_window_ms"])
+                if isinstance(micro.get("calibration_window_ms"), int)
+                else None
+            ),
+            beta_per_second=beta_per_second,
+            arrival_count=_safe_int(micro.get("arrival_count"), 0),
+            fit_error=fit_error,
+            spectral_radius=spectral_radius,
+            baseline_boundary_symbols=baseline_boundary_symbols,
+            event_counts=event_counts,
+        )
+        return runtime_health, engine_state, interlock_blocks
+    except OSError, ValueError, KeyError, TypeError:
+        return ExecutionRuntimeHealth(), "UNKNOWN", 0
+
+
 def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusResponse:
     """Account observations never imply reconciled execution or a verified ledger."""
     from autonomous_futures.execution.account_evidence import (
@@ -806,10 +980,11 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             if reconciliation
             else None
         )
+        runtime_health, engine_state, interlock_blocks = _load_runtime_health(path)
         return ExecutionStatusResponse(
             verified=verified,
             status="ACCOUNT_RECONCILED" if verified else "ACCOUNT_UNRECONCILED",
-            engine_state="UNKNOWN",
+            engine_state=engine_state,
             timestamp_ms=data["timestamp_ms"],
             solvency=ExecutionSolvency(
                 cash_usdt=float(wallet),
@@ -845,8 +1020,10 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             aggregate_exposure_usdt=float(aggregate),
             recent_orders=orders,
             total_orders=len(orders),
+            interlock_blocks_count=interlock_blocks,
             intra_day_loss_usdt=daily_risk.loss_usdt,
             daily_risk=daily_risk,
+            runtime_health=runtime_health,
         )
     except (OSError, ValueError, KeyError, TypeError, ArithmeticError) as exc:
         raise HTTPException(

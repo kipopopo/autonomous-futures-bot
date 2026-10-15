@@ -392,10 +392,16 @@ export function StrategyConfluenceRadar({
 
             <div className="p-3 rounded-lg bg-black/30 border border-white/[0.06] mb-2 relative overflow-hidden">
               <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono mb-2">
-                <span>Historical ρ Trend (60s)</span>
+                <span>
+                  {hawkesHazard.arrivalCount !== undefined && hawkesHazard.arrivalCount > 0
+                    ? `Historical ρ Trend (60s) · ${hawkesHazard.arrivalCount.toLocaleString('en-US')} Arrivals (30m)`
+                    : 'Historical ρ Trend (60s)'}
+                </span>
                 <span className="text-emerald-400 font-semibold flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Stable
+                  {hawkesHazard.marketConnected && hawkesHazard.userStreamConnected
+                    ? 'Streams Live · Stable'
+                    : 'Stable'}
                 </span>
               </div>
               <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-10 overflow-visible">

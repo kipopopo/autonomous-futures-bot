@@ -890,4 +890,81 @@ describe('buildExecutiveDashboardModel adapter', () => {
     expect(adapted.orders.some((o) => o.orderId.startsWith('canary-p311-'))).toBe(true)
     expect(adapted.orders.some((o) => o.orderId.startsWith('canary-p310-'))).toBe(true)
   })
+
+  it('maps and renders live runtime_health and verified ACCOUNT daily_risk from executionStatus', () => {
+    const prodLaunch = buildProductionLaunchModel(null)
+    const liveMarket = buildLiveMarketModel(null)
+    const brackets = buildBracketPositionsModel(null)
+    const micro = buildMicrostructureModel(null)
+
+    const adapted = buildExecutiveDashboardModel(
+      prodLaunch,
+      liveMarket,
+      brackets,
+      micro,
+      {},
+      new Date(),
+      null,
+      null,
+      {
+        verified: true,
+        status: 'ACCOUNT_RECONCILED',
+        engine_state: 'QUALIFIED_PORTFOLIO_ACTIVE',
+        timestamp_ms: 1792034072664,
+        solvency: {
+          total_equity_usdt: 4224.0988,
+          cash_usdt: 4224.0988,
+          available_balance_usdt: 4224.0988,
+          allocated_margin_usdt: 0.0,
+          realized_pnl_usdt: 0.0,
+          cash_reserve_pct: 100.0,
+          zero_balance_drift_verified: true,
+        },
+        positions: {},
+        candidate_allocations: [],
+        aggregate_exposure_usdt: 0.0,
+        recent_orders: [],
+        total_orders: 0,
+        interlock_blocks_count: 0,
+        daily_risk: {
+          verified: true,
+          day_start_equity_usdt: 4224.0988,
+          limit_pct: 5.0,
+          limit_usdt: 211.2049,
+          loss_usdt: 0.0,
+          remaining_usdt: 211.2049,
+          breached: false,
+          equity_basis: 'ACCOUNT',
+        },
+        runtime_health: {
+          observed: true,
+          timestamp_ms: 1792034072664,
+          market_connected: true,
+          user_stream_connected: true,
+          arrival_count: 36930,
+          spectral_radius: 0.5456,
+        },
+      },
+    )
+
+    expect(adapted.botStatus.isStreaming).toBe(true)
+    expect(adapted.kpis.dailyRiskVerified).toBe(true)
+    expect(adapted.kpis.dailyRiskRemainingUsdt).toBeCloseTo(211.2049, 4)
+    expect(adapted.kpis.engineState).toBe('QUALIFIED_PORTFOLIO_ACTIVE')
+    expect(adapted.kpis.runtimeArrivalCount).toBe(36930)
+    expect(adapted.radar.hawkesHazard.spectralRadius).toBeCloseTo(0.5456, 4)
+    expect(adapted.radar.hawkesHazard.arrivalCount).toBe(36930)
+
+    const kpiHtml = renderToString(<KpiCards kpis={adapted.kpis} />)
+    expect(kpiHtml).toContain('$211.20 / $211.20')
+    expect(kpiHtml).toContain('QUALIFIED_PORTFOLIO_ACTIVE (36,930 arrivals)')
+
+    const radarHtml = renderToString(
+      <StrategyConfluenceRadar hawkesHazard={adapted.radar.hawkesHazard} />,
+    )
+    expect(radarHtml).toContain('ρ = 0.5456')
+    expect(radarHtml).toContain('36,930 Arrivals (30m)')
+    expect(radarHtml).toContain('Streams Live · Stable')
+  })
 })
+

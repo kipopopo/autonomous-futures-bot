@@ -547,10 +547,19 @@ export function buildExecutiveDashboardModel(
     makerFeePct: rawScalper?.makerFeePct ?? 0.02,
   }
 
+  const liveRuntimeHealth = executionStatus?.runtime_health
+  const liveSpectralRadius =
+    liveRuntimeHealth?.observed &&
+    typeof liveRuntimeHealth.spectral_radius === 'number' &&
+    liveRuntimeHealth.spectral_radius > 0
+      ? liveRuntimeHealth.spectral_radius
+      : undefined
+
   const spectralRadius =
-    microstructure.maxSpectralRadius > 0
+    liveSpectralRadius ??
+    (microstructure.maxSpectralRadius > 0
       ? microstructure.maxSpectralRadius
-      : 0.4286
+      : 0.4286)
 
   const rawHistory = telemetry.spectralRadiusHistory ?? []
   const hawkesHistory =
@@ -570,6 +579,16 @@ export function buildExecutiveDashboardModel(
     thresholdWarning: 0.85,
     thresholdCritical: 1.0,
     recentHistory: hawkesHistory,
+    arrivalCount: liveRuntimeHealth?.observed ? liveRuntimeHealth.arrival_count : undefined,
+    marketConnected: liveRuntimeHealth?.observed ? liveRuntimeHealth.market_connected : undefined,
+    userStreamConnected: liveRuntimeHealth?.observed
+      ? liveRuntimeHealth.user_stream_connected
+      : undefined,
+    fitError: liveRuntimeHealth?.observed ? liveRuntimeHealth.fit_error : undefined,
+    engineState:
+      executionStatus?.engine_state && executionStatus.engine_state !== 'UNKNOWN'
+        ? executionStatus.engine_state
+        : undefined,
   }
 
   // 5. Orders Feed: Sanitize fallback orders with authentic canary-p310- and canary-p311- schemas
@@ -808,6 +827,8 @@ export function buildExecutiveDashboardModel(
     qualifiedPortfolios,
   }
 
+  const dailyRisk = executionStatus?.daily_risk
+
   return {
     botStatus: {
       state: botState,
@@ -815,7 +836,14 @@ export function buildExecutiveDashboardModel(
       circuitBreaker: isCircuitNormal ? 'NORMAL' : 'TRIPPED',
       tripwiresCount: 0,
       lastSyncedAtMyt,
-      isStreaming: telemetry.status === 'STREAMING' || (telemetry as { status?: string }).status === 'open',
+      isStreaming:
+        telemetry.status === 'STREAMING' ||
+        (telemetry as { status?: string }).status === 'open' ||
+        Boolean(
+          liveRuntimeHealth?.observed &&
+            liveRuntimeHealth.market_connected &&
+            liveRuntimeHealth.user_stream_connected,
+        ),
     },
     kpis: {
       totalEquityUsdt: totalEquity,
@@ -832,6 +860,26 @@ export function buildExecutiveDashboardModel(
       interlockBlocksCount: interlockBlocks,
       balanceDriftUsdt: balanceDrift,
       isZeroDriftVerified,
+      dailyRiskVerified: dailyRisk?.verified === true,
+      dailyRiskRemainingUsdt:
+        dailyRisk?.verified && typeof dailyRisk.remaining_usdt === 'number'
+          ? dailyRisk.remaining_usdt
+          : undefined,
+      dailyRiskLimitUsdt:
+        dailyRisk?.verified && typeof dailyRisk.limit_usdt === 'number'
+          ? dailyRisk.limit_usdt
+          : undefined,
+      dailyRiskLossUsdt:
+        dailyRisk?.verified && typeof dailyRisk.loss_usdt === 'number'
+          ? dailyRisk.loss_usdt
+          : undefined,
+      engineState:
+        executionStatus?.engine_state && executionStatus.engine_state !== 'UNKNOWN'
+          ? executionStatus.engine_state
+          : undefined,
+      runtimeArrivalCount: liveRuntimeHealth?.observed
+        ? liveRuntimeHealth.arrival_count
+        : undefined,
     },
     positions,
     pairTickers,

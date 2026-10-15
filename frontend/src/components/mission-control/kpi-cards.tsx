@@ -183,6 +183,19 @@ export function KpiCards({ kpis }: KpiCardsProps) {
             <span>Risk Policy:</span>
             <span>0.5% Risk / 5% Daily Loss</span>
           </div>
+          {kpis.dailyRiskVerified &&
+            kpis.dailyRiskRemainingUsdt !== undefined &&
+            kpis.dailyRiskLimitUsdt !== undefined && (
+              <div
+                className="flex items-center justify-between text-[11px] text-emerald-400"
+                data-testid="daily-risk-budget-row"
+              >
+                <span>Daily Risk Budget:</span>
+                <span className="font-semibold tabular-nums">
+                  {`$${kpis.dailyRiskRemainingUsdt.toFixed(2)} / $${kpis.dailyRiskLimitUsdt.toFixed(2)}`}
+                </span>
+              </div>
+            )}
         </div>
       </div>
 
@@ -231,6 +244,19 @@ export function KpiCards({ kpis }: KpiCardsProps) {
               {`${kpis.interlockBlocksCount} Interlock Blocks (0 Hazards)`}
             </span>
           </div>
+          {kpis.engineState && (
+            <div
+              className="flex items-center justify-between text-[11px] text-emerald-400"
+              data-testid="runtime-engine-state-row"
+            >
+              <span>Runtime Engine:</span>
+              <span className="font-semibold tabular-nums">
+                {kpis.runtimeArrivalCount !== undefined
+                  ? `${kpis.engineState} (${kpis.runtimeArrivalCount.toLocaleString('en-US')} arrivals)`
+                  : kpis.engineState}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

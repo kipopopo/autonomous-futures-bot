@@ -67,6 +67,11 @@ export interface HawkesHazard {
   thresholdWarning: number
   thresholdCritical: number
   recentHistory: number[]
+  arrivalCount?: number
+  marketConnected?: boolean
+  userStreamConnected?: boolean
+  fitError?: string | null
+  engineState?: string
 }
 
 export interface OrderFeedItem {
@@ -162,6 +167,12 @@ export interface ExecutiveDashboardModel {
     interlockBlocksCount: number
     balanceDriftUsdt: number
     isZeroDriftVerified: boolean
+    dailyRiskVerified?: boolean
+    dailyRiskRemainingUsdt?: number
+    dailyRiskLimitUsdt?: number
+    dailyRiskLossUsdt?: number
+    engineState?: string
+    runtimeArrivalCount?: number
   }
   positions: PositionTelemetry[]
   pairTickers?: PairTicker[]
