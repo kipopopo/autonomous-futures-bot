@@ -103,3 +103,88 @@ def test_preflight_reports_legacy_writer_guard_and_storage_autopsy_ledger(
 def test_preflight_cli_exit_code_respects_allow_blocked() -> None:
     assert main([]) == 1
     assert main(["--allow-blocked"]) == 0
+
+
+def test_preflight_audits_account_and_portfolio_domain_and_detects_leverage_mismatch(
+    tmp_path: Path,
+) -> None:
+    account_file = tmp_path / "exchange-account.json"
+    account_file.write_text(
+        json.dumps(
+            {
+                "testnet": True,
+                "timestamp_ms": 1775832651015,
+                "account": {
+                    "totalMarginBalance": "4224.09882354",
+                    "availableBalance": "4224.09882354",
+                    "totalWalletBalance": "4224.09882354",
+                },
+                "daily_risk": {
+                    "verified": False,
+                    "equity_basis": "ACCOUNT",
+                    "reason": "daily_risk_state_missing",
+                },
+                "positions": [],
+                "open_orders": [],
+                "symbol_configuration": [
+                    {"symbol": "AVAXUSDT", "leverage": 20},
+                    {"symbol": "ETHUSDT", "leverage": 20},
+                    {"symbol": "SOLUSDT", "leverage": 20},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = evaluate_preflight(repo=REPO, account_path=account_file)
+    assert "account_daily_risk_unverified" in report["blocking_reasons"]
+    assert "portfolio_symbol_leverage_mismatch" in report["blocking_reasons"]
+    domain_check = report["checks"]["account_and_portfolio_domain"]
+    assert domain_check["passed"] is False
+    assert domain_check["total_margin_balance_usdt"] == "4224.09882354"
+    audit = domain_check["portfolio_audits"][0]
+    assert audit["portfolio_id"] == "macro-scalper-uninspected-3sym-medium-frequency-v1"
+    assert audit["equity_in_domain"] is True
+    assert audit["leverage_matches_domain"] is False
+    assert audit["observed_symbol_leverages"] == {
+        "AVAXUSDT": 20,
+        "ETHUSDT": 20,
+        "SOLUSDT": 20,
+    }
+    assert audit["concurrency_ok"] is True
+
+    account_file.write_text(
+        json.dumps(
+            {
+                "testnet": True,
+                "timestamp_ms": 1775832651015,
+                "account": {
+                    "totalMarginBalance": "4224.09882354",
+                    "availableBalance": "4224.09882354",
+                    "totalWalletBalance": "4224.09882354",
+                },
+                "daily_risk": {
+                    "verified": True,
+                    "equity_basis": "ACCOUNT",
+                    "reason": "verified",
+                },
+                "positions": [],
+                "open_orders": [],
+                "symbol_configuration": [
+                    {"symbol": "AVAXUSDT", "leverage": 1},
+                    {"symbol": "ETHUSDT", "leverage": 1},
+                    {"symbol": "SOLUSDT", "leverage": 1},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    passed_report = evaluate_preflight(repo=REPO, account_path=account_file)
+    assert "account_daily_risk_unverified" not in passed_report["blocking_reasons"]
+    assert "portfolio_symbol_leverage_mismatch" not in passed_report["blocking_reasons"]
+    assert passed_report["checks"]["account_and_portfolio_domain"]["passed"] is True
+    assert (
+        passed_report["checks"]["account_and_portfolio_domain"]["portfolio_audits"][0]["passed"]
+        is True
+    )

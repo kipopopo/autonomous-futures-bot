@@ -53,6 +53,7 @@ def evaluate_preflight(
     *,
     repo: Path = REPO,
     storage_dir: Path | None = None,
+    account_path: Path | None = None,
     equity_basis: str = "ACCOUNT",
     hawkes_calibration_path: Path = DEFAULT_HAWKES_CALIBRATION,
     check_systemd: bool = False,
@@ -190,11 +191,18 @@ def evaluate_preflight(
     # 4. Optional Read-Only Legacy Writer Handoff Guard Check
     if check_systemd or handoff_guard is not None:
         guard = handoff_guard or LegacyWriterHandoffGuard()
+        status_info: dict[str, str] | None = None
+        if hasattr(guard, "inspect_legacy_status"):
+            try:
+                status_info = guard.inspect_legacy_status()
+            except Exception:
+                status_info = None
         try:
             guard.assert_legacy_inactive()
             checks["legacy_writer_handoff"] = {
                 "passed": True,
                 "unit": guard.service_name,
+                **({"status": status_info} if status_info is not None else {}),
             }
         except Exception as exc:
             blocking_reasons.append("legacy_writer_still_active_or_enabled")
@@ -202,6 +210,7 @@ def evaluate_preflight(
                 "passed": False,
                 "unit": guard.service_name,
                 "error": str(exc),
+                **({"status": status_info} if status_info is not None else {}),
             }
     else:
         checks["legacy_writer_handoff"] = {
@@ -241,6 +250,110 @@ def evaluate_preflight(
                 "autopsy_count": 0,
             }
 
+    # 6. Optional Exchange Account & Portfolio Execution-Domain Audit
+    resolved_account_path = account_path
+    if (
+        resolved_account_path is None
+        and storage_dir is not None
+        and (storage_dir / "exchange-account.json").is_file()
+    ):
+        resolved_account_path = storage_dir / "exchange-account.json"
+
+    if resolved_account_path is not None:
+        try:
+            raw_acc = json.loads(resolved_account_path.read_text(encoding="utf-8"))
+            acc_testnet = bool(raw_acc.get("testnet"))
+            acc_ts_ms = int(raw_acc.get("timestamp_ms", 0))
+            acc_balance = raw_acc.get("account", {})
+            equity_usdt = Decimal(str(acc_balance["totalMarginBalance"]))
+            available_usdt = Decimal(str(acc_balance["availableBalance"]))
+            wallet_usdt = Decimal(str(acc_balance["totalWalletBalance"]))
+            daily_risk = raw_acc.get("daily_risk", {})
+            daily_verified = (
+                isinstance(daily_risk, dict)
+                and daily_risk.get("verified") is True
+                and daily_risk.get("equity_basis") == equity_basis
+            )
+            if not daily_verified:
+                blocking_reasons.append("account_daily_risk_unverified")
+
+            occupied_syms: set[str] = {
+                str(row["symbol"])
+                for row in raw_acc.get("positions", [])
+                if Decimal(str(row.get("positionAmt", "0"))) != 0
+            }
+            occupied_syms.update(
+                str(row["symbol"])
+                for row in raw_acc.get("open_orders", [])
+                if row.get("reduceOnly") not in (True, "true")
+            )
+            sym_configs = {
+                str(row["symbol"]): int(row["leverage"])
+                for row in raw_acc.get("symbol_configuration", [])
+                if "symbol" in row and "leverage" in row
+            }
+
+            portfolio_audits: list[dict[str, Any]] = []
+            verified_portfolios_list = checks.get("qualification_admission", {}).get(
+                "verified_portfolio_reports", []
+            )
+            all_portfolios_ok = True
+            for vp in verified_portfolios_list:
+                domain = vp.get("execution_domain") or {}
+                min_eq = Decimal(str(domain.get("minimum_equity", "0")))
+                max_eq = Decimal(str(domain.get("maximum_equity", "0")))
+                equity_ok = acc_testnet is bool(domain.get("testnet", True)) and (
+                    0 < min_eq <= equity_usdt <= max_eq
+                )
+                if not equity_ok:
+                    blocking_reasons.append("account_equity_outside_portfolio_domain")
+                    all_portfolios_ok = False
+                allowed_leverages = set(domain.get("leverages", [1]))
+                observed_leverages = {sym: sym_configs.get(sym) for sym in vp.get("symbols", [])}
+                leverage_ok = all(lev in allowed_leverages for lev in observed_leverages.values())
+                if not leverage_ok:
+                    blocking_reasons.append("portfolio_symbol_leverage_mismatch")
+                    all_portfolios_ok = False
+                max_conc = int(domain.get("maximum_concurrent_symbols", 1))
+                concurrency_ok = len(occupied_syms) < max_conc
+                if not concurrency_ok:
+                    blocking_reasons.append("portfolio_concurrency_limit_reached")
+                    all_portfolios_ok = False
+                portfolio_audits.append(
+                    {
+                        "portfolio_id": vp["portfolio_id"],
+                        "equity_in_domain": equity_ok,
+                        "minimum_equity_usdt": str(min_eq),
+                        "maximum_equity_usdt": str(max_eq),
+                        "required_leverages": sorted(allowed_leverages),
+                        "observed_symbol_leverages": observed_leverages,
+                        "leverage_matches_domain": leverage_ok,
+                        "concurrency_ok": concurrency_ok,
+                        "passed": equity_ok and leverage_ok and concurrency_ok and daily_verified,
+                    }
+                )
+
+            checks["account_and_portfolio_domain"] = {
+                "passed": daily_verified and all_portfolios_ok,
+                "testnet": acc_testnet,
+                "timestamp_ms": acc_ts_ms,
+                "total_margin_balance_usdt": str(equity_usdt),
+                "available_balance_usdt": str(available_usdt),
+                "total_wallet_balance_usdt": str(wallet_usdt),
+                "daily_risk_verified": daily_verified,
+                "daily_risk_reason": daily_risk.get("reason")
+                if isinstance(daily_risk, dict)
+                else None,
+                "occupied_symbols": sorted(occupied_syms),
+                "portfolio_audits": portfolio_audits,
+            }
+        except Exception as exc:
+            blocking_reasons.append("account_evidence_unreadable_or_invalid")
+            checks["account_and_portfolio_domain"] = {
+                "passed": False,
+                "error": str(exc),
+            }
+
     sorted_reasons = sorted(set(blocking_reasons))
     report: dict[str, Any] = {
         "schema": "qualified-runtime-preflight-v1",
@@ -259,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=REPO)
     parser.add_argument("--storage-dir", type=Path, default=None)
+    parser.add_argument("--account-path", type=Path, default=None)
     parser.add_argument("--equity-basis", default="ACCOUNT")
     parser.add_argument(
         "--hawkes-calibration",
@@ -275,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
     report = evaluate_preflight(
         repo=args.repo,
         storage_dir=args.storage_dir,
+        account_path=args.account_path,
         equity_basis=args.equity_basis,
         hawkes_calibration_path=args.hawkes_calibration,
         check_systemd=args.check_systemd,

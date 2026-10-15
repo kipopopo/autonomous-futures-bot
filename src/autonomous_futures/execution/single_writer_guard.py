@@ -30,24 +30,27 @@ class LegacyWriterHandoffGuard:
             self.systemctl_path = systemctl_path if isinstance(systemctl_path, str) else None
         self.platform_name = sys.platform if platform_name is None else platform_name
 
-    def assert_legacy_inactive(self) -> None:
-        if self.platform_name != "linux" or self.systemctl_path is None:
-            raise RuntimeError("Cannot verify the legacy writer state; same-key trading is blocked")
-
+    def _query_scope(self, *, user_scope: bool) -> tuple[int, dict[str, str]]:
+        assert self.systemctl_path is not None
+        cmd = [self.systemctl_path]
+        if user_scope:
+            cmd.append("--user")
+        cmd.extend(
+            [
+                "show",
+                self.service_name,
+                "--no-page",
+                "--property=LoadState",
+                "--property=UnitFileState",
+                "--property=ActiveState",
+                "--property=SubState",
+                "--property=MainPID",
+                "--property=Restart",
+            ]
+        )
         try:
             result = self.command_runner(
-                [
-                    self.systemctl_path,
-                    "show",
-                    self.service_name,
-                    "--no-page",
-                    "--property=LoadState",
-                    "--property=UnitFileState",
-                    "--property=ActiveState",
-                    "--property=SubState",
-                    "--property=MainPID",
-                    "--property=Restart",
-                ],
+                cmd,
                 check=False,
                 capture_output=True,
                 text=True,
@@ -57,17 +60,36 @@ class LegacyWriterHandoffGuard:
             raise RuntimeError(
                 "Cannot verify the legacy writer state; same-key trading is blocked"
             ) from exc
-
         properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
-        disabled = properties.get("UnitFileState") in {"disabled", "masked"}
+        return result.returncode, properties
+
+    def inspect_legacy_status(self) -> dict[str, str]:
+        if self.platform_name != "linux" or self.systemctl_path is None:
+            raise RuntimeError("Cannot verify the legacy writer state; same-key trading is blocked")
+        returncode, properties = self._query_scope(user_scope=False)
+        scope = "system"
+        if returncode == 0 and properties.get("LoadState") == "not-found":
+            user_rc, user_props = self._query_scope(user_scope=True)
+            if user_rc == 0 and user_props.get("LoadState") == "loaded":
+                returncode, properties = user_rc, user_props
+                scope = "user"
+        return {
+            "scope": scope,
+            "returncode": str(returncode),
+            **properties,
+        }
+
+    def assert_legacy_inactive(self) -> None:
+        status = self.inspect_legacy_status()
+        disabled = status.get("UnitFileState") in {"disabled", "masked"}
         inactive = (
-            properties.get("LoadState") == "loaded"
-            and properties.get("ActiveState") == "inactive"
-            and properties.get("SubState") == "dead"
-            and properties.get("MainPID") == "0"
-            and properties.get("Restart") == "no"
+            status.get("LoadState") == "loaded"
+            and status.get("ActiveState") == "inactive"
+            and status.get("SubState") == "dead"
+            and status.get("MainPID") == "0"
+            and status.get("Restart") == "no"
         )
-        if result.returncode != 0 or not disabled or not inactive:
+        if status.get("returncode") != "0" or not disabled or not inactive:
             raise RuntimeError(
                 "Legacy trader must be disabled, configured not to restart, and fully inactive "
                 "before the existing Testnet key can be used"
