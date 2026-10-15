@@ -23,8 +23,9 @@ def _write_runtime_fixtures(
     daily_breached: bool = False,
     market_connected: bool = True,
     user_stream_connected: bool = True,
-    spectral_radius: float = 0.3125,
+    spectral_radius: float | None = 0.3125,
     boundary_symbols: list[str] | None = None,
+    fit_error: str | None = None,
 ) -> None:
     storage_dir.mkdir(parents=True, exist_ok=True)
     (storage_dir / "exchange-account.json").write_text(
@@ -86,9 +87,11 @@ def _write_runtime_fixtures(
                 "microstructure": {
                     "calibration_window_ms": 21_600_000,
                     "arrival_count": 32,
-                    "fit_error": None,
+                    "fit_error": fit_error,
                     "calibration": {"beta_per_second": 0.25},
-                    "fit": {
+                    "fit": None
+                    if spectral_radius is None
+                    else {
                         "spectral_radius": spectral_radius,
                         "beta_per_second": 0.25,
                         "baseline_boundary_symbols": boundary_symbols or [],
@@ -185,6 +188,43 @@ def test_evaluate_runtime_watchdog_warning_alerts(tmp_path: Path) -> None:
     assert any(a.startswith("daily_loss_budget_high:") for a in report["warning_alerts"])
     assert "hawkes_baseline_boundary_symbols:ETHUSDT,AVAXUSDT" in report["warning_alerts"]
     assert report["checks"]["streams_and_hawkes"]["passed"] is True
+
+    _write_runtime_fixtures(
+        tmp_path,
+        now_ms=now_ms,
+        spectral_radius=None,
+        fit_error="Insufficient trade-arrival warmup",
+    )
+    rep_warmup = evaluate_runtime_watchdog(tmp_path, now_ms=now_ms)
+    assert rep_warmup["status"] == "WARNING"
+    assert rep_warmup["critical_alerts"] == []
+    assert "hawkes_microstructure_warmup" in rep_warmup["warning_alerts"]
+    assert rep_warmup["checks"]["streams_and_hawkes"]["hawkes_status"] == "WARMUP"
+
+    _write_runtime_fixtures(
+        tmp_path,
+        now_ms=now_ms,
+        spectral_radius=None,
+        fit_error="Hawkes likelihood line search failed",
+    )
+    rep_ls = evaluate_runtime_watchdog(tmp_path, now_ms=now_ms)
+    assert rep_ls["status"] == "WARNING"
+    assert rep_ls["critical_alerts"] == []
+    assert "hawkes_fit_non_convergent_guarded" in rep_ls["warning_alerts"]
+    assert rep_ls["checks"]["streams_and_hawkes"]["hawkes_status"] == "NON_CONVERGENT_GUARDED"
+
+    _write_runtime_fixtures(
+        tmp_path,
+        now_ms=now_ms,
+        spectral_radius=0.51,
+        boundary_symbols=["ETHUSDT", "AVAXUSDT"],
+        fit_error="Hawkes baseline is pinned to the optimizer lower bound: ETHUSDT,AVAXUSDT",
+    )
+    rep_bound = evaluate_runtime_watchdog(tmp_path, now_ms=now_ms)
+    assert rep_bound["status"] == "WARNING"
+    assert rep_bound["critical_alerts"] == []
+    assert "hawkes_baseline_boundary_symbols:ETHUSDT,AVAXUSDT" in rep_bound["warning_alerts"]
+    assert rep_bound["checks"]["streams_and_hawkes"]["hawkes_status"] == "BOUNDARY_DEGRADED"
 
 
 def test_evaluate_runtime_watchdog_critical_alerts(tmp_path: Path) -> None:

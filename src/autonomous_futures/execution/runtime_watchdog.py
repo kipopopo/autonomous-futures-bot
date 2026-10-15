@@ -278,12 +278,22 @@ def evaluate_runtime_watchdog(
             elif sr is not None and sr >= spectral_radius_warning:
                 health_check["hawkes_status"] = "WARNING_ELEVATED"
                 warning_alerts.append(f"hawkes_spectral_radius_elevated:{sr:.4f}")
+            elif boundary_syms or (
+                fit_err is not None
+                and "pinned to the optimizer lower bound" in str(fit_err).lower()
+            ):
+                health_check["hawkes_status"] = "BOUNDARY_DEGRADED"
+                syms_label = ",".join(boundary_syms) if boundary_syms else str(fit_err)
+                warning_alerts.append(f"hawkes_baseline_boundary_symbols:{syms_label}")
             elif fit_err is not None:
                 err_lower = str(fit_err).lower()
                 is_warmup = any(
-                    tok in err_lower for tok in ("span", "observed arrivals", "dimension")
+                    tok in err_lower
+                    for tok in ("warmup", "span", "observed arrivals", "dimension")
                 )
-                is_non_convergent = "did not converge" in err_lower
+                is_non_convergent = any(
+                    tok in err_lower for tok in ("did not converge", "line search failed")
+                )
                 if is_warmup:
                     health_check["hawkes_status"] = "WARMUP"
                     warning_alerts.append("hawkes_microstructure_warmup")
@@ -293,11 +303,6 @@ def evaluate_runtime_watchdog(
                 else:
                     health_check["hawkes_status"] = "FIT_ERROR"
                     critical_alerts.append(f"hawkes_fit_error:{fit_err}")
-            elif boundary_syms:
-                health_check["hawkes_status"] = "BOUNDARY_DEGRADED"
-                warning_alerts.append(
-                    f"hawkes_baseline_boundary_symbols:{','.join(boundary_syms)}"
-                )
             elif sr is not None:
                 health_check["hawkes_status"] = "STABLE"
 
