@@ -1,12 +1,11 @@
-# Qualified runtime rollout — staged & ready for operator-authorized single-writer cutover
+# Qualified runtime rollout — active single-writer portfolio cutover verified
 
-**Current status:** 15 October 2026. See `ANTIGRAVITY_HANDOFF_2026-10-14.md` and canonical
-`CODEX_HANDOFF.md`. The replacement service (`autonomous-futures-qualified-runtime.service`)
-is staged in `~/.config/systemd/user/` in a **disabled and inactive** state, pointed at
-`/opt/autonomous-futures-bot/releases/qualified-runtime` and durable state directory
-`/opt/autonomous-futures-bot/runtime/qualified-testnet`. The active legacy service
-(`autonomous-futures-trader.service`) remains untouched and running until the operator
-explicitly authorizes the single-writer cutover.
+**Current status:** 15 October 2026. Following explicit operator authorization, the legacy
+daemon (`autonomous-futures-trader.service`) was reconfigured to `Restart=no`, disabled, and
+stopped cleanly (`ActiveState=inactive`, `SubState=dead`, `MainPID=0`). All 6 preflight gates
+passed (`ready_to_activate: true`, `blocking_reasons: []`, `preflight_hash: 9e62c8aaf3f9...`),
+and `autonomous-futures-qualified-runtime.service` (`MainPID=63408`, `NRestarts=0`) is now the
+sole active Testnet writer running `PortfolioCausalScanner` (`macro-scalper-uninspected-3sym-medium-frequency-v1`).
 
 ## Verified Prerequisites (All Passing Except Single-Writer Handoff)
 
