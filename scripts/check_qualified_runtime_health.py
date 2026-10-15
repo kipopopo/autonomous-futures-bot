@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storage-dir", type=Path, default=DEFAULT_STORAGE_DIR)
     parser.add_argument("--max-account-age-ms", type=int, default=30_000)
     parser.add_argument("--max-health-age-ms", type=int, default=30_000)
-    parser.add_argument("--max-scanner-age-ms", type=int, default=300_000)
+    parser.add_argument("--max-scanner-age-ms", type=int, default=1_200_000)
     parser.add_argument("--check-systemd", action="store_true")
     parser.add_argument(
         "--write-report",

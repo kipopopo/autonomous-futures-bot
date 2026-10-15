@@ -54,7 +54,7 @@ def evaluate_runtime_watchdog(
     now_ms: int | None = None,
     max_account_age_ms: int = 30_000,
     max_health_age_ms: int = 30_000,
-    max_scanner_age_ms: int = 300_000,
+    max_scanner_age_ms: int = 1_200_000,
     spectral_radius_warning: float = 0.85,
     spectral_radius_critical: float = 1.0,
     daily_loss_warning_ratio: float = 0.50,
@@ -267,13 +267,17 @@ def evaluate_runtime_watchdog(
                 health_check["hawkes_status"] = "WARNING_ELEVATED"
                 warning_alerts.append(f"hawkes_spectral_radius_elevated:{sr:.4f}")
             elif fit_err is not None:
+                err_lower = str(fit_err).lower()
                 is_warmup = any(
-                    tok in str(fit_err).lower()
-                    for tok in ("span", "observed arrivals", "dimension")
+                    tok in err_lower for tok in ("span", "observed arrivals", "dimension")
                 )
+                is_non_convergent = "did not converge" in err_lower
                 if is_warmup:
                     health_check["hawkes_status"] = "WARMUP"
                     warning_alerts.append("hawkes_microstructure_warmup")
+                elif is_non_convergent:
+                    health_check["hawkes_status"] = "NON_CONVERGENT_GUARDED"
+                    warning_alerts.append("hawkes_fit_non_convergent_guarded")
                 else:
                     health_check["hawkes_status"] = "FIT_ERROR"
                     critical_alerts.append(f"hawkes_fit_error:{fit_err}")
@@ -290,7 +294,13 @@ def evaluate_runtime_watchdog(
                 and streams_healthy
                 and (sr is None or sr < spectral_radius_critical)
                 and health_check["hawkes_status"]
-                in {"STABLE", "WARMUP", "WARNING_ELEVATED", "BOUNDARY_DEGRADED"}
+                in {
+                    "STABLE",
+                    "WARMUP",
+                    "NON_CONVERGENT_GUARDED",
+                    "WARNING_ELEVATED",
+                    "BOUNDARY_DEGRADED",
+                }
             )
         except Exception as exc:
             critical_alerts.append(f"runtime_health_parse_error:{type(exc).__name__}")
