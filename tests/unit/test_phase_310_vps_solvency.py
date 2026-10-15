@@ -258,12 +258,12 @@ class TestVpsDeploymentAndMerkleLineage:
     """Verifies systemd unit file configuration and Merkle DAG upstream binding."""
 
     def test_systemd_service_unit_file_exists_and_configured(self) -> None:
-        service_file = Path("deploy/systemd/autonomous-futures-trader.service")
+        service_file = Path("deploy/systemd/autonomous-futures-qualified-runtime.service")
         assert service_file.is_file(), "systemd service unit file must exist in deploy/systemd/"
         content = service_file.read_text(encoding="utf-8")
 
-        assert "Restart=always" in content
-        assert "RestartSec=5s" in content
+        assert "Restart=on-failure" in content
+        assert "RestartSec=10" in content
         assert "Type=simple" in content
         assert "default.target" in content
 
