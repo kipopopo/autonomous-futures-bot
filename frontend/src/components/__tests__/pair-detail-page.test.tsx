@@ -190,4 +190,83 @@ describe('PairDetailPage component', () => {
     expect(html).toContain('$109.85')
     expect(html).toContain('+$0.0175 USDT')
   })
+
+  it('binds per-symbol liveVariants (DEEP + HF) into 15m Macro-Confluence Scalper card when available', () => {
+    const evoWithLiveVariants: StrategyEvolutionRadarData = {
+      ...MOCK_EVOLUTION,
+      liveVariants: [
+        {
+          memberId: 'sol-1-deep',
+          symbol: 'SOLUSDT',
+          tier: 'DEEP',
+          closePrice: 83.4,
+          ema20: 84.1,
+          atr14: 1.38,
+          distAtr: -0.51,
+          priceBelowEma20Atr: 0.51,
+          distanceThreshold: -1.4,
+          distTriggered: false,
+          relativeVolume: 1.35,
+          volSpikeMultiplier: 1.3,
+          volTriggered: true,
+          rsi14: 39.4,
+          rsiThreshold: 36.0,
+          rsiTriggered: false,
+          macroRegime: 'BULLISH ALIGNED',
+          macroAligned: true,
+          gatesPassed: 2,
+          gatesTotal: 4,
+          signalReady: false,
+        },
+        {
+          memberId: 'sol-2-hf',
+          symbol: 'SOLUSDT',
+          tier: 'HF',
+          closePrice: 83.4,
+          ema20: 84.1,
+          atr14: 1.38,
+          distAtr: -0.51,
+          priceBelowEma20Atr: 0.51,
+          distanceThreshold: -0.8,
+          distTriggered: false,
+          relativeVolume: 1.35,
+          volSpikeMultiplier: 1.2,
+          volTriggered: true,
+          rsi14: 39.4,
+          rsiThreshold: 42.0,
+          rsiTriggered: true,
+          macroRegime: 'BULLISH ALIGNED',
+          macroAligned: true,
+          gatesPassed: 3,
+          gatesTotal: 4,
+          signalReady: false,
+        },
+      ],
+    }
+
+    const html = renderToString(
+      <PairDetailPage
+        symbol="SOLUSDT"
+        positions={MOCK_POSITIONS}
+        orders={MOCK_ORDERS}
+        btcMacroTrend={MOCK_BTC_TREND}
+        scalperCriteria={MOCK_SCALPER}
+        hawkesHazard={MOCK_HAWKES}
+        evolutionRadar={evoWithLiveVariants}
+      />,
+    )
+
+    expect(html).toContain('High-Expectancy Liquidity Sweep Engine · sol-2-hf')
+    expect(html).toContain('0.51x ATR')
+    expect(html).toContain('Threshold: &gt; 0.80x')
+    expect(html).toContain('1.35x SMA')
+    expect(html).toContain('Threshold: &gt; 1.20x')
+    expect(html).toContain('39.4')
+    expect(html).toContain('Threshold: &lt; 42.0')
+    expect(html).toContain('Admitted Portfolio Variants (SOL)')
+    expect(html).toContain('sol-1-deep')
+    expect(html).toContain('2/4 GATES')
+    expect(html).toContain('sol-2-hf')
+    expect(html).toContain('3/4 GATES')
+  })
 })

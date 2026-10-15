@@ -140,16 +140,48 @@ export function PairDetailPage({
     return resolvedIctSignals.signals[normalizedSymbol]
   }, [resolvedIctSignals, normalizedSymbol])
 
+  // Admitted portfolio variants for this symbol (DEEP + HF if part of qualified portfolio)
+  const symbolVariants = useMemo(() => {
+    return (evolutionRadar?.liveVariants || []).filter(
+      (v) => v.symbol === normalizedSymbol,
+    )
+  }, [evolutionRadar?.liveVariants, normalizedSymbol])
+
+  const effectiveScalper: ScalperCriteria = useMemo(() => {
+    if (symbolVariants.length === 0) return scalperCriteria
+    const primaryVariant =
+      [...symbolVariants].sort(
+        (a, b) =>
+          Number(b.signalReady) - Number(a.signalReady) ||
+          b.gatesPassed - a.gatesPassed ||
+          (b.tier === 'HF' ? 1 : -1),
+      )[0] || symbolVariants[0]
+    return {
+      symbol: primaryVariant.symbol,
+      variantId: primaryVariant.memberId,
+      priceBelowEma20Atr: primaryVariant.priceBelowEma20Atr,
+      priceBelowEmaThreshold: Math.abs(primaryVariant.distanceThreshold),
+      priceTriggered: primaryVariant.distTriggered,
+      relativeVolume: primaryVariant.relativeVolume,
+      volumeThreshold: primaryVariant.volSpikeMultiplier,
+      volumeTriggered: primaryVariant.volTriggered,
+      rsi14: primaryVariant.rsi14,
+      rsiThreshold: primaryVariant.rsiThreshold,
+      rsiTriggered: primaryVariant.rsiTriggered,
+      makerFeePct: scalperCriteria.makerFeePct,
+    }
+  }, [symbolVariants, scalperCriteria])
+
   // Evaluated Entry Status
   const entryDetails = useMemo(() => {
     return evaluatePairEntry(
       normalizedSymbol,
       currentPosition,
       currentIctSignal,
-      scalperCriteria,
+      effectiveScalper,
       btcMacroTrend,
     )
-  }, [normalizedSymbol, currentPosition, currentIctSignal, scalperCriteria, btcMacroTrend])
+  }, [normalizedSymbol, currentPosition, currentIctSignal, effectiveScalper, btcMacroTrend])
 
   // Filtered orders for this symbol
   const pairOrders = useMemo(() => {
@@ -471,7 +503,11 @@ export function PairDetailPage({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-white">15m Macro-Confluence Scalper</h3>
-                <span className="text-[10px] font-mono text-zinc-400">High-Expectancy Liquidity Sweep Engine</span>
+                <span className="text-[10px] font-mono text-zinc-400">
+                  {effectiveScalper.variantId
+                    ? `High-Expectancy Liquidity Sweep Engine · ${effectiveScalper.variantId}`
+                    : 'High-Expectancy Liquidity Sweep Engine'}
+                </span>
               </div>
             </div>
             <span
@@ -515,20 +551,22 @@ export function PairDetailPage({
               <div>
                 <div className="text-xs font-semibold text-white">Capitulation Dip Distance</div>
                 <div className="text-[11px] text-zinc-400 font-mono">
-                  Distance &gt; 2.5x ATR below 20 EMA
+                  {`Distance > ${(effectiveScalper.priceBelowEmaThreshold ?? 2.5).toFixed(1)}x ATR below 20 EMA`}
                 </div>
               </div>
               <div className="text-right">
                 <span
                   className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
-                    scalperCriteria.priceTriggered
+                    effectiveScalper.priceTriggered
                       ? 'bg-emerald-500/20 text-emerald-300'
                       : 'bg-zinc-800 text-zinc-400'
                   }`}
                 >
-                  {scalperCriteria.priceBelowEma20Atr.toFixed(2)}x ATR
+                  {`${effectiveScalper.priceBelowEma20Atr.toFixed(2)}x ATR`}
                 </span>
-                <div className="text-[10px] font-mono text-zinc-500 mt-0.5">Threshold: &gt; 2.50x</div>
+                <div className="text-[10px] font-mono text-zinc-500 mt-0.5">
+                  {`Threshold: > ${(effectiveScalper.priceBelowEmaThreshold ?? 2.5).toFixed(2)}x`}
+                </div>
               </div>
             </div>
 
@@ -537,20 +575,22 @@ export function PairDetailPage({
               <div>
                 <div className="text-xs font-semibold text-white">Relative Volume Spike</div>
                 <div className="text-[11px] text-zinc-400 font-mono">
-                  Volume &gt; 2.2x 20-period SMA
+                  {`Volume > ${(effectiveScalper.volumeThreshold ?? 2.2).toFixed(1)}x 20-period SMA`}
                 </div>
               </div>
               <div className="text-right">
                 <span
                   className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
-                    scalperCriteria.volumeTriggered
+                    effectiveScalper.volumeTriggered
                       ? 'bg-emerald-500/20 text-emerald-300'
                       : 'bg-zinc-800 text-zinc-400'
                   }`}
                 >
-                  {scalperCriteria.relativeVolume.toFixed(2)}x SMA
+                  {`${effectiveScalper.relativeVolume.toFixed(2)}x SMA`}
                 </span>
-                <div className="text-[10px] font-mono text-zinc-500 mt-0.5">Threshold: &gt; 2.20x</div>
+                <div className="text-[10px] font-mono text-zinc-500 mt-0.5">
+                  {`Threshold: > ${(effectiveScalper.volumeThreshold ?? 2.2).toFixed(2)}x`}
+                </div>
               </div>
             </div>
 
@@ -558,19 +598,23 @@ export function PairDetailPage({
             <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
               <div>
                 <div className="text-xs font-semibold text-white">14-Period RSI Oversold</div>
-                <div className="text-[11px] text-zinc-400 font-mono">RSI 14 &lt; 26.0 threshold</div>
+                <div className="text-[11px] text-zinc-400 font-mono">
+                  {`RSI 14 < ${(effectiveScalper.rsiThreshold ?? 26.0).toFixed(1)} threshold`}
+                </div>
               </div>
               <div className="text-right">
                 <span
                   className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
-                    scalperCriteria.rsiTriggered
+                    effectiveScalper.rsiTriggered
                       ? 'bg-emerald-500/20 text-emerald-300'
                       : 'bg-zinc-800 text-zinc-400'
                   }`}
                 >
-                  {scalperCriteria.rsi14.toFixed(1)}
+                  {effectiveScalper.rsi14.toFixed(1)}
                 </span>
-                <div className="text-[10px] font-mono text-zinc-500 mt-0.5">Threshold: &lt; 26.0</div>
+                <div className="text-[10px] font-mono text-zinc-500 mt-0.5">
+                  {`Threshold: < ${(effectiveScalper.rsiThreshold ?? 26.0).toFixed(1)}`}
+                </div>
               </div>
             </div>
 
@@ -597,6 +641,54 @@ export function PairDetailPage({
                 </div>
               </div>
             </div>
+
+            {symbolVariants.length > 0 && (
+              <div
+                className="pt-2 border-t border-white/[0.06] space-y-2"
+                data-testid={`pair-variants-checklist-${normalizedSymbol.toLowerCase()}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
+                    {`Admitted Portfolio Variants (${cleanSymbol})`}
+                  </span>
+                  <span className="text-[10px] font-mono text-cyan-300">
+                    {`EMA20: $${formatPrice(symbolVariants[0].ema20)} · ATR14: $${formatPrice(symbolVariants[0].atr14)}`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {symbolVariants.map((v) => (
+                    <div
+                      key={v.memberId}
+                      className={`p-2.5 rounded-xl border ${
+                        v.signalReady
+                          ? 'bg-emerald-500/10 border-emerald-500/40'
+                          : 'bg-white/[0.02] border-white/[0.06]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-mono font-bold text-white">{v.memberId}</span>
+                        <span
+                          className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                            v.signalReady
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : v.gatesPassed >= 3
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : 'bg-zinc-800 text-zinc-400 border-white/[0.08]'
+                          }`}
+                        >
+                          {v.signalReady ? 'READY (4/4)' : `${v.gatesPassed}/${v.gatesTotal} GATES`}
+                        </span>
+                      </div>
+                      <div className="text-[10px] font-mono text-zinc-400 flex items-center justify-between">
+                        <span>{`Dist ≤ ${v.distanceThreshold.toFixed(1)}x`}</span>
+                        <span>{`Vol ≥ ${v.volSpikeMultiplier.toFixed(1)}x`}</span>
+                        <span>{`RSI ≤ ${v.rsiThreshold.toFixed(0)}`}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
