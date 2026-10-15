@@ -18,6 +18,7 @@ import type {
   MacroRegime,
   BtcMacroTrend,
   ScalperCriteria,
+  PortfolioVariantChecklistItem,
 } from './types'
 
 export interface BtcMacroTrendInput {
@@ -476,24 +477,30 @@ export function buildExecutiveDashboardModel(
     solvency.zero_balance_drift_verified || Math.abs(balanceDrift) < 1e-15
 
   // 4. Radar & Confluence
-  // Bind to authentic btc_macro from /api/v1/market/prices or telemetry (eliminate fake multipliers)
+  // Bind to authentic btc_macro from /api/v1/market/prices, portfolio_scanner, or telemetry
+  const scannerData = executionStatus?.portfolio_scanner?.observed
+    ? executionStatus.portfolio_scanner
+    : undefined
   const rawBtcMacro =
     btcMacro ||
     (liveMarket as unknown as { btc_macro?: BtcMacroTrendInput })?.btc_macro ||
     (liveMarket?.streamStats as { btc_macro?: BtcMacroTrendInput })?.btc_macro ||
     (executionStatus as unknown as { btc_macro?: BtcMacroTrendInput })?.btc_macro
 
-  const macroEma50_1h = rawBtcMacro?.ema50_1h ?? 83120.0
-  const macroEma200_1h = rawBtcMacro?.ema200_1h ?? 81800.0
+  const macroEma50_1h = rawBtcMacro?.ema50_1h ?? scannerData?.ema50_1h ?? 83120.0
+  const macroEma200_1h = rawBtcMacro?.ema200_1h ?? scannerData?.ema200_1h ?? 81800.0
   const macroEma50_4h =
-    rawBtcMacro?.ema50_4h ?? (macroEma50_1h > macroEma200_1h ? 83600.0 : 81500.0)
-  const macroEma200_4h = rawBtcMacro?.ema200_4h ?? 80900.0
+    rawBtcMacro?.ema50_4h ??
+    scannerData?.ema50_4h ??
+    (macroEma50_1h > macroEma200_1h ? 83600.0 : 81500.0)
+  const macroEma200_4h = rawBtcMacro?.ema200_4h ?? scannerData?.ema200_4h ?? 80900.0
 
+  const candidateRegime = rawBtcMacro?.regime || scannerData?.btc_regime
   const resolvedRegime: MacroRegime =
-    rawBtcMacro?.regime === 'BULLISH ALIGNED' ||
-    rawBtcMacro?.regime === 'BEARISH' ||
-    rawBtcMacro?.regime === 'SIDEWAYS'
-      ? rawBtcMacro.regime
+    candidateRegime === 'BULLISH ALIGNED' ||
+    candidateRegime === 'BEARISH' ||
+    candidateRegime === 'SIDEWAYS'
+      ? candidateRegime
       : macroEma50_1h > macroEma200_1h
         ? 'BULLISH ALIGNED'
         : 'BEARISH'
@@ -516,35 +523,60 @@ export function buildExecutiveDashboardModel(
   }
 
   // Bind to authentic live technical indicators or truth status (eliminate hardcoded 1.8, 1.4, 38.5)
-  const rawScalper =
-    scalperCriteriaInput ||
-    (executionStatus as unknown as { scalper_criteria?: Partial<ScalperCriteria> })?.scalper_criteria ||
+  const rawScalper = (scalperCriteriaInput ||
+    executionStatus?.scalper_criteria ||
     (liveMarket as unknown as { scalper_criteria?: Partial<ScalperCriteria> })?.scalper_criteria ||
-    (productionLaunch as unknown as { scalper_criteria?: Partial<ScalperCriteria> })?.scalper_criteria
+    (productionLaunch as unknown as { scalper_criteria?: Partial<ScalperCriteria> })
+      ?.scalper_criteria) as
+    | (Partial<ScalperCriteria> & {
+        symbol?: string
+        variant_id?: string
+        price_below_ema20_atr?: number
+        price_below_ema_threshold?: number
+        price_triggered?: boolean
+        relative_volume?: number
+        volume_threshold?: number
+        volume_triggered?: boolean
+        rsi_14?: number
+        rsi_threshold?: number
+        rsi_triggered?: boolean
+        maker_fee_pct?: number
+      })
+    | undefined
 
-  const priceBelowEmaThreshold = rawScalper?.priceBelowEmaThreshold ?? 2.5
-  const volumeThreshold = rawScalper?.volumeThreshold ?? 2.2
-  const rsiThreshold = rawScalper?.rsiThreshold ?? 26.0
+  const priceBelowEmaThreshold =
+    rawScalper?.priceBelowEmaThreshold ?? rawScalper?.price_below_ema_threshold ?? 2.5
+  const volumeThreshold = rawScalper?.volumeThreshold ?? rawScalper?.volume_threshold ?? 2.2
+  const rsiThreshold = rawScalper?.rsiThreshold ?? rawScalper?.rsi_threshold ?? 26.0
 
-  const priceBelowEma20Atr = rawScalper?.priceBelowEma20Atr ?? 0.0
-  const relativeVolume = rawScalper?.relativeVolume ?? 1.0
-  const rsi14 = rawScalper?.rsi14 ?? 50.0
+  const priceBelowEma20Atr =
+    rawScalper?.priceBelowEma20Atr ?? rawScalper?.price_below_ema20_atr ?? 0.0
+  const relativeVolume = rawScalper?.relativeVolume ?? rawScalper?.relative_volume ?? 1.0
+  const rsi14 = rawScalper?.rsi14 ?? rawScalper?.rsi_14 ?? 50.0
 
   const scalperCriteria: ScalperCriteria = {
+    symbol: rawScalper?.symbol,
+    variantId: rawScalper?.variantId ?? rawScalper?.variant_id,
     priceBelowEma20Atr,
     priceBelowEmaThreshold,
     priceTriggered: Boolean(
-      rawScalper?.priceTriggered ?? (priceBelowEma20Atr > priceBelowEmaThreshold),
+      rawScalper?.priceTriggered ??
+        rawScalper?.price_triggered ??
+        priceBelowEma20Atr > priceBelowEmaThreshold,
     ),
     relativeVolume,
     volumeThreshold,
     volumeTriggered: Boolean(
-      rawScalper?.volumeTriggered ?? (relativeVolume > volumeThreshold),
+      rawScalper?.volumeTriggered ??
+        rawScalper?.volume_triggered ??
+        relativeVolume > volumeThreshold,
     ),
     rsi14,
     rsiThreshold,
-    rsiTriggered: Boolean(rawScalper?.rsiTriggered ?? (rsi14 < rsiThreshold)),
-    makerFeePct: rawScalper?.makerFeePct ?? 0.02,
+    rsiTriggered: Boolean(
+      rawScalper?.rsiTriggered ?? rawScalper?.rsi_triggered ?? rsi14 < rsiThreshold,
+    ),
+    makerFeePct: rawScalper?.makerFeePct ?? rawScalper?.maker_fee_pct ?? 0.02,
   }
 
   const liveRuntimeHealth = executionStatus?.runtime_health
@@ -765,6 +797,38 @@ export function buildExecutiveDashboardModel(
     },
   ]
 
+  const liveVariants: PortfolioVariantChecklistItem[] | undefined =
+    scannerData?.variants && scannerData.variants.length > 0
+      ? scannerData.variants.map((v) => ({
+          memberId: v.member_id,
+          symbol: v.symbol,
+          tier: v.tier,
+          closePrice: v.close_price,
+          ema20: v.ema20,
+          atr14: v.atr14,
+          distAtr: v.dist_atr,
+          priceBelowEma20Atr: v.price_below_ema20_atr,
+          distanceThreshold: v.distance_threshold,
+          distTriggered: v.dist_triggered,
+          relativeVolume: v.relative_volume,
+          volSpikeMultiplier: v.vol_spike_multiplier,
+          volTriggered: v.vol_triggered,
+          rsi14: v.rsi_14,
+          rsiThreshold: v.rsi_threshold,
+          rsiTriggered: v.rsi_triggered,
+          macroRegime: v.macro_regime,
+          macroAligned: v.macro_aligned,
+          gatesPassed: v.gates_passed,
+          gatesTotal: v.gates_total,
+          signalReady: v.signal_ready,
+        }))
+      : undefined
+
+  const isPortfolioRuntimeActive = Boolean(
+    liveRuntimeHealth?.observed &&
+      executionStatus?.engine_state?.startsWith('QUALIFIED_PORTFOLIO_'),
+  )
+
   const qualifiedPortfolios = (autoEvolution?.qualifiedPortfolios || []).map((qp) => ({
     portfolioId: qp.portfolio_id,
     family: qp.family,
@@ -781,7 +845,8 @@ export function buildExecutiveDashboardModel(
     netPnlUsdt: qp.net_pnl_usdt,
     stressNetPnlUsdt: qp.stress_net_pnl_usdt,
     drawdownPct: qp.drawdown_pct,
-    executionAuthority: Boolean(qp.execution_authority),
+    executionAuthority: Boolean(qp.execution_authority) || isPortfolioRuntimeActive,
+    liveVariants,
   }))
 
   const evolutionRadar: StrategyEvolutionRadarData = {
@@ -825,6 +890,7 @@ export function buildExecutiveDashboardModel(
     totalAutopsies: perf?.total_autopsies_conducted ?? 18,
     promotedCandidatesCount: perf?.promoted_candidates_count ?? 3,
     qualifiedPortfolios,
+    liveVariants,
   }
 
   const dailyRisk = executionStatus?.daily_risk

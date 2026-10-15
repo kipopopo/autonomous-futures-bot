@@ -49,6 +49,8 @@ export interface BtcMacroTrend {
 }
 
 export interface ScalperCriteria {
+  symbol?: string
+  variantId?: string
   priceBelowEma20Atr: number
   priceBelowEmaThreshold: number
   priceTriggered: boolean
@@ -59,6 +61,30 @@ export interface ScalperCriteria {
   rsiThreshold: number
   rsiTriggered: boolean
   makerFeePct: number
+}
+
+export interface PortfolioVariantChecklistItem {
+  memberId: string
+  symbol: string
+  tier: string
+  closePrice: number
+  ema20: number
+  atr14: number
+  distAtr: number
+  priceBelowEma20Atr: number
+  distanceThreshold: number
+  distTriggered: boolean
+  relativeVolume: number
+  volSpikeMultiplier: number
+  volTriggered: boolean
+  rsi14: number
+  rsiThreshold: number
+  rsiTriggered: boolean
+  macroRegime: string
+  macroAligned: boolean
+  gatesPassed: number
+  gatesTotal: number
+  signalReady: boolean
 }
 
 export interface HawkesHazard {
@@ -123,6 +149,7 @@ export interface QualifiedPortfolioSummaryItem {
   stressNetPnlUsdt: string
   drawdownPct: string
   executionAuthority: boolean
+  liveVariants?: PortfolioVariantChecklistItem[]
 }
 
 export interface StrategyEvolutionRadarData {
@@ -141,6 +168,7 @@ export interface StrategyEvolutionRadarData {
   totalAutopsies: number
   promotedCandidatesCount: number
   qualifiedPortfolios?: QualifiedPortfolioSummaryItem[]
+  liveVariants?: PortfolioVariantChecklistItem[]
 }
 
 export interface ExecutiveDashboardModel {

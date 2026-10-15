@@ -317,6 +317,58 @@ export interface ExecutionRuntimeHealthData {
   event_counts?: Record<string, number>
 }
 
+export interface ExecutionScalperCriteriaData {
+  symbol?: string
+  variant_id?: string
+  price_below_ema20_atr?: number
+  price_below_ema_threshold?: number
+  price_triggered?: boolean
+  relative_volume?: number
+  volume_threshold?: number
+  volume_triggered?: boolean
+  rsi_14?: number
+  rsi_threshold?: number
+  rsi_triggered?: boolean
+  maker_fee_pct?: number
+}
+
+export interface PortfolioVariantChecklistItemData {
+  member_id: string
+  symbol: string
+  tier: string
+  close_price: number
+  ema20: number
+  atr14: number
+  dist_atr: number
+  price_below_ema20_atr: number
+  distance_threshold: number
+  dist_triggered: boolean
+  relative_volume: number
+  vol_spike_multiplier: number
+  vol_triggered: boolean
+  rsi_14: number
+  rsi_threshold: number
+  rsi_triggered: boolean
+  macro_regime: string
+  macro_aligned: boolean
+  gates_passed: number
+  gates_total: number
+  signal_ready: boolean
+}
+
+export interface ExecutionPortfolioScannerData {
+  observed: boolean
+  portfolio_id?: string
+  evaluated_at_ms?: number | null
+  source?: string
+  btc_regime?: string
+  ema50_1h?: number | null
+  ema200_1h?: number | null
+  ema50_4h?: number | null
+  ema200_4h?: number | null
+  variants?: PortfolioVariantChecklistItemData[]
+}
+
 export interface ExecutionStatusResponse {
   verified: boolean
   status: string
@@ -332,6 +384,8 @@ export interface ExecutionStatusResponse {
   intra_day_loss_usdt?: number | null
   daily_risk?: ExecutionDailyRiskData
   runtime_health?: ExecutionRuntimeHealthData
+  scalper_criteria?: ExecutionScalperCriteriaData | null
+  portfolio_scanner?: ExecutionPortfolioScannerData
 }
 
 export interface MicrostructureModel {

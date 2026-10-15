@@ -343,6 +343,58 @@ class ExecutionRuntimeHealth(DomainModel):
     event_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class ExecutionScalperCriteria(DomainModel):
+    symbol: str = "SOLUSDT"
+    variant_id: str = "sol-2-hf"
+    price_below_ema20_atr: float = 0.0
+    price_below_ema_threshold: float = 0.8
+    price_triggered: bool = False
+    relative_volume: float = 1.0
+    volume_threshold: float = 1.2
+    volume_triggered: bool = False
+    rsi_14: float = 50.0
+    rsi_threshold: float = 42.0
+    rsi_triggered: bool = False
+    maker_fee_pct: float = 0.02
+
+
+class PortfolioVariantChecklistItem(DomainModel):
+    member_id: str
+    symbol: str
+    tier: str
+    close_price: float
+    ema20: float
+    atr14: float
+    dist_atr: float
+    price_below_ema20_atr: float
+    distance_threshold: float
+    dist_triggered: bool
+    relative_volume: float
+    vol_spike_multiplier: float
+    vol_triggered: bool
+    rsi_14: float
+    rsi_threshold: float
+    rsi_triggered: bool
+    macro_regime: str
+    macro_aligned: bool
+    gates_passed: int
+    gates_total: int = 4
+    signal_ready: bool = False
+
+
+class ExecutionPortfolioScanner(DomainModel):
+    observed: bool = False
+    portfolio_id: str = "macro-scalper-uninspected-3sym-medium-frequency-v1"
+    evaluated_at_ms: int | None = None
+    source: str = "unavailable"
+    btc_regime: str = "UNKNOWN"
+    ema50_1h: float | None = None
+    ema200_1h: float | None = None
+    ema50_4h: float | None = None
+    ema200_4h: float | None = None
+    variants: list[PortfolioVariantChecklistItem] = Field(default_factory=list)
+
+
 class ExecutionPositionItem(DomainModel):
     symbol: str
     position_qty: float = 0.0
@@ -373,6 +425,10 @@ class ExecutionStatusResponse(DomainModel):
     intra_day_loss_usdt: float | None = None
     daily_risk: ExecutionDailyRisk = Field(default_factory=ExecutionDailyRisk)
     runtime_health: ExecutionRuntimeHealth = Field(default_factory=ExecutionRuntimeHealth)
+    scalper_criteria: ExecutionScalperCriteria | None = None
+    portfolio_scanner: ExecutionPortfolioScanner = Field(
+        default_factory=ExecutionPortfolioScanner
+    )
 
 
 def _resolve_research_dir() -> Path:
@@ -426,6 +482,7 @@ def _compute_ema_series(series: list[float], span: int) -> list[float]:
 
 _GLOBAL_BTC_MACRO_CACHE: dict[str, Any] = {"ts": 0.0, "data": None, "last_btc_price": None}
 _GLOBAL_LIVE_PRICES_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+_GLOBAL_PORTFOLIO_SCANNER_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
 
 
 def reset_live_market_cache() -> None:
@@ -435,6 +492,8 @@ def reset_live_market_cache() -> None:
     _GLOBAL_BTC_MACRO_CACHE["ts"] = 0.0
     _GLOBAL_BTC_MACRO_CACHE["data"] = None
     _GLOBAL_BTC_MACRO_CACHE["last_btc_price"] = None
+    _GLOBAL_PORTFOLIO_SCANNER_CACHE["ts"] = 0.0
+    _GLOBAL_PORTFOLIO_SCANNER_CACHE["data"] = None
 
 
 def compute_authentic_btc_macro(
@@ -861,6 +920,351 @@ def _load_runtime_health(account_path: Path) -> tuple[ExecutionRuntimeHealth, st
         return ExecutionRuntimeHealth(), "UNKNOWN", 0
 
 
+_PORTFOLIO_VARIANTS_SPEC: tuple[tuple[str, str, str, float, float, float], ...] = (
+    ("avax-1-deep", "AVAXUSDT", "DEEP", -2.2, 2.0, 28.0),
+    ("avax-2-hf", "AVAXUSDT", "HF", -0.8, 1.2, 42.0),
+    ("eth-1-deep", "ETHUSDT", "DEEP", -2.2, 2.0, 28.0),
+    ("eth-2-hf", "ETHUSDT", "HF", -0.8, 1.2, 42.0),
+    ("sol-1-deep", "SOLUSDT", "DEEP", -2.2, 2.0, 28.0),
+    ("sol-2-hf", "SOLUSDT", "HF", -0.8, 1.2, 42.0),
+)
+
+
+def _load_ohlcv_bars_for_scanner(
+    symbol: str,
+    interval: str,
+    limit: int,
+    research_dir: Path | None = None,
+) -> tuple[list[Any], str]:
+    import urllib.request
+
+    from autonomous_futures.strategy.macro_liquidity_scalper import Candle
+
+    now_ms = int(time.time() * 1000)
+    is_unmocked_pytest = (
+        "PYTEST_CURRENT_TEST" in os.environ
+        and getattr(urllib.request.urlopen, "__module__", "") == "urllib.request"
+    )
+    if not is_unmocked_pytest:
+        try:
+            url = (
+                f"https://fapi.binance.com/fapi/v1/klines?"
+                f"symbol={symbol}&interval={interval}&limit={limit}"
+            )
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "AutonomousFuturesBot/1.0 (PublicRestClient; Unauth)"},
+            )
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                raw = json.loads(resp.read().decode("utf-8"))
+                if isinstance(raw, list) and len(raw) >= 20:
+                    rows = (
+                        raw[:-1]
+                        if len(raw) > 20
+                        and isinstance(raw[-1], list)
+                        and len(raw[-1]) > 6
+                        and int(raw[-1][6]) > now_ms
+                        else raw
+                    )
+                    bars = [
+                        Candle(
+                            timestamp_ms=int(item[0]),
+                            open=Decimal(str(item[1])),
+                            high=Decimal(str(item[2])),
+                            low=Decimal(str(item[3])),
+                            close=Decimal(str(item[4])),
+                            volume=Decimal(str(item[5])),
+                        )
+                        for item in rows
+                    ]
+                    return bars, "binance_futures_live"
+        except Exception:
+            pass
+
+    repo_root = Path(__file__).resolve().parents[3]
+    source_interval = "1h" if interval == "4h" else interval
+    source_limit = limit * 4 if interval == "4h" else limit
+    candidates = [
+        Path("research/immutable-data")
+        / source_interval
+        / "canonical"
+        / f"{symbol}-{source_interval}.parquet",
+        Path("research/immutable-data/runtime-official-20261013")
+        / source_interval
+        / "canonical"
+        / f"{symbol}-{source_interval}.parquet",
+        repo_root
+        / "research"
+        / "immutable-data"
+        / source_interval
+        / "canonical"
+        / f"{symbol}-{source_interval}.parquet",
+        repo_root
+        / "research"
+        / "immutable-data"
+        / "runtime-official-20261013"
+        / source_interval
+        / "canonical"
+        / f"{symbol}-{source_interval}.parquet",
+    ]
+    if research_dir is not None:
+        candidates.append(
+            research_dir.parent.parent
+            / "research"
+            / "immutable-data"
+            / source_interval
+            / "canonical"
+            / f"{symbol}-{source_interval}.parquet"
+        )
+    for ppath in candidates:
+        if ppath.is_file():
+            try:
+                import pandas as pd
+
+                df = pd.read_parquet(
+                    ppath, columns=["open", "high", "low", "close", "volume"]
+                ).tail(source_limit)
+                if len(df) >= 20:
+                    raw_bars = [
+                        Candle(
+                            timestamp_ms=idx * 60_000,
+                            open=Decimal(str(float(r["open"]))),
+                            high=Decimal(str(float(r["high"]))),
+                            low=Decimal(str(float(r["low"]))),
+                            close=Decimal(str(float(r["close"]))),
+                            volume=Decimal(str(float(r["volume"]))),
+                        )
+                        for idx, (_, r) in enumerate(df.iterrows())
+                    ]
+                    if interval == "4h":
+                        agg_bars: list[Any] = []
+                        for i in range(0, len(raw_bars) - 3, 4):
+                            chunk = raw_bars[i : i + 4]
+                            agg_bars.append(
+                                Candle(
+                                    timestamp_ms=chunk[-1].timestamp_ms,
+                                    open=chunk[0].open,
+                                    high=max(c.high for c in chunk),
+                                    low=min(c.low for c in chunk),
+                                    close=chunk[-1].close,
+                                    volume=sum((c.volume for c in chunk), Decimal("0")),
+                                )
+                            )
+                        if len(agg_bars) >= 20:
+                            return agg_bars, "local_parquet_cache"
+                    else:
+                        return raw_bars, "local_parquet_cache"
+            except Exception:
+                pass
+    return [], "unavailable"
+
+
+def _compute_portfolio_scanner_telemetry(
+    research_dir: Path | None,
+    runtime_observed: bool,
+) -> tuple[ExecutionScalperCriteria | None, ExecutionPortfolioScanner]:
+    if not runtime_observed:
+        return None, ExecutionPortfolioScanner()
+
+    now_sec = time.time()
+    cached = _GLOBAL_PORTFOLIO_SCANNER_CACHE.get("data")
+    if cached is not None and (now_sec - float(_GLOBAL_PORTFOLIO_SCANNER_CACHE["ts"])) < 15.0:
+        return cast(tuple[ExecutionScalperCriteria | None, ExecutionPortfolioScanner], cached)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    from autonomous_futures.strategy.macro_liquidity_scalper import (
+        compute_atr,
+        compute_ema,
+        compute_rsi,
+        compute_sma,
+    )
+
+    tasks = (
+        ("BTCUSDT", "1h", 220),
+        ("BTCUSDT", "4h", 220),
+        ("AVAXUSDT", "15m", 60),
+        ("ETHUSDT", "15m", 60),
+        ("SOLUSDT", "15m", 60),
+    )
+    results: dict[tuple[str, str], tuple[list[Any], str]] = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            (sym, iv): executor.submit(_load_ohlcv_bars_for_scanner, sym, iv, lim, research_dir)
+            for sym, iv, lim in tasks
+        }
+        for key, fut in futures.items():
+            try:
+                results[key] = fut.result()
+            except Exception:
+                results[key] = ([], "unavailable")
+
+    btc_1h, src_1h = results.get(("BTCUSDT", "1h"), ([], "unavailable"))
+    btc_4h, _ = results.get(("BTCUSDT", "4h"), ([], "unavailable"))
+
+    ema50_1h: float | None = None
+    ema200_1h: float | None = None
+    ema50_4h: float | None = None
+    ema200_4h: float | None = None
+    btc_regime = "UNKNOWN"
+    macro_aligned = False
+
+    if len(btc_1h) >= 50:
+        closes_1h = [c.close for c in btc_1h]
+        e50_1h = float(compute_ema(closes_1h, 50)[-1])
+        e200_1h = float(compute_ema(closes_1h, min(200, len(closes_1h)))[-1])
+        ema50_1h = round(e50_1h, 2)
+        ema200_1h = round(e200_1h, 2)
+        close_1h = float(closes_1h[-1])
+        if len(btc_4h) >= 50:
+            closes_4h = [c.close for c in btc_4h]
+            e50_4h = float(compute_ema(closes_4h, 50)[-1])
+            e200_4h = float(compute_ema(closes_4h, min(200, len(closes_4h)))[-1])
+            ema50_4h = round(e50_4h, 2)
+            ema200_4h = round(e200_4h, 2)
+            close_4h = float(closes_4h[-1])
+            bull_1h = close_1h > e50_1h and e50_1h > e200_1h
+            bull_4h = close_4h > e50_4h and e50_4h > e200_4h
+            bear_1h = close_1h < e50_1h and e50_1h < e200_1h
+            bear_4h = close_4h < e50_4h and e50_4h < e200_4h
+            if bull_1h and bull_4h:
+                btc_regime = "BULLISH ALIGNED"
+                macro_aligned = True
+            elif bear_1h and bear_4h:
+                btc_regime = "BEARISH"
+                macro_aligned = True
+            else:
+                btc_regime = "SIDEWAYS"
+                macro_aligned = False
+        else:
+            if close_1h > e50_1h and e50_1h > e200_1h:
+                btc_regime = "BULLISH ALIGNED"
+                macro_aligned = True
+            elif close_1h < e50_1h and e50_1h < e200_1h:
+                btc_regime = "BEARISH"
+                macro_aligned = True
+            else:
+                btc_regime = "SIDEWAYS"
+                macro_aligned = False
+
+    symbol_metrics: dict[str, dict[str, float]] = {}
+    scanner_source = src_1h
+    for sym in ("AVAXUSDT", "ETHUSDT", "SOLUSDT"):
+        bars_15m, sym_src = results.get((sym, "15m"), ([], "unavailable"))
+        if scanner_source == "unavailable" and sym_src != "unavailable":
+            scanner_source = sym_src
+        if len(bars_15m) < 25:
+            continue
+        closes = [b.close for b in bars_15m]
+        volumes = [b.volume for b in bars_15m]
+        ema20 = float(compute_ema(closes, 20)[-1])
+        atr14 = float(compute_atr(bars_15m, 14)[-1])
+        vol_sma20 = float(compute_sma(volumes, 20)[-1])
+        rsi14 = float(compute_rsi(closes, 14)[-1])
+        last_close = float(bars_15m[-1].close)
+        last_vol = float(bars_15m[-1].volume)
+        dist_atr = (last_close - ema20) / atr14 if atr14 > 0 else 0.0
+        rel_vol = last_vol / vol_sma20 if vol_sma20 > 0 else 0.0
+        symbol_metrics[sym] = {
+            "close": round(last_close, 4),
+            "ema20": round(ema20, 4),
+            "atr14": round(atr14, 4),
+            "dist_atr": round(dist_atr, 3),
+            "price_below_ema20_atr": round(max(0.0, -dist_atr), 2),
+            "relative_volume": round(rel_vol, 2),
+            "rsi_14": round(rsi14, 1),
+        }
+
+    variants: list[PortfolioVariantChecklistItem] = []
+    for member_id, sym, tier, dist_thresh, vol_mult, rsi_thresh in _PORTFOLIO_VARIANTS_SPEC:
+        m = symbol_metrics.get(sym)
+        if m is None:
+            continue
+        abs_thresh = abs(dist_thresh)
+        dist_val = m["dist_atr"]
+        rel_vol_val = m["relative_volume"]
+        rsi_val = m["rsi_14"]
+        dist_triggered = (
+            (dist_val > abs_thresh) if btc_regime == "BEARISH" else (dist_val < -abs_thresh)
+        )
+        vol_triggered = rel_vol_val > vol_mult
+        rsi_triggered = (
+            (rsi_val > (100.0 - rsi_thresh)) if btc_regime == "BEARISH" else (rsi_val < rsi_thresh)
+        )
+        gates_passed = (
+            int(macro_aligned) + int(dist_triggered) + int(vol_triggered) + int(rsi_triggered)
+        )
+        variants.append(
+            PortfolioVariantChecklistItem(
+                member_id=member_id,
+                symbol=sym,
+                tier=tier,
+                close_price=m["close"],
+                ema20=m["ema20"],
+                atr14=m["atr14"],
+                dist_atr=dist_val,
+                price_below_ema20_atr=m["price_below_ema20_atr"],
+                distance_threshold=dist_thresh,
+                dist_triggered=dist_triggered,
+                relative_volume=rel_vol_val,
+                vol_spike_multiplier=vol_mult,
+                vol_triggered=vol_triggered,
+                rsi_14=rsi_val,
+                rsi_threshold=rsi_thresh,
+                rsi_triggered=rsi_triggered,
+                macro_regime=btc_regime,
+                macro_aligned=macro_aligned,
+                gates_passed=gates_passed,
+                gates_total=4,
+                signal_ready=bool(
+                    macro_aligned and dist_triggered and vol_triggered and rsi_triggered
+                ),
+            )
+        )
+
+    if not variants:
+        return None, ExecutionPortfolioScanner()
+
+    best = max(
+        variants,
+        key=lambda v: (
+            v.gates_passed,
+            (v.price_below_ema20_atr / abs(v.distance_threshold)) if v.distance_threshold else 0.0,
+            1 if v.member_id == "sol-2-hf" else 0,
+        ),
+    )
+    scalper_criteria = ExecutionScalperCriteria(
+        symbol=best.symbol,
+        variant_id=best.member_id,
+        price_below_ema20_atr=best.price_below_ema20_atr,
+        price_below_ema_threshold=round(abs(best.distance_threshold), 2),
+        price_triggered=best.dist_triggered,
+        relative_volume=best.relative_volume,
+        volume_threshold=round(best.vol_spike_multiplier, 2),
+        volume_triggered=best.vol_triggered,
+        rsi_14=best.rsi_14,
+        rsi_threshold=round(best.rsi_threshold, 1),
+        rsi_triggered=best.rsi_triggered,
+        maker_fee_pct=0.02,
+    )
+    scanner = ExecutionPortfolioScanner(
+        observed=True,
+        portfolio_id="macro-scalper-uninspected-3sym-medium-frequency-v1",
+        evaluated_at_ms=int(now_sec * 1000),
+        source=scanner_source,
+        btc_regime=btc_regime,
+        ema50_1h=ema50_1h,
+        ema200_1h=ema200_1h,
+        ema50_4h=ema50_4h,
+        ema200_4h=ema200_4h,
+        variants=variants,
+    )
+    out = (scalper_criteria, scanner)
+    _GLOBAL_PORTFOLIO_SCANNER_CACHE["ts"] = now_sec
+    _GLOBAL_PORTFOLIO_SCANNER_CACHE["data"] = out
+    return out
+
+
 def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusResponse:
     """Account observations never imply reconciled execution or a verified ledger."""
     from autonomous_futures.execution.account_evidence import (
@@ -984,6 +1388,9 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             else None
         )
         runtime_health, engine_state, interlock_blocks = _load_runtime_health(path)
+        scalper_criteria, portfolio_scanner = _compute_portfolio_scanner_telemetry(
+            base, runtime_health.observed
+        )
         return ExecutionStatusResponse(
             verified=verified,
             status="ACCOUNT_RECONCILED" if verified else "ACCOUNT_UNRECONCILED",
@@ -1027,6 +1434,8 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
             intra_day_loss_usdt=daily_risk.loss_usdt,
             daily_risk=daily_risk,
             runtime_health=runtime_health,
+            scalper_criteria=scalper_criteria,
+            portfolio_scanner=portfolio_scanner,
         )
     except (OSError, ValueError, KeyError, TypeError, ArithmeticError) as exc:
         raise HTTPException(

@@ -621,6 +621,32 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     assert payload["runtime_health"]["arrival_count"] == 36930
     assert payload["runtime_health"]["spectral_radius"] == pytest.approx(0.5455993315954724)
     assert payload["runtime_health"]["event_counts"]["BTCUSDT"] == 4451
+    assert payload["scalper_criteria"] is not None
+    assert payload["scalper_criteria"]["variant_id"] in {
+        "avax-1-deep",
+        "avax-2-hf",
+        "eth-1-deep",
+        "eth-2-hf",
+        "sol-1-deep",
+        "sol-2-hf",
+    }
+    assert payload["portfolio_scanner"]["observed"] is True
+    assert (
+        payload["portfolio_scanner"]["portfolio_id"]
+        == "macro-scalper-uninspected-3sym-medium-frequency-v1"
+    )
+    assert payload["portfolio_scanner"]["ema50_1h"] is not None
+    assert payload["portfolio_scanner"]["ema200_1h"] is not None
+    assert payload["portfolio_scanner"]["ema50_4h"] is not None
+    assert payload["portfolio_scanner"]["ema200_4h"] is not None
+    assert [v["member_id"] for v in payload["portfolio_scanner"]["variants"]] == [
+        "avax-1-deep",
+        "avax-2-hf",
+        "eth-1-deep",
+        "eth-2-hf",
+        "sol-1-deep",
+        "sol-2-hf",
+    ]
 
     warmup_health = {
         **runtime_health,
@@ -637,3 +663,4 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     atomic_json(qualified_dir / "runtime-health.json", warmup_health)
     warmup_payload = _request(app, "GET", "/api/v1/execution/status").json()
     assert warmup_payload["engine_state"] == "QUALIFIED_PORTFOLIO_WARMUP"
+

@@ -266,7 +266,9 @@ export function StrategyConfluenceRadar({
                 15m Scalper Checklist
               </span>
               <span className="text-[11px] font-mono font-semibold py-0.5 px-2 rounded-md bg-cyan-500/10 border border-cyan-500/25 text-cyan-300">
-                Liquidity Sweep
+                {scalperCriteria.variantId
+                  ? `Liquidity Sweep · ${scalperCriteria.variantId}`
+                  : 'Liquidity Sweep'}
               </span>
             </div>
 

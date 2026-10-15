@@ -467,6 +467,84 @@ export function StrategyEvolutionRadar({
                     ))}
                   </div>
                 )}
+
+                {qp.liveVariants && qp.liveVariants.length > 0 && (
+                  <div
+                    className="mt-3 pt-3 border-t border-white/[0.06]"
+                    data-testid="live-portfolio-variant-scanner"
+                  >
+                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                      <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-cyan-300">
+                        Live 6-Variant Causal Scanner Checklist (15m Closed Bar)
+                      </span>
+                      <span className="text-[10px] font-mono text-zinc-400">
+                        {`BTC 1h/4h Macro: ${qp.liveVariants[0].macroRegime}`}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-[11px] font-mono">
+                      {qp.liveVariants.map((v) => (
+                        <div
+                          key={v.memberId}
+                          className="p-2.5 rounded-lg bg-black/30 border border-white/[0.06] space-y-1.5"
+                          data-testid={`variant-card-${v.memberId}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-white">{v.memberId}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/25">
+                                {v.tier}
+                              </span>
+                            </div>
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                v.signalReady
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  : 'bg-zinc-800/90 text-zinc-300 border-white/10'
+                              }`}
+                            >
+                              {`${v.gatesPassed}/${v.gatesTotal} GATES`}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+                            <div className="p-1.5 rounded bg-white/[0.02] border border-white/[0.04]">
+                              <div className="text-zinc-500">EMA20 Dist</div>
+                              <div
+                                className={
+                                  v.distTriggered ? 'text-emerald-400 font-bold' : 'text-zinc-200'
+                                }
+                              >
+                                {`${v.distAtr >= 0 ? '+' : ''}${v.distAtr.toFixed(2)} ATR`}
+                              </div>
+                              <div className="text-zinc-500">{`(${v.distanceThreshold.toFixed(1)}x)`}</div>
+                            </div>
+                            <div className="p-1.5 rounded bg-white/[0.02] border border-white/[0.04]">
+                              <div className="text-zinc-500">Vol Surge</div>
+                              <div
+                                className={
+                                  v.volTriggered ? 'text-emerald-400 font-bold' : 'text-zinc-200'
+                                }
+                              >
+                                {`${v.relativeVolume.toFixed(2)}x`}
+                              </div>
+                              <div className="text-zinc-500">{`(> ${v.volSpikeMultiplier.toFixed(1)}x)`}</div>
+                            </div>
+                            <div className="p-1.5 rounded bg-white/[0.02] border border-white/[0.04]">
+                              <div className="text-zinc-500">RSI-14</div>
+                              <div
+                                className={
+                                  v.rsiTriggered ? 'text-emerald-400 font-bold' : 'text-zinc-200'
+                                }
+                              >
+                                {v.rsi14.toFixed(1)}
+                              </div>
+                              <div className="text-zinc-500">{`(< ${v.rsiThreshold.toFixed(0)})`}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}

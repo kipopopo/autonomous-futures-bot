@@ -966,5 +966,160 @@ describe('buildExecutiveDashboardModel adapter', () => {
     expect(radarHtml).toContain('36,930 Arrivals (30m)')
     expect(radarHtml).toContain('Streams Live · Stable')
   })
+
+  it('maps and renders live portfolio_scanner 6-variant checklist and scalper_criteria', () => {
+    const prodLaunch = buildProductionLaunchModel(null)
+    const liveMarket = buildLiveMarketModel(null)
+    const brackets = buildBracketPositionsModel(null)
+    const micro = buildMicrostructureModel(null)
+    const autoEvo = {
+      ...buildAutoEvolutionModel(null),
+      qualifiedPortfolios: [
+        {
+          portfolio_id: 'macro-scalper-uninspected-3sym-medium-frequency-v1',
+          family: 'macro_liquidity_dip_scalper',
+          symbols: ['AVAXUSDT', 'ETHUSDT', 'SOLUSDT'],
+          member_count: 6,
+          member_ids: [
+            'avax-1-deep',
+            'avax-2-hf',
+            'eth-1-deep',
+            'eth-2-hf',
+            'sol-1-deep',
+            'sol-2-hf',
+          ],
+          members_by_symbol_counts: { AVAXUSDT: 2, ETHUSDT: 2, SOLUSDT: 2 },
+          decision: 'QUALIFIED',
+          report_hash: '66041778a22430eb7bf44a625732d635d06fa5d2772cc6ac2de887839c70be6d',
+          trades: 42,
+          profitable_windows: 6,
+          windows: 6,
+          profit_factor: '1.68',
+          net_pnl_usdt: '18.40',
+          stress_net_pnl_usdt: '12.10',
+          drawdown_pct: '3.2',
+          execution_authority: false,
+        },
+      ],
+    }
+
+    const adapted = buildExecutiveDashboardModel(
+      prodLaunch,
+      liveMarket,
+      brackets,
+      micro,
+      {},
+      new Date(),
+      autoEvo,
+      null,
+      {
+        verified: true,
+        status: 'ACCOUNT_RECONCILED',
+        engine_state: 'QUALIFIED_PORTFOLIO_ACTIVE',
+        timestamp_ms: 1792034072664,
+        solvency: {
+          total_equity_usdt: 4224.0988,
+          cash_usdt: 4224.0988,
+          available_balance_usdt: 4224.0988,
+          allocated_margin_usdt: 0.0,
+          realized_pnl_usdt: 0.0,
+          cash_reserve_pct: 100.0,
+          zero_balance_drift_verified: true,
+        },
+        positions: {},
+        candidate_allocations: [],
+        aggregate_exposure_usdt: 0.0,
+        recent_orders: [],
+        total_orders: 0,
+        interlock_blocks_count: 0,
+        runtime_health: {
+          observed: true,
+          timestamp_ms: 1792034072664,
+          market_connected: true,
+          user_stream_connected: true,
+          arrival_count: 10500,
+          spectral_radius: 0.52,
+        },
+        scalper_criteria: {
+          symbol: 'SOLUSDT',
+          variant_id: 'sol-2-hf',
+          price_below_ema20_atr: 0.65,
+          price_below_ema_threshold: 0.8,
+          price_triggered: false,
+          relative_volume: 1.35,
+          volume_threshold: 1.2,
+          volume_triggered: true,
+          rsi_14: 39.4,
+          rsi_threshold: 42.0,
+          rsi_triggered: true,
+          maker_fee_pct: 0.02,
+        },
+        portfolio_scanner: {
+          observed: true,
+          portfolio_id: 'macro-scalper-uninspected-3sym-medium-frequency-v1',
+          evaluated_at_ms: 1792034072664,
+          source: 'binance_futures_live',
+          btc_regime: 'BULLISH ALIGNED',
+          ema50_1h: 74500.0,
+          ema200_1h: 72100.0,
+          ema50_4h: 73900.0,
+          ema200_4h: 71500.0,
+          variants: [
+            {
+              member_id: 'sol-2-hf',
+              symbol: 'SOLUSDT',
+              tier: 'HF',
+              close_price: 83.2,
+              ema20: 84.1,
+              atr14: 1.38,
+              dist_atr: -0.65,
+              price_below_ema20_atr: 0.65,
+              distance_threshold: -0.8,
+              dist_triggered: false,
+              relative_volume: 1.35,
+              vol_spike_multiplier: 1.2,
+              vol_triggered: true,
+              rsi_14: 39.4,
+              rsi_threshold: 42.0,
+              rsi_triggered: true,
+              macro_regime: 'BULLISH ALIGNED',
+              macro_aligned: true,
+              gates_passed: 3,
+              gates_total: 4,
+              signal_ready: false,
+            },
+          ],
+        },
+      },
+    )
+
+    expect(adapted.radar.scalperCriteria.variantId).toBe('sol-2-hf')
+    expect(adapted.radar.scalperCriteria.priceBelowEma20Atr).toBeCloseTo(0.65, 2)
+    expect(adapted.radar.scalperCriteria.volumeTriggered).toBe(true)
+    expect(adapted.radar.btcMacroTrend.ema50_4h).toBeCloseTo(73900.0, 1)
+    expect(adapted.evolutionRadar.qualifiedPortfolios?.[0].executionAuthority).toBe(true)
+    expect(adapted.evolutionRadar.qualifiedPortfolios?.[0].liveVariants?.length).toBe(1)
+
+    const confluenceHtml = renderToString(
+      <StrategyConfluenceRadar
+        btcMacroTrend={adapted.radar.btcMacroTrend}
+        scalperCriteria={adapted.radar.scalperCriteria}
+        hawkesHazard={adapted.radar.hawkesHazard}
+      />,
+    )
+    expect(confluenceHtml).toContain('Liquidity Sweep · sol-2-hf')
+    expect(confluenceHtml).toContain('0.7x ATR')
+    expect(confluenceHtml).toContain('1.4x SMA')
+    expect(confluenceHtml).toContain('39.4')
+
+    const evoHtml = renderToString(
+      <StrategyEvolutionRadar evolutionRadar={adapted.evolutionRadar} />,
+    )
+    expect(evoHtml).toContain('EXECUTION AUTHORIZED')
+    expect(evoHtml).toContain('Live 6-Variant Causal Scanner Checklist')
+    expect(evoHtml).toContain('sol-2-hf')
+    expect(evoHtml).toContain('3/4 GATES')
+  })
 })
+
 
