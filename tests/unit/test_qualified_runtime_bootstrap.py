@@ -9,6 +9,13 @@ def test_current_rejected_universe_cannot_bootstrap_live_runtime(tmp_path, monke
     def credentials_must_not_be_read():
         raise AssertionError("Qualification rejection must precede credential/network access")
 
+    monkeypatch.setattr(
+        runtime,
+        "admitted_portfolios",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("No genuinely qualified portfolio reports in admission manifest")
+        ),
+    )
     monkeypatch.setattr(runtime, "credentials", credentials_must_not_be_read)
     with pytest.raises(ValueError, match="No genuinely qualified"):
         asyncio.run(
@@ -17,6 +24,38 @@ def test_current_rejected_universe_cannot_bootstrap_live_runtime(tmp_path, monke
                 tmp_path / "lease",
                 "ACCOUNT",
                 tmp_path / "hawkes-calibration.json",
+            )
+        )
+    assert not (tmp_path / "lease").exists()
+
+
+def test_admitted_portfolio_resolves_and_halts_at_handoff_guard_before_credentials(
+    tmp_path, monkeypatch
+):
+    reports, portfolio = runtime.resolve_runtime_admission(runtime.REPO)
+    assert reports == {}
+    assert portfolio is not None
+    assert portfolio.portfolio_id == "macro-scalper-uninspected-3sym-medium-frequency-v1"
+    assert len(portfolio.members) == 6
+
+    class BlockingGuard:
+        def assert_legacy_inactive(self):
+            raise RuntimeError("legacy service still active")
+
+    monkeypatch.setattr(runtime, "LegacyWriterHandoffGuard", BlockingGuard)
+
+    def credentials_must_not_be_read():
+        raise AssertionError("Handoff must be verified before credential access")
+
+    monkeypatch.setattr(runtime, "credentials", credentials_must_not_be_read)
+    with pytest.raises(RuntimeError, match="legacy service still active"):
+        asyncio.run(
+            runtime.run(
+                tmp_path,
+                tmp_path / "lease",
+                "ACCOUNT",
+                tmp_path / "hawkes-calibration.json",
+                portfolio_id="macro-scalper-uninspected-3sym-medium-frequency-v1",
             )
         )
     assert not (tmp_path / "lease").exists()

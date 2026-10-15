@@ -12,8 +12,8 @@ def test_preflight_verifies_current_repo_calibration_policy_and_empty_admission(
     report = evaluate_preflight(repo=REPO)
     assert report["schema"] == "qualified-runtime-preflight-v1"
     assert report["execution_authority"] is False
-    assert report["ready_to_activate"] is False
-    assert report["blocking_reasons"] == ["no_admitted_qualification_reports"]
+    assert report["ready_to_activate"] is True
+    assert report["blocking_reasons"] == []
     assert report["checks"]["capital_and_universe_policy"]["passed"] is True
     assert report["checks"]["capital_and_universe_policy"]["equity_basis"] == "ACCOUNT"
     assert report["checks"]["capital_and_universe_policy"]["trade_risk_pct"] == "0.5"
@@ -22,7 +22,8 @@ def test_preflight_verifies_current_repo_calibration_policy_and_empty_admission(
     assert report["checks"]["hawkes_calibration"]["passed"] is True
     assert report["checks"]["hawkes_calibration"]["beta_per_second"] == "7.5"
     assert report["checks"]["hawkes_calibration"]["symbols_count"] == 12
-    assert report["checks"]["qualification_admission"]["passed"] is False
+    assert report["checks"]["qualification_admission"]["passed"] is True
+    assert report["checks"]["qualification_admission"]["admission_mode"] == "portfolio"
     assert report["checks"]["qualification_admission"]["approved_count"] == 0
     assert report["checks"]["qualification_admission"]["approved_portfolio_count"] == 1
     verified_portfolios = report["checks"]["qualification_admission"]["verified_portfolio_reports"]
@@ -92,7 +93,7 @@ def test_preflight_reports_legacy_writer_guard_and_storage_autopsy_ledger(
         handoff_guard=guard,
     )
     assert report["ready_to_activate"] is False
-    assert "legacy_writer_still_active_or_enabled" in report["blocking_reasons"]
+    assert report["blocking_reasons"] == ["legacy_writer_still_active_or_enabled"]
     assert report["checks"]["legacy_writer_handoff"]["passed"] is False
     assert report["checks"]["storage_autopsy_ledger"]["passed"] is True
     assert report["checks"]["storage_autopsy_ledger"]["autopsy_count"] == 1
@@ -101,8 +102,9 @@ def test_preflight_reports_legacy_writer_guard_and_storage_autopsy_ledger(
 
 
 def test_preflight_cli_exit_code_respects_allow_blocked() -> None:
-    assert main([]) == 1
-    assert main(["--allow-blocked"]) == 0
+    assert main([]) == 0
+    assert main(["--check-systemd"]) == 1
+    assert main(["--check-systemd", "--allow-blocked"]) == 0
 
 
 def test_preflight_audits_account_and_portfolio_domain_and_detects_leverage_mismatch(

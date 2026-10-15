@@ -172,10 +172,16 @@ def evaluate_preflight(
                     "execution_authority": runtime_portfolio.execution_authority,
                 }
             )
-        if not verified_reports:
+        admission_passed = len(verified_reports) > 0 or len(verified_portfolios) > 0
+        if not admission_passed:
             blocking_reasons.append("no_admitted_qualification_reports")
         checks["qualification_admission"] = {
-            "passed": len(verified_reports) > 0,
+            "passed": admission_passed,
+            "admission_mode": (
+                "single_strategy"
+                if verified_reports
+                else ("portfolio" if verified_portfolios else "none")
+            ),
             "approved_count": len(verified_reports),
             "verified_reports": verified_reports,
             "approved_portfolio_count": len(verified_portfolios),

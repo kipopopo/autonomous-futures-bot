@@ -76,6 +76,33 @@ def admitted_portfolios(
     return portfolios
 
 
+def resolve_runtime_admission(
+    repo: Path,
+    *,
+    portfolio_id: str | None = None,
+) -> tuple[dict[tuple[str, str], Path], VerifiedRuntimePortfolio | None]:
+    """Load verified single-strategy reports or fall back to verified portfolio admission."""
+    try:
+        reports = admitted_reports(repo)
+    except ValueError:
+        reports = {}
+    if reports and portfolio_id is None:
+        return reports, None
+    portfolios = admitted_portfolios(repo, require_execution_authority=False)
+    if portfolio_id is not None:
+        matched = [p for p in portfolios if p.portfolio_id == portfolio_id]
+        if not matched:
+            raise ValueError(
+                f"Requested portfolio_id {portfolio_id!r} is not in admission manifest"
+            )
+        return {}, matched[0]
+    if len(portfolios) != 1:
+        raise ValueError(
+            "Multiple admitted portfolios require an explicit --portfolio-id selection"
+        )
+    return {}, portfolios[0]
+
+
 def credentials() -> tuple[str, str]:
     """Read the existing Testnet key pair; no separate writer credential is created."""
     _load_dotenv_fallback()
@@ -91,11 +118,18 @@ async def run(
     lease_path: Path,
     equity_basis: str,
     hawkes_calibration_path: Path,
+    *,
+    repo: Path = REPO,
+    portfolio_id: str | None = None,
 ) -> None:
-    reports = await asyncio.to_thread(admitted_reports, REPO)
+    reports, portfolio = await asyncio.to_thread(
+        resolve_runtime_admission,
+        repo,
+        portfolio_id=portfolio_id,
+    )
     single_writer_guard = LegacyWriterHandoffGuard()
     await asyncio.to_thread(single_writer_guard.assert_legacy_inactive)
-    calibration = load_runtime_hawkes_calibration(hawkes_calibration_path, REPO)
+    calibration = load_runtime_hawkes_calibration(hawkes_calibration_path, repo)
     writer_key, writer_secret = credentials()
     gateway = BinanceFuturesGateway(writer_key, writer_secret, testnet=True, offline_mode=False)
     lease = ExecutionLease(lease_path)
@@ -112,12 +146,16 @@ async def run(
         admission = EntryAdmission(
             coordinator,
             monitor,
-            repo=REPO,
+            repo=repo,
             single_writer_guard=single_writer_guard,
             user_stream_guard=user_stream.assert_entry_ready,
         )
         scanner = CausalScanner(
-            feed, repo=REPO, account_path=coordinator.entries.account_path, reports=reports
+            feed,
+            repo=repo,
+            account_path=coordinator.entries.account_path,
+            reports=reports or None,
+            portfolio=portfolio,
         )
         await RuntimeSession(coordinator, admission, feed, daily, user_stream).run(scanner)
     finally:
@@ -130,6 +168,7 @@ def main() -> None:
     parser.add_argument("--account-lease", type=Path, required=True)
     parser.add_argument("--equity-basis", choices=["ACCOUNT"], required=True)
     parser.add_argument("--hawkes-calibration", type=Path, required=True)
+    parser.add_argument("--portfolio-id", type=str, default=None)
     args = parser.parse_args()
     asyncio.run(
         run(
@@ -137,6 +176,7 @@ def main() -> None:
             args.account_lease,
             args.equity_basis,
             args.hawkes_calibration,
+            portfolio_id=args.portfolio_id,
         )
     )
 
