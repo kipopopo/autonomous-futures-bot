@@ -3,7 +3,6 @@ import { renderToString } from 'react-dom/server'
 import React from 'react'
 
 import { EvolutionPage } from '../evolution-page'
-import { MarketPositionsCard } from '../mission-control/market-positions-card'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
 import { ExecutivePositionsPage } from '../executive-positions-page'
 import { ExecutiveTradesPage } from '../executive-trades-page'
@@ -417,35 +416,6 @@ describe('Milestone M3 Concurrency & Precision Empirical Challenge', () => {
           const decimalPart = sample.close.toString().split('.')[1] || ''
           expect(decimalPart.length).toBeGreaterThanOrEqual(2)
         }
-      }
-    })
-
-    it('MarketPositionsCard renders all 8 pairs and selector pills in SSR DOM', () => {
-      const { prod, liveMkt, brackets, micro } = createDefaultDashboardModels()
-      const adapted = buildExecutiveDashboardModel(
-        prod,
-        liveMkt,
-        brackets,
-        micro,
-        { status: 'CONNECTED', latencyMs: 25 },
-        new Date(),
-      )
-
-      const html = renderToString(
-        React.createElement(MarketPositionsCard, { positions: adapted.positions }),
-      )
-
-      expect(html).toContain('12 Perpetual Pairs')
-
-      // Verify all 12 test ids exist
-      const symbols = ['solusdt', 'ethusdt', 'btcusdt', 'dogeusdt', 'bnbusdt', 'xrpusdt', 'suiusdt', 'avaxusdt', 'nearusdt', 'linkusdt', 'aptusdt', 'adausdt']
-      for (const s of symbols) {
-        expect(html).toContain(`data-testid="market-pair-card-${s}"`)
-      }
-
-      // Verify selector pills
-      for (const pill of ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX', 'NEAR', 'LINK', 'APT', 'ADA']) {
-        expect(html).toContain(pill)
       }
     })
 

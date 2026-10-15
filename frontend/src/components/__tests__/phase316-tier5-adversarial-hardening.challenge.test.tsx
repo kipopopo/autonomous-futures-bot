@@ -3,7 +3,7 @@ import { renderToString } from 'react-dom/server'
 import { Component, type ReactNode } from 'react'
 
 import { KpiCards } from '../mission-control/kpi-cards'
-import { MarketPositionsCard } from '../mission-control/market-positions-card'
+import { PairPriceTickersCard } from '../mission-control/pair-price-tickers-card'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
 import {
   ResearchArchiveDrawer,
@@ -305,66 +305,6 @@ describe('Phase 316 — Tier 5 Frontend Adversarial Hardening Challenge', () => 
       expect(html).toContain('text-emerald-400') // Floor healthy
     })
 
-    it('C1.4: MarketPositionsCard handles zero currentPrice and zero TP/SL without crashing or NaN', () => {
-      const positions: PositionTelemetry[] = [
-        {
-          symbol: 'BTCUSDT',
-          currentPrice: 0.0,
-          state: 'SCANNING / STANDBY',
-          entryPrice: 0.0,
-          size: 0.0,
-          notionalUsdt: 0.0,
-          marginUsdt: 0.0,
-          unrealizedPnlUsdt: 0.0,
-          unrealizedPnlPct: 0.0,
-          takeProfitPrice: 0.0,
-          stopLossPrice: 0.0,
-          riskRewardRatio: '—',
-        },
-      ]
-      const html = renderToString(<MarketPositionsCard positions={positions} />)
-      expect(html).toContain('BTCUSDT')
-      expect(html).toContain('0.0000') // < 10 threshold uses 4 decimal digits
-      expect(html).not.toContain('NaN')
-      expect(html).not.toContain('Infinity')
-    })
-
-    it('C1.5: MarketPositionsCard formats sub-cent micro prices (< 10) with 4 decimals and huge prices with commas', () => {
-      const positions: PositionTelemetry[] = [
-        {
-          symbol: 'DOGEUSDT',
-          currentPrice: 0.0864,
-          state: 'SCANNING / STANDBY',
-          entryPrice: 0.0,
-          size: 0.0,
-          notionalUsdt: 0.0,
-          marginUsdt: 0.0,
-          unrealizedPnlUsdt: 0.0,
-          unrealizedPnlPct: 0.0,
-          takeProfitPrice: 0.0,
-          stopLossPrice: 0.0,
-          riskRewardRatio: '—',
-        },
-        {
-          symbol: 'BTCUSDT',
-          currentPrice: 125000.5,
-          state: 'SCANNING / STANDBY',
-          entryPrice: 0.0,
-          size: 0.0,
-          notionalUsdt: 0.0,
-          marginUsdt: 0.0,
-          unrealizedPnlUsdt: 0.0,
-          unrealizedPnlPct: 0.0,
-          takeProfitPrice: 0.0,
-          stopLossPrice: 0.0,
-          riskRewardRatio: '—',
-        },
-      ]
-      const html = renderToString(<MarketPositionsCard positions={positions} />)
-      expect(html).toContain('0.0864')
-      expect(html).toContain('125,000.50')
-    })
-
     it('C1.6: StrategyConfluenceRadar handles single-point and identical-point recentHistory without zero-division in SVG', () => {
       const singlePointHazard = {
         spectralRadius: 0.4286,
@@ -491,12 +431,6 @@ describe('Phase 316 — Tier 5 Frontend Adversarial Hardening Challenge', () => 
       expect(html).toContain('1. Market Ingress')
       expect(html).toContain('RESEARCH ARTIFACT / SIMULATION')
       expect(html).not.toContain('NaN')
-    })
-
-    it('C2.4: MarketPositionsCard handles empty positions array [] without throwing', () => {
-      const html = renderToString(<MarketPositionsCard positions={[]} />)
-      expect(html).toContain('Live Positions &amp; Markets')
-      expect(html).toContain('12 Perpetual Pairs') // Fallback label when empty
     })
 
     it('C2.5: OrderFeedTable handles empty orders array [] with centered empty notice', () => {
@@ -941,12 +875,12 @@ describe('Phase 316 — Tier 5 Frontend Adversarial Hardening Challenge', () => 
       expect(withRel).toContain('30s ago')
     })
 
-    it('C7.4: Zero Malay/Indonesian strings leak in rendered KpiCards, MarketPositionsCard, and OrderFeedTable', () => {
+    it('C7.4: Zero Malay/Indonesian strings leak in rendered KpiCards, PairPriceTickersCard, and OrderFeedTable', () => {
       const kpiHtml = renderToString(<KpiCards kpis={BASE_KPIS} />)
       expect(kpiHtml).not.toMatch(MALAY_INDONESIAN_WORDS_REGEX)
 
       const posHtml = renderToString(
-        <MarketPositionsCard positions={makeMockActivePositions()} />,
+        <PairPriceTickersCard positions={makeMockActivePositions()} />,
       )
       expect(posHtml).not.toMatch(MALAY_INDONESIAN_WORDS_REGEX)
 

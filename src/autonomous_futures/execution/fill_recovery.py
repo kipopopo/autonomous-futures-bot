@@ -7,7 +7,6 @@ from decimal import Decimal
 from typing import Any
 
 from autonomous_futures.execution.account_evidence import finite_decimal
-from autonomous_futures.execution.binance_gateway import BinanceFuturesGateway
 
 
 @dataclass(frozen=True)
@@ -64,32 +63,3 @@ def summarize_fills(
         tuple(sorted(identities)),
     )
 
-
-async def recover_order_fills(
-    gateway: BinanceFuturesGateway,
-    *,
-    symbol: str,
-    response: dict[str, Any],
-    expected_side: str,
-    created_ms: int,
-    now_ms: int,
-) -> FillSummary:
-    if response.get("symbol") != symbol or response.get("side") != expected_side:
-        raise ValueError("Order recovery identity mismatch")
-    executed = finite_decimal(response["executedQty"])
-    if not executed:
-        return summarize_fills(
-            [],
-            symbol=symbol,
-            order_id=int(response["orderId"]),
-            side=expected_side,
-            executed_quantity=executed,
-        )
-    rows = await gateway.get_order_fills(symbol, int(response["orderId"]), created_ms, now_ms)
-    return summarize_fills(
-        rows,
-        symbol=symbol,
-        order_id=int(response["orderId"]),
-        side=expected_side,
-        executed_quantity=executed,
-    )

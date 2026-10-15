@@ -3,7 +3,6 @@ import { renderToString } from 'react-dom/server'
 
 import { buildExecutiveDashboardModel } from '../mission-control/adapter'
 import { KpiCards } from '../mission-control/kpi-cards'
-import { MarketPositionsCard } from '../mission-control/market-positions-card'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
 import { ExecutiveDashboard } from '../mission-control/executive-dashboard'
 import {
@@ -246,63 +245,6 @@ describe('Empirical Adversarial Challenge Suite: Milestone 2 Deliverables', () =
         expect(pos.unrealizedPnlPct).toBe(0.0)
         expect(pos.entryPrice).toBe(0.0)
       }
-    })
-
-    it('asserts MarketPositionsCard renders clean SCANNING / STANDBY badges with zero phantom position details', () => {
-      const prodLaunch: ProductionLaunchModel = {
-        ...buildProductionLaunchModel(null),
-        phase: 'phase_309',
-        aggregateExposureUsdt: 0.0,
-        candidateAllocations: [
-          {
-            symbol: 'ETHUSDT',
-            current_price: 2750.0,
-            position_qty: -0.002,
-            entry_price: 2750.0,
-            allocated_exposure_usdt: 5.5,
-            unrealized_pnl_usdt: 0.0,
-            realized_pnl_usdt: 0.0,
-            total_fees_usdt: 0.001,
-            trades_count: 1,
-          },
-          {
-            symbol: 'SOLUSDT',
-            current_price: 185.0,
-            position_qty: 0.03,
-            entry_price: 185.0,
-            allocated_exposure_usdt: 5.55,
-            unrealized_pnl_usdt: 0.0,
-            realized_pnl_usdt: 0.0,
-            total_fees_usdt: 0.001,
-            trades_count: 1,
-          },
-        ],
-      }
-
-      const adapted = buildExecutiveDashboardModel(
-        prodLaunch,
-        liveMarket,
-        emptyBrackets,
-        micro,
-        emptyTelemetry,
-        testDate,
-      )
-
-      const html = renderToString(<MarketPositionsCard positions={adapted.positions} />)
-
-      // All pairs rendered in SCANNING / STANDBY
-      expect(html).toContain('SCANNING / STANDBY')
-      expect(html).toContain('SOLUSDT')
-      expect(html).toContain('ETHUSDT')
-      expect(html).toContain('BTCUSDT')
-
-      // Adversarial check: Must NOT contain LONG or SHORT state badges
-      expect(html).not.toMatch(/>\s*LONG\s*</)
-      expect(html).not.toMatch(/>\s*SHORT\s*</)
-
-      // Active position telemetry fields must NOT be displayed
-      expect(html).not.toContain('Entry Price:')
-      expect(html).not.toContain('Unrealized PnL:')
     })
 
     it('asserts genuine active positions are preserved when phase is NOT phase_309 (control test)', () => {

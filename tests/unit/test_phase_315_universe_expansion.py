@@ -16,7 +16,6 @@ from decimal import Decimal
 from pathlib import Path
 
 from autonomous_futures.api.app import (
-    _baseline_execution_status,
     get_live_market_data,
     load_execution_status,
 )
@@ -393,16 +392,6 @@ class TestContinuousTraderDaemonUniverse:
 
 class TestApiExecutionStatusAndMarketData:
     """Tests FastAPI execution status and market data endpoints across the 8-pair universe."""
-
-    def test_baseline_execution_status_reports_all_eight_pairs(self) -> None:
-        """_baseline_execution_status must report positions for all 8 pairs."""
-        status = _baseline_execution_status()
-        assert len(status.positions) == 8
-        for sym in ALL_8_PAIRS:
-            assert sym in status.positions
-            pos = status.positions[sym]
-            assert pos.symbol == sym
-            assert pos.mark_price is not None and pos.mark_price > 0.0
 
     def test_load_execution_status_reports_all_eight_pairs(self, tmp_path: Path) -> None:
         """load_execution_status must report positions covering all 8 pairs."""

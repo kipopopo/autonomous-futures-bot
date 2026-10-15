@@ -67,9 +67,6 @@ class BinanceGatewayError(Exception):
     """Base exception for Binance Gateway communication errors."""
 
 
-class ClockDriftExceededError(BinanceGatewayError):
-    """Raised when clock drift exceeds the strict 1000ms threshold."""
-
 
 class BinanceAPIError(BinanceGatewayError):
     """Raised when Binance REST endpoint returns an error response."""

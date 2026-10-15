@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { renderToString } from 'react-dom/server'
 
 import { EvolutionPage } from '../evolution-page'
-import { MarketPositionsCard } from '../mission-control/market-positions-card'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
 import { ExecutivePositionsPage } from '../executive-positions-page'
 import { ExecutiveTradesPage } from '../executive-trades-page'
@@ -466,31 +465,6 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
   })
 
   describe('Dimension 2: Symbol Selector Pills & Multi-Symbol Filtering', () => {
-    it('renders all 8 symbol selector pills and 8-pair perp badge in MarketPositionsCard', () => {
-      const html = renderToString(<MarketPositionsCard positions={mock8Positions} />)
-
-      expect(html).toContain('8 Perpetual Pairs')
-      expect(html).toContain('data-testid="symbol-pill-all"')
-      expect(html).toContain('data-testid="symbol-pill-sol"')
-      expect(html).toContain('data-testid="symbol-pill-eth"')
-      expect(html).toContain('data-testid="symbol-pill-btc"')
-      expect(html).toContain('data-testid="symbol-pill-doge"')
-      expect(html).toContain('data-testid="symbol-pill-bnb"')
-      expect(html).toContain('data-testid="symbol-pill-xrp"')
-      expect(html).toContain('data-testid="symbol-pill-sui"')
-      expect(html).toContain('data-testid="symbol-pill-avax"')
-      expect(html).toContain('ALL')
-
-      // All 8 cards rendered by default
-      expect(html).toContain('data-testid="market-pair-card-solusdt"')
-      expect(html).toContain('data-testid="market-pair-card-ethusdt"')
-      expect(html).toContain('data-testid="market-pair-card-btcusdt"')
-      expect(html).toContain('data-testid="market-pair-card-dogeusdt"')
-      expect(html).toContain('data-testid="market-pair-card-bnbusdt"')
-      expect(html).toContain('data-testid="market-pair-card-xrpusdt"')
-      expect(html).toContain('data-testid="market-pair-card-suiusdt"')
-      expect(html).toContain('data-testid="market-pair-card-avaxusdt"')
-    })
 
     it('verifies multi-symbol filtering predicate handles all 8 symbols accurately', () => {
       const testSymbols = ['ALL', 'SOL', 'ETH', 'BTC', 'DOGE', 'BNB', 'XRP', 'SUI', 'AVAX']
@@ -638,43 +612,6 @@ describe('Milestone M3 Empirical Challenge Suite', () => {
       // Undefined and NaN resilience
       expect(formatPriceTest(undefined)).toBe('0.00')
       expect(formatPriceTest(NaN)).toBe('0.00')
-    })
-
-    it('verifies MarketPositionsCard renders 4-decimal prices for extreme values in position state', () => {
-      const extremePositions: PositionTelemetry[] = [
-        {
-          symbol: 'DOGEUSDT',
-          currentPrice: 0.0001,
-          state: 'LONG',
-          entryPrice: 0.0001,
-          size: 10000,
-          notionalUsdt: 1.0,
-          marginUsdt: 1.0,
-          unrealizedPnlUsdt: 0.0,
-          unrealizedPnlPct: 0.0,
-          takeProfitPrice: 0.0002,
-          stopLossPrice: 0.00005,
-          riskRewardRatio: '1.66 : 1',
-        },
-        {
-          symbol: 'XRPUSDT',
-          currentPrice: 0.9999,
-          state: 'LONG',
-          entryPrice: 0.9999,
-          size: 5,
-          notionalUsdt: 4.9995,
-          marginUsdt: 4.9995,
-          unrealizedPnlUsdt: 0.0,
-          unrealizedPnlPct: 0.0,
-          takeProfitPrice: 1.025,
-          stopLossPrice: 0.985,
-          riskRewardRatio: '1.66 : 1',
-        },
-      ]
-
-      const html = renderToString(<MarketPositionsCard positions={extremePositions} />)
-      expect(html).toContain('0.0001')
-      expect(html).toContain('0.9999')
     })
 
     it('verifies OrderFeedTable formats extreme sub-dollar prices with 4 decimals', () => {

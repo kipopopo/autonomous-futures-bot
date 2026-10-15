@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { renderToString } from 'react-dom/server'
 import { ProvenanceBadge } from '../mission-control/provenance-badge'
 import { KpiCards } from '../mission-control/kpi-cards'
-import { MarketPositionsCard } from '../mission-control/market-positions-card'
+import { PairPriceTickersCard } from '../mission-control/pair-price-tickers-card'
 import { StrategyConfluenceRadar } from '../mission-control/strategy-confluence-radar'
 import { StrategyEvolutionRadar } from '../mission-control/strategy-evolution-radar'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
@@ -57,7 +57,7 @@ describe('Phase 314 Milestone 3 Provenance Badging & Truth in Labeling', () => {
     expect(html).toContain('DAEMON 24/7')
   })
 
-  it('renders LIVE EXCHANGE badge on MarketPositionsCard and OrderFeedTable', () => {
+  it('renders LIVE EXCHANGE badge on PairPriceTickersCard and OrderFeedTable', () => {
     const prodLaunch = buildProductionLaunchModel(null)
     const liveMarket = buildLiveMarketModel(null)
     const brackets = buildBracketPositionsModel(null)
@@ -73,7 +73,7 @@ describe('Phase 314 Milestone 3 Provenance Badging & Truth in Labeling', () => {
       new Date(),
     )
 
-    const marketHtml = renderToString(<MarketPositionsCard positions={adapted.positions} />)
+    const marketHtml = renderToString(<PairPriceTickersCard positions={adapted.positions} />)
     expect(marketHtml).toContain('provenance-badge-live-exchange')
 
     const orderHtml = renderToString(<OrderFeedTable orders={adapted.orders} />)

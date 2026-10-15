@@ -4,7 +4,7 @@ import { renderToString } from 'react-dom/server'
 import App from '@/App'
 import { MissionControlHeader } from '../mission-control/mission-control-header'
 import { KpiCards } from '../mission-control/kpi-cards'
-import { MarketPositionsCard } from '../mission-control/market-positions-card'
+import { PairPriceTickersCard } from '../mission-control/pair-price-tickers-card'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
 import {
   ResearchArchiveDrawer,
@@ -22,7 +22,6 @@ import headerSource from '@/components/mission-control/mission-control-header.ts
 import badgeSource from '@/components/mission-control/provenance-badge.tsx?raw'
 import drawerSource from '@/components/mission-control/research-archive-drawer.tsx?raw'
 import kpiSource from '@/components/mission-control/kpi-cards.tsx?raw'
-import positionsSource from '@/components/mission-control/market-positions-card.tsx?raw'
 import chartSource from '@/components/mission-control/pair-candlestick-chart.tsx?raw'
 import orderFeedSource from '@/components/mission-control/order-feed-table.tsx?raw'
 import adapterSource from '@/components/mission-control/adapter.ts?raw'
@@ -386,7 +385,6 @@ const M2_OWNED_SOURCES: Record<string, string> = {
   'src/components/mission-control/provenance-badge.tsx': badgeSource,
   'src/components/mission-control/research-archive-drawer.tsx': drawerSource,
   'src/components/mission-control/kpi-cards.tsx': kpiSource,
-  'src/components/mission-control/market-positions-card.tsx': positionsSource,
   'src/components/mission-control/pair-candlestick-chart.tsx': chartSource,
   'src/components/mission-control/order-feed-table.tsx': orderFeedSource,
   'src/components/mission-control/adapter.ts': adapterSource,
@@ -437,7 +435,7 @@ describe('Empirical Adversarial Challenge Suite: Milestone M2 Localization', () 
           />,
         ),
         renderToString(<KpiCards kpis={MOCK_MODEL.kpis} />),
-        renderToString(<MarketPositionsCard positions={MOCK_MODEL.positions} />),
+        renderToString(<PairPriceTickersCard positions={MOCK_MODEL.positions} />),
         renderToString(<OrderFeedTable orders={MOCK_MODEL.orders} />),
         renderToString(
           <ResearchArchiveDrawer
@@ -683,37 +681,6 @@ describe('Empirical Adversarial Challenge Suite: Milestone M2 Localization', () 
   // Challenge 5: Exact English Rendering of Market Watch & Order Feed
   // --------------------------------------------------------------------------
   describe('Challenge 5: Exact English Rendering of Market Positions & Order Feed', () => {
-    it('renders MarketPositionsCard with English headers, metric labels, and pair pills', () => {
-      const html = renderToString(
-        <MarketPositionsCard positions={MOCK_MODEL.positions} />,
-      )
-
-      // Card header
-      expect(html).toContain('Live Positions &amp; Markets')
-      expect(html).toContain('Perpetual Pairs')
-      expect(html).toContain('1.66 : 1 R:R Ratio')
-      expect(html).toContain('Interactive Chart (All)')
-
-      // Filter pills
-      expect(html).toContain('>ALL<')
-      expect(html).toContain('>SOL<')
-      expect(html).toContain('>ETH<')
-      expect(html).toContain('>BTC<')
-
-      // Position metrics
-      expect(html).toContain('SCANNING / STANDBY')
-      expect(html).toContain('Mark Price:')
-      expect(html).toContain('Take Profit (TP 2.0x ATR):')
-      expect(html).toContain('Stop Loss (SL 1.2x ATR):')
-      expect(html).toContain('Risk/Reward Ratio:')
-      expect(html).toContain('Interactive Chart')
-
-      // Negative assertion
-      expect(html).not.toContain('Kedudukan Langsung')
-      expect(html).not.toContain('Harga Semasa')
-      expect(html).not.toContain('Nisbah Risiko')
-      expect(html).not.toContain('Carta Interaktif')
-    })
 
     it('renders OrderFeedTable with English headers, table columns, and unit labels', () => {
       const html = renderToString(<OrderFeedTable orders={MOCK_MODEL.orders} />)

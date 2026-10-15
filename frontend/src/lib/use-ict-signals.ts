@@ -18,21 +18,6 @@ import type {
 
 export type IctConnectionState = 'STREAMING' | 'POLLING' | 'OFFLINE' | 'RECONNECTING'
 
-export const ICT_ACTIVE_PAIRS = [
-  'BTCUSDT',
-  'ETHUSDT',
-  'SOLUSDT',
-  'DOGEUSDT',
-  'BNBUSDT',
-  'XRPUSDT',
-  'SUIUSDT',
-  'AVAXUSDT',
-  'NEARUSDT',
-  'LINKUSDT',
-  'APTUSDT',
-  'ADAUSDT',
-] as const
-
 /**
  * Adapts backend response signals into normalized IctPairSignal items.
  */

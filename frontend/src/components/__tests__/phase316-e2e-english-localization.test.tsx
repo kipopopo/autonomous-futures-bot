@@ -3,7 +3,6 @@ import { renderToString } from 'react-dom/server'
 
 import { MissionControlHeader } from '../mission-control/mission-control-header'
 import { KpiCards } from '../mission-control/kpi-cards'
-import { MarketPositionsCard } from '../mission-control/market-positions-card'
 import { StrategyConfluenceRadar } from '../mission-control/strategy-confluence-radar'
 import { StrategyEvolutionRadar } from '../mission-control/strategy-evolution-radar'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
@@ -401,14 +400,6 @@ describe('Phase 316 Institutional English Standardization E2E Test Suite', () =>
         expect(symbols).toEqual(ALL_8_PAIRS)
       })
 
-      it('F3.2: flat positions render STANDBY state with 0.00 exposure', () => {
-        const positions = makeMockFlatPositions()
-        const html = renderToString(<MarketPositionsCard positions={positions} />)
-        expect(html).toContain('SCANNING / STANDBY')
-        expect(html).toContain('SOLUSDT')
-        expect(html).toContain('BTCUSDT')
-      })
-
       it('F3.3: flat positions suppress phantom bracket prices', () => {
         const positions = makeMockFlatPositions()
         for (const p of positions) {
@@ -434,14 +425,6 @@ describe('Phase 316 Institutional English Standardization E2E Test Suite', () =>
         const slDist = sol.entryPrice - sol.stopLossPrice // 4.2
         const rr = tpDist / slDist // 1.6666...
         expect(Math.round(rr * 100) / 100).toBe(1.67)
-      })
-
-      it('F3.6: renders MarketPositionsCard with active position cleanly', () => {
-        const positions = makeMockActivePositions()
-        const html = renderToString(<MarketPositionsCard positions={positions} />)
-        expect(html).toContain('SOLUSDT')
-        expect(html).toContain('187.00')
-        expect(html).toContain('175.80')
       })
     })
 

@@ -5,12 +5,11 @@ import { buildExecutiveDashboardModel, formatRelativeTime } from '../mission-con
 import App from '@/App'
 import { ExecutiveDashboard } from '../mission-control/executive-dashboard'
 import { KpiCards } from '../mission-control/kpi-cards'
-import { MarketPositionsCard } from '../mission-control/market-positions-card'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
 import { MissionControlHeader } from '../mission-control/mission-control-header'
 import { ProvenanceBadge } from '../mission-control/provenance-badge'
 import { ResearchArchiveDrawer, ARCHIVE_PHASES } from '../mission-control/research-archive-drawer'
-import type { ExecutiveDashboardModel, PositionTelemetry, OrderFeedItem } from '../mission-control/types'
+import type { ExecutiveDashboardModel, OrderFeedItem } from '../mission-control/types'
 import {
   buildProductionLaunchModel,
   buildLiveMarketModel,
@@ -175,109 +174,6 @@ describe('Empirical Adversarial Stress Suite: Milestone M2 (challenger_m2_2)', (
       expect(html).toContain('5.0% (Floor ≥ 75%)')
       expect(html).toContain('text-amber-400') // unhealthy reserve indicator
       assertNoMalayLeakage(html, 'KpiCards with max exposure cap')
-    })
-  })
-
-  describe('Adversarial Stress 2: Extreme MarketPositionsCard SSR Rendering', () => {
-    it('handles completely empty positions array without error or Malay fallback', () => {
-      const html = renderToString(<MarketPositionsCard positions={[]} />)
-      expect(html).toContain('Live Positions &amp; Markets')
-      expect(html).toContain('Perpetual Pairs')
-      expect(html).toContain('1.66 : 1 R:R Ratio')
-      expect(html).toContain('Interactive Chart (All)')
-      assertNoMalayLeakage(html, 'MarketPositionsCard empty positions')
-    })
-
-    it('handles 8 pairs with extreme price scales (sub-penny DOGE vs $1.5M BTC)', () => {
-      const extremePositions: PositionTelemetry[] = [
-        {
-          symbol: 'BTCUSDT',
-          currentPrice: 1500000.5,
-          state: 'LONG',
-          size: 0.00001,
-          notionalUsdt: 15.0,
-          marginUsdt: 15.0,
-          unrealizedPnlUsdt: 2.55,
-          unrealizedPnlPct: 17.0,
-          entryPrice: 1250000.0,
-          takeProfitPrice: 1600000.0,
-          stopLossPrice: 1100000.0,
-          riskRewardRatio: '1.66:1',
-        },
-        {
-          symbol: 'DOGEUSDT',
-          currentPrice: 0.00004567,
-          state: 'SHORT',
-          size: 100000,
-          notionalUsdt: 4.567,
-          marginUsdt: 4.567,
-          unrealizedPnlUsdt: -0.234,
-          unrealizedPnlPct: -5.12,
-          entryPrice: 0.000048,
-          takeProfitPrice: 0.00004,
-          stopLossPrice: 0.000052,
-          riskRewardRatio: '1.66:1',
-        },
-        {
-          symbol: 'SOLUSDT',
-          currentPrice: 185.25,
-          state: 'SCANNING / STANDBY',
-          size: 0,
-          notionalUsdt: 0,
-          marginUsdt: 0,
-          unrealizedPnlUsdt: 0,
-          unrealizedPnlPct: 0,
-          entryPrice: 0,
-          takeProfitPrice: 0,
-          stopLossPrice: 0,
-          riskRewardRatio: '—',
-        },
-      ]
-
-      const html = renderToString(
-        <MarketPositionsCard positions={extremePositions} initialExpanded={false} />,
-      )
-      expect(html).toContain('BTCUSDT')
-      expect(html).toContain('DOGEUSDT')
-      expect(html).toContain('SOLUSDT')
-      expect(html).toContain('Scanning 15m liquidity (Capitulation Sweep)...')
-      expect(html).toContain('Entry Price:')
-      expect(html).toContain('Take Profit (TP 2.0x ATR):')
-      expect(html).toContain('Stop Loss (SL 1.2x ATR):')
-      expect(html).toContain('Risk/Reward Ratio:')
-      assertNoMalayLeakage(html, 'MarketPositionsCard extreme prices')
-    })
-
-    it('renders expanded candlestick drawers for all pairs without throwing', () => {
-      const positions: PositionTelemetry[] = [
-        {
-          symbol: 'ETHUSDT',
-          currentPrice: 2850.0,
-          state: 'SCANNING / STANDBY',
-          size: 0,
-          notionalUsdt: 0,
-          marginUsdt: 0,
-          unrealizedPnlUsdt: 0,
-          unrealizedPnlPct: 0,
-          entryPrice: 0,
-          takeProfitPrice: 0,
-          stopLossPrice: 0,
-          riskRewardRatio: '—',
-        },
-      ]
-
-      const html = renderToString(
-        <MarketPositionsCard positions={positions} initialExpanded={true} defaultInterval="15m" />,
-      )
-      expect(html).toContain('Interactive Chart')
-      expect(html).toContain('Expanded')
-      expect(html).toContain('EMA 50')
-      expect(html).toContain('EMA 200')
-      expect(html).toContain('Volume')
-      expect(html).toContain('15m')
-      expect(html).toContain('1h')
-      expect(html).toContain('OHLC:')
-      assertNoMalayLeakage(html, 'MarketPositionsCard expanded chart drawer')
     })
   })
 
@@ -448,9 +344,6 @@ describe('Empirical Adversarial Stress Suite: Milestone M2 (challenger_m2_2)', (
       const kpisHtml = renderToString(<KpiCards kpis={adapted.kpis} />)
       assertNoMalayLeakage(kpisHtml, 'KpiCards from adapted fallback')
 
-      const positionsHtml = renderToString(<MarketPositionsCard positions={adapted.positions} />)
-      assertNoMalayLeakage(positionsHtml, 'MarketPositionsCard from adapted fallback')
-
       const ordersHtml = renderToString(<OrderFeedTable orders={adapted.orders} />)
       assertNoMalayLeakage(ordersHtml, 'OrderFeedTable from adapted fallback')
 
@@ -496,11 +389,6 @@ describe('Empirical Adversarial Stress Suite: Milestone M2 (challenger_m2_2)', (
       const kpisHtml = renderToString(<KpiCards kpis={adapted.kpis} />)
       expect(kpisHtml).toBeDefined()
       assertNoMalayLeakage(kpisHtml, 'KpiCards with malformed numbers')
-
-      // Verify Market positions under malformed numbers
-      const positionsHtml = renderToString(<MarketPositionsCard positions={adapted.positions} />)
-      expect(positionsHtml).toBeDefined()
-      assertNoMalayLeakage(positionsHtml, 'MarketPositionsCard with malformed numbers')
 
       // Full dashboard does not throw
       const fullHtml = renderToString(

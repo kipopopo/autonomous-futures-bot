@@ -6175,63 +6175,6 @@ class CanaryAutoEvolutionResponse(DomainModel):
     qualified_portfolios: list[QualifiedPortfolioReceiptSummaryItem] = Field(default_factory=list)
 
 
-def _fetch_closed_trades_count(target_dir: Path | None = None) -> int:
-    """Fetch real closed trades count from lifecycle/production SQLite telemetry."""
-    live_candidates: list[Path] = []
-    if target_dir is not None:
-        live_candidates.extend(
-            [
-                target_dir / "canary-lifecycle-telemetry.sqlite3",
-                target_dir / "canary-production-telemetry.sqlite3",
-                target_dir.parent / "phase311" / "canary-lifecycle-telemetry.sqlite3",
-                target_dir.parent / "phase310" / "canary-production-telemetry.sqlite3",
-            ]
-        )
-    live_candidates.extend(
-        [
-            Path("artifacts/research/phase311/canary-lifecycle-telemetry.sqlite3"),
-            Path("artifacts/research/phase310/canary-production-telemetry.sqlite3"),
-        ]
-    )
-
-    for db_path in live_candidates:
-        if db_path.is_file():
-            try:
-                with sqlite3.connect(db_path) as conn:
-                    tables = {
-                        r[0]
-                        for r in conn.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table'"
-                        ).fetchall()
-                    }
-                    if "trade_autopsies" in tables:
-                        cnt = conn.execute("SELECT count(*) FROM trade_autopsies").fetchone()[0]
-                        return int(cnt)
-            except Exception:
-                continue
-
-    if target_dir is not None:
-        local_db = target_dir / "canary-evolution-telemetry.sqlite3"
-        if local_db.is_file():
-            try:
-                with sqlite3.connect(local_db) as conn:
-                    tables = {
-                        r[0]
-                        for r in conn.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table'"
-                        ).fetchall()
-                    }
-                    if "trade_autopsies" in tables:
-                        cnt = conn.execute("SELECT count(*) FROM trade_autopsies").fetchone()[0]
-                        return int(cnt)
-                    if "autopsies" in tables and target_dir != Path("artifacts/research/phase306"):
-                        cnt = conn.execute("SELECT count(*) FROM autopsies").fetchone()[0]
-                        return int(cnt)
-            except Exception:
-                pass
-
-    return 0
-
 
 def _build_macro_gating_state(
     regime: str = "UNKNOWN",

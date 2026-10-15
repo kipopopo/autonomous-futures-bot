@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import React, { Component, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Archive,
@@ -26,32 +26,33 @@ import { ExecutiveSafetyPage } from '@/components/executive-safety-page'
 import { ResearchArchiveDrawer } from '@/components/mission-control/research-archive-drawer'
 import { ProvenanceBadge } from '@/components/mission-control/provenance-badge'
 
-import { AccountingPage } from '@/components/accounting-page'
-import { CreatorPage } from '@/components/creator-page'
-import { ExecutionPage } from '@/components/execution-page'
-import { LearnerPage } from '@/components/learner-page'
-import { LifecyclePage } from '@/components/lifecycle-page'
-import { LiveMarketPage } from '@/components/live-market-page'
-import { MicrostructurePage } from '@/components/microstructure-page'
-import { RiskPage } from '@/components/risk-page'
-import { StrategyActivationPage } from '@/components/strategy-activation-page'
-import { StressPage } from '@/components/stress-page'
-import { StrategyMiningPage } from '@/components/strategy-mining-page'
-import { PortfolioRebalancingPage } from '@/components/portfolio-rebalancing-page'
-import { TestnetGatewayPage } from '@/components/testnet-gateway-page'
-import { BracketPositionsPage } from '@/components/bracket-positions-page'
-import { ExecutionGuardPage } from '@/components/execution-guard-page'
-import { OrchestratorPage } from '@/components/orchestrator-page'
-import { CalibrationPage } from '@/components/calibration-page'
-import { EnsemblePage } from '@/components/ensemble-page'
 import { EvolutionPage } from '@/components/evolution-page'
-import { TestnetBridgePage } from '@/components/testnet-bridge-page'
-import { KillSwitchPage } from '@/components/kill-switch-page'
-import { ProductionLaunchPage } from '@/components/production-launch-page'
+
+const AccountingPage = React.lazy(() => import('@/components/accounting-page').then((m) => ({ default: m.AccountingPage })))
+const CreatorPage = React.lazy(() => import('@/components/creator-page').then((m) => ({ default: m.CreatorPage })))
+const ExecutionPage = React.lazy(() => import('@/components/execution-page').then((m) => ({ default: m.ExecutionPage })))
+const LearnerPage = React.lazy(() => import('@/components/learner-page').then((m) => ({ default: m.LearnerPage })))
+const LifecyclePage = React.lazy(() => import('@/components/lifecycle-page').then((m) => ({ default: m.LifecyclePage })))
+const LiveMarketPage = React.lazy(() => import('@/components/live-market-page').then((m) => ({ default: m.LiveMarketPage })))
+const MicrostructurePage = React.lazy(() => import('@/components/microstructure-page').then((m) => ({ default: m.MicrostructurePage })))
+const RiskPage = React.lazy(() => import('@/components/risk-page').then((m) => ({ default: m.RiskPage })))
+const StrategyActivationPage = React.lazy(() => import('@/components/strategy-activation-page').then((m) => ({ default: m.StrategyActivationPage })))
+const StressPage = React.lazy(() => import('@/components/stress-page').then((m) => ({ default: m.StressPage })))
+const StrategyMiningPage = React.lazy(() => import('@/components/strategy-mining-page').then((m) => ({ default: m.StrategyMiningPage })))
+const PortfolioRebalancingPage = React.lazy(() => import('@/components/portfolio-rebalancing-page').then((m) => ({ default: m.PortfolioRebalancingPage })))
+const TestnetGatewayPage = React.lazy(() => import('@/components/testnet-gateway-page').then((m) => ({ default: m.TestnetGatewayPage })))
+const BracketPositionsPage = React.lazy(() => import('@/components/bracket-positions-page').then((m) => ({ default: m.BracketPositionsPage })))
+const ExecutionGuardPage = React.lazy(() => import('@/components/execution-guard-page').then((m) => ({ default: m.ExecutionGuardPage })))
+const OrchestratorPage = React.lazy(() => import('@/components/orchestrator-page').then((m) => ({ default: m.OrchestratorPage })))
+const CalibrationPage = React.lazy(() => import('@/components/calibration-page').then((m) => ({ default: m.CalibrationPage })))
+const EnsemblePage = React.lazy(() => import('@/components/ensemble-page').then((m) => ({ default: m.EnsemblePage })))
+const TestnetBridgePage = React.lazy(() => import('@/components/testnet-bridge-page').then((m) => ({ default: m.TestnetBridgePage })))
+const KillSwitchPage = React.lazy(() => import('@/components/kill-switch-page').then((m) => ({ default: m.KillSwitchPage })))
+const ProductionLaunchPage = React.lazy(() => import('@/components/production-launch-page').then((m) => ({ default: m.ProductionLaunchPage })))
+
 import {
-  fetchCanaryDashboardData,
-  fetchOverviewData,
-  fetchLiveMarketPrices,
+  fetchPrimaryTelemetry,
+  fetchArchiveDataForPage,
   type LiveMarketPricesResponse,
 } from '@/lib/api'
 import { useTelemetryWebSocket, type ConnectionStatus } from '@/lib/websocket'
@@ -385,101 +386,110 @@ function App() {
   const loadData = useCallback(async () => {
     setState('loading')
     setErrorMessage(null)
-    const [overviewResult, canaryResult, pricesResult] = await Promise.allSettled([
-      fetchOverviewData(),
-      fetchCanaryDashboardData(),
-      fetchLiveMarketPrices(),
+
+    const isArchive = isArchivePage(page)
+    const isSafety = page === 'safety'
+
+    const [telemetryResult, archiveResult] = await Promise.allSettled([
+      fetchPrimaryTelemetry(),
+      isArchive || isSafety ? fetchArchiveDataForPage(page) : Promise.resolve(null),
     ])
-    const nextOverview = overviewResult.status === 'fulfilled' ? overviewResult.value : EMPTY_API_DATA
-    const nextCanary = canaryResult.status === 'fulfilled' ? canaryResult.value : EMPTY_CANARY_DATA
-    const nextPrices = pricesResult.status === 'fulfilled' ? pricesResult.value : null
 
-    setApiData(nextOverview)
-    setCanaryData(nextCanary)
-    setLiveMarketPrices(nextPrices)
+    let hasData = false
+
+    if (telemetryResult.status === 'fulfilled' && telemetryResult.value) {
+      const telemetry = telemetryResult.value
+      setCanaryData((prev) => ({
+        ...prev,
+        executionStatus: telemetry.executionStatus ?? prev.executionStatus,
+        evolution: telemetry.evolution ?? prev.evolution,
+      }))
+      if (telemetry.liveMarketPrices) {
+        setLiveMarketPrices(telemetry.liveMarketPrices)
+      }
+      if (telemetry.executionStatus || telemetry.liveMarketPrices || telemetry.evolution) {
+        hasData = true
+      }
+    }
+
+    if (archiveResult.status === 'fulfilled' && archiveResult.value) {
+      const archive = archiveResult.value
+      if (archive.canary) {
+        setCanaryData((prev) => ({ ...prev, ...archive.canary }))
+      }
+      if (archive.apiData) {
+        setApiData((prev) => ({ ...prev, ...archive.apiData }))
+      }
+      hasData = true
+    }
+
     setLastFetchedAt(new Date())
-
-    const hasData = Boolean(
-      nextOverview.health?.status === 'ok' ||
-      nextCanary.summary?.verified ||
-      nextCanary.hawkes?.verified ||
-      nextCanary.risk?.verified ||
-      nextCanary.accounting?.verified ||
-      nextCanary.liveMarket?.verified ||
-      nextCanary.paperExecution?.verified ||
-      nextCanary.strategyActivation?.verified ||
-      nextCanary.autonomousLifecycle?.verified ||
-      nextCanary.stressFaultInjection?.verified ||
-      nextCanary.strategyMining?.verified ||
-      nextCanary.portfolioRebalancing?.verified ||
-      nextCanary.testnetGateway?.verified ||
-      nextCanary.bracketPositions?.verified ||
-      nextCanary.executionGuard?.verified ||
-      nextCanary.orchestrator?.verified ||
-      nextCanary.calibration?.verified ||
-      nextCanary.ensemble?.verified ||
-      nextCanary.evolution?.verified ||
-      nextCanary.testnetBridge?.verified
-    )
 
     if (hasData) {
       setState('ready')
     } else {
       setState('error')
       setErrorMessage(
-        overviewResult.status === 'rejected'
-          ? (overviewResult.reason instanceof Error ? overviewResult.reason.message : 'API unavailable')
+        telemetryResult.status === 'rejected'
+          ? (telemetryResult.reason instanceof Error ? telemetryResult.reason.message : 'API unavailable')
           : 'No verified telemetry is currently active'
       )
     }
-  }, [])
+  }, [page])
 
   useEffect(() => {
     let ignore = false
-    void Promise.allSettled([fetchOverviewData(), fetchCanaryDashboardData()])
-      .then(([overviewResult, canaryResult]) => {
-        if (!ignore) {
-          const nextOverview = overviewResult.status === 'fulfilled' ? overviewResult.value : EMPTY_API_DATA
-          const nextCanary = canaryResult.status === 'fulfilled' ? canaryResult.value : EMPTY_CANARY_DATA
+    const isArchive = isArchivePage(page)
+    const isSafety = page === 'safety'
 
-          setApiData(nextOverview)
-          setCanaryData(nextCanary)
-          setLastFetchedAt(new Date())
+    void Promise.allSettled([
+      fetchPrimaryTelemetry(),
+      isArchive || isSafety ? fetchArchiveDataForPage(page) : Promise.resolve(null),
+    ]).then(([telemetryResult, archiveResult]) => {
+      if (!ignore) {
+        let hasData = false
 
-          const hasData = Boolean(
-            nextOverview.health?.status === 'ok' ||
-            nextCanary.summary?.verified ||
-            nextCanary.hawkes?.verified ||
-            nextCanary.risk?.verified ||
-            nextCanary.accounting?.verified ||
-            nextCanary.liveMarket?.verified ||
-            nextCanary.paperExecution?.verified ||
-            nextCanary.strategyActivation?.verified ||
-            nextCanary.autonomousLifecycle?.verified ||
-            nextCanary.stressFaultInjection?.verified ||
-            nextCanary.strategyMining?.verified ||
-            nextCanary.portfolioRebalancing?.verified ||
-            nextCanary.testnetGateway?.verified ||
-            nextCanary.bracketPositions?.verified ||
-            nextCanary.executionGuard?.verified ||
-            nextCanary.orchestrator?.verified ||
-            nextCanary.calibration?.verified ||
-            nextCanary.ensemble?.verified ||
-            nextCanary.evolution?.verified
-          )
-
-          if (hasData) {
-            setState('ready')
-          } else {
-            setState('error')
-            setErrorMessage(
-              overviewResult.status === 'rejected'
-                ? (overviewResult.reason instanceof Error ? overviewResult.reason.message : 'API unavailable')
-                : 'No verified telemetry is currently active'
-            )
+        if (telemetryResult.status === 'fulfilled' && telemetryResult.value) {
+          const telemetry = telemetryResult.value
+          setCanaryData((prev) => ({
+            ...prev,
+            executionStatus: telemetry.executionStatus ?? prev.executionStatus,
+            evolution: telemetry.evolution ?? prev.evolution,
+          }))
+          if (telemetry.liveMarketPrices) {
+            setLiveMarketPrices(telemetry.liveMarketPrices)
+          }
+          if (telemetry.executionStatus || telemetry.liveMarketPrices || telemetry.evolution) {
+            hasData = true
           }
         }
-      })
+
+        if (archiveResult.status === 'fulfilled' && archiveResult.value) {
+          const archive = archiveResult.value
+          if (archive.canary) {
+            setCanaryData((prev) => ({ ...prev, ...archive.canary }))
+          }
+          if (archive.apiData) {
+            setApiData((prev) => ({ ...prev, ...archive.apiData }))
+          }
+          hasData = true
+        }
+
+        setLastFetchedAt(new Date())
+
+        if (hasData) {
+          setState('ready')
+        } else {
+          setState('error')
+          setErrorMessage(
+            telemetryResult.status === 'rejected'
+              ? (telemetryResult.reason instanceof Error ? telemetryResult.reason.message : 'API unavailable')
+              : 'No verified telemetry is currently active'
+          )
+        }
+      }
+    })
+
     return () => {
       ignore = true
     }
@@ -500,9 +510,16 @@ function App() {
   // Auto-refresh interval (10 seconds) for continuous live market pricing and telemetry
   useEffect(() => {
     const timer = setInterval(() => {
-      void fetchCanaryDashboardData().then((nextCanary) => {
-        if (nextCanary) {
-          setCanaryData(nextCanary)
+      void fetchPrimaryTelemetry().then((telemetry) => {
+        if (telemetry) {
+          setCanaryData((prev) => ({
+            ...prev,
+            executionStatus: telemetry.executionStatus ?? prev.executionStatus,
+            evolution: telemetry.evolution ?? prev.evolution,
+          }))
+          if (telemetry.liveMarketPrices) {
+            setLiveMarketPrices(telemetry.liveMarketPrices)
+          }
           setLastFetchedAt(new Date())
         }
       })
@@ -510,7 +527,25 @@ function App() {
     return () => clearInterval(timer)
   }, [])
 
+  // On-demand archive data fetch when navigating to an archive page or safety view
+  useEffect(() => {
+    if (isArchivePage(page) || page === 'safety') {
+      void fetchArchiveDataForPage(page).then((result) => {
+        if (result) {
+          if (result.canary) {
+            setCanaryData((prev) => ({ ...prev, ...result.canary }))
+          }
+          if (result.apiData) {
+            setApiData((prev) => ({ ...prev, ...result.apiData }))
+          }
+          setState('ready')
+        }
+      })
+    }
+  }, [page])
+
   const hasCanary = Boolean(
+    canaryData.executionStatus?.verified ||
     canaryData.summary?.verified ||
     canaryData.hawkes?.verified ||
     canaryData.paperExecution?.verified ||
@@ -932,30 +967,44 @@ function App() {
           )}
 
           {/* Historical Canary Pages (Phases 250-309 Preserved in Full) */}
-          {isMarketPage && state === 'ready' && <LiveMarketPage model={liveMarketModel} />}
-          {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
-          {isLearnerPage && state === 'ready' && <LearnerPage model={learnerModel} />}
-          {isMicrostructurePage && state === 'ready' && (
-            <MicrostructurePage model={microstructureModel} telemetry={telemetry} />
-          )}
-          {isRiskPage && state === 'ready' && <RiskPage model={riskModel} />}
-          {isAccountingPage && state === 'ready' && <AccountingPage model={accountingModel} />}
-          {isExecutionPage && state === 'ready' && <ExecutionPage model={paperExecutionModel} />}
-          {isActivationPage && state === 'ready' && <StrategyActivationPage model={strategyActivationModel} />}
-          {isLifecyclePage && state === 'ready' && <LifecyclePage model={autonomousLifecycleModel} />}
-          {isStressPage && state === 'ready' && <StressPage model={stressModel} />}
-          {isMiningPage && state === 'ready' && <StrategyMiningPage model={strategyMiningModel} />}
-          {isPortfolioPage && state === 'ready' && <PortfolioRebalancingPage model={portfolioRebalancingModel} />}
-          {isTestnetPage && state === 'ready' && <TestnetGatewayPage model={testnetGatewayModel} />}
-          {isBracketsPage && state === 'ready' && <BracketPositionsPage model={bracketPositionsModel} />}
-          {isGuardPage && state === 'ready' && <ExecutionGuardPage model={executionGuardModel} />}
-          {isOrchestratorPage && state === 'ready' && <OrchestratorPage model={orchestratorModel} />}
-          {isCalibrationPage && state === 'ready' && <CalibrationPage model={calibrationModel} />}
-          {isEnsemblePage && state === 'ready' && <EnsemblePage model={ensembleModel} />}
+          <Suspense
+            fallback={
+              <section className="card bg-base-200 border border-base-300 shadow-xl p-8 text-center my-6" aria-live="polite">
+                <div className="flex flex-col items-center justify-center gap-3">
+                  <span className="loading loading-ring loading-lg text-primary" aria-hidden="true" />
+                  <h2 className="text-lg font-bold">Loading Historical Research Archive</h2>
+                  <p className="text-sm text-base-content/70">
+                    Retrieving archived component and cryptographic proof telemetry.
+                  </p>
+                </div>
+              </section>
+            }
+          >
+            {isMarketPage && state === 'ready' && <LiveMarketPage model={liveMarketModel} />}
+            {isCreatorPage && state === 'ready' && <CreatorPage model={creatorModel} qualification={qualificationModel} />}
+            {isLearnerPage && state === 'ready' && <LearnerPage model={learnerModel} />}
+            {isMicrostructurePage && state === 'ready' && (
+              <MicrostructurePage model={microstructureModel} telemetry={telemetry} />
+            )}
+            {isRiskPage && state === 'ready' && <RiskPage model={riskModel} />}
+            {isAccountingPage && state === 'ready' && <AccountingPage model={accountingModel} />}
+            {isExecutionPage && state === 'ready' && <ExecutionPage model={paperExecutionModel} />}
+            {isActivationPage && state === 'ready' && <StrategyActivationPage model={strategyActivationModel} />}
+            {isLifecyclePage && state === 'ready' && <LifecyclePage model={autonomousLifecycleModel} />}
+            {isStressPage && state === 'ready' && <StressPage model={stressModel} />}
+            {isMiningPage && state === 'ready' && <StrategyMiningPage model={strategyMiningModel} />}
+            {isPortfolioPage && state === 'ready' && <PortfolioRebalancingPage model={portfolioRebalancingModel} />}
+            {isTestnetPage && state === 'ready' && <TestnetGatewayPage model={testnetGatewayModel} />}
+            {isBracketsPage && state === 'ready' && <BracketPositionsPage model={bracketPositionsModel} />}
+            {isGuardPage && state === 'ready' && <ExecutionGuardPage model={executionGuardModel} />}
+            {isOrchestratorPage && state === 'ready' && <OrchestratorPage model={orchestratorModel} />}
+            {isCalibrationPage && state === 'ready' && <CalibrationPage model={calibrationModel} />}
+            {isEnsemblePage && state === 'ready' && <EnsemblePage model={ensembleModel} />}
+            {isTestnetBridgePage && state === 'ready' && <TestnetBridgePage model={testnetBridgeModel} />}
+            {isKillSwitchPage && state === 'ready' && <KillSwitchPage model={killSwitchModel} />}
+            {isProductionPage && state === 'ready' && <ProductionLaunchPage model={productionLaunchModel} />}
+          </Suspense>
           {isEvolutionPage && state === 'ready' && <EvolutionPage model={autoEvolutionModel} />}
-          {isTestnetBridgePage && state === 'ready' && <TestnetBridgePage model={testnetBridgeModel} />}
-          {isKillSwitchPage && state === 'ready' && <KillSwitchPage model={killSwitchModel} />}
-          {isProductionPage && state === 'ready' && <ProductionLaunchPage model={productionLaunchModel} />}
         </ErrorBoundary>
 
         <footer className="page-footer border-t border-base-300 mt-8 pt-4">

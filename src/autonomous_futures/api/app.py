@@ -780,9 +780,6 @@ def get_live_market_data(
     raise HTTPException(status_code=503, detail="Live market prices unavailable")
 
 
-def _baseline_execution_status(timestamp_ms: int | None = None) -> ExecutionStatusResponse:
-    raise HTTPException(status_code=503, detail="Fresh exchange account evidence unavailable")
-
 
 def _load_runtime_health(account_path: Path) -> tuple[ExecutionRuntimeHealth, str, int]:
     health_path = account_path.parent / "runtime-health.json"
@@ -933,15 +930,6 @@ def _load_runtime_health(account_path: Path) -> tuple[ExecutionRuntimeHealth, st
         return ExecutionRuntimeHealth(), "UNKNOWN", 0
 
 
-_PORTFOLIO_VARIANTS_SPEC: tuple[tuple[str, str, str, float, float, float], ...] = (
-    ("avax-1-hf-d-3.5-tp6.0-sl10.0", "AVAXUSDT", "HF", -3.5, 1.5, 34.0),
-    ("eth-1-deep-d-4.0-tp10.0-sl6.0", "ETHUSDT", "DEEP", -4.0, 2.2, 30.0),
-    ("eth-2-med-d-3.5-tp10.0-sl8.0", "ETHUSDT", "MED", -3.5, 2.2, 30.0),
-    ("eth-3-hf-d-3.0-tp12.0-sl12.0", "ETHUSDT", "HF", -3.0, 1.8, 30.0),
-    ("sol-1-deep-d-4.0-tp3.0-sl3.0", "SOLUSDT", "DEEP", -4.0, 2.2, 30.0),
-    ("sol-2-hf-d-1.8-tp8.0-sl10.0", "SOLUSDT", "HF", -1.8, 2.2, 34.0),
-)
-
 
 def _load_ohlcv_bars_for_scanner(
     symbol: str,
@@ -1085,19 +1073,7 @@ def _resolve_admitted_portfolio_members() -> tuple[str, tuple[Any, ...]]:
             return portfolios[0].portfolio_id, portfolios[0].members
     except Exception:
         pass
-    portfolio_id = "macro-scalper-uninspected-3sym-medium-frequency-v1"
-    fallback_members = tuple(
-        RuntimePortfolioMember(
-            portfolio_id=portfolio_id,
-            member_id=mid,
-            symbol=sym,
-            distance_threshold=Decimal(str(dist)),
-            vol_spike_multiplier=Decimal(str(vol)),
-            rsi_threshold=Decimal(str(rsi)),
-        )
-        for mid, sym, _tier, dist, vol, rsi in _PORTFOLIO_VARIANTS_SPEC
-    )
-    return portfolio_id, fallback_members
+    return "", ()
 
 
 def _compute_portfolio_scanner_telemetry(

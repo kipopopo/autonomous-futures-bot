@@ -3725,3 +3725,54 @@ Integrity mode: development
 - [ ] Pytest test suite passes with 100% success rate covering ICT detectors, multi-timeframe sequencing, and solvency invariants.
 - [ ] Production web dashboard at `https://futures.semua.dev/` renders ICT confluence metrics and chart overlays in 100% English.
 - [ ] VPS background trader daemon (`autonomous-futures-trader.service`) Main PID 87549 continues running 100% uninterrupted with NRestarts=0.
+
+
+## 2026-10-15T05:52:37Z
+
+Optimize the Autonomous Futures Bot Mission Control frontend by eliminating redundant 10-second polling of 20 legacy canary archive endpoints on primary views and code-splitting the 21 historical archive pages (Fasa Pembersihan 1), remove verified dead code across the frontend and backend modules (Fasa Pembersihan 2), and deploy the updated web build to Kainode VPS without touching the live trading runtime.
+
+Working directory: c:\Users\thaqi\Projects\Autonomous Futures Bot
+Integrity mode: development
+
+## Requirements
+
+### R1. Frontend Polling & Bundle Optimization (Fasa Pembersihan 1)
+When users view the primary active Mission Control tabs (`#overview`, `#positions`, `#evolution`), the frontend (`frontend/src/App.tsx` and `frontend/src/lib/api.ts`) must only poll the live endpoints required for those views (`/api/v1/execution/status`, `/api/v1/market/prices`, and `/api/v1/canary/evolution`) on the 10-second interval. The 20 historical Phase 291–309 canary archive endpoints and the 10 legacy creator/learner dataset endpoints (`/api/v1/dataset/*`, `/api/v1/creator/*`, `/api/v1/learner/*`) must only be fetched on-demand when the user navigates to an archive view that requires them. In addition, the 21 historical archive page components in `frontend/src/App.tsx` must be lazy-loaded (`React.lazy` with `Suspense`) so they are split out of the main entry JS bundle.
+
+### R2. Dead Code Removal across Frontend & Backend (Fasa Pembersihan 2)
+Remove verified unused files and symbols across the repository:
+- Frontend: Delete `frontend/src/components/magic-card.tsx` and `frontend/src/components/mission-control/market-positions-card.tsx` (updating or removing only the obsolete test assertions that test `MarketPositionsCard` directly in `frontend/src/test/mission-control.test.tsx`), and remove the unused `ICT_ACTIVE_PAIRS` export from `frontend/src/lib/use-ict-signals.ts`.
+- Backend: Remove `_PORTFOLIO_VARIANTS_SPEC` and `_baseline_execution_status` from `src/autonomous_futures/api/app.py`, `_fetch_closed_trades_count` from `src/autonomous_futures/api/canary.py`, `ClockDriftExceededError` from `src/autonomous_futures/execution/binance_gateway.py`, and `recover_order_fills` from `src/autonomous_futures/execution/fill_recovery.py` (cleaning up any unit tests that import those removed dead symbols).
+
+### R3. Controlled Infrastructure & Production Safety
+Commit and push the verified changes to `origin/main`, sync `/opt/autonomous-futures-bot` on Kainode VPS (`afbot@147.79.18.15`), rebuild the frontend production bundle on the VPS, and restart only `autonomous-futures-web.service`. You must NEVER stop, restart, or modify `autonomous-futures-qualified-runtime.service` (`MainPID=63408`) or `autonomous-futures-watchdog.timer`.
+
+## Verification Resources
+
+- Frontend test suite & production bundler:
+  - `npm --prefix frontend test -- --run`
+  - `npm --prefix frontend run build`
+- Backend unit test suite:
+  - `.venv\Scripts\python.exe -m pytest tests/unit/test_runtime_watchdog.py tests/unit/test_qualified_runtime_admission.py tests/unit/test_portfolio_evolution_api.py`
+- Production health verification on Kainode VPS (`afbot@147.79.18.15`):
+  - `systemctl show autonomous-futures-qualified-runtime.service -p MainPID -p NRestarts -p ActiveState -p SubState`
+  - `systemctl show autonomous-futures-web.service -p MainPID -p ActiveState -p SubState`
+  - `curl -sS http://127.0.0.1:8000/api/v1/execution/watchdog`
+
+## Acceptance Criteria
+
+### Frontend Optimization (Fasa Pembersihan 1)
+- [ ] On `#overview`, `#positions`, and `#evolution`, initial boot and the 10-second polling loop only request `/api/v1/execution/status`, `/api/v1/market/prices`, and `/api/v1/canary/evolution`, without firing requests to the 20 legacy Phase 291–309 canary archive endpoints or the 10 `/api/v1/dataset/*`, `/creator/*`, `/learner/*` endpoints.
+- [ ] Navigating to any of the 21 archive pages loads and renders its archive data on-demand without error.
+- [ ] The 21 archive page components in `frontend/src/App.tsx` are code-split via `React.lazy`, reducing the main entry JS bundle (`frontend/dist/assets/index-*.js`) significantly below the previous `1,142.64 kB` (target `< 750 kB` uncompressed).
+- [ ] `npm --prefix frontend test -- --run` and `npm --prefix frontend run build` pass with zero errors.
+
+### Dead Code Cleanup (Fasa Pembersihan 2)
+- [ ] `frontend/src/components/magic-card.tsx` and `frontend/src/components/mission-control/market-positions-card.tsx` are deleted from the repository, and `ICT_ACTIVE_PAIRS` is removed from `frontend/src/lib/use-ict-signals.ts`.
+- [ ] `_PORTFOLIO_VARIANTS_SPEC`, `_baseline_execution_status`, `_fetch_closed_trades_count`, `ClockDriftExceededError`, and `recover_order_fills` are completely removed from `src/autonomous_futures/`.
+- [ ] Backend unit tests pass with zero failures.
+
+### Git & Kainode VPS Deployment (R3)
+- [ ] Changes are committed and pushed to `origin/main`, and deployed to `/opt/autonomous-futures-bot` on `afbot@147.79.18.15`.
+- [ ] `autonomous-futures-web.service` is active/running and serves the new code-split `index-*.js` bundle at `http://127.0.0.1:8000/`.
+- [ ] `autonomous-futures-qualified-runtime.service` remains running on `MainPID=63408` with `NRestarts=0`, and `GET /api/v1/execution/watchdog` returns `"overall_status": "HEALTHY"`.

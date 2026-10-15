@@ -4,7 +4,6 @@ import { renderToString } from 'react-dom/server'
 import { buildExecutiveDashboardModel } from '../mission-control/adapter'
 import { MissionControlHeader } from '../mission-control/mission-control-header'
 import { KpiCards } from '../mission-control/kpi-cards'
-import { MarketPositionsCard } from '../mission-control/market-positions-card'
 import { StrategyConfluenceRadar } from '../mission-control/strategy-confluence-radar'
 import { OrderFeedTable } from '../mission-control/order-feed-table'
 import { ExecutiveDashboard } from '../mission-control/executive-dashboard'
@@ -13,7 +12,6 @@ import { ExecutiveTradesPage } from '../executive-trades-page'
 import { ExecutiveSafetyPage } from '../executive-safety-page'
 import type {
   ExecutiveDashboardModel,
-  PositionTelemetry,
   OrderFeedItem,
 } from '../mission-control/types'
 import {
@@ -242,30 +240,6 @@ describe('Adversarial Test Suite: Executive Mission Control Robustness & Edge Ca
       expect(html).toContain('bg-rose-500/10')
       expect(html).toContain('$-15.42')
       expect(html).not.toContain('+$')
-    })
-
-    it('renders negative unrealized PnL in MarketPositionsCard with red styling and down arrow', () => {
-      const negativePositions: PositionTelemetry[] = [
-        {
-          symbol: 'ETHUSDT',
-          currentPrice: 2650.0,
-          state: 'LONG',
-          entryPrice: 2750.0,
-          size: 0.002,
-          notionalUsdt: 5.3,
-          marginUsdt: 5.3,
-          unrealizedPnlUsdt: -0.2,
-          unrealizedPnlPct: -3.77,
-          takeProfitPrice: 2820.0,
-          stopLossPrice: 2600.0,
-          riskRewardRatio: '1.66 : 1',
-        },
-      ]
-
-      const html = renderToString(<MarketPositionsCard positions={negativePositions} />)
-      expect(html).toContain('text-rose-400')
-      expect(html).toContain('-0.200')
-      expect(html).toContain('-3.77')
     })
 
     it('renders negative realized PnL in OrderFeedTable with red styling and down arrow', () => {

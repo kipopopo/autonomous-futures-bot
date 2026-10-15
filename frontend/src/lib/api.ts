@@ -45,6 +45,7 @@ import {
   generateSyntheticKlines,
   type MarketKline,
 } from './chart-indicators'
+import type { DashboardPage } from './navigation'
 
 export { getCanaryPortfolioRebalancing, getCanaryStrategyMining }
 export type { MarketKline }
@@ -906,5 +907,166 @@ export async function fetchCanaryDashboardData(): Promise<CanaryDashboardData> {
   }
 }
 
+export interface PrimaryTelemetryData {
+  executionStatus: ExecutionStatusResponse | null
+  liveMarketPrices: LiveMarketPricesResponse | null
+  evolution: CanaryAutoEvolutionData | null
+}
 
+export async function fetchPrimaryTelemetry(): Promise<PrimaryTelemetryData> {
+  const [execResult, pricesResult, evolResult] = await Promise.allSettled([
+    fetchExecutionStatus(),
+    fetchLiveMarketPrices(),
+    fetchCanaryAutoEvolution(),
+  ])
+  return {
+    executionStatus: execResult.status === 'fulfilled' ? execResult.value : null,
+    liveMarketPrices: pricesResult.status === 'fulfilled' ? pricesResult.value : null,
+    evolution: evolResult.status === 'fulfilled' ? evolResult.value : null,
+  }
+}
 
+export interface ArchiveDataResult {
+  canary?: Partial<CanaryDashboardData>
+  apiData?: Partial<DashboardApiData>
+}
+
+export async function fetchArchiveDataForPage(page: DashboardPage): Promise<ArchiveDataResult> {
+  switch (page) {
+    case 'accounting': {
+      const accounting = await fetchCanaryAccounting()
+      return { canary: { accounting } }
+    }
+    case 'creator': {
+      const [registry, qualifications, bundle, components] = await Promise.allSettled([
+        fetchOptionalCreatorRegistry(),
+        fetchCreatorQualifications(),
+        fetchOptionalBundle(),
+        fetchOptionalComponents(),
+      ])
+      return {
+        apiData: {
+          creatorRegistry: registry.status === 'fulfilled' ? registry.value : null,
+          creatorQualifications: qualifications.status === 'fulfilled' ? qualifications.value : null,
+          bundle: bundle.status === 'fulfilled' ? bundle.value : null,
+          components: components.status === 'fulfilled' ? components.value : null,
+        },
+      }
+    }
+    case 'execution': {
+      const paperExecution = await fetchCanaryPaperExecution()
+      return { canary: { paperExecution } }
+    }
+    case 'learner': {
+      const [artifact, run, trainingEvidence, qualityReview, qualification, metricQualityQualification] =
+        await Promise.allSettled([
+          fetchOptionalLearnerArtifact(),
+          fetchOptionalLearnerRun(),
+          fetchOptionalLearnerTrainingEvidence(),
+          fetchOptionalLearnerQualityReview(),
+          fetchOptionalLearnerQualification(),
+          fetchOptionalLearnerMetricQualityQualification(),
+        ])
+      return {
+        apiData: {
+          learnerArtifact: artifact.status === 'fulfilled' ? artifact.value : null,
+          learnerRun: run.status === 'fulfilled' ? run.value : null,
+          learnerTrainingEvidence: trainingEvidence.status === 'fulfilled' ? trainingEvidence.value : null,
+          learnerQualityReview: qualityReview.status === 'fulfilled' ? qualityReview.value : null,
+          learnerQualification: qualification.status === 'fulfilled' ? qualification.value : null,
+          learnerMetricQualityQualification:
+            metricQualityQualification.status === 'fulfilled' ? metricQualityQualification.value : null,
+        },
+      }
+    }
+    case 'lifecycle': {
+      const autonomousLifecycle = await fetchCanaryAutonomousLifecycle()
+      return { canary: { autonomousLifecycle } }
+    }
+    case 'market': {
+      const liveMarket = await fetchCanaryLiveMarket()
+      return { canary: { liveMarket } }
+    }
+    case 'microstructure': {
+      const hawkes = await fetchCanaryHawkes()
+      return { canary: { hawkes } }
+    }
+    case 'risk': {
+      const risk = await fetchCanaryRisk()
+      return { canary: { risk } }
+    }
+    case 'strategy-activation': {
+      const strategyActivation = await fetchCanaryStrategyActivation()
+      return { canary: { strategyActivation } }
+    }
+    case 'stress': {
+      const stressFaultInjection = await fetchCanaryStressFaultInjection()
+      return { canary: { stressFaultInjection } }
+    }
+    case 'mining': {
+      const strategyMining = await fetchCanaryStrategyMining()
+      return { canary: { strategyMining } }
+    }
+    case 'portfolio': {
+      const portfolioRebalancing = await fetchCanaryPortfolioRebalancing()
+      return { canary: { portfolioRebalancing } }
+    }
+    case 'testnet': {
+      const testnetGateway = await fetchCanaryTestnetGateway()
+      return { canary: { testnetGateway } }
+    }
+    case 'brackets': {
+      const bracketPositions = await fetchCanaryBracketPositions()
+      return { canary: { bracketPositions } }
+    }
+    case 'guard': {
+      const executionGuard = await fetchCanaryExecutionGuard()
+      return { canary: { executionGuard } }
+    }
+    case 'orchestrator': {
+      const orchestrator = await fetchCanaryOrchestrator()
+      return { canary: { orchestrator } }
+    }
+    case 'calibration': {
+      const calibration = await fetchCanaryCalibration()
+      return { canary: { calibration } }
+    }
+    case 'ensemble': {
+      const ensemble = await fetchCanaryEnsemble()
+      return { canary: { ensemble } }
+    }
+    case 'testnet-bridge': {
+      const testnetBridge = await fetchCanaryTestnetBridge()
+      return { canary: { testnetBridge } }
+    }
+    case 'kill-switch': {
+      const killSwitch = await fetchCanaryKillSwitch()
+      return { canary: { killSwitch } }
+    }
+    case 'production':
+    case 'production-launch': {
+      const productionLaunch = await fetchCanaryProductionLaunch()
+      return { canary: { productionLaunch } }
+    }
+    case 'safety': {
+      const [prod, rsk, kill, hwk, lmkt] = await Promise.allSettled([
+        fetchCanaryProductionLaunch(),
+        fetchCanaryRisk(),
+        fetchCanaryKillSwitch(),
+        fetchCanaryHawkes(),
+        fetchCanaryLiveMarket(),
+      ])
+      return {
+        canary: {
+          productionLaunch: prod.status === 'fulfilled' ? prod.value : null,
+          risk: rsk.status === 'fulfilled' ? rsk.value : null,
+          killSwitch: kill.status === 'fulfilled' ? kill.value : null,
+          hawkes: hwk.status === 'fulfilled' ? hwk.value : null,
+          liveMarket: lmkt.status === 'fulfilled' ? lmkt.value : null,
+        },
+      }
+    }
+    default:
+      return {}
+  }
+}
