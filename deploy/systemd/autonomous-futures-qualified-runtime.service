@@ -1,13 +1,17 @@
 [Unit]
-Description=Qualified Autonomous Futures Testnet Runtime
+Description=Qualified Autonomous Futures Testnet Runtime (Portfolio Medium-Frequency v1)
 After=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/autonomous-futures-bot/releases/qualified-runtime
+Environment=PYTHONPATH=/opt/autonomous-futures-bot/releases/qualified-runtime/src
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/autonomous-futures-bot/.env
 EnvironmentFile=/opt/autonomous-futures-bot/.env.qualified-runtime
-ExecStart=/opt/autonomous-futures-bot/.venv/bin/python scripts/run_qualified_runtime.py --storage-dir /opt/autonomous-futures-bot/runtime/qualified-testnet --account-lease /opt/autonomous-futures-bot/runtime/qualified-testnet/account-writer.lock --equity-basis ${AFBOT_EQUITY_BASIS} --hawkes-calibration /opt/autonomous-futures-bot/releases/qualified-runtime/artifacts/qualification/runtime-microstructure/runtime-hawkes-calibration-20261013.json
+ExecStartPre=/opt/autonomous-futures-bot/.venv/bin/python scripts/prepare_portfolio_cutover.py --repo /opt/autonomous-futures-bot/releases/qualified-runtime --storage-dir /opt/autonomous-futures-bot/runtime/qualified-testnet --equity-basis ${AFBOT_EQUITY_BASIS} --require-legacy-inactive --apply-leverage --bootstrap-daily-risk
+ExecStartPre=/opt/autonomous-futures-bot/.venv/bin/python scripts/preflight_qualified_runtime.py --repo /opt/autonomous-futures-bot/releases/qualified-runtime --storage-dir /opt/autonomous-futures-bot/runtime/qualified-testnet --account-path /opt/autonomous-futures-bot/runtime/qualified-testnet/exchange-account.json --equity-basis ${AFBOT_EQUITY_BASIS} --check-systemd
+ExecStart=/opt/autonomous-futures-bot/.venv/bin/python scripts/run_qualified_runtime.py --storage-dir /opt/autonomous-futures-bot/runtime/qualified-testnet --account-lease /opt/autonomous-futures-bot/runtime/qualified-testnet/account-writer.lock --equity-basis ${AFBOT_EQUITY_BASIS} --hawkes-calibration /opt/autonomous-futures-bot/releases/qualified-runtime/artifacts/qualification/runtime-microstructure/runtime-hawkes-calibration-20261013.json --portfolio-id macro-scalper-uninspected-3sym-medium-frequency-v1
 Restart=on-failure
 RestartSec=10
 UMask=0077
@@ -16,3 +20,4 @@ PrivateTmp=true
 
 [Install]
 WantedBy=default.target
+

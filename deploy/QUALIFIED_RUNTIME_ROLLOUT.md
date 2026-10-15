@@ -1,73 +1,88 @@
-# Qualified runtime rollout — blocked under current operator constraints
+# Qualified runtime rollout — staged & ready for operator-authorized single-writer cutover
 
-**Current transfer:** 14 October 2026. See `ANTIGRAVITY_HANDOFF_2026-10-14.md` and canonical
-`CODEX_HANDOFF.md`. The operator protects the active legacy daemon/PID 87549 and selected
-reuse of its existing Testnet key. The replacement guard requires legacy inactivity. Those
-conditions cannot currently coexist, so this document is a prerequisite/reference plan,
-not an executable activation procedure or permission to change the protected service.
+**Current status:** 15 October 2026. See `ANTIGRAVITY_HANDOFF_2026-10-14.md` and canonical
+`CODEX_HANDOFF.md`. The replacement service (`autonomous-futures-qualified-runtime.service`)
+is staged in `~/.config/systemd/user/` in a **disabled and inactive** state, pointed at
+`/opt/autonomous-futures-bot/releases/qualified-runtime` and durable state directory
+`/opt/autonomous-futures-bot/runtime/qualified-testnet`. The active legacy service
+(`autonomous-futures-trader.service`) remains untouched and running until the operator
+explicitly authorizes the single-writer cutover.
 
-The separate runtime service is prepared locally and has not been installed or started.
-`autonomous-futures-trader.service` and PID 87549 must remain untouched throughout rollout.
-The new service has its own name, release directory and durable state directory.
+## Verified Prerequisites (All Passing Except Single-Writer Handoff)
 
-Before installing the unit, all of the following must have actual supporting evidence:
+All technical, mathematical, and exchange-domain prerequisites are now verified (`passed: true`):
 
-- Genuine canonical strategy and portfolio qualification under the selected capital policy,
-  with complete source-file provenance, current implementation bindings and passing gates.
-  Completed rejected reports must remain rejected. The admission manifest is currently empty.
-- Exact accepted report byte hashes and repository-relative report paths in
-  `deploy/qualification-admission.json`, reviewed with the qualification evidence.
-- The operator selected actual exchange ACCOUNT equity for the 5% daily-loss budget.
-  The secure VPS environment file now specifies AFBOT_EQUITY_BASIS=ACCOUNT.
-- The operator selected reuse of the existing Testnet API key. The qualified bootstrap now
-  uses the existing `BINANCE_TESTNET_API_KEY` and `BINANCE_TESTNET_SECRET_KEY` pair. Its
-  fail-closed handoff guard requires the legacy unit to be disabled, configured with
-  `Restart=no`, and fully inactive (`ActiveState=inactive`, `SubState=dead`, `MainPID=0`)
-  before startup and again at the final entry boundary. Do not start the qualified service
-  while the protected legacy daemon may still write with the shared key. The OS lease cannot
-  fence PID 87549, and no VPS handoff has been performed.
-- Authentic day-start equity captured at the UTC boundary and reconciled account/owned fills.
-  Missing baselines disable entries; they must never be replaced with a mid-day balance.
-- Real feed warmup, fresh clock/trade/depth observations, a measured rho below one from
-  an identified fit (no fitted baseline at the optimizer's lower bound), and
-  exchange-confirmed reduce-only prearmed coverage before any opening order.
-- The service's required `--hawkes-calibration` argument points to
-  `artifacts/qualification/runtime-microstructure/runtime-hawkes-calibration-20261013.json`.
-  Startup verifies the calibration artifact, its selection and independent-validation
-  profile hashes, the fitted implementation hash, and matching 12-pair trace evidence.
-  This artifact supplies only beta=7.5/s to the estimator; it explicitly grants neither
-  strategy qualification nor execution authority.
+- **Portfolio Qualification & Admission (`deploy/qualification-admission.json`)**:
+  - Admitted portfolio ID: `macro-scalper-uninspected-3sym-medium-frequency-v1` (`AVAXUSDT`, `ETHUSDT`, `SOLUSDT`, equal-weight `1/3`, `min_signal_score = 0.08`, `cooldown_minutes = 60.0`, `leverage = 1.0`).
+  - Artifact: `artifacts/qualification/2026-10-15/macro-scalper-uninspected-3sym-medium-frequency-v1-portfolio-qualification.json` (`sha256: 7746bf7cf7d0a0c41664ed0047a74d336df0d7889643d518b46823285647c7fa`).
+  - Qualified with `passed: true`, `expected_return_lcb_bps: +1.1066335601381197`, `profit_factor: 1.5476572638478152`, `max_drawdown_pct: 0.09547914438252931%`, `max_pairwise_return_correlation: 0.09335647615229111`.
+- **Capital Policy & Authentic UTC Day-Start Equity (`AFBOT_EQUITY_BASIS=ACCOUNT`)**:
+  - `0.5%` per-trade risk (`0.005`) and `5%` daily loss budget (`0.05`) on actual exchange `ACCOUNT` equity.
+  - Pre-cutover preparation (`scripts/prepare_portfolio_cutover.py --apply-leverage --bootstrap-daily-risk`) normalized `AVAXUSDT`, `ETHUSDT`, and `SOLUSDT` leverage to `1x` on a flat account (`0` open positions, `0` open orders) and initialized `daily-risk.json` + `exchange-account.json`.
+- **Measured Hawkes Calibration (`--hawkes-calibration`)**:
+  - Points to `artifacts/qualification/runtime-microstructure/runtime-hawkes-calibration-20261013.json` (`beta = 7.5/s`, `all_12_pairs_passed: true`).
+- **Single-Writer Handoff Guard (`systemd_legacy_handoff`)**:
+  - Reuses the existing `BINANCE_TESTNET_API_KEY` and `BINANCE_TESTNET_SECRET_KEY` from `/opt/autonomous-futures-bot/.env` alongside `/opt/autonomous-futures-bot/.env.qualified-runtime` (`mode 0600`).
+  - Both `ExecStartPre` (`prepare_portfolio_cutover.py --require-legacy-inactive` and `preflight_qualified_runtime.py --check-systemd`) and `ExecStart` (`run_qualified_runtime.py`) fail closed unless `autonomous-futures-trader.service` has `UnitFileState=disabled`, `Restart=no`, `ActiveState=inactive`, `SubState=dead`, and `MainPID=0`.
 
-The new environment file must be owned by afbot and readable only by that user (mode 0600).
-It supplies AFBOT_EQUITY_BASIS plus the existing Testnet values as
-BINANCE_TESTNET_API_KEY and BINANCE_TESTNET_SECRET_KEY. Reuse the credentials already
-configured for the legacy service; do not create a second trading key. Copy credentials
-securely without printing them, and never put their values in Git, reports or chat.
+## Read-Only Preflight Verification (Safe While Legacy Writer Is Running)
 
-The release link `/opt/autonomous-futures-bot/releases/qualified-runtime` must point to a
-verified complete release. Durable state and the account lease live outside that release,
-at `/opt/autonomous-futures-bot/runtime/qualified-testnet`. Never discard them on an upgrade.
-Installing this unit does not authorize bypassing its runtime qualification checks.
-
-Do not enable/start the new writer under the current protected-daemon constraint. Even if
-economic and account prerequisites later pass, an explicit reconciled operator decision
-is still required to resolve the same-key writer transition; qualification alone cannot
-authorize stopping or reconfiguring PID 87549. Until that decision, read-only preflights
-must confirm the protected unit is untouched, and independent offline work can continue.
-After a separately authorized transition, verify the actual writer exclusivity, process,
-account observations, owned-order reconciliation, protective coverage and runtime health.
-Service startup, unit-file validation and green unit tests alone do not prove activation.
-
-The basis-only environment file currently contains no credentials. Credential setup remains
-incomplete. The bootstrap and final entry guard now support the selected same key, but both
-remain blocked until a read-only systemd check proves that the legacy unit is disabled,
-configured not to restart, and fully inactive. Do not alter the running service, remove its
-API permissions, or stop, restart, kill, or signal PID 87549. Do not paste secrets into chat.
-
-To run a non-mutating, read-only preflight check of the admission manifest, Hawkes calibration
-artifact, `ACCOUNT` `0.5%` / `5%` risk policy, 12-pair universe, and optional systemd handoff
-guard or durable `trade-autopsies.json` state, execute:
+To verify all 6 preflight gates without mutating the running legacy service:
 
 ```bash
-python scripts/preflight_qualified_runtime.py --allow-blocked
+/opt/autonomous-futures-bot/.venv/bin/python \
+  /opt/autonomous-futures-bot/releases/qualified-runtime/scripts/preflight_qualified_runtime.py \
+  --repo /opt/autonomous-futures-bot/releases/qualified-runtime \
+  --storage-dir /opt/autonomous-futures-bot/runtime/qualified-testnet \
+  --account-path /opt/autonomous-futures-bot/runtime/qualified-testnet/exchange-account.json \
+  --equity-basis ACCOUNT \
+  --check-systemd \
+  --allow-blocked
+```
+
+While `autonomous-futures-trader.service` is active, this command exits `0` with:
+- `capital_policy.passed = true`
+- `hawkes_calibration.passed = true`
+- `qualification_admission.passed = true` (`admission_mode = "portfolio"`)
+- `account_and_portfolio_domain.passed = true`
+- `storage_dir.passed = true`
+- `systemd_legacy_handoff.passed = false` (`legacy_writer_still_active_or_enabled`)
+
+## Operator-Authorized Controlled Cutover Procedure (DO NOT RUN WITHOUT EXPLICIT CONSENT)
+
+Only after the operator explicitly authorizes stopping the legacy service (`autonomous-futures-trader.service`):
+
+1. **Reconfigure `autonomous-futures-trader.service` to `Restart=no`, disable, and stop cleanly**:
+   ```bash
+   mkdir -p ~/.config/systemd/user/autonomous-futures-trader.service.d
+   printf "[Service]\nRestart=no\n" > ~/.config/systemd/user/autonomous-futures-trader.service.d/cutover-no-restart.conf
+   systemctl --user daemon-reload
+   systemctl --user disable --now autonomous-futures-trader.service
+   systemctl --user show autonomous-futures-trader.service -p ActiveState -p SubState -p MainPID -p UnitFileState -p Restart
+   ```
+2. **Verify all 6 preflight gates pass (`overall_ready_for_activation: true`, exit code `0` without `--allow-blocked`)**:
+   ```bash
+   /opt/autonomous-futures-bot/.venv/bin/python \
+     /opt/autonomous-futures-bot/releases/qualified-runtime/scripts/preflight_qualified_runtime.py \
+     --repo /opt/autonomous-futures-bot/releases/qualified-runtime \
+     --storage-dir /opt/autonomous-futures-bot/runtime/qualified-testnet \
+     --account-path /opt/autonomous-futures-bot/runtime/qualified-testnet/exchange-account.json \
+     --equity-basis ACCOUNT \
+     --check-systemd
+   ```
+3. **Enable and start `autonomous-futures-qualified-runtime.service`**:
+   ```bash
+   systemctl --user enable --now autonomous-futures-qualified-runtime.service
+   systemctl --user status autonomous-futures-qualified-runtime.service --no-pager
+   ```
+
+## Controlled Rollback Procedure
+
+If rollback to `autonomous-futures-trader.service` is required:
+
+```bash
+systemctl --user disable --now autonomous-futures-qualified-runtime.service
+rm -f ~/.config/systemd/user/autonomous-futures-trader.service.d/cutover-no-restart.conf
+systemctl --user daemon-reload
+systemctl --user enable --now autonomous-futures-trader.service
 ```

@@ -24,6 +24,9 @@ sys.path.insert(0, str(REPO / "src"))
 from autonomous_futures.execution.pre_cutover_preparation import (  # noqa: E402
     prepare_portfolio_cutover,
 )
+from autonomous_futures.execution.single_writer_guard import (  # noqa: E402
+    LegacyWriterHandoffGuard,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,6 +34,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, default=REPO)
     parser.add_argument("--storage-dir", type=Path, required=True)
     parser.add_argument("--equity-basis", default="ACCOUNT", choices=["ACCOUNT"])
+    parser.add_argument(
+        "--require-legacy-inactive",
+        action="store_true",
+        help="Fail closed before any network call if the legacy systemd writer is active.",
+    )
     parser.add_argument(
         "--apply-leverage",
         action="store_true",
@@ -43,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        if args.require_legacy_inactive:
+            LegacyWriterHandoffGuard().assert_legacy_inactive()
         report = asyncio.run(
             prepare_portfolio_cutover(
                 repo=args.repo,
@@ -59,7 +69,11 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "preparation_failed": True,
                     "error_type": type(exc).__name__,
-                    "reason": str(exc) if isinstance(exc, ValueError) else "transport_or_api_error",
+                    "reason": (
+                        str(exc)
+                        if isinstance(exc, (ValueError, RuntimeError))
+                        else "transport_or_api_error"
+                    ),
                 },
                 indent=2,
                 sort_keys=True,
