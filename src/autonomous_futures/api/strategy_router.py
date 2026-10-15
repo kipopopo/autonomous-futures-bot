@@ -279,10 +279,23 @@ def _load_recent_autopsies(
 
     json_candidates = []
     if research_dir is not None:
-        json_candidates.append(research_dir / "trade-autopsies.json")
+        json_candidates.extend(
+            [
+                research_dir / "trade-autopsies.json",
+                research_dir / "qualified-testnet" / "trade-autopsies.json",
+                research_dir.parent / "runtime" / "qualified-testnet" / "trade-autopsies.json",
+                (
+                    research_dir.parent.parent
+                    / "runtime"
+                    / "qualified-testnet"
+                    / "trade-autopsies.json"
+                ),
+            ]
+        )
     cwd = Path.cwd()
     json_candidates.extend(
         [
+            cwd / "runtime" / "qualified-testnet" / "trade-autopsies.json",
             cwd / "artifacts" / "runtime" / "trade-autopsies.json",
             cwd / "artifacts" / "research" / "phase310" / "trade-autopsies.json",
         ]

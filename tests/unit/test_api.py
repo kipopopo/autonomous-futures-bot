@@ -504,3 +504,74 @@ def test_execution_status_fallback_graceful(
     response = _request(app, "GET", "/api/v1/execution/status")
     assert response.status_code == 503
     assert "account evidence unavailable" in response.json()["detail"]
+
+
+def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
+    tmp_path: Path,
+) -> None:
+    import time
+
+    from autonomous_futures.execution.account_evidence import atomic_json
+
+    research_dir = tmp_path / "artifacts" / "research"
+    phase310_dir = research_dir / "phase310"
+    qualified_dir = tmp_path / "runtime" / "qualified-testnet"
+    phase310_dir.mkdir(parents=True, exist_ok=True)
+    qualified_dir.mkdir(parents=True, exist_ok=True)
+
+    now_ms = int(time.time() * 1000)
+    stale_snapshot = {
+        "source": "binance_authenticated_rest",
+        "timestamp_ms": now_ms - 60_000,
+        "account": {
+            "multiAssetsMargin": "false",
+            "totalWalletBalance": "100",
+            "totalInitialMargin": "0",
+            "totalMarginBalance": "100",
+            "availableBalance": "100",
+            "totalUnrealizedProfit": "0",
+        },
+        "positions": [],
+        "open_orders": [],
+    }
+    fresh_snapshot = {
+        "source": "binance_authenticated_rest",
+        "timestamp_ms": now_ms,
+        "account": {
+            "multiAssetsMargin": "false",
+            "totalWalletBalance": "4224.09882354",
+            "totalInitialMargin": "0",
+            "totalMarginBalance": "4224.09882354",
+            "availableBalance": "4224.09882354",
+            "totalUnrealizedProfit": "0",
+        },
+        "positions": [],
+        "open_orders": [],
+        "daily_risk": {
+            "verified": True,
+            "observed_ms": now_ms,
+            "equity_basis": "ACCOUNT",
+            "day_start_equity": "4224.09882354",
+            "limit_pct": "5",
+            "limit_usdt": "211.204941177",
+            "loss_usdt": "0",
+            "remaining_usdt": "211.204941177",
+            "breached": False,
+        },
+    }
+    atomic_json(phase310_dir / "exchange-account.json", stale_snapshot)
+    atomic_json(qualified_dir / "exchange-account.json", fresh_snapshot)
+
+    app = create_app(
+        bundle_path=tmp_path / "missing-bundle.json",
+        registry_path=tmp_path / "missing-registry.json",
+        research_dir=research_dir,
+    )
+    response = _request(app, "GET", "/api/v1/execution/status")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["solvency"]["total_equity_usdt"] == pytest.approx(4224.09882354)
+    assert payload["daily_risk"]["verified"] is True
+    assert payload["daily_risk"]["remaining_usdt"] == pytest.approx(211.204941177)
+
+

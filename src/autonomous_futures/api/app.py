@@ -695,7 +695,18 @@ def load_execution_status(research_dir: Path | None = None) -> ExecutionStatusRe
     base = research_dir or _resolve_research_dir()
     path = base / SNAPSHOT_NAME
     if not path.is_file():
-        path = base / "phase310" / SNAPSHOT_NAME
+        candidates = [
+            base / "qualified-testnet" / SNAPSHOT_NAME,
+            base.parent / "runtime" / "qualified-testnet" / SNAPSHOT_NAME,
+            base.parent.parent / "runtime" / "qualified-testnet" / SNAPSHOT_NAME,
+            base / "phase310" / SNAPSHOT_NAME,
+        ]
+        existing = [p for p in candidates if p.is_file()]
+        path = (
+            max(existing, key=lambda p: p.stat().st_mtime_ns)
+            if existing
+            else base / "phase310" / SNAPSHOT_NAME
+        )
     try:
         data = read_account(path)
         account = data["account"]
