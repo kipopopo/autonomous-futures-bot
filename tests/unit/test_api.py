@@ -621,3 +621,19 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     assert payload["runtime_health"]["arrival_count"] == 36930
     assert payload["runtime_health"]["spectral_radius"] == pytest.approx(0.5455993315954724)
     assert payload["runtime_health"]["event_counts"]["BTCUSDT"] == 4451
+
+    warmup_health = {
+        **runtime_health,
+        "microstructure": {
+            "calibration_window_ms": 1800000,
+            "arrival_count": 6307,
+            "fit_error": (
+                "Every model dimension needs at least 390 observed arrivals "
+                "for 13 fitted coefficients"
+            ),
+            "fit": None,
+        },
+    }
+    atomic_json(qualified_dir / "runtime-health.json", warmup_health)
+    warmup_payload = _request(app, "GET", "/api/v1/execution/status").json()
+    assert warmup_payload["engine_state"] == "QUALIFIED_PORTFOLIO_WARMUP"

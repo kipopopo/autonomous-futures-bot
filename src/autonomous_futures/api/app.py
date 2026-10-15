@@ -768,9 +768,12 @@ def _load_runtime_health(account_path: Path) -> tuple[ExecutionRuntimeHealth, st
             and 0.0 <= spectral_radius < 1.0
             and not baseline_boundary_symbols
         )
+        is_hawkes_warmup = fit_error is not None and any(
+            token in fit_error.lower() for token in ("span", "observed arrivals", "dimension")
+        )
         if streams_healthy and hawkes_ready:
             engine_state = "QUALIFIED_PORTFOLIO_ACTIVE"
-        elif streams_healthy and fit_error is not None and "span" in fit_error.lower():
+        elif streams_healthy and is_hawkes_warmup:
             engine_state = "QUALIFIED_PORTFOLIO_WARMUP"
         else:
             engine_state = "QUALIFIED_PORTFOLIO_DEGRADED"
