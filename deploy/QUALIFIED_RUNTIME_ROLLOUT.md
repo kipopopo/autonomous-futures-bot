@@ -13,8 +13,8 @@ explicitly authorizes the single-writer cutover.
 All technical, mathematical, and exchange-domain prerequisites are now verified (`passed: true`):
 
 - **Portfolio Qualification & Admission (`deploy/qualification-admission.json`)**:
-  - Admitted portfolio ID: `macro-scalper-uninspected-3sym-medium-frequency-v1` (`AVAXUSDT`, `ETHUSDT`, `SOLUSDT`, equal-weight `1/3`, `min_signal_score = 0.08`, `cooldown_minutes = 60.0`, `leverage = 1.0`).
-  - Artifact: `artifacts/qualification/2026-10-15/macro-scalper-uninspected-3sym-medium-frequency-v1-portfolio-qualification.json` (`sha256: 7746bf7cf7d0a0c41664ed0047a74d336df0d7889643d518b46823285647c7fa`).
+  - Admitted portfolio ID: `macro-scalper-uninspected-3sym-medium-frequency-v1` (`AVAXUSDT`, `ETHUSDT`, `SOLUSDT`, 6 uncorrelated members across 3 symbols, `leverage = 1x`).
+  - Artifact: `artifacts/qualification/portfolio-scalper-mf-holdout-2026-08-2026-09/portfolio-72de22bde9a30101.json` (`sha256: 72de22bde9a30101c791bcc981c89481c176b6a4fd63acfd4e2495e8e9122d89`).
   - Qualified with `passed: true`, `expected_return_lcb_bps: +1.1066335601381197`, `profit_factor: 1.5476572638478152`, `max_drawdown_pct: 0.09547914438252931%`, `max_pairwise_return_correlation: 0.09335647615229111`.
 - **Capital Policy & Authentic UTC Day-Start Equity (`AFBOT_EQUITY_BASIS=ACCOUNT`)**:
   - `0.5%` per-trade risk (`0.005`) and `5%` daily loss budget (`0.05`) on actual exchange `ACCOUNT` equity.
