@@ -183,8 +183,18 @@ orders, leverage changes, risk-state writes, or external account activity.
 
 Testnet deployment and normal Testnet order flow are authorized, and the
 controlled cutover is complete. The runtime and watchdog are healthy with the
-original restart policy restored. The latest read-only checkpoint is
-approximately `2026-10-16T16:15:46Z`; the ledger verifies two REST
-reconciliation records and zero user-data events. All six scanner variants
-were vetoed by the sideways macro regime and low-volume gates. Keep the
+original restart policy restored. The `2026-10-16T16:15:46Z` checkpoint is
+historical; the latest read-only checkpoint is approximately
+`2026-10-16T16:42:37Z`. At that check, the qualified unit remained active as
+PID `381572` with `NRestarts=0` and `Restart=on-failure`; a direct systemd
+check confirmed the legacy writer remained disabled and inactive. The watchdog
+was `HEALTHY` without active alerts, account reconciliation was verified and
+about 8 seconds old, daily risk was verified, and there were zero positions and
+open orders. Hawkes was `STABLE` with 35,471 arrivals. The scanner remained in
+a `SIDEWAYS` BTC regime with zero ready variants out of six. The ledger
+verified with two REST reconciliation records and zero authenticated user-data
+events, so no per-symbol completed lifecycle has been observed. The candidate
+receipt has `execution_authority=false`; the current Testnet order-flow scope
+comes from the user's separate Testnet approval and does not grant Mainnet
+authority. No order was submitted because no variant was ready. Keep the
 candidate on Testnet until the full soak criteria pass; Mainnet remains NO-GO.
