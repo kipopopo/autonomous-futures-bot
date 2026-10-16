@@ -235,3 +235,38 @@ def test_live_trader_integration_signals() -> None:
     assert "1h" in btc_pdas
     # Verify at least one FVG detected in 4h/1h due to synthetic gap (c1.high 60500 vs c3.low 61300)
     assert any(pda["array_type"] == "FVG_BISI" for pda in btc_pdas["4h"])
+
+
+def test_fetch_binance_candles_sync_filters_unclosed_forming_kline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import io
+    import json
+    import urllib.request
+
+    from autonomous_futures.api.strategy_router import _fetch_binance_candles_sync
+
+    now_ms = int(time.time() * 1000)
+    raw_klines = [
+        [now_ms - 180_000, "100.0", "105.0", "99.0", "104.0", "50.0", now_ms - 120_001],
+        [now_ms - 120_000, "104.0", "108.0", "103.0", "107.0", "60.0", now_ms - 60_001],
+        # Forming (unclosed) candle with close_time in the future
+        [now_ms - 10_000, "107.0", "150.0", "90.0", "149.0", "10.0", now_ms + 50_000],
+    ]
+
+    class _DummyResponse(io.BytesIO):
+        def __enter__(self) -> _DummyResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.close()
+
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda req, timeout=2.5: _DummyResponse(json.dumps(raw_klines).encode("utf-8")),
+    )
+    candles = _fetch_binance_candles_sync("SOLUSDT", "1m", limit=250)
+    assert len(candles) == 2
+    assert candles[-1].close == Decimal("107.0")
+

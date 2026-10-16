@@ -12,6 +12,7 @@ Adversarially probes:
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from decimal import Decimal
 
 from autonomous_futures.strategy.ict_mmxm import (
@@ -32,13 +33,22 @@ def _c(
     volume_val: str | int | float | Decimal = "100.0",
 ) -> Candle:
     return Candle(
-        timestamp_ms=ts_ms,
+        timestamp_ms=(1_700_000_000_000 + ts_ms * 1000)
+        if abs(ts_ms) < 1_000_000_000_000
+        else ts_ms,
         open=Decimal(str(open_val)),
         high=Decimal(str(high_val)),
         low=Decimal(str(low_val)),
         close=Decimal(str(close_val)),
         volume=Decimal(str(volume_val)),
     )
+
+
+def _past_htf(candles: list[Candle]) -> list[Candle]:
+    """Ensure HTF fixture bars are causally closed before the lower-timeframe sequence."""
+    return [
+        replace(candle, timestamp_ms=candle.timestamp_ms - 14 * 86_400_000) for candle in candles
+    ]
 
 
 class TestAdversarialCisdInvariants:
@@ -258,9 +268,9 @@ class TestTwinsSetupBullishMirrorAndRejections:
 
         state = engine.evaluate_twins_setup(
             symbol="BTCUSDT",
-            candles_4h=candles_4h,
-            candles_1h=candles_1h,
-            candles_15m=candles_15m,
+            candles_4h=_past_htf(candles_4h),
+            candles_1h=_past_htf(candles_1h),
+            candles_15m=_past_htf(candles_15m),
             candles_5m=candles_5m,
             candles_1m=candles_1m,
         )
@@ -334,7 +344,9 @@ class TestAdversarialTwinsRejectionModes:
             _c(3360, "961.0", "961.0", "940.0", "942.0"),
         ]
 
-        state = engine.evaluate_twins_setup("SOLUSDT", candles_4h, [], [], candles_5m, candles_1m)
+        state = engine.evaluate_twins_setup(
+            "SOLUSDT", _past_htf(candles_4h), [], [], candles_5m, candles_1m
+        )
         assert state.step_1_htf_hit is False
         assert state.step_6_ready is False
         assert state.side is None
@@ -363,7 +375,9 @@ class TestAdversarialTwinsRejectionModes:
             _c(3720, "1006.5", "1006.5", "998.0", "999.0"),
         ]
 
-        state = engine.evaluate_twins_setup("SOLUSDT", candles_4h, [], [], candles_5m, candles_1m)
+        state = engine.evaluate_twins_setup(
+            "SOLUSDT", _past_htf(candles_4h), [], [], candles_5m, candles_1m
+        )
         assert state.step_1_htf_hit is True
         assert state.step_2_m5_cisd is True
         assert state.step_3_twins_fvg is False
@@ -392,7 +406,9 @@ class TestAdversarialTwinsRejectionModes:
             _c(3720, "997.0", "997.0", "988.0", "989.0"),
         ]
 
-        state = engine.evaluate_twins_setup("SOLUSDT", candles_4h, [], [], candles_5m, candles_1m)
+        state = engine.evaluate_twins_setup(
+            "SOLUSDT", _past_htf(candles_4h), [], [], candles_5m, candles_1m
+        )
         assert state.step_3_twins_fvg is True
         assert state.step_4_ote_retrace is False
         assert state.step_6_ready is False
@@ -421,7 +437,9 @@ class TestAdversarialTwinsRejectionModes:
             _c(3720, "1006.5", "1006.5", "1000.0", "1004.0"),
         ]
 
-        state = engine.evaluate_twins_setup("SOLUSDT", candles_4h, [], [], candles_5m, candles_1m)
+        state = engine.evaluate_twins_setup(
+            "SOLUSDT", _past_htf(candles_4h), [], [], candles_5m, candles_1m
+        )
         assert state.step_4_ote_retrace is True
         assert state.step_5_m1_cisd is False
         assert state.step_6_ready is False
@@ -454,7 +472,9 @@ class TestAdversarialRetracementEdgeCases:
             _c(3720, "1005.0", "1005.0", "990.0", "992.0"),
         ]
 
-        state = engine.evaluate_twins_setup("SOLUSDT", candles_4h, [], [], candles_5m, candles_1m)
+        state = engine.evaluate_twins_setup(
+            "SOLUSDT", _past_htf(candles_4h), [], [], candles_5m, candles_1m
+        )
         assert state.step_4_ote_retrace is False
         assert state.step_6_ready is False
         assert state.invalidation_reason == InvalidationReason.OTE_OVERSHOOT
@@ -482,7 +502,9 @@ class TestAdversarialRetracementEdgeCases:
             _c(3720, "1011.0", "1011.0", "998.0", "999.0"),
         ]
 
-        state = engine.evaluate_twins_setup("SOLUSDT", candles_4h, [], [], candles_5m, candles_1m)
+        state = engine.evaluate_twins_setup(
+            "SOLUSDT", _past_htf(candles_4h), [], [], candles_5m, candles_1m
+        )
         assert state.step_4_ote_retrace is False
         assert state.step_6_ready is False
         assert state.invalidation_reason == InvalidationReason.OTE_OVERSHOOT
@@ -509,7 +531,9 @@ class TestAdversarialRetracementEdgeCases:
             _c(3720, "1008.0", "1008.0", "998.0", "999.0"),  # 1m CISD (close 999.0 < 1001.5)
         ]
 
-        state = engine.evaluate_twins_setup("SOLUSDT", candles_4h, [], [], candles_5m, candles_1m)
+        state = engine.evaluate_twins_setup(
+            "SOLUSDT", _past_htf(candles_4h), [], [], candles_5m, candles_1m
+        )
         assert state.step_1_htf_hit is True
         assert state.step_2_m5_cisd is True
         assert state.step_3_twins_fvg is True
@@ -596,7 +620,7 @@ class TestDogeSubZeroStopLossBug:
 
         doge_tick = Decimal("0.00001")
         state = engine.evaluate_twins_setup(
-            "DOGEUSDT", [], candles_1h, [], candles_5m, candles_1m, tick_size=doge_tick
+            "DOGEUSDT", [], _past_htf(candles_1h), [], candles_5m, candles_1m, tick_size=doge_tick
         )
 
         assert state.step_6_ready is True

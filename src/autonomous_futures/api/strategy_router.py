@@ -493,25 +493,27 @@ _CANDLE_TTL_SECONDS: dict[str, float] = {
 }
 
 
-def _fetch_binance_candles_sync(symbol: str, interval: str, limit: int = 50) -> list[Candle]:
-    """Fetches public klines directly from Binance Futures public REST endpoint."""
+def _fetch_binance_candles_sync(symbol: str, interval: str, limit: int = 250) -> list[Candle]:
+    """Fetches closed public klines directly from Binance Futures public REST endpoint."""
     import json
     import urllib.request
     from decimal import Decimal
 
+    request_limit = min(max(limit + 1, 2), 500)
     url = (
         f"https://fapi.binance.com/fapi/v1/klines"
-        f"?symbol={symbol.upper()}&interval={interval}&limit={min(limit, 100)}"
+        f"?symbol={symbol.upper()}&interval={interval}&limit={request_limit}"
     )
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "AutonomousFuturesBot/1.0 (PublicRestClient; Unauth)"},
     )
+    now_ms = int(time.time() * 1000)
     with urllib.request.urlopen(req, timeout=2.5) as resp:
         raw = json.loads(resp.read().decode("utf-8"))
         if not isinstance(raw, list):
             return []
-        return [
+        closed = [
             Candle(
                 timestamp_ms=int(r[0]),
                 open=Decimal(str(r[1])),
@@ -521,7 +523,9 @@ def _fetch_binance_candles_sync(symbol: str, interval: str, limit: int = 50) -> 
                 volume=Decimal(str(r[5])),
             )
             for r in raw
+            if len(r) <= 6 or int(r[6]) <= now_ms
         ]
+        return closed[-limit:] if limit > 0 else closed
 
 
 def _get_multi_tf_candles_cached(
@@ -552,7 +556,7 @@ def _get_multi_tf_candles_cached(
     if to_fetch:
         for tf in to_fetch:
             try:
-                fetched = _fetch_binance_candles_sync(symbol, tf, limit=50)
+                fetched = _fetch_binance_candles_sync(symbol, tf, limit=250)
                 with _STANDALONE_CANDLE_LOCK:
                     _STANDALONE_CANDLE_CACHE[(symbol, tf)] = (now, fetched)
                 res[tf] = fetched

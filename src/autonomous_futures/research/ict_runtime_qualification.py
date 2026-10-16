@@ -37,6 +37,7 @@ from autonomous_futures.strategy.ict_mmxm import Candle, IctMmxmEngine
 
 D = Decimal
 EntryMode = Literal["limit_touch", "reclaim_retest"]
+InvalidationMode = Literal["entry_close", "stop_only"]
 
 
 def has_close_reclaim(bar: Candle, plan: TradePlan) -> bool:
@@ -121,9 +122,12 @@ def qualify_ict(
     policy: RuntimeQualificationPolicy,
     progress: Callable[[dict[str, Any]], None],
     entry_mode: EntryMode = "limit_touch",
+    invalidation_mode: InvalidationMode = "entry_close",
 ) -> dict[str, Any]:
     if entry_mode not in {"limit_touch", "reclaim_retest"}:
         raise ValueError("Unsupported ICT qualification entry mode")
+    if invalidation_mode not in {"entry_close", "stop_only"}:
+        raise ValueError("Unsupported ICT qualification invalidation mode")
     names = (
         "src/autonomous_futures/strategy/ict_mmxm.py",
         "src/autonomous_futures/strategy/pd_array_touch_index.py",
@@ -349,7 +353,9 @@ def qualify_ict(
                     wallet += active.close_quantity(
                         active.remaining, price, decision, "DAILY_LOSS", policy.taker_fee
                     )
-                elif bar.close <= plan.entry if sign == 1 else bar.close >= plan.entry:
+                elif invalidation_mode == "entry_close" and (
+                    bar.close <= plan.entry if sign == 1 else bar.close >= plan.entry
+                ):
                     wallet += active.close_quantity(
                         active.remaining, bar.close, decision, "CISD_INVALIDATION", policy.taker_fee
                     )

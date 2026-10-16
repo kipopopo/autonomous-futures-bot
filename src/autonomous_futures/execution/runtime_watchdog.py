@@ -636,7 +636,7 @@ def dispatch_watchdog_alerts(
         delivery_error = "; ".join(errors) if errors else None
         if status == "HEALTHY":
             alert_active = False
-            last_alert_status = "HEALTHY"
+            last_alert_status: str | None = "HEALTHY"
             last_alerted_critical_alerts: list[str] = []
         else:
             alert_active = True

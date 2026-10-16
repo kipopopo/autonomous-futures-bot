@@ -27,6 +27,8 @@ from autonomous_futures.strategy.ict_mmxm import (
     IctMmxmEngine,
     InvalidationReason,
     PdArrayType,
+    QuarterlyCyclePhase,
+    StopLossMode,
 )
 
 
@@ -1092,3 +1094,185 @@ class TestMultiCandleBufferRobustness:
         self.test_preceding_historical_candles_do_not_distort_dealing_range(baseline_setup_candles)
         self.test_following_candles_do_not_drop_confirmed_state(baseline_setup_candles)
         self.test_bullish_rolling_window_robustness()
+
+
+class TestLumiTradersMmxmSpecificationAlignment:
+    """Verifies LumiTraders MMXM 176-page specification alignment."""
+
+    def test_non_adjacent_twin_fvgs_within_5m_displacement_leg(self) -> None:
+        """PDF pp. 143, 152, 176: Two non-adjacent 1m FVGs inside 5m displacement leg qualify."""
+        engine = IctMmxmEngine()
+        candles_15m = [
+            _make_candle(1700000000000, "995.0", "1020.0", "990.0", "1015.0"),
+            _make_candle(1700000900000, "1015.0", "1018.0", "980.0", "985.0"),
+        ]
+        candles_5m = [
+            _make_candle(1700000000000, "995.0", "1018.0", "994.0", "1015.0"),
+            _make_candle(1700000300000, "1015.0", "1016.0", "980.0", "985.0"),
+        ]
+        # Here C3 wicks up to 1002.0 (overlapping C1 low 1000.0 so i=3 is NOT an FVG),
+        # while i=2 (SIBI 1 [1004, 1010]) and i=4 (SIBI 2 [986, 990]) are 120s apart!
+        candles_1m = [
+            _make_candle(1700000300000, "1015.0", "1016.0", "1010.0", "1011.0"),
+            _make_candle(1700000360000, "1011.0", "1011.0", "1000.0", "1001.0"),
+            _make_candle(1700000420000, "1001.0", "1004.0", "990.0", "991.0"),  # SIBI 1
+            _make_candle(1700000480000, "991.0", "1002.0", "982.0", "983.0"),  # No FVG at i=3
+            _make_candle(1700000540000, "983.0", "986.0", "980.0", "981.0"),  # SIBI 2
+            _make_candle(1700000600000, "981.0", "995.0", "981.0", "994.0"),
+            _make_candle(1700000660000, "994.0", "1007.0", "1001.5", "1006.5"),
+            _make_candle(1700000720000, "1006.5", "1006.5", "998.0", "999.0"),
+        ]
+
+        state = engine.evaluate_twins_setup(
+            symbol="SOLUSDT",
+            candles_4h=_past_htf([]),
+            candles_1h=_past_htf([]),
+            candles_15m=_past_htf(candles_15m),
+            candles_5m=candles_5m,
+            candles_1m=candles_1m,
+        )
+        assert state.step_3_twins_fvg is True
+        assert state.step_6_ready is True
+        assert state.side == "SELL"
+
+    def test_adaptive_79_ote_stop_loss_vs_swing_extreme(self) -> None:
+        """PDF p. 157: SL above 79% OTE when 1m CISD is before 79%; above 100% if 79% touched."""
+        engine = IctMmxmEngine()
+        candles_15m = [
+            _make_candle(1700000000000, "995.0", "1020.0", "990.0", "1015.0"),
+            _make_candle(1700000900000, "1015.0", "1018.0", "980.0", "985.0"),
+        ]
+        candles_5m = [
+            _make_candle(1700000000000, "995.0", "1018.0", "994.0", "1015.0"),
+            _make_candle(1700000300000, "1015.0", "1016.0", "980.0", "985.0"),
+        ]
+        # Dealing range: [980.0, 1018.0], delta=38.0, ote_79 = 980 + 0.79 * 38 = 1010.02
+        # Retracement high is 1007.0 (< 1010.02), so adaptive SL is ote_79 + 1.00 = 1011.02
+        candles_1m = [
+            _make_candle(1700000300000, "1015.0", "1016.0", "1010.0", "1011.0"),
+            _make_candle(1700000360000, "1011.0", "1011.0", "1000.0", "1001.0"),
+            _make_candle(1700000420000, "1001.0", "1004.0", "990.0", "991.0"),
+            _make_candle(1700000480000, "991.0", "991.0", "982.0", "983.0"),
+            _make_candle(1700000540000, "983.0", "986.0", "980.0", "981.0"),
+            _make_candle(1700000600000, "981.0", "995.0", "981.0", "994.0"),
+            _make_candle(1700000660000, "994.0", "1007.0", "1001.5", "1006.5"),
+            _make_candle(1700000720000, "1006.5", "1006.5", "998.0", "999.0"),
+        ]
+
+        adaptive_state = engine.evaluate_twins_setup(
+            symbol="SOLUSDT",
+            candles_4h=_past_htf([]),
+            candles_1h=_past_htf([]),
+            candles_15m=_past_htf(candles_15m),
+            candles_5m=candles_5m,
+            candles_1m=candles_1m,
+            stop_loss_mode=StopLossMode.OTE_79_ADAPTIVE,
+        )
+        assert adaptive_state.step_6_ready is True
+        assert adaptive_state.ote_79 == Decimal("1010.02")
+        assert adaptive_state.stop_loss == Decimal("1011.02")
+
+        # When retracement wicks to 1011.0 (>= ote_79 1010.02), SL shifts to 100% h_leg + 1.00
+        candles_1m_touch_79 = list(candles_1m)
+        candles_1m_touch_79[6] = _make_candle(
+            1700000660000, "994.0", "1011.0", "1001.5", "1006.5"
+        )
+        touched_state = engine.evaluate_twins_setup(
+            symbol="SOLUSDT",
+            candles_4h=_past_htf([]),
+            candles_1h=_past_htf([]),
+            candles_15m=_past_htf(candles_15m),
+            candles_5m=candles_5m,
+            candles_1m=candles_1m_touch_79,
+            stop_loss_mode=StopLossMode.OTE_79_ADAPTIVE,
+        )
+        assert touched_state.step_6_ready is True
+        assert touched_state.stop_loss == Decimal("1019.00")
+
+    def test_quarterly_cycle_and_killzones_evaluation(self) -> None:
+        """PDF pp. 31, 63, 99, 146: Daily quarters Q1-Q4, Killzones, and Twins AM/PM windows."""
+        # Base UTC midnight: 2023-11-15 00:00:00 UTC = 1700006400000 ms (19:00 EST prev day -> Q1)
+        base_utc_midnight = 1_700_006_400_000
+
+        # 09:00 NY (14:00 UTC) -> Q3 Distribution, NY_AM killzone, Twins AM window (08:15-10:30)
+        ts_ny_9am = base_utc_midnight + 14 * 3_600_000
+        snap_am = IctMmxmEngine.evaluate_quarterly_time_window(ts_ny_9am)
+        assert snap_am.ny_hour == 9
+        assert snap_am.ny_minute == 0
+        assert snap_am.daily_quarter == QuarterlyCyclePhase.Q3_DISTRIBUTION
+        assert snap_am.in_distribution_window is True
+        assert snap_am.in_twins_am_window is True
+        assert snap_am.is_high_probability_twins_window is True
+        assert snap_am.active_killzone == "NY_AM"
+
+        # 14:00 NY (19:00 UTC) -> Q4, Twins PM window (13:30-15:00)
+        ts_ny_2pm = base_utc_midnight + 19 * 3_600_000
+        snap_pm = IctMmxmEngine.evaluate_quarterly_time_window(ts_ny_2pm)
+        assert snap_pm.ny_hour == 14
+        assert snap_pm.daily_quarter == QuarterlyCyclePhase.Q4_CONTINUATION_REVERSAL
+        assert snap_pm.in_twins_pm_window is True
+        assert snap_pm.is_high_probability_twins_window is True
+
+        # 02:00 NY (07:00 UTC) -> Q2 Manipulation, LONDON killzone
+        ts_ny_2am = base_utc_midnight + 7 * 3_600_000
+        snap_london = IctMmxmEngine.evaluate_quarterly_time_window(ts_ny_2am)
+        assert snap_london.ny_hour == 2
+        assert snap_london.daily_quarter == QuarterlyCyclePhase.Q2_MANIPULATION
+        assert snap_london.in_manipulation_window is True
+        assert snap_london.active_killzone == "LONDON"
+
+    def test_intraday_bias_nymo_pdh_pdl_pdr_equilibrium_and_sessions(self) -> None:
+        """PDF pp. 116-139: NY Midnight Open, PDH/PDL, 50% Equilibrium of PDR, Asia/London H/L."""
+        # NY Midnight (00:00 EST) is 05:00 UTC.
+        # Day 1 NY Midnight: 2023-11-15 05:00:00 UTC = 1700024400000 ms
+        day1_nymo_ms = 1_700_024_400_000
+        day2_nymo_ms = day1_nymo_ms + 86_400_000
+
+        candles = [
+            # Day 1 morning (01:00 NY): low=100.0, high=120.0
+            _make_candle(day1_nymo_ms + 1 * 3_600_000, "105.0", "120.0", "100.0", "115.0"),
+            # Day 1 afternoon (14:00 NY): high=140.0 (PDH), low=110.0
+            _make_candle(day1_nymo_ms + 14 * 3_600_000, "115.0", "140.0", "110.0", "130.0"),
+            # Day 1 Asia session (21:00 NY): high=135.0, low=125.0
+            _make_candle(day1_nymo_ms + 21 * 3_600_000, "130.0", "135.0", "125.0", "128.0"),
+            # Day 2 NY Midnight Open (00:00 NY): open=126.0 (NYMO)
+            _make_candle(day2_nymo_ms, "126.0", "132.0", "124.0", "130.0"),
+            # Day 2 London session (03:00 NY): sweeps PDH (142.0 > 140.0), closes at 134.0
+            _make_candle(day2_nymo_ms + 3 * 3_600_000, "130.0", "142.0", "129.0", "134.0"),
+        ]
+
+        bias = IctMmxmEngine.compute_intraday_bias(candles)
+        assert bias.ny_midnight_open == Decimal("126.0")
+        assert bias.pdh == Decimal("140.0")
+        assert bias.pdl == Decimal("100.0")
+        assert bias.pdr_equilibrium == Decimal("120.0")
+        assert bias.asia_high == Decimal("135.0")
+        assert bias.asia_low == Decimal("125.0")
+        assert bias.london_high == Decimal("142.0")
+        assert bias.london_low == Decimal("129.0")
+        assert bias.pdh_swept is True
+        assert bias.pdl_swept is False
+        assert bias.pdr_zone == "PREMIUM"
+        assert bias.nymo_zone == "ABOVE_NYMO"
+
+    def test_measuring_gap_halfway_projection(self) -> None:
+        """PDF pp. 34, 72-76: Measuring Gap around 50% of impulse leg projects 100% terminus."""
+        engine = IctMmxmEngine()
+        # Bullish impulse from 100.0 to 140.0 with BISI FVG [118.0, 122.0] (MT = 120.0, exact 50%)
+        candles = [
+            _make_candle(1700000000000, "100.0", "118.0", "100.0", "117.0"),
+            _make_candle(1700000300000, "117.0", "128.0", "116.0", "127.0"),
+            _make_candle(1700000600000, "127.0", "140.0", "122.0", "138.0"),
+        ]
+        proj = engine.compute_measuring_gap(
+            candles,
+            anchor_high=Decimal("140.0"),
+            anchor_low=Decimal("100.0"),
+            direction="BULLISH",
+            timeframe="5m",
+        )
+        assert proj is not None
+        assert proj.fvg.mean_threshold == Decimal("120.0")
+        assert proj.gap_midpoint_ratio == Decimal("0.5")
+        assert proj.projected_terminus == Decimal("140.0")
+

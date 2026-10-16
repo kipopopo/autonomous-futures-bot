@@ -190,6 +190,72 @@ class TwinsSetupState:
     step: TwinsStep = TwinsStep.IDLE
 
 
+class StopLossMode(enum.StrEnum):
+    """Stop loss placement mode for the Twins Reversal Model (LumiTraders PDF p. 157)."""
+
+    SWING_EXTREME = "swing_extreme"  # Conservative: beyond 100% manipulation extreme (ITH/ITL)
+    OTE_79_ADAPTIVE = "ote_79_adaptive"  # Aggressive: beyond 79% OTE if 1m CISD forms before 79%
+
+
+class QuarterlyCyclePhase(enum.StrEnum):
+    """Daily 6-hour Quarterly Cycle phases (Daye's Theory / LumiTraders PDF pp. 63, 99)."""
+
+    Q1_ACCUMULATION = "Q1_ACCUMULATION"  # 18:00 - 00:00 NY
+    Q2_MANIPULATION = "Q2_MANIPULATION"  # 00:00 - 06:00 NY (London)
+    Q3_DISTRIBUTION = "Q3_DISTRIBUTION"  # 06:00 - 12:00 NY (NY AM)
+    Q4_CONTINUATION_REVERSAL = "Q4_CONTINUATION_REVERSAL"  # 12:00 - 18:00 NY (NY PM)
+
+
+@dataclasses.dataclass(frozen=True)
+class QuarterlyCycleSnapshot:
+    """Time-of-day alignment for ICT Killzones & Quarterly Theory (PDF pp. 31, 63, 99, 146)."""
+
+    timestamp_ms: int
+    ny_hour: int
+    ny_minute: int
+    daily_quarter: QuarterlyCyclePhase
+    in_manipulation_window: bool
+    in_distribution_window: bool
+    in_twins_am_window: bool
+    in_twins_pm_window: bool
+    active_killzone: Literal["ASIA", "LONDON", "NY_AM", "LONDON_CLOSE", "NONE"]
+
+    @property
+    def is_high_probability_twins_window(self) -> bool:
+        """True during the 08:15-10:30 NY AM or 13:30-15:00 NY PM Twins windows (PDF p. 146)."""
+        return self.in_twins_am_window or self.in_twins_pm_window
+
+
+@dataclasses.dataclass(frozen=True)
+class IntradayBiasSnapshot:
+    """LumiTraders Intraday Bias & Liquidity Reference levels (PDF pp. 116-139)."""
+
+    ny_midnight_open: Decimal | None = None
+    pdh: Decimal | None = None
+    pdl: Decimal | None = None
+    pdr_equilibrium: Decimal | None = None
+    asia_high: Decimal | None = None
+    asia_low: Decimal | None = None
+    london_high: Decimal | None = None
+    london_low: Decimal | None = None
+    pdh_swept: bool = False
+    pdl_swept: bool = False
+    pdr_zone: Literal["PREMIUM", "DISCOUNT", "EQUILIBRIUM", "UNKNOWN"] = "UNKNOWN"
+    nymo_zone: Literal["ABOVE_NYMO", "BELOW_NYMO", "AT_NYMO", "UNKNOWN"] = "UNKNOWN"
+
+
+@dataclasses.dataclass(frozen=True)
+class MeasuringGapProjection:
+    """Measuring Gap (halfway FVG) projection to 100% terminus target (PDF pp. 34, 72-76)."""
+
+    fvg: PdArray
+    anchor_high: Decimal
+    anchor_low: Decimal
+    direction: Literal["BULLISH", "BEARISH"] | str
+    gap_midpoint_ratio: Decimal
+    projected_terminus: Decimal
+
+
 def quantize_price(price: Decimal, tick_size: Decimal | None) -> Decimal:
     """Quantizes a Decimal price to tick size using ROUND_HALF_UP."""
     if tick_size is None or tick_size <= ZERO:
@@ -784,6 +850,237 @@ class IctMmxmEngine:
         else:
             return min(raw_target, opposing_pda_boundary)
 
+    @staticmethod
+    def resolve_twins_stop_loss(
+        *,
+        direction: str,
+        h_leg: Decimal,
+        l_leg: Decimal,
+        ote_79: Decimal,
+        retracement_extreme: Decimal,
+        tick_size: Decimal | None = None,
+        stop_loss_mode: StopLossMode | str = StopLossMode.SWING_EXTREME,
+    ) -> Decimal:
+        """Resolves Twins stop loss per LumiTraders PDF p. 157.
+
+        - StopLossMode.SWING_EXTREME (default): places stop loss beyond the 100%
+          manipulation extreme (h_leg + buffer for BEARISH, l_leg - buffer for BULLISH).
+        - StopLossMode.OTE_79_ADAPTIVE: if the 1m CISD retracement extreme occurs strictly
+          before touching the 79% Fibonacci level, places stop loss right beyond 79% OTE;
+          if the retracement touches 79% OTE, places stop loss beyond 100% (h_leg / l_leg).
+        """
+        buffer = tick_size * TWO if tick_size is not None and tick_size > ZERO else Decimal("1.00")
+        adaptive = str(stop_loss_mode) == StopLossMode.OTE_79_ADAPTIVE.value
+
+        if direction == SetupDirection.BEARISH.value:
+            anchor = ote_79 if (adaptive and retracement_extreme < ote_79) else h_leg
+            return anchor + buffer
+
+        anchor = ote_79 if (adaptive and retracement_extreme > ote_79) else l_leg
+        stop_loss = anchor - buffer
+        if stop_loss <= ZERO:
+            fallback_tick = (
+                tick_size if (tick_size is not None and tick_size > ZERO) else Decimal("0.0001")
+            )
+            stop_loss = max(anchor * Decimal("0.99"), fallback_tick)
+        return stop_loss
+
+    @staticmethod
+    def evaluate_quarterly_time_window(
+        timestamp_ms: int,
+        *,
+        utc_offset_hours: int = -5,
+    ) -> QuarterlyCycleSnapshot:
+        """Evaluates ICT Killzones, 6-hour Quarters, & Twins Windows (PDF pp. 31, 63, 99, 146)."""
+        shifted_ms = timestamp_ms + utc_offset_hours * 3_600_000
+        day_ms = shifted_ms % 86_400_000
+        total_minutes = int(day_ms // 60_000)
+        ny_hour = total_minutes // 60
+        ny_minute = total_minutes % 60
+
+        if 18 <= ny_hour < 24:
+            quarter = QuarterlyCyclePhase.Q1_ACCUMULATION
+        elif 0 <= ny_hour < 6:
+            quarter = QuarterlyCyclePhase.Q2_MANIPULATION
+        elif 6 <= ny_hour < 12:
+            quarter = QuarterlyCyclePhase.Q3_DISTRIBUTION
+        else:
+            quarter = QuarterlyCyclePhase.Q4_CONTINUATION_REVERSAL
+
+        # Manipulation windows within Q2 (01:30-03:00 NY) & Q3 (07:30-09:00 NY) (PDF p. 99)
+        in_manip = (90 <= total_minutes < 180) or (450 <= total_minutes < 540)
+        # Distribution windows within Q2 (03:00-04:30 NY) & Q3 (09:00-10:30 NY) (PDF p. 99)
+        in_dist = (180 <= total_minutes < 270) or (540 <= total_minutes < 630)
+        # Twins high-probability windows: AM (08:15-10:30 NY) & PM (13:30-15:00 NY) (PDF p. 146)
+        in_twins_am = 495 <= total_minutes <= 630
+        in_twins_pm = 810 <= total_minutes <= 900
+
+        # ICT Killzones (PDF p. 31)
+        if 20 <= ny_hour < 24:
+            killzone: Literal["ASIA", "LONDON", "NY_AM", "LONDON_CLOSE", "NONE"] = "ASIA"
+        elif 2 <= ny_hour < 5:
+            killzone = "LONDON"
+        elif 7 <= ny_hour < 10:
+            killzone = "NY_AM"
+        elif 10 <= ny_hour < 12:
+            killzone = "LONDON_CLOSE"
+        else:
+            killzone = "NONE"
+
+        return QuarterlyCycleSnapshot(
+            timestamp_ms=timestamp_ms,
+            ny_hour=ny_hour,
+            ny_minute=ny_minute,
+            daily_quarter=quarter,
+            in_manipulation_window=in_manip,
+            in_distribution_window=in_dist,
+            in_twins_am_window=in_twins_am,
+            in_twins_pm_window=in_twins_pm,
+            active_killzone=killzone,
+        )
+
+    @staticmethod
+    def compute_intraday_bias(
+        candles: Sequence[Candle],
+        *,
+        utc_offset_hours: int = -5,
+    ) -> IntradayBiasSnapshot:
+        """Computes LumiTraders Intraday Bias: NYMO, PDH/PDL, EQ of PDR, Asia/London."""
+        if not candles:
+            return IntradayBiasSnapshot()
+
+        offset_ms = utc_offset_hours * 3_600_000
+        latest = candles[-1]
+        current_ny_day = (latest.timestamp_ms + offset_ms) // 86_400_000
+        prev_ny_day = current_ny_day - 1
+
+        prev_day_candles: list[Candle] = []
+        curr_day_candles: list[Candle] = []
+        asia_candles: list[Candle] = []
+        london_candles: list[Candle] = []
+
+        for c in candles:
+            shifted = c.timestamp_ms + offset_ms
+            ny_day = shifted // 86_400_000
+            ny_hour = int((shifted % 86_400_000) // 3_600_000)
+            if ny_day == prev_ny_day:
+                prev_day_candles.append(c)
+                if 20 <= ny_hour < 24:
+                    asia_candles.append(c)
+            elif ny_day == current_ny_day:
+                curr_day_candles.append(c)
+                if 2 <= ny_hour < 5:
+                    london_candles.append(c)
+
+        nymo = curr_day_candles[0].open if curr_day_candles else None
+        pdh = max((c.high for c in prev_day_candles), default=None)
+        pdl = min((c.low for c in prev_day_candles), default=None)
+        pdr_eq = (pdh + pdl) / TWO if (pdh is not None and pdl is not None) else None
+
+        asia_high = max((c.high for c in asia_candles), default=None)
+        asia_low = min((c.low for c in asia_candles), default=None)
+        london_high = max((c.high for c in london_candles), default=None)
+        london_low = min((c.low for c in london_candles), default=None)
+
+        pdh_swept = bool(pdh is not None and any(c.high > pdh for c in curr_day_candles))
+        pdl_swept = bool(pdl is not None and any(c.low < pdl for c in curr_day_candles))
+
+        pdr_zone: Literal["PREMIUM", "DISCOUNT", "EQUILIBRIUM", "UNKNOWN"] = "UNKNOWN"
+        if pdr_eq is not None:
+            if latest.close > pdr_eq:
+                pdr_zone = "PREMIUM"
+            elif latest.close < pdr_eq:
+                pdr_zone = "DISCOUNT"
+            else:
+                pdr_zone = "EQUILIBRIUM"
+
+        nymo_zone: Literal["ABOVE_NYMO", "BELOW_NYMO", "AT_NYMO", "UNKNOWN"] = "UNKNOWN"
+        if nymo is not None:
+            if latest.close > nymo:
+                nymo_zone = "ABOVE_NYMO"
+            elif latest.close < nymo:
+                nymo_zone = "BELOW_NYMO"
+            else:
+                nymo_zone = "AT_NYMO"
+
+        return IntradayBiasSnapshot(
+            ny_midnight_open=nymo,
+            pdh=pdh,
+            pdl=pdl,
+            pdr_equilibrium=pdr_eq,
+            asia_high=asia_high,
+            asia_low=asia_low,
+            london_high=london_high,
+            london_low=london_low,
+            pdh_swept=pdh_swept,
+            pdl_swept=pdl_swept,
+            pdr_zone=pdr_zone,
+            nymo_zone=nymo_zone,
+        )
+
+    def compute_measuring_gap(
+        self,
+        candles: Sequence[Candle],
+        *,
+        anchor_high: Decimal,
+        anchor_low: Decimal,
+        direction: str,
+        timeframe: str = "5m",
+    ) -> MeasuringGapProjection | None:
+        """Detects a Measuring Gap near the 50% midpoint and projects 100% terminus."""
+        delta = anchor_high - anchor_low
+        if delta <= ZERO or len(candles) < 3:
+            return None
+
+        target_type = (
+            PdArrayType.FVG_SIBI
+            if direction == SetupDirection.BEARISH.value
+            else PdArrayType.FVG_BISI
+        )
+        pdas = [
+            p
+            for p in self.detect_pd_arrays(candles, timeframe)
+            if p.array_type == target_type and p.direction == direction
+        ]
+        if not pdas:
+            return None
+
+        best_pda: PdArray | None = None
+        best_ratio = ZERO
+        best_dist = Decimal("999")
+
+        for pda in pdas:
+            ratio = (
+                (anchor_high - pda.mean_threshold) / delta
+                if direction == SetupDirection.BEARISH.value
+                else (pda.mean_threshold - anchor_low) / delta
+            )
+            if Decimal("0.35") <= ratio <= Decimal("0.65"):
+                dist = abs(ratio - FIB_500)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_pda = pda
+                    best_ratio = ratio
+
+        if best_pda is None:
+            return None
+
+        if direction == SetupDirection.BEARISH.value:
+            half_leg = anchor_high - best_pda.mean_threshold
+            terminus = anchor_high - TWO * half_leg
+        else:
+            half_leg = best_pda.mean_threshold - anchor_low
+            terminus = anchor_low + TWO * half_leg
+
+        return MeasuringGapProjection(
+            fvg=best_pda,
+            anchor_high=anchor_high,
+            anchor_low=anchor_low,
+            direction=direction,
+            gap_midpoint_ratio=best_ratio,
+            projected_terminus=terminus,
+        )
+
     def evaluate_twins_setup(
         self,
         symbol: str,
@@ -793,6 +1090,7 @@ class IctMmxmEngine:
         candles_5m: Sequence[Candle],
         candles_1m: Sequence[Candle],
         tick_size: Decimal | None = None,
+        stop_loss_mode: StopLossMode | str = StopLossMode.SWING_EXTREME,
     ) -> TwinsSetupState:
         """Evaluates multi-timeframe candle streams across the 6-step mechanical sequence.
 
@@ -999,13 +1297,13 @@ class IctMmxmEngine:
                 m1_displacement = list(eligible_1m)
                 post_displacement = []
 
-        # Count distinct non-overlapping FVGs in displacement leg
+        # Count distinct non-overlapping FVGs in displacement leg (PDF pp. 143, 152, 176)
         twins_fvgs: list[PdArray] = []
         last_fvg_idx = -999
 
         if direction == SetupDirection.BEARISH.value:
             for i in range(2, len(m1_displacement)):
-                if i > last_fvg_idx:
+                if i > last_fvg_idx + 1:
                     c_prev2 = m1_displacement[i - 2]
                     c_curr = m1_displacement[i]
                     if c_curr.high < c_prev2.low:
@@ -1026,7 +1324,7 @@ class IctMmxmEngine:
                         last_fvg_idx = i
         else:
             for i in range(2, len(m1_displacement)):
-                if i > last_fvg_idx:
+                if i > last_fvg_idx + 1:
                     c_prev2 = m1_displacement[i - 2]
                     c_curr = m1_displacement[i]
                     if c_curr.low > c_prev2.high:
@@ -1046,10 +1344,7 @@ class IctMmxmEngine:
                         )
                         last_fvg_idx = i
 
-        has_twin_fvgs = any(
-            twins_fvgs[i].creation_ts - twins_fvgs[i - 1].creation_ts == 60_000
-            for i in range(1, len(twins_fvgs))
-        )
+        has_twin_fvgs = len(twins_fvgs) >= 2
         if not has_twin_fvgs:
             return TwinsSetupState(
                 symbol=symbol,
@@ -1062,7 +1357,6 @@ class IctMmxmEngine:
                 step=TwinsStep.STEP_2_M5_CISD,
             )
 
-        # ---------------------------------------------------------------------
         # ---------------------------------------------------------------------
         # Step 4: OTE Retracement (Equilibrium / OTE Fibonacci Range)
         # ---------------------------------------------------------------------
@@ -1119,11 +1413,13 @@ class IctMmxmEngine:
         m1_cisd_price: Decimal | None = None
         m1_cisd_confirmed = False
         confirmation_ms: int | None = None
+        retracement_extreme = h_leg if direction == SetupDirection.BEARISH.value else l_leg
 
         if direction == SetupDirection.BEARISH.value:
             ote_candidates = [c for c in post_displacement if c.high >= ote_lower_lvl]
             if ote_candidates:
                 ote_high_candle = max(ote_candidates, key=lambda c: c.high)
+                retracement_extreme = ote_high_candle.high
                 m1_cisd_price = ote_high_candle.low
                 confirm_candles = [
                     c for c in post_displacement if c.timestamp_ms > ote_high_candle.timestamp_ms
@@ -1136,6 +1432,7 @@ class IctMmxmEngine:
             ote_candidates = [c for c in post_displacement if c.low <= ote_lower_lvl]
             if ote_candidates:
                 ote_low_candle = min(ote_candidates, key=lambda c: c.low)
+                retracement_extreme = ote_low_candle.low
                 m1_cisd_price = ote_low_candle.high
                 confirm_candles = [
                     c for c in post_displacement if c.timestamp_ms > ote_low_candle.timestamp_ms
@@ -1212,20 +1509,19 @@ class IctMmxmEngine:
                     direction=direction,
                 )
 
-        # Low-Price Asset Proportional Buffer Calculation
-        buffer = tick_size * TWO if tick_size is not None and tick_size > ZERO else Decimal("1.00")
-        if direction == SetupDirection.BEARISH.value:
-            stop_loss = h_leg + buffer
-            side: Literal["BUY", "SELL"] = "SELL"
-        else:
-            stop_loss = l_leg - buffer
-            side = "BUY"
-            # Strictly positive stop loss assertion / guard for BUY trades
-            if stop_loss <= ZERO:
-                fallback_tick = (
-                    tick_size if (tick_size is not None and tick_size > ZERO) else Decimal("0.0001")
-                )
-                stop_loss = max(l_leg * Decimal("0.99"), fallback_tick)
+        # Low-Price Asset Proportional Buffer & Stop Loss Mode Calculation (PDF p. 157)
+        stop_loss = self.resolve_twins_stop_loss(
+            direction=direction,
+            h_leg=h_leg,
+            l_leg=l_leg,
+            ote_79=ote_79,
+            retracement_extreme=retracement_extreme,
+            tick_size=tick_size,
+            stop_loss_mode=stop_loss_mode,
+        )
+        side: Literal["BUY", "SELL"] = (
+            "SELL" if direction == SetupDirection.BEARISH.value else "BUY"
+        )
 
         projections = StdvProjections(
             anchor_high=h_leg,
