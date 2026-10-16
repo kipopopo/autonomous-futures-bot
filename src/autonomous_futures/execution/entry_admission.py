@@ -68,10 +68,12 @@ class EntryAdmission:
         repo: Path,
         single_writer_guard: LegacyWriterHandoffGuard,
         user_stream_guard: Callable[[], None],
+        admission_manifest_path: Path | None = None,
     ) -> None:
         self.coordinator, self.microstructure = coordinator, microstructure
         self.repo, self.single_writer_guard = repo, single_writer_guard
         self.user_stream_guard = user_stream_guard
+        self.admission_manifest_path = admission_manifest_path
 
     async def admit(
         self,
@@ -100,6 +102,7 @@ class EntryAdmission:
                 report_path,
                 repo=self.repo,
                 portfolio_id=portfolio_id,
+                admission_manifest_path=self.admission_manifest_path,
             )
             if expected_report_hash is not None and (
                 len(expected_report_hash) != 64
@@ -130,6 +133,7 @@ class EntryAdmission:
                 repo=self.repo,
                 family=plan.family,
                 symbol=plan.symbol,
+                admission_manifest_path=self.admission_manifest_path,
             )
             if expected_report_hash is not None and (
                 len(expected_report_hash) != 64

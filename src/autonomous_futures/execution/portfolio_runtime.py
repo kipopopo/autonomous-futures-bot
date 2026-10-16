@@ -191,10 +191,16 @@ def load_admitted_portfolios(
     repo: Path,
     *,
     require_execution_authority: bool = False,
+    admission_manifest_path: Path | None = None,
 ) -> tuple[VerifiedRuntimePortfolio, ...]:
     """Load and cryptographically verify all admitted portfolio receipts."""
-    manifest_path = repo / "deploy" / "qualification-admission.json"
+    manifest_path = admission_manifest_path or (repo / "deploy" / "qualification-admission.json")
+    manifest_path = manifest_path.resolve()
+    if not manifest_path.is_relative_to(repo.resolve()):
+        raise ValueError("Qualification admission manifest must be inside the repository")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("Qualification admission manifest must be a JSON object")
     if manifest.get("schema") != "runtime-qualification-admission-v1":
         raise ValueError("Unsupported reviewed qualification admission manifest")
     entries = manifest.get("approved_portfolio_reports", [])
@@ -203,6 +209,8 @@ def load_admitted_portfolios(
     portfolios: list[VerifiedRuntimePortfolio] = []
     seen_ids: set[str] = set()
     for item in entries:
+        if not isinstance(item, dict):
+            raise ValueError("approved_portfolio_reports entries must be JSON objects")
         pid = str(item["portfolio_id"])
         if pid in seen_ids:
             raise ValueError(f"Duplicate admitted portfolio_id: {pid}")
@@ -211,7 +219,12 @@ def load_admitted_portfolios(
         path = (repo / rel_path).resolve()
         if not path.is_relative_to(repo.resolve()):
             raise ValueError("Admitted portfolio report must be inside the deployment repository")
-        receipt = verify_runtime_portfolio_report(path, repo=repo, portfolio_id=pid)
+        receipt = verify_runtime_portfolio_report(
+            path,
+            repo=repo,
+            portfolio_id=pid,
+            admission_manifest_path=manifest_path,
+        )
         portfolio = build_verified_runtime_portfolio(receipt, report_path=path)
         if require_execution_authority and not portfolio.execution_authority:
             raise ValueError(
@@ -362,19 +375,12 @@ def evaluate_symbol_members_checklist(
         )
         vol_triggered = rel_vol > vol_mult
         rsi_triggered = (
-            (rsi14 > (100.0 - rsi_thresh))
-            if btc_regime == "BEARISH"
-            else (rsi14 < rsi_thresh)
+            (rsi14 > (100.0 - rsi_thresh)) if btc_regime == "BEARISH" else (rsi14 < rsi_thresh)
         )
         gates_passed = (
-            int(macro_aligned)
-            + int(dist_triggered)
-            + int(vol_triggered)
-            + int(rsi_triggered)
+            int(macro_aligned) + int(dist_triggered) + int(vol_triggered) + int(rsi_triggered)
         )
-        signal_ready = bool(
-            macro_aligned and dist_triggered and vol_triggered and rsi_triggered
-        )
+        signal_ready = bool(macro_aligned and dist_triggered and vol_triggered and rsi_triggered)
         items.append(
             {
                 "member_id": member.member_id,
@@ -414,6 +420,7 @@ class PortfolioCausalScanner:
         repo: Path,
         account_path: Path,
         portfolio: VerifiedRuntimePortfolio,
+        admission_manifest_path: Path | None = None,
         pending_symbols_provider: Callable[[], tuple[str, ...]] | None = None,
         state_path: Path | None = None,
     ) -> None:
@@ -429,6 +436,7 @@ class PortfolioCausalScanner:
         self.feed = feed
         self.repo = repo
         self.account_path = account_path
+        self.admission_manifest_path = admission_manifest_path
         self.state_path = state_path or account_path.with_name(PORTFOLIO_SCANNER_STATE_NAME)
         self.portfolio = portfolio
         self.reader = ClosedHistoryReader(feed.gateway)
@@ -501,6 +509,7 @@ class PortfolioCausalScanner:
                 self.portfolio.report_path,
                 repo=self.repo,
                 portfolio_id=self.portfolio.portfolio_id,
+                admission_manifest_path=self.admission_manifest_path,
             )
             if receipt.report_hash != self.portfolio.report_hash:
                 raise ValueError("Portfolio report hash changed since scanner initialization")

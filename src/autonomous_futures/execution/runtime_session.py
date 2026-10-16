@@ -18,6 +18,7 @@ from autonomous_futures.execution.account_evidence import (
 from autonomous_futures.execution.daily_risk import DailyRiskTracker
 from autonomous_futures.execution.entry_admission import EntryAdmission
 from autonomous_futures.execution.entry_risk import remaining_daily_budget
+from autonomous_futures.execution.execution_event_evidence import ExecutionEventEvidenceLedger
 from autonomous_futures.execution.lifecycle_coordinator import LifecycleCoordinator
 from autonomous_futures.execution.trade_plan import TradePlan
 from autonomous_futures.feed.authenticated_user_stream import AuthenticatedUserDataStream
@@ -52,6 +53,7 @@ class RuntimeSession:
         feed: LiveMarketFeed,
         daily_risk: DailyRiskTracker,
         user_stream: AuthenticatedUserDataStream | None = None,
+        execution_evidence_context: dict[str, Any] | None = None,
     ) -> None:
         if admission.coordinator is not coordinator or admission.microstructure is not feed.monitor:
             raise ValueError("Runtime components do not share ownership and market evidence")
@@ -65,6 +67,12 @@ class RuntimeSession:
             daily_risk,
         )
         self.user_stream = user_stream
+        self.execution_event_evidence = ExecutionEventEvidenceLedger(
+            coordinator.directory,
+            lease=coordinator.lease,
+            execution_context=execution_evidence_context,
+        )
+        self._last_evidence_reconciled_event_count: int | None = None
         if self.user_stream is not None:
             self.user_stream.on_event = self._on_user_data_event
             self.user_stream.on_reconnect = self._resynchronize_after_user_stream_reconnect
@@ -145,6 +153,7 @@ class RuntimeSession:
                 ),
                 "user_stream_gap": self.user_stream_gap,
                 "user_data_event_counts": dict(self.user_data_event_counts),
+                "execution_event_evidence": self.execution_event_evidence.health_summary(),
                 "force_flatten_reason": self.force_flatten_reason,
                 "market_generation": monitor.generation,
                 "microstructure": {
@@ -175,6 +184,14 @@ class RuntimeSession:
         event_type = event.get("e")
         if not isinstance(event_type, str):
             raise ValueError("Authenticated user event is missing its event type")
+        self.execution_event_evidence.record_user_event(
+            event,
+            stream_connected=bool(self.user_stream is not None and self.user_stream.connected),
+            stream_event_count=0 if self.user_stream is None else self.user_stream.event_count,
+            reconciliation_required=(
+                True if self.user_stream is None else self.user_stream.reconciliation_required
+            ),
+        )
         self.user_data_event_counts[event_type] = self.user_data_event_counts.get(event_type, 0) + 1
         self.account_refresh_requested = True
         if event_type in {"MARGIN_CALL", "CONDITIONAL_ORDER_TRIGGER_REJECT"}:
@@ -190,6 +207,10 @@ class RuntimeSession:
         )
 
     async def _on_user_stream_disconnect(self) -> None:
+        self.execution_event_evidence.record_stream_disconnect(
+            stream_event_count=0 if self.user_stream is None else self.user_stream.event_count,
+            error_type=None if self.user_stream is None else self.user_stream.last_error_type,
+        )
         self.user_stream_gap = True
         self.account_refresh_requested = True
         self.cycle_wakeup.set()
@@ -207,6 +228,15 @@ class RuntimeSession:
                 errors = await self.coordinator.advance(now_ms, external_risk_breach=True)
             if errors:
                 raise ValueError("User-stream recovery found unresolved owned lifecycle state")
+            if self.user_stream is not None:
+                self.execution_event_evidence.record_rest_reconciliation(
+                    trigger="user_stream_reconnect",
+                    stream_connected=self.user_stream.connected,
+                    stream_event_count=self.user_stream.event_count,
+                    coordinator_errors=errors,
+                    completed_at_ms=now_ms,
+                )
+                self._last_evidence_reconciled_event_count = self.user_stream.event_count
             if (
                 self.force_flatten_reason is not None
                 and not self._account_has_exposure(snapshot)
@@ -257,6 +287,25 @@ class RuntimeSession:
                 errors = await self.coordinator.advance(cycle_ms, external_risk_breach=True)
             if errors:
                 raise ValueError("Owned lifecycle recovery is unresolved; new entries are disabled")
+            if (
+                observation_error is None
+                and self.user_stream is not None
+                and observed_event_count is not None
+                and self.user_stream.event_count == observed_event_count
+                and observed_event_count != self._last_evidence_reconciled_event_count
+            ):
+                self.execution_event_evidence.record_rest_reconciliation(
+                    trigger=(
+                        "user_stream_event_batch"
+                        if observed_event_count
+                        else "initial_session_cycle"
+                    ),
+                    stream_connected=self.user_stream.connected,
+                    stream_event_count=observed_event_count,
+                    coordinator_errors=errors,
+                    completed_at_ms=cycle_ms,
+                )
+                self._last_evidence_reconciled_event_count = observed_event_count
             if (
                 risk_reason_at_start is not None
                 and refreshed_snapshot is not None

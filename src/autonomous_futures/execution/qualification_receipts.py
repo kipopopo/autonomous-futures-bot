@@ -203,7 +203,12 @@ def verify_historical_report(
 
 
 def verify_runtime_report(
-    path: Path, *, repo: Path, family: str, symbol: str
+    path: Path,
+    *,
+    repo: Path,
+    family: str,
+    symbol: str,
+    admission_manifest_path: Path | None = None,
 ) -> HistoricalQualification:
     """Require an independently reviewed deployment pin in addition to research gates.
 
@@ -211,11 +216,20 @@ def verify_runtime_report(
     This manifest is deployment configuration and must never be populated from
     uploaded reports or candidate-registry labels by the running trading process.
     """
-    manifest_path = repo / "deploy" / "qualification-admission.json"
+    manifest_path = admission_manifest_path or (repo / "deploy" / "qualification-admission.json")
+    manifest_path = manifest_path.resolve()
+    if not manifest_path.is_relative_to(repo.resolve()):
+        raise ValueError("Qualification admission manifest must be inside the repository")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("Qualification admission manifest must be a JSON object")
     if manifest.get("schema") != "runtime-qualification-admission-v1":
         raise ValueError("Unsupported reviewed qualification admission manifest")
-    entries = manifest["approved_reports"]
+    entries = manifest.get("approved_reports", [])
+    if not isinstance(entries, list):
+        raise ValueError("approved_reports must be a list")
+    if any(not isinstance(item, dict) for item in entries):
+        raise ValueError("approved_reports entries must be JSON objects")
     identities = [(item["family"], item["symbol"]) for item in entries]
     if len(set(identities)) != len(identities):
         raise ValueError("Duplicate reviewed qualification identity")
@@ -419,16 +433,27 @@ def verify_portfolio_report(
 
 
 def verify_runtime_portfolio_report(
-    path: Path, *, repo: Path, portfolio_id: str
+    path: Path,
+    *,
+    repo: Path,
+    portfolio_id: str,
+    admission_manifest_path: Path | None = None,
 ) -> PortfolioHistoricalQualification:
-    """Verify a portfolio qualification receipt against deploy/qualification-admission.json."""
-    manifest_path = repo / "deploy" / "qualification-admission.json"
+    """Verify a portfolio receipt against its environment-specific admission manifest."""
+    manifest_path = admission_manifest_path or (repo / "deploy" / "qualification-admission.json")
+    manifest_path = manifest_path.resolve()
+    if not manifest_path.is_relative_to(repo.resolve()):
+        raise ValueError("Qualification admission manifest must be inside the repository")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("Qualification admission manifest must be a JSON object")
     if manifest.get("schema") != "runtime-qualification-admission-v1":
         raise ValueError("Unsupported reviewed qualification admission manifest")
     entries = manifest.get("approved_portfolio_reports", [])
     if not isinstance(entries, list):
         raise ValueError("approved_portfolio_reports must be a list")
+    if any(not isinstance(item, dict) for item in entries):
+        raise ValueError("approved_portfolio_reports entries must be JSON objects")
     ids = [str(item["portfolio_id"]) for item in entries]
     if len(set(ids)) != len(ids):
         raise ValueError("Duplicate reviewed portfolio qualification identity")

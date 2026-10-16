@@ -131,6 +131,14 @@ def test_portfolio_scanner_evaluates_members_in_priority_order_and_respects_occu
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     portfolio = load_admitted_portfolios(REPO)[0]
+    manifest_path = tmp_path / "mainnet-qualification-admission.json"
+    verifier_kwargs = {}
+    monkeypatch.setattr(
+        "autonomous_futures.execution.portfolio_runtime.verify_runtime_portfolio_report",
+        lambda *args, **kwargs: (
+            verifier_kwargs.update(kwargs) or Mock(report_hash=portfolio.report_hash)
+        ),
+    )
     feed_symbols = ("AVAXUSDT", "ETHUSDT", "SOLUSDT", "BTCUSDT")
     gateway = BinanceFuturesGateway(testnet=True, offline_mode=False)
     for sym in feed_symbols:
@@ -204,6 +212,7 @@ def test_portfolio_scanner_evaluates_members_in_priority_order_and_respects_occu
         repo=REPO,
         account_path=tmp_path / "exchange-account.json",
         portfolio=portfolio,
+        admission_manifest_path=manifest_path,
     )
     bars = tuple(
         IctCandle(
@@ -220,6 +229,7 @@ def test_portfolio_scanner_evaluates_members_in_priority_order_and_respects_occu
 
     # Call 1 scans AVAXUSDT -> None
     assert asyncio.run(scanner()) is None
+    assert verifier_kwargs["admission_manifest_path"] == manifest_path
     # Call 2 scans ETHUSDT -> evaluates eth-1-deep (-4.0), then eth-2-med (-3.5)
     intention = asyncio.run(scanner())
     assert intention is not None
@@ -313,3 +323,50 @@ def test_entry_admission_verifies_portfolio_receipt_and_member_id(
             )
         )
     coordinator.gateway.get_position_mode.assert_awaited_once()
+
+
+def test_portfolio_entry_admission_uses_selected_manifest(tmp_path: Path, monkeypatch) -> None:
+    portfolio = load_admitted_portfolios(REPO)[0]
+    manifest_path = tmp_path / "mainnet-qualification-admission.json"
+    verifier_kwargs = {}
+    monkeypatch.setattr("autonomous_futures.execution.entry_admission.time.time", lambda: 1.001)
+
+    def verify(*_args, **kwargs):
+        verifier_kwargs.update(kwargs)
+        return Mock(
+            report_hash=portfolio.report_hash,
+            family=portfolio.family,
+            symbols=("ETHUSDT",),
+            members=({"member_id": "authorized-member", "symbol": "ETHUSDT"},),
+        )
+
+    monkeypatch.setattr(
+        "autonomous_futures.execution.entry_admission.verify_runtime_portfolio_report", verify
+    )
+    coordinator = Mock()
+    coordinator.lease.assert_held = Mock()
+    coordinator.gateway.get_position_mode = AsyncMock(return_value=True)
+    admission = EntryAdmission(
+        coordinator,
+        Mock(),
+        repo=REPO,
+        single_writer_guard=Mock(),
+        user_stream_guard=Mock(),
+        admission_manifest_path=manifest_path,
+    )
+    plan = replace(PLAN, family="MACRO_SCALPER", symbol="ETHUSDT", decision_ms=1_000)
+
+    with pytest.raises(ValueError, match="does not authorize this member_id"):
+        asyncio.run(
+            admission.admit(
+                plan,
+                portfolio.report_path,
+                exchange_clock=ExchangeClock(1000, 1000, 1000),
+                expected_report_hash=portfolio.report_hash,
+                portfolio_id=portfolio.portfolio_id,
+                member_id="unauthorized-member",
+            )
+        )
+
+    assert verifier_kwargs["admission_manifest_path"] == manifest_path
+    coordinator.gateway.get_position_mode.assert_not_awaited()

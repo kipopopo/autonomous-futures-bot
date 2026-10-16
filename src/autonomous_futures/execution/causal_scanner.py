@@ -46,6 +46,7 @@ class CausalScanner:
         account_path: Path,
         reports: dict[tuple[str, str], Path] | None = None,
         portfolio: VerifiedRuntimePortfolio | None = None,
+        admission_manifest_path: Path | None = None,
     ) -> None:
         self._portfolio_scanner: PortfolioCausalScanner | None = None
         if portfolio is not None and not reports:
@@ -54,9 +55,11 @@ class CausalScanner:
                 repo=repo,
                 account_path=account_path,
                 portfolio=portfolio,
+                admission_manifest_path=admission_manifest_path,
             )
             self.feed, self.repo, self.account_path = feed, repo, account_path
             self.reports: tuple[tuple[tuple[str, str], Path], ...] = ()
+            self.admission_manifest_path = admission_manifest_path
             self.reader = self._portfolio_scanner.reader
             self.cursor = 0
             self.receipts: dict[Path, HistoricalQualification] = {}
@@ -71,6 +74,7 @@ class CausalScanner:
             raise ValueError("Scanner reports must bind canonical families and active feed symbols")
         self.feed, self.repo, self.account_path = feed, repo, account_path
         self.reports = tuple(reports.items())
+        self.admission_manifest_path = admission_manifest_path
         self.reader = ClosedHistoryReader(feed.gateway)
         self.cursor = 0
         self.receipts = {}
@@ -86,7 +90,12 @@ class CausalScanner:
         receipt = self.receipts.get(path)
         if receipt is None:
             receipt = await asyncio.to_thread(
-                verify_runtime_report, path, repo=self.repo, family=family, symbol=symbol
+                verify_runtime_report,
+                path,
+                repo=self.repo,
+                family=family,
+                symbol=symbol,
+                admission_manifest_path=self.admission_manifest_path,
             )
             self.receipts[path] = receipt
         if self.feed.clock is None or not self.feed.connected:
