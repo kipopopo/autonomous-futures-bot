@@ -442,9 +442,7 @@ class ExecutionStatusResponse(DomainModel):
     daily_risk: ExecutionDailyRisk = Field(default_factory=ExecutionDailyRisk)
     runtime_health: ExecutionRuntimeHealth = Field(default_factory=ExecutionRuntimeHealth)
     scalper_criteria: ExecutionScalperCriteria | None = None
-    portfolio_scanner: ExecutionPortfolioScanner = Field(
-        default_factory=ExecutionPortfolioScanner
-    )
+    portfolio_scanner: ExecutionPortfolioScanner = Field(default_factory=ExecutionPortfolioScanner)
     watchdog: ExecutionWatchdogSummary = Field(default_factory=ExecutionWatchdogSummary)
 
 
@@ -784,7 +782,6 @@ def get_live_market_data(
     raise HTTPException(status_code=503, detail="Live market prices unavailable")
 
 
-
 def _load_runtime_health(account_path: Path) -> tuple[ExecutionRuntimeHealth, str, int]:
     health_path = account_path.parent / "runtime-health.json"
     if not health_path.is_file():
@@ -933,7 +930,6 @@ def _load_runtime_health(account_path: Path) -> tuple[ExecutionRuntimeHealth, st
         return runtime_health, engine_state, interlock_blocks
     except OSError, ValueError, KeyError, TypeError:
         return ExecutionRuntimeHealth(), "UNKNOWN", 0
-
 
 
 def _load_ohlcv_bars_for_scanner(
@@ -1103,11 +1099,7 @@ def _compute_portfolio_scanner_telemetry(
     state_path = (
         account_path.with_name(PORTFOLIO_SCANNER_STATE_NAME)
         if account_path is not None
-        else (
-            research_dir / PORTFOLIO_SCANNER_STATE_NAME
-            if research_dir is not None
-            else None
-        )
+        else (research_dir / PORTFOLIO_SCANNER_STATE_NAME if research_dir is not None else None)
     )
     state_mtime_ns = state_path.stat().st_mtime_ns if state_path and state_path.is_file() else 0
     cache_key = f"{account_path or research_dir}:{state_mtime_ns}"
@@ -1157,9 +1149,7 @@ def _compute_portfolio_scanner_telemetry(
         results: dict[tuple[str, str], tuple[list[Any], str]] = {}
         with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
             futures = {
-                (sym, iv): executor.submit(
-                    _load_ohlcv_bars_for_scanner, sym, iv, lim, research_dir
-                )
+                (sym, iv): executor.submit(_load_ohlcv_bars_for_scanner, sym, iv, lim, research_dir)
                 for sym, iv, lim in tasks
             }
             for key, fut in futures.items():
@@ -1200,11 +1190,7 @@ def _compute_portfolio_scanner_telemetry(
     if not ordered_dicts:
         return None, ExecutionPortfolioScanner()
 
-    if (
-        state_path is not None
-        and state_path.parent.is_dir()
-        and not has_fresh_runtime_scanner
-    ):
+    if state_path is not None and state_path.parent.is_dir() and not has_fresh_runtime_scanner:
         try:
             atomic_json(
                 state_path,

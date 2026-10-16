@@ -67,7 +67,6 @@ class BinanceGatewayError(Exception):
     """Base exception for Binance Gateway communication errors."""
 
 
-
 class BinanceAPIError(BinanceGatewayError):
     """Raised when Binance REST endpoint returns an error response."""
 

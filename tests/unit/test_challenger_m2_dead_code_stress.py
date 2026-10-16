@@ -1,23 +1,23 @@
 """Empirical Challenger M2: Stress Testing Fill Recovery & Portfolio Member Resolution.
 
 Adversarial validation of dead-code-purged components:
-1. `fill_recovery.py` - FillSummary immutability & summarize_fills 100% precision & fail-closed invariants.
-2. `app.py` - `_resolve_admitted_portfolio_members()` fallback behavior & downstream scanner telemetry.
+1. `fill_recovery.py` - immutable summaries, fill precision, and fail-closed invariants.
+2. `app.py` - portfolio resolution fallback and downstream scanner telemetry.
 3. Complete absence of all deleted dead symbols.
 """
 
 from dataclasses import FrozenInstanceError
 from decimal import Decimal
-from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
-from autonomous_futures.execution.fill_recovery import FillSummary, summarize_fills
 from autonomous_futures.api.app import (
-    _resolve_admitted_portfolio_members,
-    _compute_portfolio_scanner_telemetry,
     ExecutionPortfolioScanner,
+    _compute_portfolio_scanner_telemetry,
+    _resolve_admitted_portfolio_members,
 )
+from autonomous_futures.execution.fill_recovery import FillSummary, summarize_fills
 
 
 def _make_mock_fill(
@@ -78,11 +78,35 @@ class TestChallengerM2FillRecoveryStress:
         assert summary.trade_ids == ()
 
     def test_summarize_fills_multi_partial_fills_arbitrary_order_precision(self) -> None:
-        """Partial fills arriving out-of-chronological order must sort trade IDs and identify min/max times."""
+        """Out-of-order partial fills must sort trade IDs and report min/max times."""
         # Deliberately unordered timestamps and IDs
-        f3 = _make_mock_fill(303, 77, qty="0.123456", quoteQty="18.5184", commission="0.0037", realizedPnl="0.50", time=3000)
-        f1 = _make_mock_fill(101, 77, qty="0.234567", quoteQty="35.18505", commission="0.0070", realizedPnl="-0.20", time=1000)
-        f2 = _make_mock_fill(202, 77, qty="0.345678", quoteQty="51.8517", commission="0.0104", realizedPnl="1.25", time=2000)
+        f3 = _make_mock_fill(
+            303,
+            77,
+            qty="0.123456",
+            quoteQty="18.5184",
+            commission="0.0037",
+            realizedPnl="0.50",
+            time=3000,
+        )
+        f1 = _make_mock_fill(
+            101,
+            77,
+            qty="0.234567",
+            quoteQty="35.18505",
+            commission="0.0070",
+            realizedPnl="-0.20",
+            time=1000,
+        )
+        f2 = _make_mock_fill(
+            202,
+            77,
+            qty="0.345678",
+            quoteQty="51.8517",
+            commission="0.0104",
+            realizedPnl="1.25",
+            time=2000,
+        )
 
         total_qty = Decimal("0.123456") + Decimal("0.234567") + Decimal("0.345678")
         total_quote = Decimal("18.5184") + Decimal("35.18505") + Decimal("51.8517")
@@ -124,31 +148,63 @@ class TestChallengerM2FillRecoveryStress:
     def test_summarize_fills_fails_closed_on_corrupted_row(
         self, corrupt_field: str, corrupt_val: object, expected_error: str
     ) -> None:
-        """Every field mismatch or non-positive numerical value must immediately raise ValueError."""
+        """Field mismatches and non-positive values must raise ValueError immediately."""
         fill = _make_mock_fill(1, 10, **{corrupt_field: corrupt_val})
         with pytest.raises(ValueError, match=expected_error):
-            summarize_fills([fill], symbol="SOLUSDT", order_id=10, side="BUY", executed_quantity=Decimal("0.1"))
+            summarize_fills(
+                [fill],
+                symbol="SOLUSDT",
+                order_id=10,
+                side="BUY",
+                executed_quantity=Decimal("0.1"),
+            )
 
     def test_summarize_fills_rejects_duplicate_trade_ids(self) -> None:
         """Duplicate trade IDs must be rejected as replay attacks or duplicate fills."""
         f1 = _make_mock_fill(100, 10, qty="0.1")
         f2 = _make_mock_fill(100, 10, qty="0.1")
         with pytest.raises(ValueError, match="Duplicate fill evidence"):
-            summarize_fills([f1, f2], symbol="SOLUSDT", order_id=10, side="BUY", executed_quantity=Decimal("0.2"))
+            summarize_fills(
+                [f1, f2],
+                symbol="SOLUSDT",
+                order_id=10,
+                side="BUY",
+                executed_quantity=Decimal("0.2"),
+            )
 
     def test_summarize_fills_rejects_quantity_discrepancy(self) -> None:
         """Discrepancy between cumulative fills and executed_quantity must be rejected."""
         f1 = _make_mock_fill(1, 10, qty="0.1")
-        with pytest.raises(ValueError, match="does not reconcile with cumulative executed quantity"):
-            summarize_fills([f1], symbol="SOLUSDT", order_id=10, side="BUY", executed_quantity=Decimal("0.10000001"))
+        with pytest.raises(
+            ValueError, match="does not reconcile with cumulative executed quantity"
+        ):
+            summarize_fills(
+                [f1],
+                symbol="SOLUSDT",
+                order_id=10,
+                side="BUY",
+                executed_quantity=Decimal("0.10000001"),
+            )
 
     def test_summarize_fills_rejects_infinite_or_nan_executed_quantity(self) -> None:
         """NaN or Infinite executed quantities must raise ValueError."""
         f1 = _make_mock_fill(1, 10, qty="0.1")
         with pytest.raises(ValueError, match="does not reconcile"):
-            summarize_fills([f1], symbol="SOLUSDT", order_id=10, side="BUY", executed_quantity=Decimal("Infinity"))
+            summarize_fills(
+                [f1],
+                symbol="SOLUSDT",
+                order_id=10,
+                side="BUY",
+                executed_quantity=Decimal("Infinity"),
+            )
         with pytest.raises(ValueError, match="does not reconcile"):
-            summarize_fills([f1], symbol="SOLUSDT", order_id=10, side="BUY", executed_quantity=Decimal("NaN"))
+            summarize_fills(
+                [f1],
+                symbol="SOLUSDT",
+                order_id=10,
+                side="BUY",
+                executed_quantity=Decimal("NaN"),
+            )
 
 
 class TestChallengerM2AppPortfolioResolutionFallback:
@@ -156,7 +212,10 @@ class TestChallengerM2AppPortfolioResolutionFallback:
 
     def test_resolve_admitted_portfolio_members_empty_fallback(self) -> None:
         """When load_admitted_portfolios returns empty list, returns ('', ())."""
-        with patch("autonomous_futures.execution.portfolio_runtime.load_admitted_portfolios", return_value=[]):
+        with patch(
+            "autonomous_futures.execution.portfolio_runtime.load_admitted_portfolios",
+            return_value=[],
+        ):
             portfolio_id, members = _resolve_admitted_portfolio_members()
             assert portfolio_id == ""
             assert members == ()
@@ -172,7 +231,7 @@ class TestChallengerM2AppPortfolioResolutionFallback:
             assert members == ()
 
     def test_downstream_portfolio_scanner_telemetry_graceful_with_empty_members(self) -> None:
-        """When _resolve_admitted_portfolio_members returns ('', ()), scanner telemetry returns (None, default scanner)."""
+        """Empty members return no criteria and the default scanner."""
         with patch(
             "autonomous_futures.api.app._resolve_admitted_portfolio_members",
             return_value=("", ()),
@@ -194,20 +253,25 @@ class TestChallengerM2DeadCodeAbsence:
 
     def test_portfolio_variants_spec_absent(self) -> None:
         import autonomous_futures.api.app as app_mod
+
         assert not hasattr(app_mod, "_PORTFOLIO_VARIANTS_SPEC")
 
     def test_baseline_execution_status_absent(self) -> None:
         import autonomous_futures.api.app as app_mod
+
         assert not hasattr(app_mod, "_baseline_execution_status")
 
     def test_fetch_closed_trades_count_absent(self) -> None:
         import autonomous_futures.api.canary as canary_mod
+
         assert not hasattr(canary_mod, "_fetch_closed_trades_count")
 
     def test_clock_drift_exceeded_error_absent(self) -> None:
         import autonomous_futures.execution.binance_gateway as bg_mod
+
         assert not hasattr(bg_mod, "ClockDriftExceededError")
 
     def test_recover_order_fills_absent(self) -> None:
         import autonomous_futures.execution.fill_recovery as fr_mod
+
         assert not hasattr(fr_mod, "recover_order_fills")

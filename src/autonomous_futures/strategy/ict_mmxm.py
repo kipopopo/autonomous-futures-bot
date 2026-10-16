@@ -1102,13 +1102,9 @@ class IctMmxmEngine:
         """Cached evaluation of HTF PDA touch (Step 1) and 5m CISD dealing range (Step 2)."""
         htf_pdas: list[PdArray] = []
         if candles_4h:
-            htf_pdas.extend(
-                IctMmxmEngine._detect_pd_arrays_cached(candles_4h, "4h", configuration)
-            )
+            htf_pdas.extend(IctMmxmEngine._detect_pd_arrays_cached(candles_4h, "4h", configuration))
         if candles_1h:
-            htf_pdas.extend(
-                IctMmxmEngine._detect_pd_arrays_cached(candles_1h, "1h", configuration)
-            )
+            htf_pdas.extend(IctMmxmEngine._detect_pd_arrays_cached(candles_1h, "1h", configuration))
         if candles_15m:
             htf_pdas.extend(
                 IctMmxmEngine._detect_pd_arrays_cached(candles_15m, "15m", configuration)
@@ -1567,17 +1563,13 @@ class IctMmxmEngine:
             opposing_pdas = [
                 p
                 for p in htf_pdas
-                if p.direction == opposing_direction
-                and not p.is_mitigated
-                and p.top <= stdv_2_0
+                if p.direction == opposing_direction and not p.is_mitigated and p.top <= stdv_2_0
             ]
         else:
             opposing_pdas = [
                 p
                 for p in htf_pdas
-                if p.direction == opposing_direction
-                and not p.is_mitigated
-                and p.bottom >= stdv_2_0
+                if p.direction == opposing_direction and not p.is_mitigated and p.bottom >= stdv_2_0
             ]
 
         take_profit_final = stdv_4_0

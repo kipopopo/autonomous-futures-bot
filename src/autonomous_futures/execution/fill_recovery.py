@@ -62,4 +62,3 @@ def summarize_fills(
         max(times) if times else None,
         tuple(sorted(identities)),
     )
-
