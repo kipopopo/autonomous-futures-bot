@@ -508,10 +508,39 @@ def test_execution_status_fallback_graceful(
 
 def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import time
+    from decimal import Decimal
+    from importlib import import_module
 
     from autonomous_futures.execution.account_evidence import atomic_json
+    from autonomous_futures.strategy.macro_liquidity_scalper import Candle
+
+    def scanner_bars(
+        _symbol: str,
+        interval: str,
+        limit: int,
+        _research_dir: Path | None = None,
+    ) -> tuple[list[Candle], str]:
+        interval_ms = {"15m": 900_000, "1h": 3_600_000, "4h": 14_400_000}[interval]
+        bars = []
+        for index in range(limit):
+            close = Decimal("100") + Decimal(index) / Decimal("100")
+            bars.append(
+                Candle(
+                    timestamp_ms=index * interval_ms,
+                    open=close,
+                    high=close + Decimal("1"),
+                    low=close - Decimal("1"),
+                    close=close,
+                    volume=Decimal(10 + index % 5),
+                )
+            )
+        return bars, "test_fixture"
+
+    api_module = import_module("autonomous_futures.api.app")
+    monkeypatch.setattr(api_module, "_load_ohlcv_bars_for_scanner", scanner_bars)
 
     research_dir = tmp_path / "artifacts" / "research"
     phase310_dir = research_dir / "phase310"
@@ -698,5 +727,3 @@ def test_execution_status_prefers_freshest_qualified_testnet_snapshot(
     assert warmup_payload["engine_state"] == "QUALIFIED_PORTFOLIO_WARMUP"
     assert warmup_payload["watchdog"]["status"] == "WARNING"
     assert "hawkes_microstructure_warmup" in warmup_payload["watchdog"]["warning_alerts"]
-
-
