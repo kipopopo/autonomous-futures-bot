@@ -9,15 +9,17 @@ does not grant live execution authority.
 
 - The Testnet environment-isolation and event-evidence source slice is
   `dddfea3cac6d21fe906969d3805545cd5942293a` and is on open draft PR #1.
-  Remote CI run `38887005557` passed for code tree
-  `e3859b53948bb42faaacfc1b2105cbf8763754f7`. The PR is not approved as a
-  release or deployed. Follow-up commits
+  Remote CI run `38888385968` passed on PR head
+  `f77c313c25d86ecad5e8759277e348c89de45b98`; run `38887005557` also passed
+  earlier on code tree `e3859b53948bb42faaacfc1b2105cbf8763754f7`. The PR is
+  not approved as a release or deployed. Follow-up commits
   stabilize the scanner telemetry fixture and satisfy repository-wide lint
   and formatting checks. Separate ICT research and archived diagnostic
   changes remain outside the PR.
 - `deploy/qualification-admission.json` has `approved_reports: []`, and one
   `approved_portfolio_reports` entry for
-  `macro-scalper-uninspected-3sym-medium-frequency-v1`. The portfolio report
+  `macro-scalper-uninspected-3sym-medium-frequency-v1` covering AVAXUSDT,
+  ETHUSDT, and SOLUSDT. The portfolio report
   passes all seven portfolio research gates (35 holdout trades, positive
   stressed net PnL, 0.72% drawdown, 3/5 profitable windows, reconciled
   accounting) and says `decision: QUALIFIED`, `execution_authority: false`.
@@ -66,6 +68,24 @@ does not grant live execution authority.
   tamper-proof anchor. The active VPS release does not contain this
   instrumentation yet. Do not stop, restart, or replace either writer as part
   of this checklist.
+- A fresh read-only check at approximately `2026-10-16 15:06 UTC` confirms the
+  qualified Testnet service remains active as `MainPID=302731`,
+  `NRestarts=0`; the watchdog timer is waiting, and the watchdog API reports
+  `HEALTHY` with no critical or warning alerts. The authenticated REST account
+  snapshot was 16.1 seconds old, reconciled with zero wallet/equity drift, and
+  had a verified daily-risk basis, no nonzero positions, and zero open orders.
+  The private stream was connected and reconciled but still had zero events;
+  `exchange-user-events.jsonl` is absent and the active release has neither the
+  event-evidence module nor its verifier. These are point-in-time observations,
+  not proof of lifecycle behavior.
+- The incoming pasted handoff identifies an ETH/LINK/AVAX portfolio as active.
+  The running unit, deployed admission manifest, and runtime scanner state
+  instead agree on `macro-scalper-uninspected-3sym-medium-frequency-v1`
+  (AVAX/ETH/SOL). The deployed manifest SHA-256 is
+  `4b4a0d8809a99cfcb1b15f3a3b96e71fd1511a2186edc5c6f8a2a46484a4d913`; its
+  holdout report and all five implementation hashes match the deployed
+  release. Treat the pasted portfolio identity as stale or unresolved and
+  confirm the intended candidate before any candidate change or activation.
 - The checked-in qualified-runtime systemd unit has an `ExecStartPre` that
   invokes `prepare_portfolio_cutover.py --apply-leverage --bootstrap-daily-risk`
   before startup, followed by the runtime preflight. A restart can therefore
@@ -97,12 +117,14 @@ does not grant live execution authority.
   exchange-confirmed order behavior. The 111-test run preceded the source
   commit; the two bootstrap checks ran against that same source immediately
   before commit.
-- GitHub Actions run `38887005557` passed on PR head
-  `e3859b53948bb42faaacfc1b2105cbf8763754f7`: 6,036 Python tests passed and
+- GitHub Actions run `38888385968` passed on PR head
+  `f77c313c25d86ecad5e8759277e348c89de45b98`: 6,036 Python tests passed and
   one Windows NTFS locking test was skipped on Linux; frontend tests/build,
   repository-wide Ruff lint/format, strict Mypy, Python compileall, and
-  GitGuardian all passed. CI verifies code behavior and static checks, not
-  exchange-confirmed order behavior. Exact-source review is still required.
+  GitGuardian all passed. The exact `dddfea3` source diff and all 14
+  manifest-listed file hashes were reviewed against both the frozen commit
+  and current checkout; no blocking source issue was identified. CI verifies
+  code behavior and static checks, not exchange-confirmed order behavior.
 - The active portfolio resolution and Mainnet manifest/domain checks were
   rerun against the current source on 2026-10-16: 2 focused bootstrap tests
   passed. Runtime activation was not attempted; the Testnet test halts at the
@@ -128,8 +150,8 @@ does not grant live execution authority.
   production qualification. The three scripts under `scripts/archive/` are
   retained diagnostics; a hidden-file-aware repository search found no
   remaining references to their old root paths. The source commit is not yet a
-  deployable release; the draft manifest remains unapproved and exact-source
-  review is outstanding.
+  deployable release; the draft manifest remains unapproved, and the intended
+  portfolio identity still needs confirmation against the pasted handoff.
 
 ## Risk limits (keep the metrics distinct)
 
@@ -216,16 +238,19 @@ does not grant live execution authority.
 ## Immediate next engineering action
 
 The release source slice is frozen at commit
-`dddfea3cac6d21fe906969d3805545cd5942293a`. CI run `38887005557` passed for
-code tree `e3859b53948bb42faaacfc1b2105cbf8763754f7` in draft PR #1. A draft
-manifest bound to the source slice is recorded at
+`dddfea3cac6d21fe906969d3805545cd5942293a`. Exact-source review is complete
+with no blocking finding; all 14 included files match the commit and draft
+manifest. CI run `38888385968` passed on PR head
+`f77c313c25d86ecad5e8759277e348c89de45b98` in draft PR #1. A draft manifest
+bound to the source slice is recorded at
 [`deploy/release-manifests/qualified-testnet-event-evidence-20261016.json`](../deploy/release-manifests/qualified-testnet-event-evidence-20261016.json)
-with status `SOURCE_COMMIT_REVIEW_REQUIRED`. Next, review the exact source
-diff and confirm that release commit `dddfea3` is the intended candidate.
-Then re-read the deployed unit and perform current read-only account, position,
-and order checks. Only after that review can an explicitly approved
-maintenance window be planned for the protected Testnet runtime. Do not bypass
-the single-writer guard or start another writer with the shared key. After an
+with status `TESTNET_DEPLOYMENT_NOT_APPROVED`. The next step is to resolve the
+portfolio identity discrepancy between the pasted handoff and deployed
+manifest. Before any later maintenance window, refresh the unit and read-only
+account, position, and order checks. A separate explicit approval is required
+before stopping or restarting the protected Testnet runtime; its `ExecStartPre`
+applies leverage settings and bootstraps daily-risk state. Do not bypass the
+single-writer guard or start another writer with the shared key. After an
 approved deployment, passively collect real Testnet user-stream events and
 REST reconciliation checkpoints, then verify the resulting journal with:
 
