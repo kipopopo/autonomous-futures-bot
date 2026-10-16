@@ -434,8 +434,8 @@ export function StrategyConfluenceRadar({
 
       {/* Section 2: ICT MMXM & Twins Reversal 8-Pair Matrix Display */}
       <div className="pt-2">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3 pb-3 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2 flex-wrap">
             <Target className="w-4 h-4 text-purple-400" />
             <h3 className="text-sm font-bold tracking-tight text-white uppercase font-mono">
               {`ICT Market Maker & Twins Reversal Confluence Matrix (${pairList.length > 0 ? `${pairList.length} Pairs` : '12 Pairs'})`}
@@ -462,6 +462,62 @@ export function StrategyConfluenceRadar({
             ))}
           </div>
         </div>
+
+        {/* LumiTraders Daye's Quarterly Cycle, Killzones & Sealed OOS Qualification Strip */}
+        {(() => {
+          const qc = signalsResponse.quarterly_cycle || pairList[0]?.quarterly_cycle
+          const nyTimeStr = qc
+            ? `${String(qc.ny_hour).padStart(2, '0')}:${String(qc.ny_minute).padStart(2, '0')} NY`
+            : '09:30 NY'
+          const quarterLabel = formatQuarterLabel(qc?.daily_quarter || 'Q3_DISTRIBUTION')
+          const kzLabel = qc?.active_killzone && qc.active_killzone !== 'NONE'
+            ? `KZ: ${qc.active_killzone.replace('_', ' ')}`
+            : 'KZ: OUTSIDE WINDOW'
+          const twinsWindowActive = Boolean(qc?.is_high_probability_twins_window)
+
+          return (
+            <div
+              className="mb-4 p-3 rounded-xl bg-black/30 border border-purple-500/20 flex flex-wrap items-center justify-between gap-3 text-[11px] font-mono"
+              data-testid="ict-quarterly-cycle-strip"
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-zinc-400 uppercase font-semibold">LumiTraders Cycle:</span>
+                <span className="px-2 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 text-purple-300 font-bold">
+                  {`${quarterLabel} (${nyTimeStr})`}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded border font-bold ${
+                    qc?.active_killzone && qc.active_killzone !== 'NONE'
+                      ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
+                      : 'bg-zinc-800 border-white/10 text-zinc-400'
+                  }`}
+                >
+                  {kzLabel}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded border font-bold ${
+                    twinsWindowActive
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                      : 'bg-zinc-800 border-white/10 text-zinc-400'
+                  }`}
+                >
+                  {twinsWindowActive ? 'TWINS AM/PM WINDOW ACTIVE' : 'STANDARD SESSION'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap text-zinc-400">
+                <span>OOS Benchmark (Reclaim + OTE 79%):</span>
+                <span className="text-emerald-400 font-bold">
+                  SOL +$139.93 (6/7 Gates · 4/5 Win)
+                </span>
+                <span className="text-zinc-600">·</span>
+                <span className="text-cyan-300 font-semibold">
+                  LINK +$150.20 · SUI +$56.23 · ETH +$37.10
+                </span>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* 8-Pair Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" data-testid="ict-pair-matrix">
@@ -732,6 +788,55 @@ export function IctPairCard({ pair }: { pair: IctPairSignal }) {
         )}
       </div>
 
+      {/* LumiTraders Intraday Bias, Measuring Gap & Sealed OOS Row */}
+      <div
+        className="mb-2 pt-2 border-t border-white/[0.05] space-y-1 text-[10px] font-mono"
+        data-testid={`ict-lumitraders-bias-${pair.symbol}`}
+      >
+        <div className="flex items-center justify-between gap-1 text-zinc-400">
+          <span>
+            {`PDR: ${pair.intraday_bias?.pdr_zone || 'EQUILIBRIUM'}${
+              pair.intraday_bias?.pdh_swept
+                ? ' · PDH SWEPT'
+                : pair.intraday_bias?.pdl_swept
+                  ? ' · PDL SWEPT'
+                  : ''
+            }`}
+          </span>
+          <span className="text-zinc-300">
+            {pair.intraday_bias?.nymo_zone === 'ABOVE_NYMO'
+              ? 'Above NYMO'
+              : pair.intraday_bias?.nymo_zone === 'BELOW_NYMO'
+                ? 'Below NYMO'
+                : 'At NYMO'}
+          </span>
+        </div>
+
+        {pair.measuring_gap && pair.measuring_gap.projected_terminus > 0 && (
+          <div className="flex items-center justify-between gap-1 text-zinc-400">
+            <span>Measuring Gap Terminus:</span>
+            <span className="text-purple-300 font-semibold">
+              {`$${pair.measuring_gap.projected_terminus.toLocaleString()}`}
+            </span>
+          </div>
+        )}
+
+        {pair.oos_qualification && (
+          <div className="flex items-center justify-between gap-1 text-zinc-400">
+            <span>LumiTraders OOS:</span>
+            <span
+              className={
+                pair.oos_qualification.net_pnl_usdt >= 0
+                  ? 'text-emerald-400 font-semibold'
+                  : 'text-amber-400 font-semibold'
+              }
+            >
+              {`${pair.oos_qualification.net_pnl_usdt >= 0 ? '+' : ''}$${pair.oos_qualification.net_pnl_usdt.toFixed(2)} (${pair.oos_qualification.gates_passed}/${pair.oos_qualification.gates_total} Gates)`}
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Candidate Genome Footer */}
       <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px] font-mono text-zinc-500">
         <span title="Optimal Trade Entry Fib bounds">
@@ -743,6 +848,21 @@ export function IctPairCard({ pair }: { pair: IctPairSignal }) {
       </div>
     </div>
   )
+}
+
+function formatQuarterLabel(quarter: string): string {
+  switch (quarter) {
+    case 'Q1_ACCUMULATION':
+      return 'Q1 Accumulation'
+    case 'Q2_MANIPULATION':
+      return 'Q2 Manipulation (Judas)'
+    case 'Q3_DISTRIBUTION':
+      return 'Q3 Distribution (NY AM)'
+    case 'Q4_CONTINUATION_REVERSAL':
+      return 'Q4 Continuation/Reversal'
+    default:
+      return quarter
+  }
 }
 
 function formatPdaLabel(type: IctPdArrayType): string {

@@ -21,7 +21,15 @@ from pydantic import Field
 from ..domain.contracts import DomainModel
 from ..feed.auto_evolution import DEFAULT_ICT_GENOMES
 from ..feed.kline_sequencer import ACTIVE_PAIRS, ACTIVE_TIMEFRAMES
-from ..strategy.ict_mmxm import Candle, IctMmxmEngine, PdArray, TwinsSetupState
+from ..strategy.ict_mmxm import (
+    Candle,
+    IctMmxmEngine,
+    IntradayBiasSnapshot,
+    MeasuringGapProjection,
+    PdArray,
+    QuarterlyCycleSnapshot,
+    TwinsSetupState,
+)
 
 logger = logging.getLogger("autonomous_futures.api.strategy_router")
 
@@ -119,6 +127,62 @@ class TradeAutopsyItem(DomainModel):
     realized_pnl: float = 0.0
 
 
+class QuarterlyCycleItem(DomainModel):
+    """Daye's Quarterly Theory & ICT Killzones snapshot (PDF pp. 31, 63, 99, 146)."""
+
+    daily_quarter: str = "Q1_ACCUMULATION"
+    ny_hour: int = 0
+    ny_minute: int = 0
+    active_killzone: str = "NONE"
+    in_manipulation_window: bool = False
+    in_distribution_window: bool = False
+    in_twins_am_window: bool = False
+    in_twins_pm_window: bool = False
+    is_high_probability_twins_window: bool = False
+
+
+class IntradayBiasItem(DomainModel):
+    """LumiTraders Intraday Bias & Liquidity Reference levels (PDF pp. 116-139)."""
+
+    ny_midnight_open: float | None = None
+    pdh: float | None = None
+    pdl: float | None = None
+    pdr_equilibrium: float | None = None
+    asia_high: float | None = None
+    asia_low: float | None = None
+    london_high: float | None = None
+    london_low: float | None = None
+    pdh_swept: bool = False
+    pdl_swept: bool = False
+    pdr_zone: str = "UNKNOWN"
+    nymo_zone: str = "UNKNOWN"
+
+
+class MeasuringGapItem(DomainModel):
+    """Measuring Gap (halfway FVG) 100% terminus projection (PDF pp. 34, 72-76)."""
+
+    direction: str = "BULLISH"
+    anchor_high: float = 0.0
+    anchor_low: float = 0.0
+    gap_midpoint_ratio: float = 0.5
+    projected_terminus: float = 0.0
+    mean_threshold: float = 0.0
+    timeframe: str = "5m"
+
+
+class OosQualificationItem(DomainModel):
+    """Sealed LumiTraders OOS qualification summary for a symbol."""
+
+    config: str = "lumitraders_reclaim_ote79"
+    decision: str = "REJECTED"
+    trades: int = 0
+    net_pnl_usdt: float = 0.0
+    drawdown_usdt: float = 0.0
+    profitable_windows: int = 0
+    gates_passed: int = 0
+    gates_total: int = 7
+
+
 class IctSignalPairItem(DomainModel):
     """Complete ICT signal telemetry object for a single trading pair."""
 
@@ -127,6 +191,10 @@ class IctSignalPairItem(DomainModel):
     pd_arrays: dict[str, list[PdArrayItem]]
     candidate_genome: CandidateGenomeItem
     recent_autopsies: list[TradeAutopsyItem] = Field(default_factory=list)
+    quarterly_cycle: QuarterlyCycleItem | None = None
+    intraday_bias: IntradayBiasItem | None = None
+    measuring_gap: MeasuringGapItem | None = None
+    oos_qualification: OosQualificationItem | None = None
 
 
 class IctSignalsResponse(DomainModel):
@@ -137,6 +205,7 @@ class IctSignalsResponse(DomainModel):
     execution_authority: bool = False
     timestamp_ms: int
     active_family: str = "ICT_MMXM_TWINS"
+    quarterly_cycle: QuarterlyCycleItem | None = None
     signals: dict[str, IctSignalPairItem]
 
 
@@ -149,6 +218,7 @@ _cached_data: IctSignalsResponse | None = None
 _cache_ts: float = 0.0
 _cache_lock = threading.Lock()
 _active_trader: Any | None = None
+_oos_qualification_cache: dict[str, OosQualificationItem] | None = None
 
 
 def reset_ict_signals_cache() -> None:
@@ -183,6 +253,116 @@ def _safe_float(val: Any) -> float | None:
         return float(val)
     except ValueError, TypeError:
         return None
+
+
+def _format_quarterly_cycle(snap: QuarterlyCycleSnapshot) -> QuarterlyCycleItem:
+    q_val = (
+        snap.daily_quarter.value
+        if hasattr(snap.daily_quarter, "value")
+        else str(snap.daily_quarter)
+    )
+    return QuarterlyCycleItem(
+        daily_quarter=q_val,
+        ny_hour=int(snap.ny_hour),
+        ny_minute=int(snap.ny_minute),
+        active_killzone=str(snap.active_killzone),
+        in_manipulation_window=bool(snap.in_manipulation_window),
+        in_distribution_window=bool(snap.in_distribution_window),
+        in_twins_am_window=bool(snap.in_twins_am_window),
+        in_twins_pm_window=bool(snap.in_twins_pm_window),
+        is_high_probability_twins_window=bool(snap.is_high_probability_twins_window),
+    )
+
+
+def _format_intraday_bias(snap: IntradayBiasSnapshot | None) -> IntradayBiasItem:
+    if snap is None:
+        return IntradayBiasItem()
+    return IntradayBiasItem(
+        ny_midnight_open=_safe_float(snap.ny_midnight_open),
+        pdh=_safe_float(snap.pdh),
+        pdl=_safe_float(snap.pdl),
+        pdr_equilibrium=_safe_float(snap.pdr_equilibrium),
+        asia_high=_safe_float(snap.asia_high),
+        asia_low=_safe_float(snap.asia_low),
+        london_high=_safe_float(snap.london_high),
+        london_low=_safe_float(snap.london_low),
+        pdh_swept=bool(snap.pdh_swept),
+        pdl_swept=bool(snap.pdl_swept),
+        pdr_zone=str(snap.pdr_zone),
+        nymo_zone=str(snap.nymo_zone),
+    )
+
+
+def _format_measuring_gap(
+    proj: MeasuringGapProjection | None, timeframe: str = "5m"
+) -> MeasuringGapItem | None:
+    if proj is None:
+        return None
+    return MeasuringGapItem(
+        direction=str(proj.direction),
+        anchor_high=float(proj.anchor_high),
+        anchor_low=float(proj.anchor_low),
+        gap_midpoint_ratio=float(proj.gap_midpoint_ratio),
+        projected_terminus=float(proj.projected_terminus),
+        mean_threshold=float(proj.fvg.mean_threshold),
+        timeframe=timeframe,
+    )
+
+
+def _load_oos_qualification_by_symbol() -> dict[str, OosQualificationItem]:
+    """Loads best LumiTraders OOS qualification metrics per symbol (cached in memory)."""
+    global _oos_qualification_cache
+    if _oos_qualification_cache is not None:
+        return _oos_qualification_cache
+
+    import json
+
+    result: dict[str, OosQualificationItem] = {}
+    artifact_rel = Path("artifacts/qualification/ict-lumitraders-oos-qualification-20261016.json")
+    candidates = [
+        Path.cwd() / artifact_rel,
+        Path("/opt/autonomous-futures-bot") / artifact_rel,
+    ]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            rows = payload.get("results", [])
+            if not isinstance(rows, list):
+                continue
+            by_sym: dict[str, list[dict[str, Any]]] = {}
+            for row in rows:
+                sym = str(row.get("symbol", ""))
+                if sym:
+                    by_sym.setdefault(sym, []).append(row)
+            for sym, sym_rows in by_sym.items():
+                best = max(
+                    sym_rows,
+                    key=lambda r: (
+                        sum(1 for v in (r.get("gates") or {}).values() if v),
+                        float(r.get("net_pnl", 0.0)),
+                    ),
+                )
+                gates_dict = best.get("gates") or {}
+                gates_passed = sum(1 for v in gates_dict.values() if v)
+                gates_total = len(gates_dict) or 7
+                result[sym] = OosQualificationItem(
+                    config=str(best.get("config", "lumitraders_reclaim_ote79")),
+                    decision=str(best.get("decision", "REJECTED")),
+                    trades=int(best.get("trades", 0)),
+                    net_pnl_usdt=round(float(best.get("net_pnl", 0.0)), 2),
+                    drawdown_usdt=round(float(best.get("drawdown_usdt", 0.0)), 2),
+                    profitable_windows=int(best.get("profitable_windows", 0)),
+                    gates_passed=gates_passed,
+                    gates_total=gates_total,
+                )
+            break
+        except Exception as err:
+            logger.debug("Non-fatal note loading ICT OOS qualification artifact: %s", err)
+
+    _oos_qualification_cache = result
+    return result
 
 
 def _format_pd_array(pda: PdArray | None) -> PdArrayItem | None:
@@ -586,21 +766,33 @@ def build_ict_signals_response(
     db_path = _resolve_telemetry_db_path(research_dir)
     autopsies_by_sym = _load_recent_autopsies(db_path, ACTIVE_PAIRS, research_dir=research_dir)
     genomes_by_sym = _load_candidate_genomes(db_path, ACTIVE_PAIRS)
+    oos_by_sym = _load_oos_qualification_by_symbol()
 
     ict_engine = getattr(trader, "ict_engine", None) or IctMmxmEngine(lookback_htf=100)
     sequencer = getattr(trader, "sequencer", None)
+    quarterly_cycle_item = _format_quarterly_cycle(
+        ict_engine.evaluate_quarterly_time_window(now_ms)
+    )
 
     signals_payload: dict[str, IctSignalPairItem] = {}
 
     def _evaluate_single_pair(
         sym: str,
-    ) -> tuple[str, TwinsSetupState | None, dict[str, list[PdArrayItem]]]:
+    ) -> tuple[
+        str,
+        TwinsSetupState | None,
+        dict[str, list[PdArrayItem]],
+        IntradayBiasSnapshot | None,
+        MeasuringGapProjection | None,
+    ]:
         twins_state_obj: TwinsSetupState | None = None
         pd_arrays_dict: dict[str, list[PdArrayItem]] = {tf: [] for tf in ACTIVE_TIMEFRAMES}
+        bias_obj: IntradayBiasSnapshot | None = None
+        mg_obj: MeasuringGapProjection | None = None
         try:
             if sequencer:
                 if not sequencer.is_trade_ready(sym):
-                    return sym, None, pd_arrays_dict
+                    return sym, None, pd_arrays_dict, None, None
                 c4h, c1h, c15m, c5m, c1m = sequencer.get_multi_tf_candles(sym)
             else:
                 c4h, c1h, c15m, c5m, c1m = _get_multi_tf_candles_cached(sym)
@@ -613,6 +805,10 @@ def build_ict_signals_response(
                         item for p in raw_pdas if (item := _format_pd_array(p)) is not None
                     ]
 
+            bias_source = c15m if len(c15m) >= 5 else (c5m if len(c5m) >= 5 else c1h)
+            if bias_source:
+                bias_obj = ict_engine.compute_intraday_bias(bias_source)
+
             if len(c5m) >= 5 and len(c1m) >= 5:
                 twins_state_obj = ict_engine.evaluate_twins_setup(
                     symbol=sym,
@@ -622,15 +818,36 @@ def build_ict_signals_response(
                     candles_5m=c5m,
                     candles_1m=c1m,
                 )
+
+            if len(c5m) >= 3:
+                mg_window = c5m[-20:]
+                anchor_high = max(c.high for c in mg_window)
+                anchor_low = min(c.low for c in mg_window)
+                mg_dir = (
+                    "BULLISH"
+                    if (twins_state_obj and twins_state_obj.side == "BUY")
+                    or (
+                        not (twins_state_obj and twins_state_obj.side == "SELL")
+                        and mg_window[-1].close >= mg_window[0].open
+                    )
+                    else "BEARISH"
+                )
+                mg_obj = ict_engine.compute_measuring_gap(
+                    mg_window,
+                    anchor_high=anchor_high,
+                    anchor_low=anchor_low,
+                    direction=mg_dir,
+                    timeframe="5m",
+                )
         except Exception as eval_err:
             logger.debug("Non-fatal pattern evaluation note for %s: %s", sym, eval_err)
 
-        return sym, twins_state_obj, pd_arrays_dict
+        return sym, twins_state_obj, pd_arrays_dict, bias_obj, mg_obj
 
     with ThreadPoolExecutor(max_workers=min(8, len(ACTIVE_PAIRS))) as executor:
         eval_results = list(executor.map(_evaluate_single_pair, ACTIVE_PAIRS))
 
-    for sym, twins_state_obj, pd_arrays_dict in eval_results:
+    for sym, twins_state_obj, pd_arrays_dict, bias_obj, mg_obj in eval_results:
         formatted_twins = _format_twins_state(twins_state_obj, symbol=sym)
         signals_payload[sym] = IctSignalPairItem(
             symbol=sym,
@@ -644,6 +861,10 @@ def build_ict_signals_response(
                 ),
             ),
             recent_autopsies=autopsies_by_sym.get(sym, []),
+            quarterly_cycle=quarterly_cycle_item,
+            intraday_bias=_format_intraday_bias(bias_obj),
+            measuring_gap=_format_measuring_gap(mg_obj, timeframe="5m"),
+            oos_qualification=oos_by_sym.get(sym),
         )
 
     return IctSignalsResponse(
@@ -652,6 +873,7 @@ def build_ict_signals_response(
         source="daemon_sequencer" if sequencer is not None else "public_analysis",
         timestamp_ms=now_ms,
         active_family="ICT_MMXM_TWINS",
+        quarterly_cycle=quarterly_cycle_item,
         signals=signals_payload,
     )
 

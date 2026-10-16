@@ -857,6 +857,82 @@ export function PairDetailPage({
               </div>
             </div>
           </div>
+
+          {/* LumiTraders MMXM Telemetry & OOS Qualification Strip */}
+          {currentIctSignal && (
+            <div
+              className="mt-3 pt-3 border-t border-white/[0.06] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs font-mono"
+              data-testid="ict-lumitraders-telemetry-panel"
+            >
+              {/* Box A: Intraday Bias (PDR & NYMO) */}
+              <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <div className="text-[10px] text-zinc-500 uppercase">Intraday Bias (PDR / NYMO)</div>
+                <div className="text-cyan-300 font-bold mt-0.5 truncate">
+                  {currentIctSignal.intraday_bias?.pdr_zone || 'EQUILIBRIUM'} • NYMO{' '}
+                  {currentIctSignal.intraday_bias?.nymo_zone || 'NEUTRAL'}
+                </div>
+                <div className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                  {currentIctSignal.intraday_bias?.pdh && currentIctSignal.intraday_bias?.pdl
+                    ? `PDH $${formatPrice(currentIctSignal.intraday_bias.pdh)} / PDL $${formatPrice(currentIctSignal.intraday_bias.pdl)}`
+                    : currentIctSignal.intraday_bias?.pdh_swept
+                    ? 'PDH Swept (Distribution)'
+                    : currentIctSignal.intraday_bias?.pdl_swept
+                    ? 'PDL Swept (Accumulation)'
+                    : 'PDH/PDL Intact'}
+                </div>
+              </div>
+
+              {/* Box B: Daye's Quarterly Cycle */}
+              <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <div className="text-[10px] text-zinc-500 uppercase">Daye&apos;s Quarterly Cycle</div>
+                <div className="text-purple-300 font-bold mt-0.5 truncate">
+                  {currentIctSignal.quarterly_cycle?.daily_quarter || 'Q1_ACCUMULATION'}
+                </div>
+                <div className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                  {currentIctSignal.quarterly_cycle?.active_killzone || 'NONE'} •{' '}
+                  {currentIctSignal.quarterly_cycle?.is_high_probability_twins_window
+                    ? 'Twins Window Active'
+                    : 'Twins Standby'}
+                </div>
+              </div>
+
+              {/* Box C: Measuring Gap (2-FVG Rule) */}
+              <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <div className="text-[10px] text-zinc-500 uppercase">Measuring Gap Terminus</div>
+                <div className="text-amber-300 font-bold mt-0.5 truncate">
+                  {currentIctSignal.measuring_gap && currentIctSignal.measuring_gap.projected_terminus > 0
+                    ? `$${formatPrice(currentIctSignal.measuring_gap.projected_terminus)}`
+                    : 'STDV 2.0x–4.0x Projection'}
+                </div>
+                <div className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                  {currentIctSignal.measuring_gap && currentIctSignal.measuring_gap.projected_terminus > 0
+                    ? '2-FVG Midpoint Terminus Active'
+                    : 'Awaiting Dual FVG Displacement'}
+                </div>
+              </div>
+
+              {/* Box D: LumiTraders Sealed OOS Qualification */}
+              <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <div className="text-[10px] text-zinc-500 uppercase">LumiTraders OOS Benchmark</div>
+                <div
+                  className={`font-bold mt-0.5 truncate ${
+                    (currentIctSignal.oos_qualification?.net_pnl_usdt ?? 0) > 0
+                      ? 'text-emerald-300'
+                      : 'text-zinc-300'
+                  }`}
+                >
+                  {currentIctSignal.oos_qualification
+                    ? `${currentIctSignal.oos_qualification.net_pnl_usdt >= 0 ? '+' : ''}$${currentIctSignal.oos_qualification.net_pnl_usdt.toFixed(2)} (${currentIctSignal.oos_qualification.profitable_windows}/5 Win)`
+                    : 'Pending OOS'}
+                </div>
+                <div className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                  {currentIctSignal.oos_qualification
+                    ? `${currentIctSignal.oos_qualification.gates_passed}/${currentIctSignal.oos_qualification.gates_total} Gates • ${currentIctSignal.oos_qualification.trades} Trades`
+                    : 'Sealed 30d OOS'}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -291,6 +291,54 @@ export interface IctCandidateGenomeInfo {
   fvg_threshold_pct: string
 }
 
+export interface IctQuarterlyCycleInfo {
+  daily_quarter: string
+  ny_hour: number
+  ny_minute: number
+  active_killzone: 'ASIA' | 'LONDON' | 'NY_AM' | 'LONDON_CLOSE' | 'NONE' | string
+  in_manipulation_window: boolean
+  in_distribution_window: boolean
+  in_twins_am_window: boolean
+  in_twins_pm_window: boolean
+  is_high_probability_twins_window: boolean
+}
+
+export interface IctIntradayBiasInfo {
+  ny_midnight_open: number | null
+  pdh: number | null
+  pdl: number | null
+  pdr_equilibrium: number | null
+  asia_high: number | null
+  asia_low: number | null
+  london_high: number | null
+  london_low: number | null
+  pdh_swept: boolean
+  pdl_swept: boolean
+  pdr_zone: 'PREMIUM' | 'DISCOUNT' | 'EQUILIBRIUM' | 'UNKNOWN' | string
+  nymo_zone: 'ABOVE_NYMO' | 'BELOW_NYMO' | 'AT_NYMO' | 'UNKNOWN' | string
+}
+
+export interface IctMeasuringGapInfo {
+  direction: 'BULLISH' | 'BEARISH' | string
+  anchor_high: number
+  anchor_low: number
+  gap_midpoint_ratio: number
+  projected_terminus: number
+  mean_threshold: number
+  timeframe: string
+}
+
+export interface IctOosQualificationInfo {
+  config: string
+  decision: string
+  trades: number
+  net_pnl_usdt: number
+  drawdown_usdt: number
+  profitable_windows: number
+  gates_passed: number
+  gates_total: number
+}
+
 export interface IctPairSignal {
   symbol: string
   step: IctTwinsStepName
@@ -309,6 +357,10 @@ export interface IctPairSignal {
   targets: IctExecutionTargets
   candidate: IctCandidateGenomeInfo
   invalidation_reason: string
+  quarterly_cycle?: IctQuarterlyCycleInfo | null
+  intraday_bias?: IctIntradayBiasInfo | null
+  measuring_gap?: IctMeasuringGapInfo | null
+  oos_qualification?: IctOosQualificationInfo | null
 }
 
 export interface IctSignalsResponse {
@@ -316,5 +368,6 @@ export interface IctSignalsResponse {
   timestamp_ms: number
   active_family: string
   latency_ms?: number
+  quarterly_cycle?: IctQuarterlyCycleInfo | null
   signals: Record<string, IctPairSignal>
 }

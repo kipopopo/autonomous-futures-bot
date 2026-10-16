@@ -9,14 +9,93 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   IctCandidateGenomeInfo,
   IctHealthTier,
+  IctIntradayBiasInfo,
+  IctMeasuringGapInfo,
+  IctOosQualificationInfo,
   IctPairSignal,
   IctPdArrayInfo,
+  IctQuarterlyCycleInfo,
   IctSide,
   IctSignalsResponse,
   IctTwinsStepName,
 } from '@/components/mission-control/types'
 
 export type IctConnectionState = 'STREAMING' | 'POLLING' | 'OFFLINE' | 'RECONNECTING'
+
+export const DEFAULT_QUARTERLY_CYCLE: IctQuarterlyCycleInfo = {
+  daily_quarter: 'Q3_DISTRIBUTION',
+  ny_hour: 9,
+  ny_minute: 30,
+  active_killzone: 'NY_AM',
+  in_manipulation_window: false,
+  in_distribution_window: true,
+  in_twins_am_window: true,
+  in_twins_pm_window: false,
+  is_high_probability_twins_window: true,
+}
+
+export const SEALED_OOS_QUALIFICATION_BY_SYMBOL: Record<string, IctOosQualificationInfo> = {
+  SOLUSDT: {
+    config: 'lumitraders_reclaim_ote79',
+    decision: 'REJECTED',
+    trades: 45,
+    net_pnl_usdt: 139.93,
+    drawdown_usdt: 110.17,
+    profitable_windows: 4,
+    gates_passed: 6,
+    gates_total: 7,
+  },
+  LINKUSDT: {
+    config: 'lumitraders_stop_only',
+    decision: 'REJECTED',
+    trades: 177,
+    net_pnl_usdt: 150.2,
+    drawdown_usdt: 292.28,
+    profitable_windows: 3,
+    gates_passed: 4,
+    gates_total: 7,
+  },
+  SUIUSDT: {
+    config: 'lumitraders_reclaim_ote79',
+    decision: 'REJECTED',
+    trades: 78,
+    net_pnl_usdt: 56.23,
+    drawdown_usdt: 260.69,
+    profitable_windows: 3,
+    gates_passed: 4,
+    gates_total: 7,
+  },
+  ETHUSDT: {
+    config: 'lumitraders_reclaim_ote79',
+    decision: 'REJECTED',
+    trades: 40,
+    net_pnl_usdt: 37.1,
+    drawdown_usdt: 159.24,
+    profitable_windows: 2,
+    gates_passed: 5,
+    gates_total: 7,
+  },
+  XRPUSDT: {
+    config: 'lumitraders_reclaim_ote79',
+    decision: 'REJECTED',
+    trades: 47,
+    net_pnl_usdt: -24.17,
+    drawdown_usdt: 154.68,
+    profitable_windows: 1,
+    gates_passed: 3,
+    gates_total: 7,
+  },
+  BTCUSDT: {
+    config: 'lumitraders_reclaim_ote79',
+    decision: 'REJECTED',
+    trades: 33,
+    net_pnl_usdt: -68.68,
+    drawdown_usdt: 199.45,
+    profitable_windows: 1,
+    gates_passed: 3,
+    gates_total: 7,
+  },
+}
 
 /**
  * Adapts backend response signals into normalized IctPairSignal items.
@@ -107,6 +186,66 @@ export function adaptBackendSignal(sym: string, raw: any): IctPairSignal {
     fvg_threshold_pct: `${(fvgThreshold * 100).toFixed(2)}%`,
   }
 
+  const rawQc = raw?.quarterly_cycle
+  const quarterly_cycle: IctQuarterlyCycleInfo = rawQc
+    ? {
+        daily_quarter: rawQc.daily_quarter || 'Q3_DISTRIBUTION',
+        ny_hour: Number(rawQc.ny_hour ?? 9),
+        ny_minute: Number(rawQc.ny_minute ?? 30),
+        active_killzone: rawQc.active_killzone || 'NONE',
+        in_manipulation_window: Boolean(rawQc.in_manipulation_window),
+        in_distribution_window: Boolean(rawQc.in_distribution_window),
+        in_twins_am_window: Boolean(rawQc.in_twins_am_window),
+        in_twins_pm_window: Boolean(rawQc.in_twins_pm_window),
+        is_high_probability_twins_window: Boolean(rawQc.is_high_probability_twins_window),
+      }
+    : DEFAULT_QUARTERLY_CYCLE
+
+  const rawBias = raw?.intraday_bias
+  const intraday_bias: IctIntradayBiasInfo | null = rawBias
+    ? {
+        ny_midnight_open: rawBias.ny_midnight_open ?? null,
+        pdh: rawBias.pdh ?? null,
+        pdl: rawBias.pdl ?? null,
+        pdr_equilibrium: rawBias.pdr_equilibrium ?? null,
+        asia_high: rawBias.asia_high ?? null,
+        asia_low: rawBias.asia_low ?? null,
+        london_high: rawBias.london_high ?? null,
+        london_low: rawBias.london_low ?? null,
+        pdh_swept: Boolean(rawBias.pdh_swept),
+        pdl_swept: Boolean(rawBias.pdl_swept),
+        pdr_zone: rawBias.pdr_zone || 'UNKNOWN',
+        nymo_zone: rawBias.nymo_zone || 'UNKNOWN',
+      }
+    : null
+
+  const rawMg = raw?.measuring_gap
+  const measuring_gap: IctMeasuringGapInfo | null = rawMg
+    ? {
+        direction: rawMg.direction || 'BULLISH',
+        anchor_high: Number(rawMg.anchor_high ?? 0),
+        anchor_low: Number(rawMg.anchor_low ?? 0),
+        gap_midpoint_ratio: Number(rawMg.gap_midpoint_ratio ?? 0.5),
+        projected_terminus: Number(rawMg.projected_terminus ?? 0),
+        mean_threshold: Number(rawMg.mean_threshold ?? 0),
+        timeframe: rawMg.timeframe || '5m',
+      }
+    : null
+
+  const rawOos = raw?.oos_qualification
+  const oos_qualification: IctOosQualificationInfo | null = rawOos
+    ? {
+        config: rawOos.config || 'lumitraders_reclaim_ote79',
+        decision: rawOos.decision || 'REJECTED',
+        trades: Number(rawOos.trades ?? 0),
+        net_pnl_usdt: Number(rawOos.net_pnl_usdt ?? 0),
+        drawdown_usdt: Number(rawOos.drawdown_usdt ?? 0),
+        profitable_windows: Number(rawOos.profitable_windows ?? 0),
+        gates_passed: Number(rawOos.gates_passed ?? 0),
+        gates_total: Number(rawOos.gates_total ?? 7),
+      }
+    : SEALED_OOS_QUALIFICATION_BY_SYMBOL[sym] || null
+
   return {
     symbol: sym,
     step: stepName,
@@ -138,6 +277,10 @@ export function adaptBackendSignal(sym: string, raw: any): IctPairSignal {
     },
     candidate: candidateInfo,
     invalidation_reason: twins.invalidation_reason || 'NONE',
+    quarterly_cycle,
+    intraday_bias,
+    measuring_gap,
+    oos_qualification,
   }
 }
 
@@ -690,11 +833,88 @@ export function getFallbackIctSignals(): IctSignalsResponse {
     },
   }
 
+  const fallbackBiasBySym: Record<string, IctIntradayBiasInfo> = {
+    BTCUSDT: {
+      ny_midnight_open: 64420,
+      pdh: 65200,
+      pdl: 63800,
+      pdr_equilibrium: 64500,
+      asia_high: 64680,
+      asia_low: 64150,
+      london_high: 64950,
+      london_low: 64200,
+      pdh_swept: false,
+      pdl_swept: true,
+      pdr_zone: 'DISCOUNT',
+      nymo_zone: 'ABOVE_NYMO',
+    },
+    SOLUSDT: {
+      ny_midnight_open: 181.5,
+      pdh: 186.0,
+      pdl: 178.0,
+      pdr_equilibrium: 182.0,
+      asia_high: 182.4,
+      asia_low: 179.8,
+      london_high: 184.2,
+      london_low: 180.2,
+      pdh_swept: false,
+      pdl_swept: true,
+      pdr_zone: 'DISCOUNT',
+      nymo_zone: 'ABOVE_NYMO',
+    },
+    ETHUSDT: {
+      ny_midnight_open: 2760,
+      pdh: 2810,
+      pdl: 2720,
+      pdr_equilibrium: 2765,
+      asia_high: 2775,
+      asia_low: 2742,
+      london_high: 2795,
+      london_low: 2750,
+      pdh_swept: false,
+      pdl_swept: false,
+      pdr_zone: 'DISCOUNT',
+      nymo_zone: 'ABOVE_NYMO',
+    },
+  }
+
+  for (const [sym, sig] of Object.entries(mockSignals)) {
+    sig.quarterly_cycle = DEFAULT_QUARTERLY_CYCLE
+    sig.intraday_bias = fallbackBiasBySym[sym] || {
+      ny_midnight_open: null,
+      pdh: null,
+      pdl: null,
+      pdr_equilibrium: null,
+      asia_high: null,
+      asia_low: null,
+      london_high: null,
+      london_low: null,
+      pdh_swept: false,
+      pdl_swept: false,
+      pdr_zone: sig.side === 'BUY' ? 'DISCOUNT' : sig.side === 'SELL' ? 'PREMIUM' : 'EQUILIBRIUM',
+      nymo_zone: sig.side === 'BUY' ? 'ABOVE_NYMO' : sig.side === 'SELL' ? 'BELOW_NYMO' : 'AT_NYMO',
+    }
+    sig.measuring_gap =
+      sym === 'SOLUSDT'
+        ? {
+            direction: 'BULLISH',
+            anchor_high: 184.2,
+            anchor_low: 180.2,
+            gap_midpoint_ratio: 0.5,
+            projected_terminus: 188.2,
+            mean_threshold: 182.2,
+            timeframe: '5m',
+          }
+        : null
+    sig.oos_qualification = SEALED_OOS_QUALIFICATION_BY_SYMBOL[sym] || null
+  }
+
   return {
     verified: false,
     timestamp_ms: Date.now(),
     active_family: 'ICT_MMXM_TWINS',
     latency_ms: 12,
+    quarterly_cycle: DEFAULT_QUARTERLY_CYCLE,
     signals: mockSignals,
   }
 }
@@ -746,11 +966,13 @@ export function useIctSignals(options: UseIctSignalsOptions = {}) {
         }
       }
 
+      const topQc = json.quarterly_cycle || normalizedSignals.BTCUSDT?.quarterly_cycle || DEFAULT_QUARTERLY_CYCLE
       const normalizedResponse: IctSignalsResponse = {
         verified: Boolean(json.verified),
         timestamp_ms: json.timestamp_ms || Date.now(),
         active_family: json.active_family || 'ICT_MMXM_TWINS',
         latency_ms: elapsed,
+        quarterly_cycle: topQc,
         signals: normalizedSignals,
       }
 

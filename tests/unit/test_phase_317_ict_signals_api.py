@@ -270,3 +270,79 @@ def test_fetch_binance_candles_sync_filters_unclosed_forming_kline(
     assert len(candles) == 2
     assert candles[-1].close == Decimal("107.0")
 
+
+def test_lumitraders_mmxm_telemetry_fields_in_ict_signals_response() -> None:
+    now = 1_700_028_000_000  # 06:00 UTC -> 01:00 NY (Q2 Manipulation)
+    candles_15m = [
+        Candle(
+            timestamp_ms=now - (6 - i) * 900_000,
+            open=Decimal(str(180 + i)),
+            high=Decimal(str(182 + i)),
+            low=Decimal(str(179 + i)),
+            close=Decimal(str(181 + i)),
+            volume=Decimal("100"),
+        )
+        for i in range(6)
+    ]
+    candles_5m = [
+        Candle(
+            timestamp_ms=now - 900_000,
+            open=Decimal("100"),
+            high=Decimal("118"),
+            low=Decimal("100"),
+            close=Decimal("117"),
+            volume=Decimal("50"),
+        ),
+        Candle(
+            timestamp_ms=now - 600_000,
+            open=Decimal("117"),
+            high=Decimal("128"),
+            low=Decimal("116"),
+            close=Decimal("127"),
+            volume=Decimal("50"),
+        ),
+        Candle(
+            timestamp_ms=now - 300_000,
+            open=Decimal("127"),
+            high=Decimal("140"),
+            low=Decimal("122"),
+            close=Decimal("138"),
+            volume=Decimal("50"),
+        ),
+    ]
+    mock_sequencer = MagicMock()
+    mock_sequencer.is_trade_ready.return_value = True
+    mock_sequencer.get_multi_tf_candles.return_value = (
+        candles_15m,
+        candles_15m,
+        candles_15m,
+        candles_5m,
+        candles_5m,
+    )
+    mock_trader = MagicMock()
+    mock_trader.sequencer = mock_sequencer
+    mock_trader.ict_engine = IctMmxmEngine(lookback_htf=100)
+
+    app = create_app(trader=mock_trader)
+    client = TestClient(app)
+    resp = client.get("/api/v1/strategy/ict-signals")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "quarterly_cycle" in data
+    assert data["quarterly_cycle"] is not None
+    assert "daily_quarter" in data["quarterly_cycle"]
+    assert "active_killzone" in data["quarterly_cycle"]
+
+    sol_sig = data["signals"]["SOLUSDT"]
+    assert "quarterly_cycle" in sol_sig
+    assert "intraday_bias" in sol_sig
+    assert sol_sig["intraday_bias"] is not None
+    assert "pdr_zone" in sol_sig["intraday_bias"]
+    assert "nymo_zone" in sol_sig["intraday_bias"]
+    assert sol_sig["measuring_gap"] is not None
+    assert sol_sig["measuring_gap"]["projected_terminus"] == 140.0
+    assert sol_sig["oos_qualification"] is not None
+    assert sol_sig["oos_qualification"]["net_pnl_usdt"] == 139.93
+    assert sol_sig["oos_qualification"]["gates_passed"] == 6
+

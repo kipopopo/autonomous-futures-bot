@@ -178,4 +178,32 @@ describe('Phase 317 Milestone 5: Strategy Confluence Radar & 8-Pair Matrix', () 
       expect(html).toContain('POLLING 5s')
     })
   })
+
+  // --------------------------------------------------------------------------
+  // Suite 7: LumiTraders MMXM Telemetry & Sealed OOS Qualification
+  // --------------------------------------------------------------------------
+  describe('Suite 7: LumiTraders MMXM Telemetry & Sealed OOS Qualification', () => {
+    it('renders Dayes Quarterly Cycle header strip and OOS benchmark summary', () => {
+      const html = renderToString(<StrategyConfluenceRadar ictSignals={fallbackData} />)
+
+      expect(html).toContain('ict-quarterly-cycle-strip')
+      expect(html).toContain('Q3 Distribution (NY AM)')
+      expect(html).toContain('KZ: NY AM')
+      expect(html).toContain('SOL +$139.93 (6/7 Gates · 4/5 Win)')
+    })
+
+    it('renders per-pair LumiTraders Intraday Bias (PDR/NYMO), Measuring Gap, and OOS metrics', () => {
+      const html = renderToString(<StrategyConfluenceRadar ictSignals={fallbackData} />)
+
+      expect(html).toContain('ict-lumitraders-bias-SOLUSDT')
+      expect(html).toContain('PDR: DISCOUNT · PDL SWEPT')
+      expect(html).toContain('Above NYMO')
+      expect(html).toContain('Measuring Gap Terminus:')
+      expect(html).toContain('$188.2')
+      expect(html).toContain('LumiTraders OOS:')
+      expect(html).toContain('+$139.93 (6/7 Gates)')
+    })
+  })
 })
+
+
