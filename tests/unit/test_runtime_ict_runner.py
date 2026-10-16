@@ -79,3 +79,59 @@ def test_ict_cli_freezes_and_binds_authenticated_equity_scenario(tmp_path, monke
     body = dict(report)
     identity = body.pop("report_hash")
     assert identity == content_hash(body)
+
+
+def test_ict_cli_passes_lumitraders_qualification_modes(tmp_path, monkeypatch, capsys):
+    runner = _load_runner()
+    output = tmp_path / "lumitraders-modes"
+    captured = {}
+
+    def replay(**kwargs):
+        captured.update(kwargs)
+        policy = kwargs["policy"]
+        return {
+            "family": "ICT_TWINS",
+            "symbol": "BTCUSDT",
+            "policy": {
+                "starting_equity": str(policy.starting_equity),
+                "trade_risk_pct": str(policy.trade_risk_pct),
+                "daily_loss_pct": str(policy.daily_loss_pct),
+            },
+            "sources": {},
+            "source_files": [],
+            "decision": "REJECTED",
+            "metrics": {},
+            "gates": {},
+            "report_hash": "unsealed",
+        }
+
+    monkeypatch.setattr(runner, "qualify_ict", replay)
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "qualify_runtime_ict.py",
+            "--symbol",
+            "BTCUSDT",
+            "--commissions",
+            "fees.json",
+            "--entry-mode",
+            "reclaim_retest",
+            "--invalidation-mode",
+            "stop_only",
+            "--stop-loss-mode",
+            "ote_79_adaptive",
+            "--time-filter-mode",
+            "killzones",
+            "--output",
+            str(output),
+        ],
+    )
+
+    runner.main()
+    capsys.readouterr()
+
+    assert captured["entry_mode"] == "reclaim_retest"
+    assert captured["invalidation_mode"] == "stop_only"
+    assert captured["stop_loss_mode"] == "ote_79_adaptive"
+    assert captured["time_filter_mode"] == "killzones"

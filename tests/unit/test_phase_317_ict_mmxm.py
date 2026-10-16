@@ -1276,3 +1276,98 @@ class TestLumiTradersMmxmSpecificationAlignment:
         assert proj.gap_midpoint_ratio == Decimal("0.5")
         assert proj.projected_terminus == Decimal("140.0")
 
+    def test_step6_ignores_mitigated_or_behind_partial_opposing_htf_pdas(self) -> None:
+        """Verifies opposing HTF PDAs behind 2.0 STDV or mitigated do not cap TP2 behind TP1."""
+        engine = IctMmxmEngine()
+        # 4h candles include an old Bullish OB HIGH above current price ([1030.0, 1050.0])
+        # that would previously cap a Bearish setup's TP2 to 1050.0 (> TP1 942.0).
+        candles_4h = [
+            _make_candle(1699980000000, "1045.0", "1050.0", "1030.0", "1032.0"),
+            _make_candle(1699994400000, "1032.0", "1065.0", "1031.0", "1060.0"),
+        ]
+        # 1h candles include the active Bearish OB [990.0, 1020.0] that price taps at 1018.0.
+        candles_1h = [
+            _make_candle(1700000000000, "995.0", "1020.0", "990.0", "1015.0"),
+            _make_candle(1700003600000, "1015.0", "1018.0", "980.0", "985.0"),
+        ]
+        candles_5m = [
+            _make_candle(1700000000000, "995.0", "1018.0", "994.0", "1015.0"),
+            _make_candle(1700000300000, "1015.0", "1016.0", "980.0", "985.0"),
+        ]
+        candles_1m = [
+            _make_candle(1700000300000, "1015.0", "1016.0", "1010.0", "1011.0"),
+            _make_candle(1700000360000, "1011.0", "1011.0", "1000.0", "1001.0"),
+            _make_candle(1700000420000, "1001.0", "1004.0", "990.0", "991.0"),
+            _make_candle(1700000480000, "991.0", "991.0", "982.0", "983.0"),
+            _make_candle(1700000540000, "983.0", "986.0", "980.0", "981.0"),
+            _make_candle(1700000600000, "981.0", "995.0", "981.0", "994.0"),
+            _make_candle(1700000660000, "994.0", "1007.0", "1001.5", "1006.5"),
+            _make_candle(1700000720000, "1006.5", "1006.5", "998.0", "999.0"),
+        ]
+
+        state = engine.evaluate_twins_setup(
+            symbol="SOLUSDT",
+            candles_4h=_past_htf(candles_4h),
+            candles_1h=_past_htf(candles_1h),
+            candles_15m=_past_htf([]),
+            candles_5m=candles_5m,
+            candles_1m=candles_1m,
+        )
+        assert state.step_6_ready is True
+        assert state.side == "SELL"
+        assert state.take_profit_partial == Decimal("942.00")
+        assert state.take_profit_final == Decimal("866.00")
+        assert state.take_profit_final < state.take_profit_partial
+
+    def test_250_bar_5m_1m_window_horizon_alignment(self) -> None:
+        """Verifies 250-bar 5m and 1m windows align to the active 1m horizon."""
+        engine = IctMmxmEngine()
+        candles_15m = [
+            _make_candle(1700000000000, "995.0", "1020.0", "990.0", "1015.0"),
+            _make_candle(1700000900000, "1015.0", "1018.0", "980.0", "985.0"),
+        ]
+        # Build 200 older 5m candles (16.6 hours prior) that touched the HTF PDA at 1019.0
+        # outside the 250-bar 1m window, followed by 48 neutral 5m bars and the active 2-bar setup.
+        older_5m = [
+            _make_candle(1700000000000 - (248 - i) * 300000, "1015.0", "1019.0", "975.0", "980.0")
+            for i in range(200)
+        ]
+        recent_neutral_5m = [
+            _make_candle(1700000000000 - (48 - i) * 300000, "990.0", "994.0", "988.0", "991.0")
+            for i in range(48)
+        ]
+        active_5m = [
+            _make_candle(1700000000000, "995.0", "1018.0", "994.0", "1015.0"),
+            _make_candle(1700000300000, "1015.0", "1016.0", "980.0", "985.0"),
+        ]
+        candles_5m = older_5m + recent_neutral_5m + active_5m
+
+        # Build 242 neutral 1m candles in the active 4.16h window + 8 active 1m setup candles
+        recent_neutral_1m = [
+            _make_candle(1700000300000 - (242 - i) * 60000, "990.0", "994.0", "988.0", "991.0")
+            for i in range(242)
+        ]
+        active_1m = [
+            _make_candle(1700000300000, "1015.0", "1016.0", "1010.0", "1011.0"),
+            _make_candle(1700000360000, "1011.0", "1011.0", "1000.0", "1001.0"),
+            _make_candle(1700000420000, "1001.0", "1004.0", "990.0", "991.0"),
+            _make_candle(1700000480000, "991.0", "991.0", "982.0", "983.0"),
+            _make_candle(1700000540000, "983.0", "986.0", "980.0", "981.0"),
+            _make_candle(1700000600000, "981.0", "995.0", "981.0", "994.0"),
+            _make_candle(1700000660000, "994.0", "1007.0", "1001.5", "1006.5"),
+            _make_candle(1700000720000, "1006.5", "1006.5", "998.0", "999.0"),
+        ]
+        candles_1m = recent_neutral_1m + active_1m
+        assert len(candles_5m) == 250
+        assert len(candles_1m) == 250
+
+        state = engine.evaluate_twins_setup(
+            symbol="SOLUSDT",
+            candles_4h=_past_htf([]),
+            candles_1h=_past_htf([]),
+            candles_15m=_past_htf(candles_15m),
+            candles_5m=candles_5m,
+            candles_1m=candles_1m,
+        )
+        assert state.step_6_ready is True
+        assert state.side == "SELL"

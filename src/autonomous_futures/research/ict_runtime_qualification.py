@@ -33,11 +33,17 @@ from autonomous_futures.research.runtime_qualification import (
     source_file_index,
     verified_bars,
 )
-from autonomous_futures.strategy.ict_mmxm import Candle, IctMmxmEngine
+from autonomous_futures.strategy.ict_mmxm import Candle, IctMmxmEngine, StopLossMode
 
 D = Decimal
 EntryMode = Literal["limit_touch", "reclaim_retest"]
 InvalidationMode = Literal["entry_close", "stop_only"]
+TimeFilterMode = Literal[
+    "all_hours",
+    "killzones",
+    "twins_windows",
+    "manipulation_distribution",
+]
 
 
 def has_close_reclaim(bar: Candle, plan: TradePlan) -> bool:
@@ -123,11 +129,26 @@ def qualify_ict(
     progress: Callable[[dict[str, Any]], None],
     entry_mode: EntryMode = "limit_touch",
     invalidation_mode: InvalidationMode = "entry_close",
+    stop_loss_mode: StopLossMode | str = StopLossMode.SWING_EXTREME,
+    time_filter_mode: TimeFilterMode = "all_hours",
 ) -> dict[str, Any]:
     if entry_mode not in {"limit_touch", "reclaim_retest"}:
         raise ValueError("Unsupported ICT qualification entry mode")
     if invalidation_mode not in {"entry_close", "stop_only"}:
         raise ValueError("Unsupported ICT qualification invalidation mode")
+    normalized_stop_loss_mode = str(stop_loss_mode).lower()
+    if normalized_stop_loss_mode not in {
+        StopLossMode.SWING_EXTREME.value,
+        StopLossMode.OTE_79_ADAPTIVE.value,
+    }:
+        raise ValueError("Unsupported ICT qualification stop loss mode")
+    if time_filter_mode not in {
+        "all_hours",
+        "killzones",
+        "twins_windows",
+        "manipulation_distribution",
+    }:
+        raise ValueError("Unsupported ICT qualification time filter mode")
     names = (
         "src/autonomous_futures/strategy/ict_mmxm.py",
         "src/autonomous_futures/strategy/pd_array_touch_index.py",
@@ -447,33 +468,48 @@ def qualify_ict(
             continue
         daily = DailyRisk(baseline, wallet, limit_pct=policy.daily_loss_pct)
         if not daily.breached:
-            positions = [bisect.bisect_right(series, decision) for series in closes]
-            hi5, hi1, hi4 = positions
-            setup = engine.evaluate_twins_setup(
-                symbol,
-                four[max(0, hi4 - 250) : hi4],
-                hourly[max(0, hi1 - 250) : hi1],
-                [],
-                five[max(0, hi5 - 250) : hi5],
-                list(minute_history),
-                filters.tick_size,
-            )
-            counts[setup.step.value] = counts.get(setup.step.value, 0) + 1
-            if setup.step_6_ready:
-                windows[current_window]["signals"] += 1
-                try:
-                    plan = ict_plan(
-                        setup,
-                        decision,
-                        filters,
-                        capital=policy.capital_policy(),
-                        equity=wallet,
-                        available_margin=wallet,
-                        remaining_daily_risk=daily.remaining_usdt,
+            in_time_window = True
+            if time_filter_mode != "all_hours":
+                q_cycle = engine.evaluate_quarterly_time_window(decision)
+                if time_filter_mode == "killzones":
+                    in_time_window = q_cycle.active_killzone != "NONE"
+                elif time_filter_mode == "twins_windows":
+                    in_time_window = q_cycle.in_twins_am_window or q_cycle.in_twins_pm_window
+                elif time_filter_mode == "manipulation_distribution":
+                    in_time_window = (
+                        q_cycle.in_manipulation_window or q_cycle.in_distribution_window
                     )
-                    active = ModeledTrade(plan, current_window)
-                except IneligibleTrade as exc:
-                    rejected[str(exc)] = rejected.get(str(exc), 0) + 1
+            if not in_time_window:
+                counts["OUTSIDE_TIME_WINDOW"] = counts.get("OUTSIDE_TIME_WINDOW", 0) + 1
+            else:
+                positions = [bisect.bisect_right(series, decision) for series in closes]
+                hi5, hi1, hi4 = positions
+                setup = engine.evaluate_twins_setup(
+                    symbol,
+                    four[max(0, hi4 - 250) : hi4],
+                    hourly[max(0, hi1 - 250) : hi1],
+                    [],
+                    five[max(0, hi5 - 250) : hi5],
+                    list(minute_history),
+                    filters.tick_size,
+                    stop_loss_mode=stop_loss_mode,
+                )
+                counts[setup.step.value] = counts.get(setup.step.value, 0) + 1
+                if setup.step_6_ready:
+                    windows[current_window]["signals"] += 1
+                    try:
+                        plan = ict_plan(
+                            setup,
+                            decision,
+                            filters,
+                            capital=policy.capital_policy(),
+                            equity=wallet,
+                            available_margin=wallet,
+                            remaining_daily_risk=daily.remaining_usdt,
+                        )
+                        active = ModeledTrade(plan, current_window)
+                    except IneligibleTrade as exc:
+                        rejected[str(exc)] = rejected.get(str(exc), 0) + 1
         marked = (
             wallet
             if active is None or active.entry_ms is None
@@ -517,6 +553,9 @@ def qualify_ict(
         "implementation": implementation,
         "configuration": {
             "entry_mode": entry_mode,
+            "invalidation_mode": invalidation_mode,
+            "stop_loss_mode": normalized_stop_loss_mode,
+            "time_filter_mode": time_filter_mode,
             "history_bars": 250,
             "htf_pda_timeframes": ["4h", "1h"],
             **{key: str(value) for key, value in vars(engine).items()},

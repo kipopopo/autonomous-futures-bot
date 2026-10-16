@@ -57,6 +57,24 @@ def main() -> None:
         default="limit_touch",
         help="Freeze the causal entry model used for this qualification replay.",
     )
+    parser.add_argument(
+        "--invalidation-mode",
+        choices=("entry_close", "stop_only"),
+        default="entry_close",
+        help="Freeze post-entry invalidation mode (entry_close vs structural stop_only).",
+    )
+    parser.add_argument(
+        "--stop-loss-mode",
+        choices=("swing_extreme", "ote_79_adaptive", "SWING_EXTREME", "OTE_79_ADAPTIVE"),
+        default="swing_extreme",
+        help="Freeze Twins stop-loss placement mode (LumiTraders PDF p. 157).",
+    )
+    parser.add_argument(
+        "--time-filter-mode",
+        choices=("all_hours", "killzones", "twins_windows", "manipulation_distribution"),
+        default="all_hours",
+        help="Freeze LumiTraders Quarterly/Killzone time filter mode.",
+    )
     parser.add_argument("--output", type=Path, default=REPO / "artifacts/qualification/runtime-ict")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -75,6 +93,13 @@ def main() -> None:
         "ote": [".62", ".79"],
         "trade_risk_pct": str(policy.trade_risk_pct),
     }
+    sl_mode = args.stop_loss_mode.lower()
+    if args.invalidation_mode != "entry_close":
+        frozen["invalidation_mode"] = args.invalidation_mode
+    if sl_mode != "swing_extreme":
+        frozen["stop_loss_mode"] = sl_mode
+    if args.time_filter_mode != "all_hours":
+        frozen["time_filter_mode"] = args.time_filter_mode
     if capital_scenario is not None:
         frozen["capital_scenario"] = capital_scenario
     path = args.output / "frozen-policy.json"
@@ -83,6 +108,13 @@ def main() -> None:
     path.write_bytes((json.dumps(frozen, indent=2) + "\n").encode())
     emit({"event": "ICT_POLICY_FROZEN", "symbol": args.symbol})
     start = int(datetime.fromisoformat(args.oos_start).replace(tzinfo=UTC).timestamp() * 1000)
+    extra_kwargs: dict[str, Any] = {}
+    if args.invalidation_mode != "entry_close":
+        extra_kwargs["invalidation_mode"] = args.invalidation_mode
+    if sl_mode != "swing_extreme":
+        extra_kwargs["stop_loss_mode"] = sl_mode
+    if args.time_filter_mode != "all_hours":
+        extra_kwargs["time_filter_mode"] = args.time_filter_mode
     report = qualify_ict(
         repo=REPO,
         cache=args.cache,
@@ -94,6 +126,7 @@ def main() -> None:
         policy=policy,
         progress=emit,
         entry_mode=args.entry_mode,
+        **extra_kwargs,
     )
     report = bind_equity_scenario(report, capital_scenario, REPO)
     target = args.output / f"{args.symbol}-{report['report_hash'][:16]}.json"

@@ -870,7 +870,7 @@ class IctMmxmEngine:
           if the retracement touches 79% OTE, places stop loss beyond 100% (h_leg / l_leg).
         """
         buffer = tick_size * TWO if tick_size is not None and tick_size > ZERO else Decimal("1.00")
-        adaptive = str(stop_loss_mode) == StopLossMode.OTE_79_ADAPTIVE.value
+        adaptive = str(stop_loss_mode).lower() == StopLossMode.OTE_79_ADAPTIVE.value
 
         if direction == SetupDirection.BEARISH.value:
             anchor = ote_79 if (adaptive and retracement_extreme < ote_79) else h_leg
@@ -1081,6 +1081,158 @@ class IctMmxmEngine:
             projected_terminus=terminus,
         )
 
+    @staticmethod
+    @lru_cache(maxsize=32)
+    def _evaluate_step1_and_step2_cached(
+        candles_4h: tuple[Candle, ...],
+        candles_1h: tuple[Candle, ...],
+        candles_15m: tuple[Candle, ...],
+        candles_5m: tuple[Candle, ...],
+        configuration: tuple[Any, ...],
+    ) -> tuple[
+        tuple[PdArray, ...],
+        PdArray | None,
+        str | None,
+        Candle | None,
+        Decimal | None,
+        bool,
+        Decimal,
+        Decimal,
+    ]:
+        """Cached evaluation of HTF PDA touch (Step 1) and 5m CISD dealing range (Step 2)."""
+        htf_pdas: list[PdArray] = []
+        if candles_4h:
+            htf_pdas.extend(
+                IctMmxmEngine._detect_pd_arrays_cached(candles_4h, "4h", configuration)
+            )
+        if candles_1h:
+            htf_pdas.extend(
+                IctMmxmEngine._detect_pd_arrays_cached(candles_1h, "1h", configuration)
+            )
+        if candles_15m:
+            htf_pdas.extend(
+                IctMmxmEngine._detect_pd_arrays_cached(candles_15m, "15m", configuration)
+            )
+
+        touched = touched_pd_arrays(htf_pdas, candles_5m)
+        bearish_pdas: list[PdArray] = []
+        bullish_pdas: list[PdArray] = []
+        for pda, is_touched in zip(htf_pdas, touched, strict=True):
+            if not is_touched:
+                continue
+            if pda.direction == SetupDirection.BEARISH.value:
+                bearish_pdas.append(pda)
+            elif pda.direction == SetupDirection.BULLISH.value:
+                bullish_pdas.append(pda)
+
+        def touches(pda: PdArray, candle: Candle) -> bool:
+            return (
+                (pda.known_from_ms is None or candle.timestamp_ms >= pda.known_from_ms)
+                and candle.high >= pda.bottom
+                and candle.low <= pda.top
+            )
+
+        bearish_confirmation: Candle | None = None
+        bullish_confirmation: Candle | None = None
+
+        if bearish_pdas:
+            max_h = max(c.high for c in candles_5m)
+            ref_b = next((c for c in candles_5m if c.high == max_h), None)
+            if ref_b is not None:
+                post_ref_b = [c for c in candles_5m if c.timestamp_ms > ref_b.timestamp_ms]
+                bearish_confirmation = IctMmxmEngine._first_cisd_confirmation(
+                    post_ref_b, ref_b.low, SetupDirection.BEARISH.value
+                )
+
+        if bullish_pdas:
+            min_l = min(c.low for c in candles_5m)
+            ref_u = next((c for c in candles_5m if c.low == min_l), None)
+            if ref_u is not None:
+                post_ref_u = [c for c in candles_5m if c.timestamp_ms > ref_u.timestamp_ms]
+                bullish_confirmation = IctMmxmEngine._first_cisd_confirmation(
+                    post_ref_u, ref_u.high, SetupDirection.BULLISH.value
+                )
+
+        direction = IctMmxmEngine._resolve_setup_direction(
+            has_bearish_pda=bool(bearish_pdas),
+            has_bullish_pda=bool(bullish_pdas),
+            bearish_confirmation_ms=(
+                bearish_confirmation.timestamp_ms if bearish_confirmation is not None else None
+            ),
+            bullish_confirmation_ms=(
+                bullish_confirmation.timestamp_ms if bullish_confirmation is not None else None
+            ),
+        )
+
+        hit_pda: PdArray | None = None
+        if direction == SetupDirection.BEARISH.value and bearish_pdas:
+            hit_pda = bearish_pdas[0]
+        elif direction == SetupDirection.BULLISH.value and bullish_pdas:
+            hit_pda = bullish_pdas[0]
+        else:
+            direction = None
+
+        if hit_pda is None or direction is None:
+            return (tuple(htf_pdas), None, None, None, None, False, ZERO, ZERO)
+
+        ref_5m_candle: Candle | None = None
+        m5_cisd_price: Decimal | None = None
+        m5_cisd_confirmed = False
+        h_leg = ZERO
+        l_leg = ZERO
+
+        if direction == SetupDirection.BEARISH.value:
+            pda_touches = [c for c in candles_5m if touches(hit_pda, c)]
+            first_touch_ts = (
+                pda_touches[0].timestamp_ms if pda_touches else candles_5m[0].timestamp_ms
+            )
+            relevant_5m = [c for c in candles_5m if c.timestamp_ms >= first_touch_ts]
+            ref_5m_candle = max(relevant_5m, key=lambda c: c.high)
+
+            m5_cisd_price = ref_5m_candle.low
+            cisd_candles = [c for c in candles_5m if c.timestamp_ms > ref_5m_candle.timestamp_ms]
+            m5_cisd_confirmed = (
+                IctMmxmEngine._first_cisd_confirmation(cisd_candles, m5_cisd_price, direction)
+                is not None
+            )
+
+            h_leg = ref_5m_candle.high
+            if cisd_candles:
+                l_leg = min(c.low for c in cisd_candles)
+            else:
+                l_leg = ref_5m_candle.low
+        else:
+            pda_touches = [c for c in candles_5m if touches(hit_pda, c)]
+            first_touch_ts = (
+                pda_touches[0].timestamp_ms if pda_touches else candles_5m[0].timestamp_ms
+            )
+            relevant_5m = [c for c in candles_5m if c.timestamp_ms >= first_touch_ts]
+            ref_5m_candle = min(relevant_5m, key=lambda c: c.low)
+
+            m5_cisd_price = ref_5m_candle.high
+            cisd_candles = [c for c in candles_5m if c.timestamp_ms > ref_5m_candle.timestamp_ms]
+            m5_cisd_confirmed = (
+                IctMmxmEngine._first_cisd_confirmation(cisd_candles, m5_cisd_price, direction)
+                is not None
+            )
+
+            l_leg = ref_5m_candle.low
+            if cisd_candles:
+                h_leg = max(c.high for c in cisd_candles)
+            else:
+                h_leg = ref_5m_candle.high
+
+        return (
+            tuple(htf_pdas),
+            hit_pda,
+            direction,
+            ref_5m_candle,
+            m5_cisd_price,
+            m5_cisd_confirmed,
+            h_leg,
+            l_leg,
+        )
+
     def evaluate_twins_setup(
         self,
         symbol: str,
@@ -1105,138 +1257,59 @@ class IctMmxmEngine:
         if not candles_5m or not candles_1m:
             return TwinsSetupState(symbol=symbol, step=TwinsStep.IDLE)
 
-        # ---------------------------------------------------------------------
-        # Step 1: Detect HTF Level Hit (Aligned with Market Displacement)
-        # ---------------------------------------------------------------------
-        htf_pdas: list[PdArray] = []
-        if candles_4h:
-            htf_pdas.extend(self.detect_pd_arrays(candles_4h, "4h"))
-        if candles_1h:
-            htf_pdas.extend(self.detect_pd_arrays(candles_1h, "1h"))
-        if candles_15m:
-            htf_pdas.extend(self.detect_pd_arrays(candles_15m, "15m"))
+        # Align 5m dealing-range window with the 1m observation window when a multi-hour
+        # 5m buffer is supplied alongside a bounded 1m buffer (e.g. 250 bars each).
+        if len(candles_5m) > 50 and len(candles_1m) >= 50:
+            aligned_5m = [c for c in candles_5m if c.timestamp_ms >= candles_1m[0].timestamp_ms]
+            if len(aligned_5m) >= 10:
+                candles_5m = aligned_5m
 
-        # Query every PDA against the ordered closed-candle series in one indexed pass.
-        # This preserves the original inclusive overlap and known-from boundaries while
-        # avoiding a full candle scan for each of the often hundreds of HTF arrays.
-        touched = touched_pd_arrays(htf_pdas, candles_5m)
-        bearish_pdas: list[PdArray] = []
-        bullish_pdas: list[PdArray] = []
-        for pda, is_touched in zip(htf_pdas, touched, strict=True):
-            if not is_touched:
-                continue
-            if pda.direction == SetupDirection.BEARISH.value:
-                bearish_pdas.append(pda)
-            elif pda.direction == SetupDirection.BULLISH.value:
-                bullish_pdas.append(pda)
-
-        def touches(pda: PdArray, candle: Candle) -> bool:
-            return (
-                (pda.known_from_ms is None or candle.timestamp_ms >= pda.known_from_ms)
-                and candle.high >= pda.bottom
-                and candle.low <= pda.top
-            )
-
-        hit_pda: PdArray | None = None
-        direction: str | None = None
-
-        # Check directional displacement on 5m candles
-        bearish_confirmation: Candle | None = None
-        bullish_confirmation: Candle | None = None
-
-        if bearish_pdas:
-            max_h = max(c.high for c in candles_5m)
-            ref_b = next((c for c in candles_5m if c.high == max_h), None)
-            if ref_b is not None:
-                post_ref_b = [c for c in candles_5m if c.timestamp_ms > ref_b.timestamp_ms]
-                bearish_confirmation = self._first_cisd_confirmation(
-                    post_ref_b, ref_b.low, SetupDirection.BEARISH.value
-                )
-
-        if bullish_pdas:
-            min_l = min(c.low for c in candles_5m)
-            ref_u = next((c for c in candles_5m if c.low == min_l), None)
-            if ref_u is not None:
-                post_ref_u = [c for c in candles_5m if c.timestamp_ms > ref_u.timestamp_ms]
-                bullish_confirmation = self._first_cisd_confirmation(
-                    post_ref_u, ref_u.high, SetupDirection.BULLISH.value
-                )
-
-        # Confirmed displacement resolves simultaneous PDA directions. A same-candle tie
-        # has no causal ordering, so it is rejected instead of receiving a bearish bias.
-        direction = self._resolve_setup_direction(
-            has_bearish_pda=bool(bearish_pdas),
-            has_bullish_pda=bool(bullish_pdas),
-            bearish_confirmation_ms=(
-                bearish_confirmation.timestamp_ms if bearish_confirmation is not None else None
-            ),
-            bullish_confirmation_ms=(
-                bullish_confirmation.timestamp_ms if bullish_confirmation is not None else None
-            ),
+        configuration = (
+            self.lookback_htf,
+            self.min_fvg_size_ticks,
+            self.ote_lower,
+            self.ote_upper,
+            self.ote_sweet_spot,
+            self.default_tick_size,
+        )
+        bounded_4h = (
+            tuple(candles_4h[-self.lookback_htf :])
+            if self.lookback_htf > 0 and candles_4h
+            else tuple(candles_4h)
+        )
+        bounded_1h = (
+            tuple(candles_1h[-self.lookback_htf :])
+            if self.lookback_htf > 0 and candles_1h
+            else tuple(candles_1h)
+        )
+        bounded_15m = (
+            tuple(candles_15m[-self.lookback_htf :])
+            if self.lookback_htf > 0 and candles_15m
+            else tuple(candles_15m)
+        )
+        (
+            htf_pdas,
+            hit_pda,
+            direction,
+            ref_5m_candle,
+            m5_cisd_price,
+            m5_cisd_confirmed,
+            h_leg,
+            l_leg,
+        ) = self._evaluate_step1_and_step2_cached(
+            bounded_4h,
+            bounded_1h,
+            bounded_15m,
+            tuple(candles_5m),
+            configuration,
         )
 
-        # Select the PDA aligned with the resolved displacement. A single-direction PDA
-        # can still enter Step 2, where the full anchored CISD check remains mandatory.
-        if direction == SetupDirection.BEARISH.value and bearish_pdas:
-            hit_pda = bearish_pdas[0]
-        elif direction == SetupDirection.BULLISH.value and bullish_pdas:
-            hit_pda = bullish_pdas[0]
-        else:
-            direction = None
-
-        if hit_pda is None or direction is None:
+        if hit_pda is None or direction is None or ref_5m_candle is None:
             return TwinsSetupState(
                 symbol=symbol,
                 step_1_htf_hit=False,
                 step=TwinsStep.IDLE,
             )
-
-        # ---------------------------------------------------------------------
-        # Step 2: 5m CISD Formed (Anchored Dealing Range)
-        # ---------------------------------------------------------------------
-        ref_5m_candle: Candle | None = None
-        m5_cisd_price: Decimal | None = None
-        m5_cisd_confirmed = False
-        h_leg = ZERO
-        l_leg = ZERO
-
-        if direction == SetupDirection.BEARISH.value:
-            # Anchor peak to the highest candle that interacted with HTF PDA or subsequent run
-            pda_touches = [c for c in candles_5m if touches(hit_pda, c)]
-            first_touch_ts = (
-                pda_touches[0].timestamp_ms if pda_touches else candles_5m[0].timestamp_ms
-            )
-            relevant_5m = [c for c in candles_5m if c.timestamp_ms >= first_touch_ts]
-            ref_5m_candle = max(relevant_5m, key=lambda c: c.high)
-
-            m5_cisd_price = ref_5m_candle.low
-            cisd_candles = [c for c in candles_5m if c.timestamp_ms > ref_5m_candle.timestamp_ms]
-            m5_cisd_confirmed, _ = self.detect_cisd(cisd_candles, m5_cisd_price, direction)
-
-            h_leg = ref_5m_candle.high
-            # Anchor l_leg strictly to the displacement run AFTER the manipulation peak
-            if cisd_candles:
-                l_leg = min(c.low for c in cisd_candles)
-            else:
-                l_leg = ref_5m_candle.low
-        else:
-            pda_touches = [c for c in candles_5m if touches(hit_pda, c)]
-            first_touch_ts = (
-                pda_touches[0].timestamp_ms if pda_touches else candles_5m[0].timestamp_ms
-            )
-            relevant_5m = [c for c in candles_5m if c.timestamp_ms >= first_touch_ts]
-            ref_5m_candle = min(relevant_5m, key=lambda c: c.low)
-
-            m5_cisd_price = ref_5m_candle.high
-            cisd_candles = [c for c in candles_5m if c.timestamp_ms > ref_5m_candle.timestamp_ms]
-            m5_cisd_confirmed, _ = self.detect_cisd(cisd_candles, m5_cisd_price, direction)
-
-            l_leg = ref_5m_candle.low
-            # Anchor h_leg strictly to the displacement run AFTER the manipulation trough
-            if cisd_candles:
-                h_leg = max(c.high for c in cisd_candles)
-            else:
-                h_leg = ref_5m_candle.high
 
         if not m5_cisd_confirmed or m5_cisd_price is None:
             return TwinsSetupState(
@@ -1490,7 +1563,22 @@ class IctMmxmEngine:
             if direction == SetupDirection.BEARISH.value
             else SetupDirection.BEARISH.value
         )
-        opposing_pdas = [p for p in htf_pdas if p.direction == opposing_direction]
+        if direction == SetupDirection.BEARISH.value:
+            opposing_pdas = [
+                p
+                for p in htf_pdas
+                if p.direction == opposing_direction
+                and not p.is_mitigated
+                and p.top <= stdv_2_0
+            ]
+        else:
+            opposing_pdas = [
+                p
+                for p in htf_pdas
+                if p.direction == opposing_direction
+                and not p.is_mitigated
+                and p.bottom >= stdv_2_0
+            ]
 
         take_profit_final = stdv_4_0
         if opposing_pdas:
