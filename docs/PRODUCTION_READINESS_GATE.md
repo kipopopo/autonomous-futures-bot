@@ -10,9 +10,13 @@ does not grant live execution authority.
 - The Testnet environment-isolation and event-evidence source slice is
   `dddfea3cac6d21fe906969d3805545cd5942293a` and is on open draft PR #1.
   Remote CI run `38921855487` passed on PR head
-  `b8c596a7cebc2af6f4baf3561bc7641d22b0335e`; runs `38888385968` and
-  `38887005557` also passed on earlier heads. The PR is
-  not approved as a release or deployed. Follow-up commits
+  `b8c596a7cebc2af6f4baf3561bc7641d22b0335e`; run `38924314821` passed on
+  exact PR head `2e9c28475ae99aa57c276888e29d0921dc301ede` with 6,036 tests
+  passed, one Windows-only test skipped on Linux, and two warnings. Runs
+  `38888385968` and `38887005557` also passed on earlier heads. PR #1 remains
+  draft; the exact source is deployed to Testnet under the user's direct
+  authorization for controlled maintenance and normal Testnet order flow.
+  Mainnet is not authorized. Follow-up commits
   stabilize the scanner telemetry fixture and satisfy repository-wide lint
   and formatting checks. Separate ICT research and archived diagnostic
   changes remain outside the PR.
@@ -65,9 +69,10 @@ does not grant live execution authority.
   bound to admission/source hashes and sanitized account/order summaries. The
   read-only `scripts/verify_execution_event_evidence.py` checks the local chain.
   That chain detects edits but is not an exchange signature or an external
-  tamper-proof anchor. The active VPS release does not contain this
-  instrumentation yet. Do not stop, restart, or replace either writer as part
-  of this checklist.
+  tamper-proof anchor. The 09:15 snapshot predates deployment and did not
+  contain this instrumentation; the controlled cutover below now runs the
+  event-evidence release. The historical snapshot does not prove live order
+  lifecycle behavior.
 - A fresh read-only check at approximately `2026-10-16 15:06 UTC` confirms the
   qualified Testnet service remains active as `MainPID=302731`,
   `NRestarts=0`; the watchdog timer is waiting, and the watchdog API reports
@@ -85,19 +90,21 @@ does not grant live execution authority.
   `4b4a0d8809a99cfcb1b15f3a3b96e71fd1511a2186edc5c6f8a2a46484a4d913`; its
   holdout report and all five implementation hashes match the deployed
   release. The user confirmed this deployed AVAX/ETH/SOL candidate as the
-  target for future qualification and deployment work; no service or candidate
-  change was authorized by that selection. Treat the older ETH/LINK/AVAX
-  handoff designation as superseded for this work.
+  target for future qualification and deployment work. That selection alone
+  did not authorize changes; the user later explicitly authorized one
+  controlled Testnet cutover and normal Testnet order flow on 2026-10-16.
+  Treat the older ETH/LINK/AVAX handoff designation as superseded for this
+  work. Mainnet remains unauthorized.
 - The checked-in qualified-runtime systemd unit has an `ExecStartPre` that
   invokes `prepare_portfolio_cutover.py --apply-leverage --bootstrap-daily-risk`
   before startup, followed by the runtime preflight. A restart can therefore
   apply leverage settings and bootstrap risk state. Re-read the exact deployed
   unit and rerun read-only account/position/order checks before any approved
   maintenance window; do not treat restart as a telemetry-only change.
-- Additional read-only inspection on 2026-10-16 confirmed this is a user-level
+- Before the 2026-10-16 cutover, read-only inspection confirmed this was a user-level
   systemd unit with `Restart=on-failure`. Its configured working directory is
   the symlink `/opt/autonomous-futures-bot/releases/qualified-runtime`, which
-  currently resolves to `/opt/autonomous-futures-bot/.release-web-20261014`;
+  resolved to `/opt/autonomous-futures-bot/.release-web-20261014`;
   the account and event-evidence files are under the separate
   `/opt/autonomous-futures-bot/runtime/qualified-testnet` directory. A
   controlled rollout can preserve that exact release directory as the rollback
@@ -105,6 +112,72 @@ does not grant live execution authority.
   automatically rerun the side-effectful `ExecStartPre`; the deployment plan
   therefore calls for a temporary one-attempt restart policy during an
   approved maintenance window.
+- A fresh read-only staged-candidate check at approximately
+  `2026-10-16 15:41 UTC` returned `ready_to_activate: true`, no blocking
+  reasons, and preflight hash
+  `864984af306600e607396b613874c3983cf92414942ad02ec84d39fb91877cd9`.
+  The active unit remained PID `302731` with `NRestarts=0` and
+  `Restart=on-failure`; the release symlink still resolved to
+  `.release-web-20261014`. The authenticated Testnet snapshot was fresh and
+  reconciled, the watchdog was `HEALTHY`, there were zero nonzero positions
+  and open orders, and the legacy writer remained disabled and inactive. The
+  staged release is at
+  `/opt/autonomous-futures-bot/.release-qualified-testnet-event-evidence-20261016-dddfea3`;
+  its archive SHA-256 is
+  `27fa311b2f2ed98d8ee5da5a37bfbb4c156b86a8f2dec5ee6166c0af01f8e5d4`.
+  These are point-in-time checks; refresh them immediately before cutover.
+- The controlled Testnet cutover completed at `2026-10-16 15:54:32 UTC`.
+  The release symlink now resolves to
+  `.release-qualified-testnet-event-evidence-20261016-dddfea3`; the previous
+  `.release-web-20261014` directory is preserved as the rollback target. The
+  new unit started once as PID `381572` with `NRestarts=0` and temporary
+  `Restart=no`. Startup preparation kept AVAX/ETH/SOL at 1x, verified daily
+  risk and the execution domain, and did not re-bootstrap the current daily
+  risk baseline. The new account snapshot reconciles with zero wallet/equity
+  drift, no positions, and no open orders. The private stream is connected
+  with no gap but has received zero user-data events; the event ledger verifies
+  with two REST reconciliation records. The initial watchdog check was
+  `WARNING` while the restarted Hawkes model collected 390 arrivals for each
+  of 12 dimensions; the warning later cleared after warmup.
+- At `2026-10-16T16:04:58Z`, the watchdog was `HEALTHY`, the maintenance alert
+  state had cleared, and the account snapshot was 8.1 seconds old with zero
+  positions and orders. Market and private streams were connected, with no
+  private-stream gap or reconciliation requirement. The event ledger verified
+  with two REST reconciliation records and zero user-data events. The original
+  `Restart=on-failure` policy was restored with `NRestarts=0`; the 14-day soak
+  began at this checkpoint and must run no earlier than
+  `2026-10-30T16:04:58Z`. Mainnet remains NO-GO.
+- The next read-only checkpoint at `2026-10-16T16:09:44Z` found the unit active
+  as PID `381572` (`NRestarts=0`, `Restart=on-failure`), watchdog `HEALTHY`
+  without active alerts, verified account reconciliation 16.6 seconds old,
+  verified daily risk, zero positions and orders, and stable Hawkes state. The
+  scanner had zero ready variants in a sideways BTC regime. The ledger verifier
+  passed with two REST reconciliation records and zero user-data records. This
+  does not satisfy the soak's per-symbol completed-lifecycle requirement.
+- A read-only Mainnet code-path audit at `2026-10-16T16:12Z` confirmed that
+  `scripts/run_qualified_runtime.py` defaults to Testnet; Mainnet uses a
+  separate admission manifest, credentials, execution-domain check, and
+  `qualified-mainnet` storage outside the repository. The Mainnet path requires
+  an offline Ed25519 authorization verified with a public key configured
+  outside the repository, binds the selected report and selection hashes, and
+  rejects authorization older than 30 days. Admission and signed authorization
+  are checked before Mainnet credentials are read or a writer lease is acquired.
+  Existing CI coverage includes missing-admission, environment-domain,
+  isolated-storage, and authorization-hash checks. The reviewed runtime,
+  receipt verifier, and bootstrap-test file hashes match the release manifest
+  and remain unchanged since the deployed source revision. This source review
+  does not verify a production account or its API-key permissions: the Mainnet
+  admission and authorization files are absent from this checkout, and the
+  local shell has no Mainnet authorization public-key path configured.
+- A fresh runtime check at approximately `2026-10-16T16:15:46Z` still found
+  the qualified unit active (`PID 381572`, zero restarts), watchdog healthy,
+  verified daily risk, fresh account reconciliation, and no positions or open
+  orders. The scanner evaluated all six portfolio variants and reported
+  `signal_ready=false` for each: BTC regime was sideways, macro alignment was
+  false, and relative volume did not meet any candidate threshold. Hawkes was
+  stable, and the service journal had no warning-or-higher entries since soak
+  start. A read-only ledger verification in the same checkpoint window passed
+  with two REST reconciliation records and zero user-data records.
 - `scripts/run_qualified_runtime.py` now defaults to Testnet and selects only
   credentials for the requested environment. The Mainnet path uses a separate
   admission manifest, requires `testnet: false` receipts, and stores state in
@@ -162,9 +235,10 @@ does not grant live execution authority.
   2026-10-16 artifact directory) is research-only and must not be treated as
   production qualification. The three scripts under `scripts/archive/` are
   retained diagnostics; a hidden-file-aware repository search found no
-  remaining references to their old root paths. The source commit is not yet a
-  deployable release; the draft manifest remains unapproved. The user confirmed
-  the deployed AVAX/ETH/SOL candidate as the target for future work.
+  remaining references to their old root paths. The exact source commit is
+  deployed on Testnet. The release manifest records the user's approval and
+  deployment state. The user confirmed the deployed AVAX/ETH/SOL candidate as
+  the target for future work.
 
 ## Risk limits (keep the metrics distinct)
 
@@ -222,9 +296,17 @@ does not grant live execution authority.
 - Demonstrate private-stream renewal, reconnect and REST reconciliation, stale
   data entry vetoes, clock/rate-limit error handling, watchdog alerts, and a
   tested operator shutdown/rollback procedure in the approved Testnet scope.
-- Agree the soak duration and numeric acceptance criteria before starting the
-  measurement period. Report unresolved mismatches, missing telemetry, and
+- Use the predeclared 14-calendar-day Testnet soak and numeric criteria in
+  `deploy/TESTNET_EVENT_EVIDENCE_ROLLOUT.md`. Extend the soak if an
+  exchange-confirmed completed lifecycle has not been observed on every
+  candidate symbol. Report unresolved mismatches, missing telemetry, and
   exchange-confirmed results separately.
+- The event-evidence verifier proves hash-chain integrity, not lifecycle
+  completion. At soak review, reconstruct each symbol's entry and exchange-
+  confirmed exit fills from authenticated order updates, then bind them to a
+  later successful REST reconciliation with no remaining position, open order,
+  or unresolved lifecycle. Preserve the event sequence and reconciliation
+  checkpoint used for each symbol's count.
 
 ### 4. Mainnet security and controlled rollout
 
@@ -252,24 +334,19 @@ does not grant live execution authority.
 
 The release source slice is frozen at commit
 `dddfea3cac6d21fe906969d3805545cd5942293a`. Exact-source review is complete
-with no blocking finding; all 14 included files match the commit and draft
-manifest. CI run `38921855487` passed on PR head
-`b8c596a7cebc2af6f4baf3561bc7641d22b0335e` in draft PR #1. A draft manifest
-bound to the source slice is recorded at
+with no blocking finding; all 14 included files match the commit and release
+manifest. CI run `38924314821` passed on PR head
+`2e9c28475ae99aa57c276888e29d0921dc301ede` in draft PR #1. The release
+manifest is recorded at
 [`deploy/release-manifests/qualified-testnet-event-evidence-20261016.json`](../deploy/release-manifests/qualified-testnet-event-evidence-20261016.json)
-with status `TESTNET_DEPLOYMENT_NOT_APPROVED`. The user confirmed the currently
-deployed AVAX/ETH/SOL portfolio as the target; this does not authorize a service
-change. The controlled maintenance and rollback procedure is documented at
+with status `TESTNET_SOAK_IN_PROGRESS`; deployment is recorded true. The user
+authorized one controlled Testnet cutover for the AVAX/ETH/SOL portfolio,
+including normal Testnet order flow, and the cutover succeeded. The controlled
+maintenance and rollback procedure is documented at
 [`deploy/TESTNET_EVENT_EVIDENCE_ROLLOUT.md`](../deploy/TESTNET_EVENT_EVIDENCE_ROLLOUT.md).
-Before any maintenance window, refresh the unit and read-only account,
-position, and order checks. A separate explicit approval is required before
-stopping or restarting the protected Testnet runtime; its `ExecStartPre` applies
-leverage settings and bootstraps daily-risk state. The current unit runs the
-normal scanner, so a strategy signal can also submit a Testnet order. Do not
-bypass the single-writer guard or start another writer with the shared key.
-After an approved deployment, passively collect genuine Testnet user-stream
-events and REST reconciliation checkpoints, then verify the resulting journal
-with:
+Continue the 14-day Testnet soak and collect genuine user-stream events and
+REST reconciliation checkpoints. Do not bypass the single-writer guard or
+start another writer with the shared key. Verify the resulting journal with:
 
 ```powershell
 uv run --locked python scripts/verify_execution_event_evidence.py <ledger>
