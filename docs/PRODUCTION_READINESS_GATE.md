@@ -7,12 +7,14 @@ does not grant live execution authority.
 
 ## Current evidence (2026-10-16)
 
-- The Testnet environment-isolation and event-evidence source slice is locally
-  committed as `dddfea3cac6d21fe906969d3805545cd5942293a` on
-  `codex/ict-lumitraders-experiment`. It has not been pushed, run through
-  remote CI, approved as a release, or deployed. Separate ICT research and
-  archived diagnostic changes remain uncommitted in the shared checkout and
-  are excluded from this source commit.
+- The Testnet environment-isolation and event-evidence source slice is
+  `dddfea3cac6d21fe906969d3805545cd5942293a` and is on open draft PR #1.
+  Remote CI run `38887005557` passed for code tree
+  `e3859b53948bb42faaacfc1b2105cbf8763754f7`. The PR is not approved as a
+  release or deployed. Follow-up commits
+  stabilize the scanner telemetry fixture and satisfy repository-wide lint
+  and formatting checks. Separate ICT research and archived diagnostic
+  changes remain outside the PR.
 - `deploy/qualification-admission.json` has `approved_reports: []`, and one
   `approved_portfolio_reports` entry for
   `macro-scalper-uninspected-3sym-medium-frequency-v1`. The portfolio report
@@ -94,7 +96,13 @@ does not grant live execution authority.
   verifier CLI help. These checks use local fixtures/mocks and do not prove
   exchange-confirmed order behavior. The 111-test run preceded the source
   commit; the two bootstrap checks ran against that same source immediately
-  before commit. Remote CI and exact-release review remain outstanding.
+  before commit.
+- GitHub Actions run `38887005557` passed on PR head
+  `e3859b53948bb42faaacfc1b2105cbf8763754f7`: 6,036 Python tests passed and
+  one Windows NTFS locking test was skipped on Linux; frontend tests/build,
+  repository-wide Ruff lint/format, strict Mypy, Python compileall, and
+  GitGuardian all passed. CI verifies code behavior and static checks, not
+  exchange-confirmed order behavior. Exact-source review is still required.
 - The active portfolio resolution and Mainnet manifest/domain checks were
   rerun against the current source on 2026-10-16: 2 focused bootstrap tests
   passed. Runtime activation was not attempted; the Testnet test halts at the
@@ -120,8 +128,8 @@ does not grant live execution authority.
   production qualification. The three scripts under `scripts/archive/` are
   retained diagnostics; a hidden-file-aware repository search found no
   remaining references to their old root paths. The source commit is not yet a
-  deployable release; a release manifest, exact-source review and remote CI
-  remain outstanding.
+  deployable release; the draft manifest remains unapproved and exact-source
+  review is outstanding.
 
 ## Risk limits (keep the metrics distinct)
 
@@ -207,16 +215,19 @@ does not grant live execution authority.
 
 ## Immediate next engineering action
 
-The source slice is frozen at commit
-`dddfea3cac6d21fe906969d3805545cd5942293a`. A draft manifest bound to that
-commit is recorded at
+The release source slice is frozen at commit
+`dddfea3cac6d21fe906969d3805545cd5942293a`. CI run `38887005557` passed for
+code tree `e3859b53948bb42faaacfc1b2105cbf8763754f7` in draft PR #1. A draft
+manifest bound to the source slice is recorded at
 [`deploy/release-manifests/qualified-testnet-event-evidence-20261016.json`](../deploy/release-manifests/qualified-testnet-event-evidence-20261016.json)
-with status `SOURCE_COMMIT_REVIEW_REQUIRED`. Next, complete exact-source review
-and remote CI. Only then can an explicitly approved maintenance window be
-planned for the protected Testnet runtime. Do not bypass the single-writer
-guard or start another writer with the shared key. After an approved
-deployment, passively collect real Testnet user-stream events and REST
-reconciliation checkpoints, then verify the resulting journal with:
+with status `SOURCE_COMMIT_REVIEW_REQUIRED`. Next, review the exact source
+diff and confirm that release commit `dddfea3` is the intended candidate.
+Then re-read the deployed unit and perform current read-only account, position,
+and order checks. Only after that review can an explicitly approved
+maintenance window be planned for the protected Testnet runtime. Do not bypass
+the single-writer guard or start another writer with the shared key. After an
+approved deployment, passively collect real Testnet user-stream events and
+REST reconciliation checkpoints, then verify the resulting journal with:
 
 ```powershell
 uv run --locked python scripts/verify_execution_event_evidence.py <ledger>
