@@ -400,9 +400,7 @@ def test_dispatch_watchdog_alerts_lifecycle_cooldown_escalation_and_recovery(
 
     # 6. CRITICAL -> CRITICAL with new critical alert key bypasses cooldown!
     t5 = base_ms + 300_000
-    _write_runtime_fixtures(
-        tmp_path, now_ms=t5, user_stream_connected=False, daily_breached=True
-    )
+    _write_runtime_fixtures(tmp_path, now_ms=t5, user_stream_connected=False, daily_breached=True)
     rep_c2 = evaluate_runtime_watchdog(tmp_path, now_ms=t5)
     res_c2 = dispatch_watchdog_alerts(
         tmp_path, rep_c2, notifier=notifier, cooldown_seconds=900, min_warning_consecutive=2
@@ -467,6 +465,3 @@ def test_dispatch_watchdog_alerts_lifecycle_cooldown_escalation_and_recovery(
     )
     assert rc_test_alert == 0
     assert (tmp_path / WATCHDOG_ALERT_STATE_NAME).read_text(encoding="utf-8") == state_before
-
-
-

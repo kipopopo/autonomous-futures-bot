@@ -345,4 +345,3 @@ def test_lumitraders_mmxm_telemetry_fields_in_ict_signals_response() -> None:
     assert sol_sig["oos_qualification"] is not None
     assert sol_sig["oos_qualification"]["net_pnl_usdt"] == 139.93
     assert sol_sig["oos_qualification"]["gates_passed"] == 6
-

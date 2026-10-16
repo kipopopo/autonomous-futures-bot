@@ -9,6 +9,7 @@ import pytest
 from test_production_remediation import account_data
 from test_protective_lifecycle import PLAN
 
+from autonomous_futures.execution.account_evidence import atomic_json
 from autonomous_futures.execution.binance_gateway import BinanceFuturesGateway
 from autonomous_futures.execution.daily_risk import DailyRiskTracker
 from autonomous_futures.execution.entry_admission import EntryAdmission
@@ -268,9 +269,14 @@ def test_margin_call_user_event_requests_immediate_flatten(session, monkeypatch)
 def test_authenticated_margin_event_flows_through_stream_into_protective_cycle(
     session, monkeypatch
 ):
+
+    async def observe_account(_gateway, path, **_kwargs):
+        snapshot = account_data()
+        atomic_json(path, snapshot)
+        return snapshot
+
     monkeypatch.setattr(
-        "autonomous_futures.execution.runtime_session.observe_account",
-        AsyncMock(return_value=account_data()),
+        "autonomous_futures.execution.runtime_session.observe_account", observe_account
     )
     session.coordinator.advance = AsyncMock(return_value=())
     session.user_stream.listen_key = "unit-test-listen-key"
@@ -294,3 +300,22 @@ def test_authenticated_margin_event_flows_through_stream_into_protective_cycle(
     assert session.force_flatten_reason is None
     assert session.user_stream.entry_block_reason is None
     assert session.user_stream_gap
+    records = [
+        json.loads(line)
+        for line in (session.coordinator.directory / "exchange-user-events.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    user_events = [record for record in records if record["record_type"] == "user_event"]
+    reconciliation = [
+        record
+        for record in records
+        if record["record_type"] == "rest_reconciliation"
+        and record.get("trigger") == "user_stream_event_batch"
+    ]
+    assert len(user_events) == 1
+    assert user_events[0]["source"] == "binance_authenticated_user_stream"
+    assert user_events[0]["event_type"] == "MARGIN_CALL"
+    assert len(reconciliation) == 1
+    assert reconciliation[0]["rest_recovery_complete"] is True
+    assert reconciliation[0]["account_snapshot"]["reconciliation_verified"] is True

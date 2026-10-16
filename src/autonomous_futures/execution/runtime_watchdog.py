@@ -34,7 +34,7 @@ def _inspect_systemd_unit(unit_name: str) -> dict[str, str]:
     ):
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0, check=False)
-        except (OSError, subprocess.SubprocessError):
+        except OSError, subprocess.SubprocessError:
             continue
         if proc.returncode != 0 and not proc.stdout.strip():
             continue
@@ -216,8 +216,7 @@ def evaluate_runtime_watchdog(
             scan_err = raw_h.get("scan_error_type")
 
             cycle_fresh = (
-                isinstance(last_cycle_ms, int)
-                and abs(eval_ms - last_cycle_ms) <= max_health_age_ms
+                isinstance(last_cycle_ms, int) and abs(eval_ms - last_cycle_ms) <= max_health_age_ms
             )
             is_transient_refresh_cycle_err = (
                 cycle_err == "ValueError"
@@ -288,8 +287,7 @@ def evaluate_runtime_watchdog(
             elif fit_err is not None:
                 err_lower = str(fit_err).lower()
                 is_warmup = any(
-                    tok in err_lower
-                    for tok in ("warmup", "span", "observed arrivals", "dimension")
+                    tok in err_lower for tok in ("warmup", "span", "observed arrivals", "dimension")
                 )
                 is_non_convergent = any(
                     tok in err_lower for tok in ("did not converge", "line search failed")
@@ -418,11 +416,7 @@ def evaluate_runtime_watchdog(
             except Exception:
                 pass
 
-    status = (
-        "CRITICAL"
-        if critical_alerts
-        else ("WARNING" if warning_alerts else "HEALTHY")
-    )
+    status = "CRITICAL" if critical_alerts else ("WARNING" if warning_alerts else "HEALTHY")
     body: dict[str, Any] = {
         "schema": "qualified-runtime-watchdog-v1",
         "evaluated_at_ms": eval_ms,
@@ -450,9 +444,7 @@ def evaluate_runtime_watchdog(
                     "last_alert_sent_ms": raw_alert_state.get("last_alert_sent_ms"),
                     "last_alert_status": raw_alert_state.get("last_alert_status"),
                     "total_alerts_sent": int(raw_alert_state.get("total_alerts_sent", 0) or 0),
-                    "channels_configured": list(
-                        raw_alert_state.get("channels_configured", [])
-                    ),
+                    "channels_configured": list(raw_alert_state.get("channels_configured", [])),
                 }
         except Exception:
             pass
@@ -648,9 +640,7 @@ def dispatch_watchdog_alerts(
         alert_active = False if status == "HEALTHY" else prev_active
         last_alert_status = prev_alert_status
         last_alert_sent_ms = prev_sent_ms
-        last_alerted_critical_alerts = (
-            [] if status == "HEALTHY" else list(prev_crit_set)
-        )
+        last_alerted_critical_alerts = [] if status == "HEALTHY" else list(prev_crit_set)
         total_alerts_sent = prev_total_sent
 
     next_state: dict[str, Any] = {
@@ -803,4 +793,3 @@ def write_watchdog_report(storage_dir: Path, report: dict[str, Any]) -> Path:
     target = storage_dir / "watchdog-report.json"
     atomic_json(target, report)
     return target
-

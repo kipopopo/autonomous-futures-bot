@@ -1174,9 +1174,7 @@ class TestLumiTradersMmxmSpecificationAlignment:
 
         # When retracement wicks to 1011.0 (>= ote_79 1010.02), SL shifts to 100% h_leg + 1.00
         candles_1m_touch_79 = list(candles_1m)
-        candles_1m_touch_79[6] = _make_candle(
-            1700000660000, "994.0", "1011.0", "1001.5", "1006.5"
-        )
+        candles_1m_touch_79[6] = _make_candle(1700000660000, "994.0", "1011.0", "1001.5", "1006.5")
         touched_state = engine.evaluate_twins_setup(
             symbol="SOLUSDT",
             candles_4h=_past_htf([]),

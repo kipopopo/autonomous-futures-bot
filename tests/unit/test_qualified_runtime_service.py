@@ -29,9 +29,7 @@ def test_qualified_runtime_systemd_unit_is_fail_closed_and_portfolio_wired() -> 
     assert "EnvironmentFile=/opt/autonomous-futures-bot/.env.qualified-runtime" in content
 
     exec_start_pre_lines = [
-        line.strip()
-        for line in content.splitlines()
-        if line.strip().startswith("ExecStartPre=")
+        line.strip() for line in content.splitlines() if line.strip().startswith("ExecStartPre=")
     ]
     assert len(exec_start_pre_lines) == 2
     assert "scripts/prepare_portfolio_cutover.py" in exec_start_pre_lines[0]
@@ -44,15 +42,12 @@ def test_qualified_runtime_systemd_unit_is_fail_closed_and_portfolio_wired() -> 
     assert "--allow-blocked" not in exec_start_pre_lines[1]
 
     exec_start_lines = [
-        line.strip()
-        for line in content.splitlines()
-        if line.strip().startswith("ExecStart=")
+        line.strip() for line in content.splitlines() if line.strip().startswith("ExecStart=")
     ]
     assert len(exec_start_lines) == 1
     assert "scripts/run_qualified_runtime.py" in exec_start_lines[0]
     assert (
-        "--portfolio-id macro-scalper-uninspected-3sym-medium-frequency-v1"
-        in exec_start_lines[0]
+        "--portfolio-id macro-scalper-uninspected-3sym-medium-frequency-v1" in exec_start_lines[0]
     )
     assert "NoNewPrivileges=true" in content
     assert "PrivateTmp=true" in content

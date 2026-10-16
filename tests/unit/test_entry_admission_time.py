@@ -79,9 +79,11 @@ def test_report_hashing_does_not_block_the_market_event_loop(tmp_path, monkeypat
 
 def test_intention_expiry_is_rechecked_after_report_verification(tmp_path, monkeypatch):
     now = [1.001]
+    captured = {}
     monkeypatch.setattr("autonomous_futures.execution.entry_admission.time.time", lambda: now[0])
 
     def verify(*args, **kwargs):
+        captured.update(kwargs)
         now[0] += 60
         return Mock(policy={"daily_loss_pct": "5"}, configuration={"entry_mode": "limit_touch"})
 
@@ -97,6 +99,7 @@ def test_intention_expiry_is_rechecked_after_report_verification(tmp_path, monke
         repo=tmp_path,
         single_writer_guard=Mock(),
         user_stream_guard=Mock(),
+        admission_manifest_path=tmp_path / "mainnet-admission.json",
     )
     with pytest.raises(ValueError, match="causal decision"):
         asyncio.run(
@@ -104,6 +107,7 @@ def test_intention_expiry_is_rechecked_after_report_verification(tmp_path, monke
                 PLAN, tmp_path / "report.json", exchange_clock=ExchangeClock(1000, 1000, 1000)
             )
         )
+    assert captured["admission_manifest_path"] == tmp_path / "mainnet-admission.json"
 
 
 def test_hedge_mode_is_rejected_before_account_evidence_or_protective_orders(tmp_path, monkeypatch):

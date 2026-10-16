@@ -122,6 +122,7 @@ def test_reclaim_report_configuration_skips_stale_setup_and_is_cached(tmp_path, 
         repo=tmp_path,
         account_path=tmp_path / "runtime" / "exchange-account.json",
         reports={("ICT_TWINS", "SOLUSDT"): tmp_path / "report.json"},
+        admission_manifest_path=tmp_path / "deploy" / "mainnet-qualification-admission.json",
     )
     bars = tuple(
         IctCandle(
@@ -139,6 +140,9 @@ def test_reclaim_report_configuration_skips_stale_setup_and_is_cached(tmp_path, 
     assert asyncio.run(scanner()) is None
     assert asyncio.run(scanner()) is None
     verify.assert_called_once()
+    assert verify.call_args.kwargs["admission_manifest_path"] == (
+        tmp_path / "deploy" / "mainnet-qualification-admission.json"
+    )
 
 
 def test_scanner_dispatches_persisted_reclaim_once_with_report_pin(tmp_path, monkeypatch):

@@ -6175,7 +6175,6 @@ class CanaryAutoEvolutionResponse(DomainModel):
     qualified_portfolios: list[QualifiedPortfolioReceiptSummaryItem] = Field(default_factory=list)
 
 
-
 def _build_macro_gating_state(
     regime: str = "UNKNOWN",
     btc_price: float | None = None,
