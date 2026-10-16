@@ -1,6 +1,7 @@
-# Qualified runtime rollout — active single-writer portfolio cutover verified
+# Qualified runtime rollout — historical single-writer portfolio cutover record
 
-**Current status:** 15 October 2026. Following explicit operator authorization, the legacy
+**Historical snapshot (15 October 2026; superseded for current readiness by
+[`docs/PRODUCTION_READINESS_GATE.md`](../docs/PRODUCTION_READINESS_GATE.md)):** Following explicit operator authorization, the legacy
 daemon (`autonomous-futures-trader.service`) was reconfigured to `Restart=no`, disabled, and
 stopped cleanly (`ActiveState=inactive`, `SubState=dead`, `MainPID=0`). All 6 preflight gates
 passed (`ready_to_activate: true`, `blocking_reasons: []`, `preflight_hash: 9e62c8aaf3f9...`),
