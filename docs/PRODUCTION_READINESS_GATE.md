@@ -9,9 +9,9 @@ does not grant live execution authority.
 
 - The Testnet environment-isolation and event-evidence source slice is
   `dddfea3cac6d21fe906969d3805545cd5942293a` and is on open draft PR #1.
-  Remote CI run `38888385968` passed on PR head
-  `f77c313c25d86ecad5e8759277e348c89de45b98`; run `38887005557` also passed
-  earlier on code tree `e3859b53948bb42faaacfc1b2105cbf8763754f7`. The PR is
+  Remote CI run `38921855487` passed on PR head
+  `b8c596a7cebc2af6f4baf3561bc7641d22b0335e`; runs `38888385968` and
+  `38887005557` also passed on earlier heads. The PR is
   not approved as a release or deployed. Follow-up commits
   stabilize the scanner telemetry fixture and satisfy repository-wide lint
   and formatting checks. Separate ICT research and archived diagnostic
@@ -84,14 +84,27 @@ does not grant live execution authority.
   (AVAX/ETH/SOL). The deployed manifest SHA-256 is
   `4b4a0d8809a99cfcb1b15f3a3b96e71fd1511a2186edc5c6f8a2a46484a4d913`; its
   holdout report and all five implementation hashes match the deployed
-  release. Treat the pasted portfolio identity as stale or unresolved and
-  confirm the intended candidate before any candidate change or activation.
+  release. The user confirmed this deployed AVAX/ETH/SOL candidate as the
+  target for future qualification and deployment work; no service or candidate
+  change was authorized by that selection. Treat the older ETH/LINK/AVAX
+  handoff designation as superseded for this work.
 - The checked-in qualified-runtime systemd unit has an `ExecStartPre` that
   invokes `prepare_portfolio_cutover.py --apply-leverage --bootstrap-daily-risk`
   before startup, followed by the runtime preflight. A restart can therefore
   apply leverage settings and bootstrap risk state. Re-read the exact deployed
   unit and rerun read-only account/position/order checks before any approved
   maintenance window; do not treat restart as a telemetry-only change.
+- Additional read-only inspection on 2026-10-16 confirmed this is a user-level
+  systemd unit with `Restart=on-failure`. Its configured working directory is
+  the symlink `/opt/autonomous-futures-bot/releases/qualified-runtime`, which
+  currently resolves to `/opt/autonomous-futures-bot/.release-web-20261014`;
+  the account and event-evidence files are under the separate
+  `/opt/autonomous-futures-bot/runtime/qualified-testnet` directory. A
+  controlled rollout can preserve that exact release directory as the rollback
+  target and switch the symlink atomically. Unexpected startup failure can
+  automatically rerun the side-effectful `ExecStartPre`; the deployment plan
+  therefore calls for a temporary one-attempt restart policy during an
+  approved maintenance window.
 - `scripts/run_qualified_runtime.py` now defaults to Testnet and selects only
   credentials for the requested environment. The Mainnet path uses a separate
   admission manifest, requires `testnet: false` receipts, and stores state in
@@ -117,8 +130,8 @@ does not grant live execution authority.
   exchange-confirmed order behavior. The 111-test run preceded the source
   commit; the two bootstrap checks ran against that same source immediately
   before commit.
-- GitHub Actions run `38888385968` passed on PR head
-  `f77c313c25d86ecad5e8759277e348c89de45b98`: 6,036 Python tests passed and
+- GitHub Actions run `38921855487` passed on PR head
+  `b8c596a7cebc2af6f4baf3561bc7641d22b0335e`: 6,036 Python tests passed and
   one Windows NTFS locking test was skipped on Linux; frontend tests/build,
   repository-wide Ruff lint/format, strict Mypy, Python compileall, and
   GitGuardian all passed. The exact `dddfea3` source diff and all 14
@@ -150,8 +163,8 @@ does not grant live execution authority.
   production qualification. The three scripts under `scripts/archive/` are
   retained diagnostics; a hidden-file-aware repository search found no
   remaining references to their old root paths. The source commit is not yet a
-  deployable release; the draft manifest remains unapproved, and the intended
-  portfolio identity still needs confirmation against the pasted handoff.
+  deployable release; the draft manifest remains unapproved. The user confirmed
+  the deployed AVAX/ETH/SOL candidate as the target for future work.
 
 ## Risk limits (keep the metrics distinct)
 
@@ -240,19 +253,23 @@ does not grant live execution authority.
 The release source slice is frozen at commit
 `dddfea3cac6d21fe906969d3805545cd5942293a`. Exact-source review is complete
 with no blocking finding; all 14 included files match the commit and draft
-manifest. CI run `38888385968` passed on PR head
-`f77c313c25d86ecad5e8759277e348c89de45b98` in draft PR #1. A draft manifest
+manifest. CI run `38921855487` passed on PR head
+`b8c596a7cebc2af6f4baf3561bc7641d22b0335e` in draft PR #1. A draft manifest
 bound to the source slice is recorded at
 [`deploy/release-manifests/qualified-testnet-event-evidence-20261016.json`](../deploy/release-manifests/qualified-testnet-event-evidence-20261016.json)
-with status `TESTNET_DEPLOYMENT_NOT_APPROVED`. The next step is to resolve the
-portfolio identity discrepancy between the pasted handoff and deployed
-manifest. Before any later maintenance window, refresh the unit and read-only
-account, position, and order checks. A separate explicit approval is required
-before stopping or restarting the protected Testnet runtime; its `ExecStartPre`
-applies leverage settings and bootstraps daily-risk state. Do not bypass the
-single-writer guard or start another writer with the shared key. After an
-approved deployment, passively collect real Testnet user-stream events and
-REST reconciliation checkpoints, then verify the resulting journal with:
+with status `TESTNET_DEPLOYMENT_NOT_APPROVED`. The user confirmed the currently
+deployed AVAX/ETH/SOL portfolio as the target; this does not authorize a service
+change. The controlled maintenance and rollback procedure is documented at
+[`deploy/TESTNET_EVENT_EVIDENCE_ROLLOUT.md`](../deploy/TESTNET_EVENT_EVIDENCE_ROLLOUT.md).
+Before any maintenance window, refresh the unit and read-only account,
+position, and order checks. A separate explicit approval is required before
+stopping or restarting the protected Testnet runtime; its `ExecStartPre` applies
+leverage settings and bootstraps daily-risk state. The current unit runs the
+normal scanner, so a strategy signal can also submit a Testnet order. Do not
+bypass the single-writer guard or start another writer with the shared key.
+After an approved deployment, passively collect genuine Testnet user-stream
+events and REST reconciliation checkpoints, then verify the resulting journal
+with:
 
 ```powershell
 uv run --locked python scripts/verify_execution_event_evidence.py <ledger>
